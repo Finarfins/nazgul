@@ -1,0 +1,39 @@
+Yerel Hesap Pro X V2.9 — Policy Hardening Checkpoint
+Tarih: 2026-07-13
+
+Yeni çekirdek dosyalar:
+- backend/app/company_policies.py
+- backend/alembic/versions/20260713_0003_company_policies.py
+- backend/test_v2_9_company_policies.py
+- backend/test_v2_9_stock_policy_surface.py
+- backend/test_v2_9_transaction_integrity_isolated.py
+- frontend/src/components/PolicyOverrideDialog.tsx
+
+Başlıca güncellenen backend dosyaları:
+- backend/app/main.py
+- backend/app/auth.py
+- backend/app/tenancy.py
+- backend/app/routers/companies.py
+- backend/app/routers/transactions.py
+- backend/app/routers/workflow.py
+- backend/app/routers/products.py
+- backend/app/routers/imports.py
+- backend/app/routers/warehouses.py
+
+Başlıca güncellenen frontend dosyaları:
+- frontend/src/api.ts
+- frontend/src/pages/Companies.tsx
+- frontend/src/pages/Transactions.tsx
+- frontend/src/pages/WorkflowDocuments.tsx
+- frontend/src/pages/Products.tsx
+- frontend/src/pages/Warehouses.tsx
+- frontend/src/components/TransactionDialog.tsx
+- frontend/src/components/WorkflowDialog.tsx
+- frontend/src/components/ProductDialog.tsx
+- frontend/src/components/ExcelImportDialog.tsx
+
+Doğrulama:
+- Backend: 46 geçti, 5 PostgreSQL testi atlandı, 0 başarısız
+- Frontend: 6/6 geçti
+- Production build: geçti
+- Production-ready: HAYIR (gerçek PostgreSQL 16 final gate bekliyor)

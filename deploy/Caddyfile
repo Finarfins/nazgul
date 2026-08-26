@@ -1,0 +1,88 @@
+{
+    email {$ACME_EMAIL}
+    admin off
+}
+
+# TEK ALAN ADI. Ürün bizimhesap.com modelinde: kökte tanıtım, ayrı /giris ve
+# /kayit sayfaları, giriş yapınca panel — hepsi AYNI adreste.
+#
+# Eskiden iki alan adı vardı (kök=tanıtım, erp.=panel) ve panel yolları kök
+# alan adından 301 ile taşınıyordu. Tek alan adında bu ayrım gereksiz; dahası
+# tek origin olduğu için oturum çerezi ve CORS kendiliğinden doğru çalışır,
+# taşıma kuralları da ortadan kalkar.
+#
+# Kök yol için YÖNLENDİRME YOK: uygulama kendi rotasını çözüyor (oturumsuz
+# ziyaretçiyi /giris'e alıyor). Tanıtım sayfası yazıldığında kökte o açılacak,
+# Caddy'de değişiklik gerekmeyecek.
+
+(guvenlik_basliklari) {
+    header {
+        -Server
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    }
+}
+
+(uygulama) {
+    # Sağlık kontrolü toleransı (Caddy 2.8):
+    # - timeout 3s→8s: /api/live DB'ye dokunmayan sabit bir handler
+    #   (backend/app/main.py:328); 3s'de cevap verememesi app'in ölmesi değil,
+    #   kutunun o an tıkanması demek. Gözlenen tek arıza birebir 3s
+    #   Client.Timeout'tu.
+    # - health_fails 3: varsayılan 1'di, tek yavaş probe tüm trafiği 15s
+    #   kesiyordu (POST /api/auth/register → 503, duration 6ms, 31 Tem 17:29 UTC).
+    #   DİKKAT: Caddy 2.8.4'te activeFails sayacının decay'i yok (hosts.go); bu
+    #   "ardışık 3" değil, "son durum değişiminden bu yana biriken 3" demektir.
+    # - health_passes 1 bilerek varsayılanda: yükseltmek toparlanmayı geciktirir.
+    # - lb_try_* bilerek eklenmedi: gerçek çöküşte istekleri bekletmek dar RAM'li
+    #   kutuda bağlantı birikmesi üretir.
+    reverse_proxy app:5050 {
+        health_uri /api/live
+        health_interval 10s
+        health_timeout 8s
+        health_fails 3
+        health_passes 1
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+        header_up X-Real-IP {remote_host}
+    }
+}
+
+# log bir HTTP handler değildir; handle bloğunun içine giremez, bu yüzden
+# (uygulama) snippet'inden ayrı tutuluyor ve site seviyesinde import ediliyor.
+(loglama) {
+    log {
+        output stdout
+        format json
+    }
+}
+
+# --- Ürün (tek alan adı) ---
+{$APP_DOMAIN} {
+    encode zstd gzip
+    import guvenlik_basliklari
+    import loglama
+
+    # GEÇİCİ: tanıtım sayfası yazılana kadar kökte bakım sayfası duruyor.
+    # `handle /` YALNIZ tam olarak "/" yolunu yakalar — /giris, /kayit, /api ve
+    # SPA'nın tüm varlıkları aşağıdaki catch-all'a düşer, yani mevcut
+    # kullanıcılar giriş yapmaya devam eder. Tanıtım sayfası geldiğinde bu blok
+    # ve deploy/bakim/ klasörü tamamen silinecek.
+    handle / {
+        root * /srv/bakim
+        rewrite * /index.html
+        file_server
+    }
+
+    handle {
+        import uygulama
+    }
+}
+
+# Tek kanonik adres kök alan adıdır; www yalnız oraya taşır.
+www.{$APP_DOMAIN} {
+    redir https://{$APP_DOMAIN}{uri} permanent
+}

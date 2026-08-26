@@ -1,0 +1,35 @@
+YEREL HESAP PRO NEXT 1.0.7 — FİNANS ÇEKİRDEĞİ
+
+Eklenenler
+- Kasa, banka ve POS hesapları
+- Hesap açılış bakiyesi ve güncel bakiye hesabı
+- Manuel para giriş/çıkış hareketleri
+- Hesaplar arası virman
+- Tahsilat/ödeme ile kasa-banka-POS hareketlerinin otomatik bağlanması
+- Belgeye bağlı otomatik tahsilatların finans hesabına işlenmesi
+- Tahsilat/ödeme düzenleme ve silmede bağlı finans hareketinin güvenli güncellenmesi
+- Alınan/verilen çek ve senet kayıtları
+- Çek/senet portföy, vade, tahsil/ödeme, ciro, karşılıksız ve iptal durumları
+- Tahsil edilen/ödenen çek-senet için otomatik kasa/banka hareketi
+- Mobil uyumlu Nakit Yönetimi ekranı
+- Firma bazlı finans verisi izolasyonu
+- Finans işlemleri için rol/yetki kontrolü
+
+Veritabanı
+- finance_accounts
+- finance_transactions
+- financial_instruments
+- payments.account_id
+- payments.financial_transaction_id
+- migration: 011_finance_core
+
+Kalite sonuçları
+- Tüm önceki backend testleri geçti
+- ALL_NEXT_1_0_7_FINANCE_CORE_TESTS_PASSED
+- FRONTEND_TYPESCRIPT_BUILD_PASSED
+- SQLITE_INTEGRITY_CHECK_PASSED
+
+Çalıştırılamayan kapılar
+- Docker runtime bu ortamda bulunmadı
+- Gerçek PostgreSQL runtime testi çalıştırılamadı
+- Playwright gerçek tarayıcı E2E testi çalıştırılamadı

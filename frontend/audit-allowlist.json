@@ -1,0 +1,6 @@
+{
+  "GHSA-w5hq-g745-h8pq": {
+    "package": "uuid",
+    "reason": "Accepted transitively through dev-only @capacitor/cli -> xcode -> uuid. This repository builds Android, while xcode is iOS project-file tooling; current upstream has no compatible patched chain, and downgrading Capacitor CLI or forcing a uuid major adds mobile-build risk without production-runtime benefit."
+  }
+}

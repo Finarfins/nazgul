@@ -1,0 +1,12 @@
+YEREL HESAP PRO V2.2 — FORM VE BAKİYE STABİLİZASYONU
+
+- Belge ve ödeme tarihleri doğrulanır; GG.AA.YYYY girişleri ISO tarihe çevrilir.
+- Vade tarihi belge tarihinden önce olamaz.
+- Aynı ürün aynı belgede birden fazla satırda kullanılamaz.
+- Aynı satış/alış belge numarası aynı firma içinde tekrar kullanılamaz.
+- Negatif fiyat, geçersiz miktar, KDV ve iskonto değerleri engellenir.
+- Ödenen tutarın belge toplamını aşması hem frontend hem backend tarafında engellenir.
+- Müşteri/tedarikçi detayından tahsilat/ödeme girerken yöntem ve kasa/banka/POS hesabı seçilebilir.
+- Ödeme yöntemi ile finans hesabı türü uyumsuzsa işlem transaction ile geri alınır.
+- Cari isimleri ve metin alanları temizlenip normalize edilir.
+- Yeni V2.2 validasyon ve bakiye regresyon testi eklendi.

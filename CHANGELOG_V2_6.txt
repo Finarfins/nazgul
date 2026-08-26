@@ -1,0 +1,30 @@
+YEREL HESAP PRO V2.6 — CARİ HIZLI İŞLEM PENCERESİ
+
+Tamamlananlar:
+- Müşteri/tedarikçi satırına dokununca doğrudan sayfa değiştirmek yerine hızlı işlem penceresi açılması
+- Masaüstünde üç nokta düğmesiyle hızlı işlem penceresi
+- Mobilde kart seçimiyle aynı pencerenin açılması
+- Mevcut bakiye, vadesi geçen, son işlem ve risk özeti
+- Pencere içinden yeni satış / yeni alış
+- Pencere içinden tahsilat / ödeme
+- Pencere içinden cari düzenleme
+- Cari kartını ayrı açma seçeneği
+- Telefon arama kısayolu
+- Son 6 satış/alış belgesinin pencere içinde görüntülenmesi
+- Belgeye tıklayarak doğrudan belge detayına gitme
+- Tahsilat/ödeme yöntemine göre kasa, banka veya POS hesabı seçimi
+- Kayıt sonrası cari listesinin ve hızlı pencerenin yenilenmesi
+- Uygulama sürümü 2.6.0
+
+Kalite kapıları:
+- Tüm önceki backend regresyon testleri yeniden geçti
+- ALL_V2_6_QUICK_ACTIONS_TESTS_PASSED
+- FRONTEND_TYPESCRIPT_BUILD_PASSED
+- SERVICE_SMOKE_TEST_PASSED
+- REACT_ASSET_SYNTAX_CHECK_PASSED
+- SQLITE_INTEGRITY_CHECK_PASSED
+
+Bekleyen ortam kapıları:
+- Playwright gerçek tarayıcı E2E
+- Docker image build
+- Gerçek PostgreSQL runtime testi

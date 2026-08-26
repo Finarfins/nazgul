@@ -1,0 +1,29 @@
+YEREL HESAP PRO NEXT 1.0.6
+
+Yeni belge zinciri:
+- Teklif oluşturma, düzenleme, silme
+- Teklifi siparişe dönüştürme
+- Sipariş oluşturma, düzenleme, silme
+- Siparişi satışa dönüştürme
+- Siparişi irsaliyeye dönüştürme
+- İrsaliye oluşturma, düzenleme, silme
+- İrsaliyede stok düşümü ve düzenleme/silmede stok geri alma
+- Satış iadesi oluşturma, düzenleme, silme
+- Satış iadesinde stok artırma
+- Alış iadesi oluşturma, düzenleme, silme
+- Alış iadesinde stok azaltma
+- Otomatik belge numaralandırma
+- Firma ve depo izolasyonu
+- Mobil uyumlu belge formu ve listeleri
+- Audit log ile uyumlu yazma işlemleri
+
+Kalite sonuçları:
+- Tüm önceki backend testleri geçti
+- ALL_NEXT_1_0_6_WORKFLOW_DOCUMENT_TESTS_PASSED
+- FRONTEND_TYPESCRIPT_BUILD_PASSED
+- SQLITE_INTEGRITY_CHECK_PASSED
+
+Bu ortamda çalıştırılamayan kapılar:
+- Docker image build
+- Docker Compose PostgreSQL health check
+- Playwright gerçek tarayıcı E2E

@@ -1,0 +1,6 @@
+Yerel Hesap Pro X V2.9 Audit Traceability Checkpoint
+Alembic head: 20260714_0005
+Aktif test: 59
+Yerel: 54 passed / 5 PostgreSQL skipped / 0 failed
+Production-ready: HAYIR
+Bekleyen zorunlu kapı: gerçek Docker + PostgreSQL 16 + HTTPS reverse proxy production gate

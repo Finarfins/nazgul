@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug derlemesine özel manifest parçası. Gradle bunu yalnız `assembleDebug`
+  sırasında ana manifest ile birleştirir; release paketinde hiç bulunmaz.
+
+  Tek işi, yerel backend'e açık metin bağlantıya izin veren ağ kuralını
+  bağlamak. Gerekçesi network_security_config.xml içinde yazılı.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:networkSecurityConfig="@xml/network_security_config"
+        tools:replace="android:networkSecurityConfig" />
+</manifest>

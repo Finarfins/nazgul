@@ -1,0 +1,34 @@
+{
+  "_comment": "OTOMATİK ÜRETİLİR — elle düzenlemeyin. Kaynak: backend/tools/capture_frontend_fixtures.py (gerçek API yanıtları).",
+  "pos_lookup": {
+    "code": "YF-8",
+    "id": 1,
+    "name": "Yağ Filtresi",
+    "stock": "8.0000",
+    "unit_price": "18.00",
+    "warehouse_id": 1
+  },
+  "pos_sale": {
+    "customer_id": 1,
+    "customer_name": "Perakende Satış",
+    "discount_amount": "0.00",
+    "final_total": "36.00",
+    "grand_total": "36.00",
+    "paid_amount": "36.00",
+    "remaining_amount": "0.00",
+    "sale_id": 1,
+    "subtotal": "30.00",
+    "vat_total": "6.00"
+  },
+  "quick_pick": [
+    {
+      "current_stock": "6.0000",
+      "product_code": "YF-8",
+      "product_id": 1,
+      "product_name": "Yağ Filtresi",
+      "times_sold": 1,
+      "total_quantity": "2.0000",
+      "unit_price": "18.00"
+    }
+  ]
+}

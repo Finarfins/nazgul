@@ -1,0 +1,118 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.production.example
+!.env.docker.example
+!frontend/.env.mobil.example
+.env.docker
+backend/.env
+frontend/.env.local
+# İzibiz sandbox kimlik bilgileri — yalnız yerelde, asla depoda
+backend/.env.izibiz.local
+backend/.env.izibiz.local.txt
+**/.env.izibiz.*
+*.pem
+*.key
+*.crt
+
+# Local databases and backups
+backend/veriler.db
+backend/demo_veriler.db
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+*.dump
+*.backup
+*.pre_restore_*.bak
+yedekler/
+backups/
+backend/backups/
+database/backups/
+migration_snapshots/
+backup-manifests/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Frontend
+node_modules/
+frontend/node_modules/
+dist/
+build/
+.vite/
+coverage/
+
+# Runtime and temporary files
+*.log
+*.pid
+logs/
+tmp/
+temp/
+.cache/
+
+# IDE / OS
+.vscode/
+.idea/
+.agents/
+.claude/launch.json
+.DS_Store
+Thumbs.db
+backend/.venv-sandbox/
+
+# Local runtime and cleanup artifacts
+_to_delete/
+backend/data/attachments/
+# Restore journal çalışma zamanı denetim verisidir; üretimde SUNGUR_DATA_DIR
+# altındaki kalıcı hacimde yaşar, kaynak ağacında izlenmez.
+backend/data/restore_journal.jsonl
+
+# Test infrastructure artifacts (regenerated on demand; committed copies live
+# in frontend/src/api/types.gen.ts and frontend/src/test/fixtures/)
+backend/openapi.json
+frontend/playwright-report/
+frontend/test-results/
+
+# Local confidential supplier source workbook (never commit the full file)
+_local_tampar.xlsx
+_local_tampar.pdf
+_local_timeks.pdf
+
+# Local git worktrees (her ajan kendi izole ağacında çalışır; paylaşılan .git,
+# ayrı dosya ağacı). Depoya asla girmemeli, git status'u da kirletmemeli.
+.worktrees/
+_to_delete/
+
+# --- Mobil (Capacitor) ---
+# android/ ve ios/ DEPODA TUTULUR (bu karar bilerek cevrildi).
+#
+# Ilk dusunce "nasil olsa `npx cap add` yeniden uretir" idi. Uretmez: bu
+# klasorler bir kez uretildikten sonra BIZIM kaynagimiz olur. AndroidManifest'e
+# girecek NFC/kamera/yazici izinleri, imzalama yapilandirmasi, uygulama simgesi
+# ve magaza icin gereken her sey orada yasar. Ignore'da birakmak, bir gun
+# `cap add`'in bunlari sessizce silmesi demekti.
+#
+# Depo sismesi endisesi karsiliksiz cikti: Capacitor'un urettigi
+# android/.gitignore Gradle ciktilarini (apk/aab/dex/build/) zaten disarida
+# tutuyor, kalan iskelet 3,4 MB.
+#
+# Web varliklari HARIC: `cap sync` bunlari her derlemede dist'ten kopyalar,
+# depoda ikinci bir kopya tutmak anlamsiz ve surekli catisma uretir.
+frontend/android/app/src/main/assets/public/
+frontend/.env.mobil
+
+# TypeScript artimli derleme onbellegi. Makineye ozgu ciktidir; depoda
+# tutulunca her derleme calisma agacini kirletir ve dallar arasi anlamsiz
+# catisma uretir. (Sekiz kez bosuna commit edilmis, geri alindi.)
+frontend/*.tsbuildinfo

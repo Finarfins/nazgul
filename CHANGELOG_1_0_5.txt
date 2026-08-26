@@ -1,0 +1,29 @@
+YEREL HESAP PRO NEXT 1.0.5
+
+Yeni ve düzeltilen iş akışları:
+- Müşteri ve tedarikçi detay kartları yeniden tasarlandı
+- Cari kartından doğrudan satış/alış başlatma
+- Cari kartından doğrudan tahsilat/ödeme ekleme
+- Cari kartından düzenleme ve telefon arama
+- Mevcut bakiye, ciro, ödeme toplamı ve belge sayısı kartları
+- Önceki satış/alış listesinden belge detayına geçiş
+- Satış listesinin yönlendirme ile belge detayını otomatik açması
+- Cari seçili yeni satış/alış formu
+- Ürün detay sayfası
+- Depo bazlı stok görünümü
+- Stok hareket geçmişi
+- Negatif ve kritik stok göstergeleri
+- Ürün detayından düzenleme, QR ve etiket çıktısı
+- Ürün listesinde satıra tıklayınca detay açma
+- Ürün listesinde ayrı düzenleme düğmesi
+
+Kalite sonuçları:
+- Tüm mevcut backend testleri geçti
+- ALL_NEXT_1_0_5_DETAIL_WORKFLOW_TESTS_PASSED
+- FRONTEND_TYPESCRIPT_BUILD_PASSED
+- SQLITE_INTEGRITY_CHECK_PASSED
+
+Çalıştırılamayan kapılar:
+- Docker runtime testi
+- Gerçek PostgreSQL runtime testi
+- Playwright gerçek tarayıcı E2E testi

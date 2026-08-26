@@ -1,0 +1,17 @@
+YEREL HESAP PRO V2.1 - ÇEKİRDEK VERİ BÜTÜNLÜĞÜ
+
+Düzeltmeler:
+- Satış/alış düzenlemede eski stok hareketleri temizlenir; mükerrer hareket oluşmaz.
+- Satış/alış silmede belgeye bağlı otomatik tahsilat/ödeme finans hareketi de kaldırılır.
+- Belge silmede stok hareket geçmişi temizlenir.
+- Satış/alış düzenleme ve silme için yeni veri bütünlüğü regresyon testi eklendi.
+- Uygulama sürümü 2.1.0 olarak güncellendi.
+- Başlatıcı günlük otomatik SQLite yedeği alır.
+- Frontend kaynak kodu ve temiz production build pakete dahildir.
+
+Doğrulamalar:
+- Tüm önceki backend testleri geçti.
+- ALL_V2_1_TRANSACTION_INTEGRITY_TESTS_PASSED
+- Frontend TypeScript production build geçti.
+- Gerçek servis smoke testi geçti: /api/health, /, JS asset, /docs.
+- SQLite integrity_check: ok

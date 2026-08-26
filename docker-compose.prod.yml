@@ -1,0 +1,204 @@
+services:
+  app:
+    # ÜRETİMDE İMAJ DERLENMEZ, İNDİRİLİR. Derleme eskiden bu kutuda yapılıyordu;
+    # Vite derlemesi 1 GB'lik makinede belleği yiyor ve dockerd her derlemede
+    # şişiyordu. 2026-08-05'te bu birikim makineyi takasa düşürdü, CPU'nun %84'ü
+    # disk beklemeye geçti ve site 15 sn'lik zaman aşımlarına girdi. İmaj artık
+    # CI'da (.github/workflows/ci.yml, `container` işi) duman testinden geçtikten
+    # sonra GHCR'ye yayınlanır.
+    #
+    # Turnstile site anahtarı da orada gömülür — burada build.args YOK, çünkü
+    # derleme yok. Anahtar CI'da `vars.TURNSTILE_SITE_KEY` deposu değişkeninden
+    # gelir; boşsa CI kırmızı yanar (kayıt formu sessizce bozulmasın).
+    #
+    # APP_IMAGE_TAG geri dönüşün tek güvenilir yoludur: 'develop' etiketi bir
+    # sonraki merge'de kayar, commit SHA'sı kaymaz. Sorunlu bir çıkışta
+    # .env.production'da APP_IMAGE_TAG'i önceki SHA'ya çevirip `up -d` yeter.
+    image: ghcr.io/finarfins/nazgul:${APP_IMAGE_TAG:-develop}
+    pull_policy: always
+    # Base docker-compose.yml'deki `build:` bloğu ÜRETİMDE DÜŞÜRÜLÜR. Compose
+    # anahtarları -f dosyaları arasında birleştirir; `build` ayakta kalırsa ve
+    # `pull` başarısız olursa (yanlış etiket, GHCR kimlik hatası, ağ kesintisi)
+    # Compose imajı YERELDE DERLEMEYE düşebilir — yani tam olarak 2026-08-05'te
+    # makineyi takasa düşüren davranış. `!reset` anahtarı tamamen kaldırır, bu
+    # yüzden pull başarısızlığı sessiz bir derlemeye değil, açık bir hataya
+    # dönüşür. Aynı sözleşme CI'da fail-closed doğrulanır
+    # (.github/workflows/ci.yml → "Üretim compose sözleşmesi").
+    build: !reset null
+    # Base'deki `depends_on: db` de ÜRETİMDE DÜŞÜRÜLÜR. Üretim veritabanı
+    # HARİCİ bir RDS örneğidir (DATABASE_URL onu gösterir); compose'un yönettiği
+    # bir `db` servisi yoktur. Bağımlılık ayakta kalırsa `up -d app`, hiç
+    # başlamayacak bir servisin sağlıklı olmasını bekler ve deploy asılır.
+    depends_on: !reset null
+    # No host port published in production. Caddy reaches the app over the
+    # `backend` Docker network (app:5050, via `expose` below), never a host
+    # port, so nothing is lost. The `!override` tag is REQUIRED: Compose
+    # concatenates `ports` across -f files, so a plain `[]` would be merged
+    # with the base compose's `0.0.0.0:5050:5050` and leave the port exposed
+    # to the host (and thus to the EC2 security group). `!override` replaces
+    # the base list outright, dropping the publish entirely.
+    ports: !override []
+    expose:
+      - "5050"
+    environment:
+      ENVIRONMENT: "production"
+      # Kalıcı veri kökü — aşağıdaki sungur_data volume'unun bağlandığı yol.
+      # `environment:` içinde olması ZORUNLU: --env-file (deploy/sunucu-deploy.sh:20)
+      # yalnız bu dosyadaki ${...} yerine koyma içindir, konteyner ortamına
+      # değişken TAŞIMAZ. .env.production'a yazmak yeterli değildi; değişken
+      # konteynere hiç ulaşmıyor, uygulama app/config.py:38'deki varsayılana
+      # (/app/backend/data) düşüyor ve orası read-only kökte kaldığı için
+      # attachment yüklemesi ile yedek alma 500 veriyordu.
+      SUNGUR_DATA_DIR: /opt/sungur-data
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env.production}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?BOOTSTRAP_ADMIN_PASSWORD must be set in .env.production}
+      COOKIE_SECURE: "true"
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      CORS_ORIGINS: https://${APP_DOMAIN:?APP_DOMAIN must be set in .env.production}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.16.0.0/12}
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:?TRUSTED_PROXY_CIDRS must be set in .env.production}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:?TURNSTILE_SECRET_KEY must be set in .env.production}
+      NOTIFICATION_PROVIDER: ${NOTIFICATION_PROVIDER:?NOTIFICATION_PROVIDER must be set in .env.production}
+      SMTP_HOST: ${SMTP_HOST:?SMTP_HOST must be set in .env.production}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:?SMTP_FROM_EMAIL must be set in .env.production}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+      PUBLIC_APP_URL: https://${APP_DOMAIN:?APP_DOMAIN must be set in .env.production}
+      # --- e-Fatura (İzibiz) ---
+      # SMTP'den KASITLI olarak farklı: burada tek bir `:?` yok. SMTP eksikse
+      # uygulama açılmamalı (mail sessizce kaybolur); e-Fatura eksikse ERP'nin
+      # geri kalanı çalışmaya devam etmeli, yalnız gönderim endpoint'i 503
+      # dönmeli (app/routers/invoices.py::einvoice_submit). `:?` koymak,
+      # e-Fatura yapılandırılmadı diye tüm ERP'yi kapatmak olurdu.
+      EINVOICE_PROVIDER: ${EINVOICE_PROVIDER:-noop}
+      EINVOICE_BASE_URL: ${EINVOICE_BASE_URL:-}
+      EINVOICE_USERNAME: ${EINVOICE_USERNAME:-}
+      EINVOICE_PASSWORD: ${EINVOICE_PASSWORD:-}
+      EINVOICE_API_KEY: ${EINVOICE_API_KEY:-}
+      EINVOICE_ENDPOINTS_VERIFIED: ${EINVOICE_ENDPOINTS_VERIFIED:-false}
+      # `:-test` boş dizeyi de yakalar: `IZIBIZ_ENV=` yazılmış yarım bir deploy
+      # uygulamada IzibizEnvironmentError'a dönüşürdü; compose en güvenli tarafa
+      # sabitler. Değeri "live" yapmak canlıya çıkmaya YETMEZ — canlı-host
+      # denylist'i (app/einvoice/endpoints.py) ayrı ve bilinçli bir karardır.
+      IZIBIZ_ENV: ${IZIBIZ_ENV:-test}
+      # --- Tarla stok outbox tüketicisi ---
+      # `environment:` içinde olmaları ZORUNLU (SUNGUR_DATA_DIR notuyla aynı
+      # sebep): --env-file yalnız ${...} yerine koyma içindir, konteyner
+      # ortamına değişken TAŞIMAZ. Bu iki satır olmadan .env.production'a
+      # FIELD_STOCK_OUTBOX_ENABLED=true yazmak SESSİZCE ETKİSİZ kalır ve
+      # tüketici kapalı sanılıp açık (ya da tersi) çalışabilirdi. Varsayılan
+      # KAPALI; açmadan önce backend/app/FIELD_STOK_OUTBOX_ACILIS_KOSULLARI.md
+      # içindeki dört koşul sağlanmalı.
+      FIELD_STOCK_OUTBOX_ENABLED: ${FIELD_STOCK_OUTBOX_ENABLED:-false}
+      FIELD_STOCK_OUTBOX_INTERVAL_SECONDS: ${FIELD_STOCK_OUTBOX_INTERVAL_SECONDS:-30}
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5050/api/ready', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+    # read_only KALIR. Kök dosya sistemi kapalıyken kalıcı olması gereken her şey
+    # aşağıdaki volume'a yazılmak ZORUNDA olur; bunu kaldırıp veriyi konteynerin
+    # writable layer'ına bırakmak, gürültülü 500'ü sessiz veri kaybına çevirirdi
+    # (`up -d` konteyneri her deploy'da yeniden yaratır).
+    read_only: true
+    volumes:
+      # Attachment'lar + platform yedekleri. Volume'un kökü Dockerfile'da app
+      # (10001:10001) sahipliğinde oluşturulur; Docker boş volume'a bu sahipliği
+      # kopyalar, bu yüzden init konteyneri veya açılışta chown GEREKMEZ.
+      - sungur_data:/opt/sungur-data
+    cap_drop:
+      - ALL
+    security_opt: !override
+      - no-new-privileges:true
+
+  db:
+    # ÜRETİMDE ÇALIŞMAZ. Veritabanı harici RDS'tir; kutuda postgres ayağa
+    # kaldırmak ikinci ve yetim bir veritabanı yaratır — uygulama ona hiç
+    # bağlanmaz, ama disk ve RAM yer, üstelik "veritabanı ayakta" görüntüsü
+    # verip gerçek bir arızayı maskeleyebilir.
+    #
+    # Servis SİLİNMİYOR, profile alınıyor: `gate` profili yerel PostgreSQL
+    # testlerini koşturuyor ve onun gerçek bir db'ye ihtiyacı var. Profil
+    # yalnız `--profile gate` ile etkinleşir, normal `up -d app` onu başlatmaz.
+    profiles: ["gate"]
+    networks:
+      - backend
+
+  proxy:
+    image: caddy:2.8-alpine
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN must be set in .env.production}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must be set in .env.production}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # GEÇİCİ: kökteki bakım sayfası. Tanıtım sayfası yayına girince bu bağlama
+      # ve Caddyfile'daki `handle /` bloğu birlikte kaldırılacak.
+      - ./deploy/bakim:/srv/bakim:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+      - /config/caddy:rw,nosuid,size=16m
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+    restart: unless-stopped
+
+  gate:
+    profiles: ["gate"]
+    build:
+      context: .
+      target: test
+    environment:
+      APP_TEST_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-yerelhesap}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-yerelhesap}
+      WORKFLOW_TEST_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-yerelhesap}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-yerelhesap}
+      TRANSACTIONS_TEST_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-yerelhesap}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-yerelhesap}
+      NUMERIC_MIGRATION_TEST_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-yerelhesap}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-yerelhesap}
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+    command: ["python", "-m", "pytest", "-q", "backend/test_postgresql_app_smoke.py", "backend/test_workflow_postgresql.py", "backend/test_transactions_postgresql.py", "backend/test_numeric_migration_postgresql.py"]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  backend:
+    internal: false
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  caddy_data:
+  caddy_config:
+  # Uygulamanın kalıcı veri kökü. `docker compose down` bu volume'a dokunmaz;
+  # yalnız `down -v` siler — deploy ve geri dönüş akışlarında ASLA kullanmayın.
+  sungur_data:

@@ -1,0 +1,11 @@
+YEREL HESAP PRO NEXT 1.0.2
+
+- Müşteri detay ekranı CRM benzeri sekmeli yapıya geçirildi.
+- Tedarikçi detay ekranı eklendi.
+- Belge, ödeme ve ürün geçmişleri aynı cari kartında birleştirildi.
+- Gerçek mevcut bakiye özeti eklendi.
+- Taslak/iptal belgeler bakiye hesabından çıkarıldı.
+- Tahsilat/ödeme yöntemleri kaydedilir ve listelenir hale getirildi.
+- Belgeye bağlı otomatik hareketlerin manuel değiştirilmesi engellendi.
+- Tahsilat/ödeme listesine arama ve tür filtresi eklendi.
+- Cari listesi satırından detay sayfasına geçiş eklendi.

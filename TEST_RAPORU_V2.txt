@@ -1,0 +1,20 @@
+YEREL HESAP PRO V2 TEST RAPORU
+
+GEÇTİ
+- Frontend TypeScript production build
+- Tüm üretilen JavaScript dosyalarında node --check
+- Bozuk vendor-emotion/vendor-mui manuel chunk yapısının kaldırılması
+- React index.html root ve script doğrulaması
+- ALL_NEXT_CORE_TESTS_PASSED
+- ALL_NEXT_0_4_AUTH_AUDIT_TESTS_PASSED
+- ALL_NEXT_1_0_7_FINANCE_CORE_TESTS_PASSED
+- SQLite integrity_check: ok
+
+DÜZELTİLEN HATA
+- Uncaught ReferenceError: Cannot access 'j' before initialization
+- Eski PWA service worker/cache temizliği
+- Beyaz ekran
+
+SINIR
+- Bu çalışma ortamında localhost'a gerçek Chromium E2E erişimi yönetici politikasıyla engellendi.
+- Kullanıcının Windows/Chrome ortamında son açılış kontrolü gereklidir.

@@ -1,0 +1,11 @@
+YEREL HESAP PRO NEXT 1.0.3
+
+- Route-level code splitting
+- Vendor chunk ayrımı
+- Global ErrorBoundary
+- Satış/alış tarih filtreleri
+- Satış/alış gelişmiş sıralama
+- Yarış durumuna dayanıklı liste yükleme
+- Görünür API hata mesajları
+- Tedarikçi alış adedi
+- Yeni performans ve filtre otomatik testi

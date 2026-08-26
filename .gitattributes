@@ -1,0 +1,21 @@
+# Windows'ta calisilan bir depo, ama derlemeler macOS (Xcode) ve Linux (CI)
+# uzerinde de kosacak. Asagidaki dosyalar satir sonu cevrimine KARSI korunur.
+
+# Gradle sarmalayicisi bir kabuk betigidir. CRLF ile checkout edilirse
+# `./gradlew` calismaz — kabuk ilk satirdaki \r'yi yorumlayicinin adinin
+# parcasi sayar ve "bad interpreter" verir. Android derlemesi bu betikle
+# basladigi icin hatanin bedeli tum mobil derleme zinciridir.
+*.sh          text eol=lf
+gradlew       text eol=lf
+
+# Windows tarafinin karsiligi; burada CRLF sart.
+*.bat         text eol=crlf
+gradlew.bat   text eol=crlf
+
+# Surum aktarim isareti. Sunucuya kod `git pull` ile gelmiyor; deploy yontemi
+# tarball + dizin takasi (docs/ops/DOMAIN_MIGRATION.md:87-103). `export-subst`
+# sayesinde `git archive` bu dosyadaki $Format:%H$ yer tutucusunu paketlenen
+# commit'in gercek SHA'siyla degistirir. deploy/sunucu-deploy.sh bu degeri
+# imajin OCI `org.opencontainers.image.revision` etiketiyle karsilastirip
+# compose/deploy dosyalari ile imajin ayni commit'ten geldigini dogrular.
+deploy/RELEASE_SHA export-subst

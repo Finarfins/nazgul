@@ -1,0 +1,33 @@
+YEREL HESAP PRO V3.0 — MÜŞTERİ MERKEZİ / FAZ 1
+
+Tamamlananlar:
+- Müşteri/tedarikçi çalışma merkezi arayüzü
+- Sabit profil başlığı ve hızlı iletişim düğmeleri
+- Tıklanabilir bakiye, ciro, vade ve risk KPI kartları
+- Birleşik zaman çizelgesi: belge, ödeme, not ve görev
+- Yetkili kişiler: ekleme, listeleme, birincil kişi, silme
+- Görevler: ekleme, öncelik, atanan kişi, son tarih, tamamla/aç, silme
+- Açık görevler ve müşteri sağlığı genel bakış kartları
+- Mobil uyumlu sekmeli müşteri çalışma alanı
+- Firma bazlı yetkili/görev veri izolasyonu
+- Yeni migration kaydı: 013_customer_center
+- Uygulama sürümü 3.0.0
+
+Geçen kontroller:
+- ALL_V3_CUSTOMER_CENTER_TESTS_PASSED
+- ALL_V2_6_QUICK_ACTIONS_TESTS_PASSED
+- ALL_V2_7_TENANT_SECURITY_TESTS_PASSED
+- ALL_V2_5_CARI_CRM_TESTS_PASSED
+- ALL_V2_4_DASHBOARD_TESTS_PASSED
+- TypeScript tsc -b geçti
+- ESBuild production bundle geçti
+- Node JavaScript syntax kontrolü geçti
+- Service smoke: /api/health, /, /assets/app.js 200
+- SQLite integrity_check: ok
+
+Bekleyen kapılar:
+- Vite production build çalışma ortamında dönüşüm sonrası zaman aşımına uğradı.
+- Vitest çalışma ortamında başlatıldı ancak zaman aşımına uğradı.
+- Docker ve gerçek PostgreSQL runtime testi bu ortamda çalıştırılmadı.
+
+Bu paket V3 Müşteri Merkezi'nin ilk çalışan fazıdır; V3 sprinti henüz tamamlanmış sayılmaz.

@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harman Zamanı — Bakımdayız</title>
+<meta name="description" content="Harman Zamanı yakında burada.">
+<!-- Arama motorları bu geçici sayfayı indekslemesin; tanıtım sayfası
+     yayına girdiğinde bu dosya tamamen kaldırılacak. -->
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🌾</text></svg>">
+<style>
+  /* Sahne tek bir sıcak tema üzerine kurulu: bu bir tanıtım/bakım sayfası,
+     koyu-açık iki varyant tutmak yerine bilerek tek görünüme bağlandı. */
+  :root {
+    --gok-ust: #2e4a63;
+    --gok-alt: #f0a860;
+    --toprak: #7b5230;
+    --toprak-ust: #96683c;
+    --altin: #e8bb55;
+    --metin: #2a1f14;
+    --kagit: #fdf6e8;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(20px, 4vh, 36px);
+    padding: 32px 20px;
+    font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+    color: var(--metin);
+    background:
+      radial-gradient(120% 80% at 50% 0%, #fff9ee 0%, #f7e9cf 55%, #efd9b2 100%);
+  }
+
+  .yazi { text-align: center; max-width: 34rem; }
+
+  .marka {
+    font-size: 0.78rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #9c6d33;
+    margin: 0 0 10px;
+  }
+
+  h1 {
+    font-size: clamp(2rem, 6vw, 3rem);
+    line-height: 1.1;
+    margin: 0 0 12px;
+    letter-spacing: -0.02em;
+  }
+
+  .aciklama {
+    margin: 0;
+    font-size: clamp(1rem, 2.4vw, 1.125rem);
+    line-height: 1.6;
+    color: #5b4630;
+  }
+
+  /* --- Sahne --------------------------------------------------------- */
+
+  .sahne {
+    position: relative;
+    width: min(100%, 760px);
+    aspect-ratio: 760 / 300;
+    min-height: 220px;
+    overflow: hidden;
+    border-radius: 18px;
+    background: linear-gradient(180deg, var(--gok-ust) 0%, #7b6a7a 45%, var(--gok-alt) 100%);
+    box-shadow: 0 18px 40px -22px rgba(60, 35, 10, 0.65);
+  }
+
+  .gunes {
+    position: absolute;
+    left: 50%;
+    top: 16%;
+    width: 74px;
+    height: 74px;
+    margin-left: -37px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #fff3cf 0%, #ffd479 55%, rgba(255, 190, 90, 0) 72%);
+    animation: nefes 6s ease-in-out infinite;
+  }
+
+  .tepe {
+    position: absolute;
+    left: -5%;
+    right: -5%;
+    bottom: 24%;
+    height: 26%;
+    background: #6c5a52;
+    opacity: 0.55;
+    border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  }
+
+  .zemin {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 22%;
+    background: linear-gradient(180deg, var(--toprak-ust) 0%, var(--toprak) 100%);
+  }
+
+  /* Biçerdöver sahnenin ortasında sabit durur, tarla altından akar.
+     Böylece sonsuz bir tarlada ilerliyormuş gibi görünür ve döngünün
+     başladığı yer belli olmaz. Ortanın SAĞI biçilmemiş ekin, SOLU anız. */
+  .ekin,
+  .aniz {
+    position: absolute;
+    bottom: 19%;
+    height: 46%;
+    background-repeat: repeat-x;
+    background-position: 0 bottom;
+    animation: kaydir 1.9s linear infinite;
+  }
+
+  .ekin {
+    left: 50%;
+    right: -30px;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='26' height='80' viewBox='0 0 26 80'><path d='M13 80 L13 33' stroke='%23c8922f' stroke-width='2.4' stroke-linecap='round' fill='none'/><ellipse cx='13' cy='25' rx='4.8' ry='11' fill='%23e8bb55'/><g stroke='%23f2d183' stroke-width='1.5' stroke-linecap='round'><path d='M13 15 L13 4'/><path d='M10.5 17 L6 8'/><path d='M15.5 17 L20 8'/></g></svg>");
+  }
+
+  .aniz {
+    left: -30px;
+    width: 50%;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='26' height='80' viewBox='0 0 26 80'><g stroke='%23a87c2e' stroke-width='2.2' stroke-linecap='round'><path d='M8 80 L8 66'/><path d='M18 80 L18 70'/></g></svg>");
+  }
+
+  .bicerdover {
+    position: absolute;
+    left: 50%;
+    bottom: 16%;
+    width: 46%;
+    min-width: 260px;
+    transform: translateX(-52%);
+    animation: sarsinti 0.42s ease-in-out infinite;
+  }
+
+  .bicerdover svg { display: block; width: 100%; height: auto; }
+
+  /* transform-box: fill-box — SVG'de dönüş merkezinin parçanın kendi
+     kutusuna göre alınmasını sağlar; olmazsa tüm tuvalin ortasına göre
+     döner ve tekerlek yörüngeye oturur. */
+  .teker,
+  .makara {
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  .teker { animation: don 0.9s linear infinite; }
+  .makara { animation: don 1.1s linear infinite; }
+
+  .toz {
+    position: absolute;
+    bottom: 18%;
+    left: 34%;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: rgba(220, 190, 150, 0.55);
+    animation: savrul 1.6s ease-out infinite;
+  }
+  .toz:nth-of-type(2) { left: 30%; animation-delay: 0.5s; }
+  .toz:nth-of-type(3) { left: 26%; animation-delay: 1s; }
+
+  @keyframes kaydir  { to { background-position-x: -26px; } }
+  @keyframes don     { to { transform: rotate(360deg); } }
+  @keyframes sarsinti{ 50% { transform: translate(-52%, -1.5px); } }
+  @keyframes nefes   { 50% { opacity: 0.75; transform: scale(1.06); } }
+  @keyframes savrul  {
+    0%   { opacity: 0.7; transform: translate(0, 0) scale(0.6); }
+    100% { opacity: 0;   transform: translate(-70px, -34px) scale(1.7); }
+  }
+
+  /* --- Alt --- */
+
+  .baglanti {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 13px 26px;
+    border-radius: 999px;
+    background: #3f6b3a;
+    color: var(--kagit);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 1rem;
+    transition: background 0.18s ease, transform 0.18s ease;
+  }
+  .baglanti:hover { background: #35592f; transform: translateY(-1px); }
+  .baglanti:focus-visible { outline: 3px solid #9c6d33; outline-offset: 3px; }
+
+  .dipnot {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #8a6f4e;
+  }
+
+  /* Hareket duyarlılığı olan kullanıcılar için sahne durur ama görsel
+     bütünlüğünü korur. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; }
+    .toz { display: none; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="yazi">
+    <p class="marka">Harman Zamanı</p>
+    <h1>Bakımdayız</h1>
+    <p class="aciklama">
+      Tarlada işimiz var. Sayfamızı hazırlıyoruz, çok yakında burada olacağız.
+    </p>
+  </div>
+
+  <div class="sahne" role="img"
+       aria-label="Buğday tarlasında ilerleyen, önündeki ekini biçip arkasında anız bırakan bir biçerdöver çizimi.">
+    <div class="gunes"></div>
+    <div class="tepe"></div>
+    <div class="zemin"></div>
+    <div class="ekin"></div>
+    <div class="aniz"></div>
+    <div class="toz"></div>
+    <div class="toz"></div>
+    <div class="toz"></div>
+
+    <div class="bicerdover">
+      <svg viewBox="0 0 240 140" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <!-- boşaltma helezonu -->
+        <g stroke="#8d3b30" stroke-width="7" stroke-linecap="round">
+          <path d="M74 58 L26 34"/>
+        </g>
+        <rect x="18" y="24" width="16" height="12" rx="3" fill="#6f2f26"/>
+
+        <!-- egzoz -->
+        <rect x="96" y="26" width="9" height="26" rx="3" fill="#4a3a33"/>
+
+        <!-- dane deposu -->
+        <path d="M64 62 L70 40 L128 40 L132 62 Z" fill="#d9d2c2"/>
+        <path d="M64 62 L70 40 L80 40 L74 62 Z" fill="#c4bcaa"/>
+
+        <!-- gövde -->
+        <rect x="52" y="60" width="122" height="34" rx="6" fill="#b4402f"/>
+        <rect x="52" y="60" width="122" height="9" rx="4" fill="#c9503c"/>
+
+        <!-- kabin -->
+        <path d="M138 30 L176 30 L180 62 L138 62 Z" fill="#9c3527"/>
+        <path d="M143 35 L172 35 L175 57 L143 57 Z" fill="#8fc4dd" opacity="0.9"/>
+        <path d="M143 35 L154 35 L147 57 L143 57 Z" fill="#c8e6f2" opacity="0.6"/>
+
+        <!-- tabla ve makara -->
+        <path d="M176 78 L226 78 L232 100 L176 100 Z" fill="#a8382a"/>
+        <path d="M176 96 L232 96 L232 102 L176 102 Z" fill="#7d2a1f"/>
+        <g class="makara">
+          <circle cx="206" cy="70" r="17" fill="none" stroke="#e2d7c0" stroke-width="3"/>
+          <g stroke="#e2d7c0" stroke-width="4" stroke-linecap="round">
+            <path d="M206 53 L206 87"/>
+            <path d="M189 70 L223 70"/>
+            <path d="M194 58 L218 82"/>
+            <path d="M218 58 L194 82"/>
+          </g>
+        </g>
+
+        <!-- arka (küçük) teker -->
+        <g class="teker">
+          <circle cx="76" cy="106" r="18" fill="#332a26"/>
+          <circle cx="76" cy="106" r="8" fill="#c9c2b4"/>
+          <g stroke="#332a26" stroke-width="3">
+            <path d="M76 98 L76 114"/>
+            <path d="M68 106 L84 106"/>
+          </g>
+        </g>
+
+        <!-- ön (büyük tahrik) teker -->
+        <g class="teker">
+          <circle cx="150" cy="100" r="26" fill="#332a26"/>
+          <circle cx="150" cy="100" r="11" fill="#c9c2b4"/>
+          <g stroke="#332a26" stroke-width="4">
+            <path d="M150 89 L150 111"/>
+            <path d="M139 100 L161 100"/>
+            <path d="M142 92 L158 108"/>
+            <path d="M158 92 L142 108"/>
+          </g>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <div class="yazi">
+    <a class="baglanti" href="/giris">Hesabıma giriş yap</a>
+    <p class="dipnot" style="margin-top:14px">Mevcut kullanıcılar giriş yapmaya devam edebilir.</p>
+  </div>
+
+</body>
+</html>

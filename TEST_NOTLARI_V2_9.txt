@@ -1,0 +1,15 @@
+YEREL HESAP PRO X - V2.9 TEST BUILD
+
+Windows'ta başlatma:
+1. ZIP'i klasöre çıkarın.
+2. baslat.bat dosyasını çalıştırın.
+3. Tarayıcı otomatik açılmazsa http://localhost:8000 adresine gidin.
+
+Varsayılan giriş:
+Kullanıcı: admin
+Şifre: admin123
+
+Notlar:
+- İlk açılışta bağımlılık kurulumu zaman alabilir.
+- PostgreSQL production testi henüz doğrulanmamıştır.
+- Sorun oluşursa baslatma.log ve sunucu_hata.log dosyalarını paylaşın.

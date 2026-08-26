@@ -1,0 +1,14 @@
+Yerel Hesap Pro X V2.9 - Boş Ekran Düzeltmesi
+
+Sorun:
+Derlenmiş frontend paketinde React.createElement kullanılıyor, ancak React sembolü tanımlanmıyordu.
+Tarayıcı konsolunda ReferenceError: React is not defined hatası oluşuyor ve sayfa boş kalıyordu.
+
+Düzeltme:
+- Hazır app.js paketine React sembolü güvenli şekilde bağlandı.
+- Tüm TSX kaynaklarına varsayılan React importu eklendi; klasik JSX derlemelerinde aynı hata yeniden oluşmasın.
+- Backend tarafında değişiklik yapılmadı.
+
+Test:
+- JavaScript sözdizimi kontrolü yapıldı.
+- Sunucu index.html ve /assets/app.js dosyalarını sunabiliyor.

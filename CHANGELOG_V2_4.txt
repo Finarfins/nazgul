@@ -1,0 +1,33 @@
+YEREL HESAP PRO V2.4 — DASHBOARD / İŞLETME KONTROL MERKEZİ
+
+Tamamlananlar:
+- Veritabanından hesaplanan bugünkü satış
+- Veritabanından hesaplanan bugünkü tahsilat
+- Aylık satış, alış, gider ve tahmini kâr
+- Kasa/banka toplamı
+- Stok değeri
+- Müşteri açık hesap toplamı
+- Tedarikçi borç toplamı
+- Son 14 günlük satış grafiği
+- Son satışlar
+- Vadesi geçen açık hesaplar
+- Kritik ve negatif stok listesi
+- Kasa/banka hesap özetleri
+- En çok satan ürünler
+- Satış, tahsilat, ödeme ve finans hareketlerinden birleşik son hareketler
+- Yeni satış, müşteri, ürün, tahsilat, alış ve nakit yönetimi hızlı işlemleri
+- Masaüstü, tablet ve telefon uyumlu dashboard düzeni
+- Uygulama sürümü 2.4.0
+
+Kalite kapıları:
+- Tüm mevcut backend regresyon testleri geçti
+- ALL_V2_4_DASHBOARD_TESTS_PASSED
+- FRONTEND_TYPESCRIPT_BUILD_PASSED
+- SERVICE_SMOKE_TEST_PASSED
+- REACT_ASSET_SYNTAX_CHECK_PASSED
+- SQLITE_INTEGRITY_CHECK_PASSED
+
+Bekleyen kapılar:
+- Playwright gerçek tarayıcı E2E (çalışma ortamı localhost tarayıcı erişimini engelliyor)
+- Docker runtime testi
+- Gerçek PostgreSQL runtime testi

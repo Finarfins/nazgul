@@ -1,0 +1,44 @@
+YEREL HESAP PRO V2.7 — GÜVENLİK VE HIZLI İŞLEM STABİLİZASYONU
+
+Güvenlik:
+- GET /api/users aktif firma üyeliğine göre izole edildi.
+- Kullanıcı aktif/pasif işlemi hedef kullanıcının aktif firmaya üyeliğini doğruluyor.
+- GET /api/audit aktif firmaya göre filtreleniyor.
+- Audit kayıtlarına company_id eklendi.
+- Aynı kullanıcı adı + IP için 5 başarısız girişten sonra 15 dakika geçici kilit uygulanıyor.
+- Başarılı girişte başarısız deneme sayacı temizleniyor.
+- İlk kurulum admin hesabı must_change_password ile işaretleniyor.
+- İlk girişte zorunlu şifre değiştirme ekranı eklendi.
+- Kullanıcının kendi hesabını pasife alması engellendi.
+- Ödeme yöntemi ile kasa/banka/POS hesabı uyumluluğu backend tarafında doğrulanıyor.
+
+Hızlı işlem ve veri modeli:
+- EntityQuickActions tüm bakiye, gecikme, risk ve son işlem alanlarını data.summary üzerinden okuyor.
+- customer_detail ve supplier_detail summary içine risk_usage_percent eklendi.
+- Belge satırından yönlendirme query-string yerine router state openId kullanıyor.
+- Transactions ekranının location.state.openId değişince belge detayını açması doğrulandı.
+
+Test altyapısı:
+- test_v2_6_quick_actions.py kaynak kodda string arayan sahte test olmaktan çıkarıldı.
+- TestClient ile gerçek müşteri, tedarikçi, satış, alış, tahsilat ve ödeme senaryosu oluşturuluyor.
+- summary.current_balance, overdue_amount, risk_limit, risk_exceeded,
+  risk_usage_percent ve last_activity gerçek API cevaplarında doğrulanıyor.
+- Vitest + React Testing Library kuruldu.
+- EntityQuickActions summary ve router-state regresyon testleri eklendi.
+- Transactions openId davranış testi eklendi.
+
+Kalite kapıları:
+- Tüm backend regresyon testleri geçti.
+- ALL_V2_6_QUICK_ACTIONS_TESTS_PASSED
+- ALL_V2_7_TENANT_SECURITY_TESTS_PASSED
+- Frontend: 2 test dosyası / 3 test geçti.
+- FRONTEND_TYPESCRIPT_BUILD_PASSED
+- SERVICE_SMOKE_TEST_PASSED
+- REACT_ASSET_SYNTAX_CHECK_PASSED
+- SQLITE_INTEGRITY_CHECK_PASSED
+
+Bekleyen ortam kapıları:
+- Playwright gerçek tarayıcı E2E
+- Docker image build
+- Docker Compose PostgreSQL health check
+- Alembic migration dönüşümü sonraki mühendislik sprintinde

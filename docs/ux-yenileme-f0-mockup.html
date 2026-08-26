@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="tr" data-theme="light" data-density="desktop">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sungur Tarım ERP — UX Yenileme F0 Mockup</title>
+<style>
+/* ==========================================================================
+   TASARIM TOKEN'LARI  (öneri — docs/ux-yenileme-f0-tasarim.md §5.2)
+   ========================================================================== */
+:root{
+  /* renk */
+  --brand:#2f7d32; --brand-deep:#245f27; --brand-tint:#eaf3ea;
+  --ink:#1c2620; --muted:#6b7a70; --faint:#93a099;
+  --bg:#f4f6f2; --surface:#ffffff; --line:#e5e9e3;
+  --danger:#c0392b; --danger-tint:#fbeceb;
+  --warning:#b7791f; --warning-tint:#fbf1de;
+  --info:#3f708f; --info-tint:#e9f0f4;
+  --sidebar-bg:#14261a; --sidebar-fg:rgba(233,241,234,.72);
+  --sidebar-active-bg:rgba(103,173,105,.20); --sidebar-active-fg:#ffffff; --sidebar-rail:#7fc082;
+  /* boşluk: 8px ızgara, izinli çarpanlar */
+  --s05:4px; --s1:8px; --s15:12px; --s2:16px; --s3:24px; --s4:32px; --s6:48px;
+  /* yarıçap + gölge */
+  --r-card:14px; --r-control:10px; --r-compact:8px;
+  --shadow-card:0 6px 20px rgba(28,38,32,.06);
+  --shadow-pop:0 12px 28px rgba(28,38,32,.14);
+  --focus:0 0 0 3px rgba(47,125,50,.28);
+  /* dokunmatik ölçek */
+  --touch:40px; --touch-primary:44px; --touch-grid:56px;
+  --sidebar-w:264px; --topbar-h:64px;
+}
+:root[data-density="pos"]{ --touch:44px; --touch-primary:56px; --touch-grid:72px; }
+:root[data-theme="dark"]{
+  --ink:#f1f5f1; --muted:#aab7ae; --faint:#77847b;
+  --bg:#101a14; --surface:#1b2920; --line:#34443a;
+  --brand:#67ad69; --brand-deep:#79bd7b; --brand-tint:rgba(103,173,105,.16);
+  --danger-tint:rgba(192,57,43,.2); --warning-tint:rgba(183,121,31,.2); --info-tint:rgba(63,112,143,.2);
+  --sidebar-bg:#0d1912; --shadow-card:0 6px 20px rgba(0,0,0,.28);
+}
+
+/* ==========================================================================
+   TEMEL
+   ========================================================================== */
+*{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px}
+body{
+  font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:.875rem; line-height:1.55; color:var(--ink); background:var(--bg);
+  font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased;
+}
+:focus-visible{outline:none; box-shadow:var(--focus)}
+button,select,input{font:inherit;color:inherit}
+a{color:var(--brand);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* tipografi ölçeği */
+h1{font-size:1.5rem;font-weight:700;line-height:1.3}
+h2{font-size:1.25rem;font-weight:700;line-height:1.35}
+h3{font-size:1.0625rem;font-weight:650;line-height:1.4}
+.kpi-value{font-size:1.75rem;font-weight:700;line-height:1.2}
+.body2{font-size:.8125rem;color:var(--muted)}
+.caption{font-size:.75rem;font-weight:600;color:var(--muted)}
+.overline{font-size:.6875rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)}
+
+/* ==========================================================================
+   SAHTE VERİ BANDI
+   ========================================================================== */
+.fakebar{
+  background:var(--warning-tint); color:var(--warning); border-bottom:1px solid var(--line);
+  padding:var(--s1) var(--s3); font-size:.75rem; font-weight:700; letter-spacing:.02em;
+  display:flex; gap:var(--s1); align-items:center; flex-wrap:wrap;
+}
+.fakebar span{font-weight:500;color:var(--muted)}
+
+/* ==========================================================================
+   YERLEŞİM
+   ========================================================================== */
+.app{display:flex; min-height:calc(100dvh - 37px)}
+
+/* --- kenar çubuğu --- */
+.sidebar{
+  width:var(--sidebar-w); flex-shrink:0; background:var(--sidebar-bg); color:var(--sidebar-fg);
+  display:flex; flex-direction:column; position:sticky; top:0; height:calc(100dvh - 37px);
+}
+.brand{display:flex;align-items:center;gap:var(--s15);padding:0 var(--s2);height:var(--topbar-h);flex-shrink:0}
+.brand-mark{
+  width:34px;height:34px;border-radius:var(--r-compact);background:var(--brand);
+  display:grid;place-items:center;color:#fff;font-weight:800;font-size:1rem;flex-shrink:0;
+}
+.brand-name{color:#fff;font-weight:700;line-height:1.15}
+.brand-sub{font-size:.6875rem;letter-spacing:.09em;color:rgba(255,255,255,.45)}
+
+.nav{flex:1;overflow-y:auto;padding:var(--s1) var(--s15) var(--s3)}
+.nav::-webkit-scrollbar{width:6px}
+.nav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:3px}
+.nav-section{margin:var(--s15) 0 var(--s05);padding:0 var(--s1);color:rgba(255,255,255,.38)}
+
+.nav-item,.group-head{
+  display:flex;align-items:center;gap:var(--s15);width:100%;
+  min-height:var(--touch); padding:0 var(--s15); margin:2px 0;
+  border:0;background:transparent;color:inherit;border-radius:var(--r-compact);
+  font-size:.84rem;font-weight:600;cursor:pointer;text-align:left;position:relative;
+}
+.nav-item:hover,.group-head:hover{background:rgba(255,255,255,.06);color:#fff}
+.nav-item.active{background:var(--sidebar-active-bg);color:var(--sidebar-active-fg)}
+.nav-item.active::before{
+  content:"";position:absolute;left:-4px;width:3px;height:20px;
+  border-radius:2px;background:var(--sidebar-rail);
+}
+.ico{width:20px;flex-shrink:0;text-align:center;font-size:1rem;opacity:.9}
+.group-head .chev{margin-left:auto;font-size:.65rem;opacity:.55;transition:transform .18s ease}
+.group[open] .chev{transform:rotate(90deg)}
+.group-body{padding-left:var(--s3);margin-bottom:var(--s05)}
+.group-body .nav-item{font-weight:500;font-size:.82rem;min-height:calc(var(--touch) - 4px)}
+.group-head.pinned{background:rgba(103,173,105,.14);color:#fff;margin-bottom:var(--s05)}
+.badge-soon{
+  margin-left:auto;font-size:.625rem;font-weight:700;padding:1px 6px;border-radius:999px;
+  background:rgba(255,255,255,.12);color:rgba(255,255,255,.6);
+}
+.sidebar-foot{padding:var(--s2);font-size:.7rem;color:rgba(255,255,255,.4);border-top:1px solid rgba(255,255,255,.07)}
+
+/* --- ana alan --- */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+
+.topbar{
+  height:var(--topbar-h);flex-shrink:0;background:var(--surface);border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:var(--s15);padding:0 var(--s3);position:sticky;top:0;z-index:20;
+}
+.search{
+  display:flex;align-items:center;gap:var(--s1);height:var(--touch);padding:0 var(--s15);
+  border:1px solid var(--line);border-radius:var(--r-compact);color:var(--muted);
+  cursor:pointer;min-width:280px;background:var(--surface);
+}
+.search:hover{border-color:var(--faint);background:var(--brand-tint)}
+.kbd{margin-left:auto;font-size:.6875rem;border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+.spacer{flex:1}
+.ctl{
+  height:var(--touch);border:1px solid var(--line);background:var(--surface);
+  border-radius:var(--r-compact);padding:0 var(--s1);cursor:pointer;font-size:.8125rem;font-weight:600;
+}
+.iconbtn{
+  width:var(--touch);height:var(--touch);border:1px solid transparent;background:transparent;
+  border-radius:var(--r-compact);cursor:pointer;display:grid;place-items:center;font-size:1.05rem;position:relative;
+}
+.iconbtn:hover{background:var(--brand-tint)}
+.dot{position:absolute;top:6px;right:6px;width:16px;height:16px;border-radius:50%;
+  background:var(--danger);color:#fff;font-size:.625rem;font-weight:700;display:grid;place-items:center}
+.avatar{
+  width:34px;height:34px;border-radius:50%;background:var(--brand);color:#fff;
+  display:grid;place-items:center;font-weight:700;font-size:.8125rem;
+}
+.content{padding:var(--s3);max-width:1560px;width:100%;margin:0 auto}
+
+/* ==========================================================================
+   BİLEŞENLER
+   ========================================================================== */
+.card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card);
+  box-shadow:var(--shadow-card);
+}
+.card-pad{padding:var(--s3)}
+.stack{display:flex;flex-direction:column;gap:var(--s2)}
+.row{display:flex;align-items:center;gap:var(--s15);flex-wrap:wrap}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:var(--s1);
+  min-height:var(--touch-primary);padding:0 var(--s2);border-radius:var(--r-compact);
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  font-weight:650;font-size:.8125rem;cursor:pointer;
+}
+.btn:hover{border-color:var(--brand);background:var(--brand-tint)}
+.btn-primary{background:var(--brand);border-color:var(--brand);color:#fff}
+.btn-primary:hover{background:var(--brand-deep);border-color:var(--brand-deep)}
+.btn-ghost{border-color:transparent;background:transparent}
+.btn-ghost:hover{background:var(--brand-tint);border-color:transparent}
+
+.chip{
+  display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;
+  border-radius:var(--r-compact);font-size:.75rem;font-weight:650;
+  background:var(--line);color:var(--muted);white-space:nowrap;
+}
+.chip-success{background:var(--brand-tint);color:var(--brand-deep)}
+.chip-danger{background:var(--danger-tint);color:var(--danger)}
+.chip-warning{background:var(--warning-tint);color:var(--warning)}
+.chip-info{background:var(--info-tint);color:var(--info)}
+:root[data-theme="dark"] .chip-success{color:var(--brand)}
+:root[data-theme="dark"] .chip-danger{color:#e88b80}
+:root[data-theme="dark"] .chip-warning{color:#dfae61}
+:root[data-theme="dark"] .chip-info{color:#8fb5cb}
+
+/* KPI */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--s15)}
+.kpi{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card);
+  padding:var(--s2) var(--s3);cursor:pointer;transition:.18s;text-align:left;width:100%;
+}
+.kpi:hover{box-shadow:var(--shadow-pop);transform:translateY(-2px);border-color:var(--brand)}
+.kpi .caption{margin-bottom:var(--s05)}
+.kpi .hint{font-size:.75rem;color:var(--faint);margin-top:var(--s05)}
+.text-danger{color:var(--danger)} .text-brand{color:var(--brand)} .text-warning{color:var(--warning)}
+.meter{height:6px;border-radius:99px;background:var(--line);margin-top:var(--s1);overflow:hidden}
+.meter>i{display:block;height:100%;background:var(--warning);border-radius:99px}
+
+/* başlık kartı */
+.entity-head{display:flex;justify-content:space-between;gap:var(--s3);flex-wrap:wrap}
+.entity-id{display:flex;gap:var(--s2);align-items:center}
+.entity-avatar{
+  width:64px;height:64px;border-radius:var(--r-card);background:var(--brand);color:#fff;
+  display:grid;place-items:center;font-size:1.6rem;font-weight:700;flex-shrink:0;
+}
+
+/* sekmeler */
+.tabs{display:flex;gap:var(--s05);border-bottom:1px solid var(--line);overflow-x:auto;padding:0 var(--s15)}
+.tabs::-webkit-scrollbar{height:0}
+.tab{
+  border:0;background:transparent;cursor:pointer;white-space:nowrap;
+  min-height:var(--touch-primary);padding:0 var(--s2);
+  font-size:.8125rem;font-weight:650;color:var(--muted);border-bottom:2px solid transparent;
+}
+.tab:hover{color:var(--ink)}
+.tab[aria-selected="true"]{color:var(--brand);border-bottom-color:var(--brand)}
+.tab .count{
+  margin-left:6px;font-size:.6875rem;background:var(--line);color:var(--muted);
+  border-radius:99px;padding:1px 6px;font-weight:700;
+}
+.panel{padding:var(--s3);display:none}
+.panel.on{display:block}
+
+/* iki sütun */
+.cols{display:grid;grid-template-columns:1.4fr 1fr;gap:var(--s2)}
+@media (max-width:1100px){.cols{grid-template-columns:1fr}}
+
+.subcard{border:1px solid var(--line);border-radius:var(--r-card);background:var(--surface)}
+.subcard>header{
+  padding:var(--s15) var(--s2);border-bottom:1px solid var(--line);
+  display:flex;align-items:center;justify-content:space-between;gap:var(--s1);
+}
+
+/* liste satırı */
+.lrow{
+  display:flex;align-items:center;justify-content:space-between;gap:var(--s2);
+  min-height:var(--touch-grid);padding:var(--s15) var(--s2);
+  border-bottom:1px solid var(--line);cursor:pointer;
+}
+.lrow:last-child{border-bottom:0}
+.lrow:hover{background:var(--brand-tint)}
+.lrow .t{font-weight:650}
+.lrow .amt{font-weight:700;font-size:1rem;white-space:nowrap}
+
+/* tablo */
+table{width:100%;border-collapse:collapse;font-size:.8125rem}
+th{
+  text-align:left;font-weight:650;color:var(--muted);font-size:.75rem;
+  padding:var(--s15) var(--s2);border-bottom:1px solid var(--line);background:var(--bg);white-space:nowrap;
+}
+td{padding:var(--s15) var(--s2);border-bottom:1px solid var(--line);vertical-align:middle}
+tbody tr:hover{background:var(--brand-tint)}
+tbody tr:last-child td{border-bottom:0}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tablewrap{overflow-x:auto}
+
+/* bilgi kutusu */
+.note{
+  border:1px solid var(--line);border-left:3px solid var(--info);background:var(--info-tint);
+  border-radius:var(--r-compact);padding:var(--s15) var(--s2);font-size:.8125rem;color:var(--ink);
+}
+.note.warn{border-left-color:var(--warning);background:var(--warning-tint)}
+.note.ok{border-left-color:var(--brand);background:var(--brand-tint)}
+
+/* boş durum */
+.empty{text-align:center;padding:var(--s6) var(--s3);color:var(--muted)}
+.empty .big{font-size:2rem;opacity:.4;margin-bottom:var(--s1)}
+
+/* meta ızgara */
+.meta-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--s2)}
+.meta .caption{display:block}
+.meta .v{font-weight:650}
+
+/* zaman çizelgesi */
+.tl{list-style:none;position:relative;padding-left:var(--s3)}
+.tl::before{content:"";position:absolute;left:7px;top:8px;bottom:8px;width:2px;background:var(--line)}
+.tl li{position:relative;padding:var(--s15) 0;border-bottom:1px solid var(--line)}
+.tl li:last-child{border-bottom:0}
+.tl li::before{
+  content:"";position:absolute;left:calc(-1 * var(--s3) + 3px);top:22px;
+  width:11px;height:11px;border-radius:50%;background:var(--brand);border:2px solid var(--surface);
+}
+
+.pill-toggle{display:flex;border:1px solid var(--line);border-radius:var(--r-compact);overflow:hidden}
+.pill-toggle button{
+  border:0;background:var(--surface);cursor:pointer;height:var(--touch);padding:0 var(--s15);
+  font-size:.75rem;font-weight:650;color:var(--muted);
+}
+.pill-toggle button[aria-pressed="true"]{background:var(--brand);color:#fff}
+
+@media (max-width:900px){
+  .sidebar{display:none}
+  .content{padding:var(--s2)}
+  .search{min-width:0;flex:1}
+}
+</style>
+</head>
+<body>
+
+<div class="fakebar">
+  ⚠ SAHTE VERİ — GÖRSEL MOCKUP
+  <span>Bu sayfa docs/ux-yenileme-f0-tasarim.md için hazırlanmış statik bir örnektir. Hiçbir gerçek kayıt içermez, hiçbir API'ye bağlı değildir, uygulamaya dahil edilmez.</span>
+</div>
+
+<div class="app">
+
+  <!-- =================== KENAR ÇUBUĞU =================== -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">S</div>
+      <div>
+        <div class="brand-name">Sungur Tarım</div>
+        <div class="brand-sub">ERP PLATFORMU</div>
+      </div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="sidebar-foot">
+      Görünen madde: <b id="navCount">—</b> ·
+      bugünkü menüde <b id="navToday">—</b>
+    </div>
+  </aside>
+
+  <!-- =================== ANA ALAN =================== -->
+  <div class="main">
+
+    <header class="topbar">
+      <div class="search">
+        🔍 <span>Müşteri, ürün, belge veya komut ara…</span><span class="kbd">Ctrl K</span>
+      </div>
+      <div class="spacer"></div>
+
+      <label class="caption" for="roleSel">Rol</label>
+      <select class="ctl" id="roleSel" title="Rolü değiştirince menü §2.3 tablosuna göre daralır">
+        <option value="admin">admin</option>
+        <option value="yonetici">yonetici</option>
+        <option value="muhasebe">muhasebe</option>
+        <option value="satis" selected>satis (satış görevlisi)</option>
+        <option value="depo">depo</option>
+        <option value="rapor">rapor</option>
+      </select>
+
+      <div class="pill-toggle" title="Dokunmatik hedef ölçeği (§5.2)">
+        <button id="dDesktop" aria-pressed="true">Masaüstü 40px</button>
+        <button id="dPos" aria-pressed="false">POS 44/56px</button>
+      </div>
+
+      <select class="ctl" title="Aktif firma"><option>Sungur Tarım A.Ş.</option><option>Sungur Ticaret Ltd.</option></select>
+      <button class="iconbtn" title="Bildirimler">🔔<span class="dot">3</span></button>
+      <button class="iconbtn" id="themeBtn" title="Tema değiştir">🌙</button>
+      <div class="avatar" title="Berkay Sungur · satis">B</div>
+    </header>
+
+    <main class="content stack">
+
+      <!-- geri -->
+      <div class="row">
+        <button class="btn btn-ghost">← Müşteriler</button>
+        <span class="body2">Müşteriler / Mehmet Yılmaz</span>
+      </div>
+
+      <!-- ---------- BAŞLIK KARTI ---------- -->
+      <section class="card card-pad">
+        <div class="entity-head">
+          <div class="entity-id">
+            <div class="entity-avatar">MY</div>
+            <div>
+              <div class="row" style="gap:var(--s1)">
+                <h1>Mehmet Yılmaz</h1>
+                <span class="chip chip-success">Aktif</span>
+                <span class="chip chip-danger">⚠ Risk Limiti Aşıldı</span>
+                <span class="chip chip-warning">🌾 Harman: Buğday 2026 · 15 Tem</span>
+              </div>
+              <div class="body2" style="margin-top:2px">0532 118 44 07 · mehmet.yilmaz@example.com · Konya / Çumra</div>
+              <div class="body2">Yetkili: Mehmet Yılmaz · Son işlem: 22.07.2026 · Bölge: Çumra Ovası</div>
+            </div>
+          </div>
+          <div class="row" style="align-items:flex-start">
+            <button class="btn btn-primary">🛒 Satış Yap</button>
+            <button class="btn">💵 Tahsilat Al</button>
+            <button class="btn">🧾 Ekstre</button>
+            <button class="btn">✏️ Düzenle</button>
+            <button class="btn btn-ghost" title="Ara">📞</button>
+            <button class="btn btn-ghost" title="WhatsApp">💬</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- KPI ---------- -->
+      <section class="kpi-grid">
+        <button class="kpi">
+          <span class="caption">Açık Bakiye</span>
+          <div class="kpi-value text-danger">₺ 486.250,00</div>
+          <div class="hint">İlgili belgeleri göster</div>
+        </button>
+        <button class="kpi">
+          <span class="caption">Toplam Ciro (2026)</span>
+          <div class="kpi-value">₺ 1.842.900,00</div>
+          <div class="hint">Tüm belgeleri göster</div>
+        </button>
+        <button class="kpi">
+          <span class="caption">Vadesi Geçen</span>
+          <div class="kpi-value text-danger">₺ 128.400,00</div>
+          <div class="hint">3 belge · en eski 41 gün</div>
+        </button>
+        <button class="kpi">
+          <span class="caption">Risk Kullanımı</span>
+          <div class="kpi-value text-warning">%121,6</div>
+          <div class="hint">Limit ₺ 400.000,00</div>
+          <div class="meter"><i style="width:100%"></i></div>
+        </button>
+      </section>
+
+      <!-- ---------- SEKMELER ---------- -->
+      <section class="card">
+        <div class="tabs" role="tablist" id="tabs">
+          <button class="tab" role="tab" aria-selected="true"  data-p="ozet">Özet</button>
+          <button class="tab" role="tab" aria-selected="false" data-p="satislar">Satışlar<span class="count">24</span></button>
+          <button class="tab" role="tab" aria-selected="false" data-p="odemeler">Ödemeler / Tahsisler<span class="count">11</span></button>
+          <button class="tab" role="tab" aria-selected="false" data-p="harman">Harman Vadesi</button>
+          <button class="tab" role="tab" aria-selected="false" data-p="makineler">Makineler<span class="count">3</span></button>
+          <button class="tab" role="tab" aria-selected="false" data-p="servis">Servis Geçmişi<span class="count">7</span></button>
+          <button class="tab" role="tab" aria-selected="false" data-p="aktivite">Aktivite</button>
+          <button class="tab" role="tab" aria-selected="false" data-p="daha">Daha Fazla ▾</button>
+        </div>
+
+        <!-- ===== ÖZET ===== -->
+        <div class="panel on" id="p-ozet">
+          <div class="cols">
+            <div class="stack">
+
+              <div class="subcard">
+                <header><h3>Son İşlemler</h3><button class="btn btn-ghost">Tümü →</button></header>
+                <div>
+                  <div class="lrow"><div><div class="t">Satış SAT-2026-000482</div><div class="body2">22.07.2026 · Vade: 15.08.2026 (harman)</div></div><div class="amt">₺ 92.400,00</div></div>
+                  <div class="lrow"><div><div class="t">Tahsilat · Havale</div><div class="body2">18.07.2026 · Ziraat — Çumra</div></div><div class="amt text-brand">₺ 60.000,00</div></div>
+                  <div class="lrow"><div><div class="t">Satış SAT-2026-000455</div><div class="body2">09.07.2026 · Vade: 15.08.2026 (harman)</div></div><div class="amt">₺ 148.750,00</div></div>
+                  <div class="lrow"><div><div class="t">İş Emri IE-2026-00311 kapandı</div><div class="body2">02.07.2026 · New Holland T6.155 · periyodik bakım</div></div><div class="amt">₺ 18.900,00</div></div>
+                  <div class="lrow"><div><div class="t">Vade farkı belgesi VF-2026-0044</div><div class="body2">01.07.2026 · 41 gün gecikme · SAT-2026-000391</div></div><div class="amt text-danger">₺ 6.412,00</div></div>
+                </div>
+              </div>
+
+              <div class="subcard">
+                <header><h3>En Çok Alınan Ürünler</h3><button class="btn btn-ghost">Tümü →</button></header>
+                <div>
+                  <div class="lrow"><div><div class="t">Gübre — Üre %46</div><div class="body2">128 çuval</div></div><div class="amt">₺ 412.800,00</div></div>
+                  <div class="lrow"><div><div class="t">Motorin (tarımsal)</div><div class="body2">4.200 lt</div></div><div class="amt">₺ 218.400,00</div></div>
+                  <div class="lrow"><div><div class="t">Yağ filtresi — NH 84228488</div><div class="body2">6 adet</div></div><div class="amt">₺ 4.740,00</div></div>
+                </div>
+              </div>
+
+            </div>
+
+            <div class="stack">
+
+              <div class="subcard">
+                <header><h3>🌾 Harman Vadesi Durumu</h3></header>
+                <div style="padding:var(--s2)" class="stack">
+                  <div class="note warn">
+                    <b>Buğday 2026</b> sezonuna bağlı · Bölge: <b>Çumra Ovası</b><br>
+                    Varsayılan vade tarihi <b>15.08.2026</b> · bugüne <b>18 gün</b><br>
+                    Açık harman vadeli belge: <b>4</b> · toplam <b>₺ 357.850,00</b>
+                  </div>
+                  <div class="row">
+                    <span class="chip chip-warning">1 belge vadesi geçti</span>
+                    <span class="chip chip-danger">Vade farkı işletildi: ₺ 6.412</span>
+                  </div>
+                  <button class="btn" style="align-self:flex-start">Harman Vadesi sekmesine git →</button>
+                </div>
+              </div>
+
+              <div class="subcard">
+                <header><h3>Açık Görevler</h3><button class="btn btn-ghost">+ Ekle</button></header>
+                <div>
+                  <div class="lrow"><div><div class="t">Harman öncesi tahsilat görüşmesi</div><div class="body2">01.08.2026 · Ahmet Kaya</div></div><span class="chip chip-danger">yüksek</span></div>
+                  <div class="lrow"><div><div class="t">Risk limiti revizyonu teklifi</div><div class="body2">05.08.2026 · Atanmamış</div></div><span class="chip chip-warning">normal</span></div>
+                </div>
+              </div>
+
+              <div class="subcard">
+                <header><h3>Müşteri Sağlığı</h3></header>
+                <div style="padding:var(--s2)" class="stack">
+                  <div class="note">Risk limiti <b>%121,6</b> seviyesinde aşılmış. Yeni vadeli satış öncesi tahsilat planı önerilir.</div>
+                  <div class="body2">Son 12 ay ciro: ₺ 1.842.900 · ortalama tahsilat süresi 47 gün · 3 makine, 7 iş emri.</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== SATIŞLAR ===== -->
+        <div class="panel" id="p-satislar">
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>Belge No</th><th>Tarih</th><th>Vade</th><th>Vade Kaynağı</th><th>Durum</th><th class="num">Tutar</th><th class="num">Kalan</th></tr></thead>
+              <tbody>
+                <tr><td><a href="#">SAT-2026-000482</a></td><td>22.07.2026</td><td>15.08.2026</td><td><span class="chip chip-warning">harman</span></td><td><span class="chip chip-success">Tamamlandı</span></td><td class="num">₺ 92.400,00</td><td class="num">₺ 92.400,00</td></tr>
+                <tr><td><a href="#">SAT-2026-000455</a></td><td>09.07.2026</td><td>15.08.2026</td><td><span class="chip chip-warning">harman</span></td><td><span class="chip chip-success">Tamamlandı</span></td><td class="num">₺ 148.750,00</td><td class="num">₺ 148.750,00</td></tr>
+                <tr><td><a href="#">SAT-2026-000391</a></td><td>21.05.2026</td><td>15.06.2026</td><td><span class="chip chip-warning">harman</span></td><td><span class="chip chip-danger">Vadesi Geçti</span></td><td class="num">₺ 116.700,00</td><td class="num">₺ 116.700,00</td></tr>
+                <tr><td><a href="#">SAT-2026-000318</a></td><td>14.04.2026</td><td>14.05.2026</td><td><span class="chip">manuel</span></td><td><span class="chip chip-success">Tamamlandı</span></td><td class="num">₺ 64.200,00</td><td class="num">₺ 0,00</td></tr>
+                <tr><td><a href="#">TEK-2026-000122</a></td><td>02.04.2026</td><td>—</td><td>—</td><td><span class="chip chip-info">Teklif</span></td><td class="num">₺ 240.000,00</td><td class="num">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ===== ÖDEMELER / TAHSİSLER ===== -->
+        <div class="panel" id="p-odemeler">
+          <div class="note" style="margin-bottom:var(--s2)">
+            Her tahsilatın <b>hangi belgeye tahsis edildiği</b> gösterilir. Tahsis edilmemiş bakiye <b>avans</b> olarak taşınır.
+          </div>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>Tarih</th><th>Yöntem</th><th>Hesap</th><th class="num">Tutar</th><th>Tahsis edildiği belge(ler)</th><th class="num">Tahsis edilmemiş</th></tr></thead>
+              <tbody>
+                <tr><td>18.07.2026</td><td>Havale / EFT</td><td>Ziraat — Çumra</td><td class="num">₺ 60.000,00</td><td><a href="#">SAT-2026-000318</a> ₺ 60.000</td><td class="num">₺ 0,00</td></tr>
+                <tr><td>03.06.2026</td><td>Nakit</td><td>Merkez Kasa</td><td class="num">₺ 40.000,00</td><td><a href="#">SAT-2026-000318</a> ₺ 4.200 · <a href="#">SAT-2026-000241</a> ₺ 35.800</td><td class="num">₺ 0,00</td></tr>
+                <tr><td>19.05.2026</td><td>Çek</td><td>—</td><td class="num">₺ 75.000,00</td><td><a href="#">SAT-2026-000241</a> ₺ 62.500</td><td class="num text-warning">₺ 12.500,00</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ===== HARMAN VADESİ ===== -->
+        <div class="panel" id="p-harman">
+          <div class="stack">
+            <div class="note ok">
+              <b>Sezon:</b> Buğday 2026 (BUG-2026) · <b>Bölge:</b> Çumra Ovası · <b>Mod:</b> bölge takvimi<br>
+              <b>Varsayılan vade:</b> 15.08.2026 · <b>Uygulanan kural:</b> “Hububat · Çumra · hasat + 15 gün”
+            </div>
+
+            <div class="subcard">
+              <header><h3>Harman vadeli açık belgeler</h3><span class="chip chip-warning">4 belge · ₺ 357.850,00</span></header>
+              <div class="tablewrap">
+                <table>
+                  <thead><tr><th>Belge</th><th>Tarih</th><th>Sezon</th><th>Vade</th><th>Durum</th><th class="num">Kalan</th></tr></thead>
+                  <tbody>
+                    <tr><td><a href="#">SAT-2026-000482</a></td><td>22.07.2026</td><td>Buğday 2026</td><td>15.08.2026</td><td><span class="chip chip-info">18 gün var</span></td><td class="num">₺ 92.400,00</td></tr>
+                    <tr><td><a href="#">SAT-2026-000455</a></td><td>09.07.2026</td><td>Buğday 2026</td><td>15.08.2026</td><td><span class="chip chip-info">18 gün var</span></td><td class="num">₺ 148.750,00</td></tr>
+                    <tr><td><a href="#">SAT-2026-000391</a></td><td>21.05.2026</td><td>Arpa 2026</td><td>15.06.2026</td><td><span class="chip chip-danger">41 gün gecikme</span></td><td class="num">₺ 116.700,00</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="subcard">
+              <header><h3>Vade farkı belgeleri</h3><button class="btn btn-ghost">Vade farkı önizle</button></header>
+              <div class="tablewrap">
+                <table>
+                  <thead><tr><th>Belge</th><th>Tarih</th><th>Kaynak belge</th><th>Gecikme</th><th>Durum</th><th class="num">Tutar</th></tr></thead>
+                  <tbody>
+                    <tr><td><a href="#">VF-2026-0044</a></td><td>01.07.2026</td><td><a href="#">SAT-2026-000391</a></td><td>41 gün</td><td><span class="chip chip-success">İşlendi</span></td><td class="num">₺ 6.412,00</td></tr>
+                    <tr><td><a href="#">VF-2026-0021</a></td><td>12.03.2026</td><td><a href="#">SAT-2025-001880</a></td><td>19 gün</td><td><span class="chip">Ters kayıt</span></td><td class="num">₺ 1.980,00</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="note warn">
+              ⓘ <b>Tasarım notu:</b> Bu sekmenin belge bazlı sezon/vade kaynağı bilgisi için müşteri detay ucunun
+              <code>harvest_calendar_id</code> ve <code>due_date_source</code> alanlarını da döndürmesi gerekir (doküman §3.4 · C-3).
+              Vade farkı belgelerinin müşteri bazlı listesi için ayrıca C-4 ucu gerekir.
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== MAKİNELER ===== -->
+        <div class="panel" id="p-makineler">
+          <div class="note ok" style="margin-bottom:var(--s2)">
+            ✓ Bu sekme mevcut uçla beslenebilir: <code>GET /machines?customer_id={id}</code> — yeni uç gerekmez.
+          </div>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>Marka / Model</th><th>Seri No</th><th>Şasi No</th><th>Plaka</th><th>Durum</th><th class="num">Çalışma Saati</th><th>Açık iş emri</th><th></th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><a href="#"><b>New Holland T6.155</b></a><div class="body2">2021 · Traktör</div></td>
+                  <td>NH6155-88213</td><td>ZFBT6155LJ0091223</td><td>42 ABC 118</td>
+                  <td><span class="chip chip-success">Aktif</span></td><td class="num">3.482,5</td>
+                  <td><span class="chip">yok</span></td>
+                  <td><button class="btn btn-ghost">Makine kartı →</button></td>
+                </tr>
+                <tr>
+                  <td><a href="#"><b>Claas Tucano 320</b></a><div class="body2">2019 · Biçerdöver</div></td>
+                  <td>CL320-40917</td><td>WCL0320C0K0140917</td><td>42 CD 4420</td>
+                  <td><span class="chip chip-warning">Bakımda</span></td><td class="num">1.914,0</td>
+                  <td><span class="chip chip-warning">IE-2026-00344</span></td>
+                  <td><button class="btn btn-ghost">Makine kartı →</button></td>
+                </tr>
+                <tr>
+                  <td><a href="#"><b>Lemken Juwel 8</b></a><div class="body2">2022 · Pulluk</div></td>
+                  <td>LJ8-2214</td><td>—</td><td>—</td>
+                  <td><span class="chip chip-success">Aktif</span></td><td class="num">—</td>
+                  <td><span class="chip">yok</span></td>
+                  <td><button class="btn btn-ghost">Makine kartı →</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ===== SERVİS GEÇMİŞİ ===== -->
+        <div class="panel" id="p-servis">
+          <div class="note warn" style="margin-bottom:var(--s2)">
+            ⓘ <b>Uç eksik (C-1):</b> <code>GET /work-orders</code> bugün müşteriyi yalnız <b>ad metniyle</b> (<code>LIKE %ad%</code>) filtreliyor;
+            <code>customer_id</code> parametresi yok. Aynı adlı iki müşteri karışır. Bu sekme U2'ye ancak uç geldikten sonra alınmalı.
+          </div>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>İş Emri</th><th>Makine</th><th>Durum</th><th>Açılış</th><th>Şikâyet</th><th class="num">İşçilik</th><th class="num">Parça</th><th class="num">Toplam</th></tr></thead>
+              <tbody>
+                <tr><td><a href="#">IE-2026-00344</a></td><td>Claas Tucano 320</td><td><span class="chip chip-warning">Devam Ediyor</span></td><td>19.07.2026</td><td>Batör titreşimi, sarsak sesi</td><td class="num">₺ 7.500,00</td><td class="num">₺ 24.310,00</td><td class="num"><b>₺ 31.810,00</b></td></tr>
+                <tr><td><a href="#">IE-2026-00311</a></td><td>NH T6.155</td><td><span class="chip chip-success">Kapandı</span></td><td>28.06.2026</td><td>Periyodik bakım — 3.400 saat</td><td class="num">₺ 4.200,00</td><td class="num">₺ 14.700,00</td><td class="num"><b>₺ 18.900,00</b></td></tr>
+                <tr><td><a href="#">IE-2026-00208</a></td><td>NH T6.155</td><td><span class="chip chip-success">Kapandı</span></td><td>11.04.2026</td><td>Hidrolik kaçak — ön yükleyici</td><td class="num">₺ 3.000,00</td><td class="num">₺ 9.240,00</td><td class="num"><b>₺ 12.240,00</b></td></tr>
+                <tr><td><a href="#">IE-2025-01914</a></td><td>Claas Tucano 320</td><td><span class="chip">Faturalandı</span></td><td>02.09.2025</td><td>Hasat sonrası genel kontrol</td><td class="num">₺ 5.600,00</td><td class="num">₺ 11.150,00</td><td class="num"><b>₺ 16.750,00</b></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ===== AKTİVİTE ===== -->
+        <div class="panel" id="p-aktivite">
+          <div class="note warn" style="margin-bottom:var(--s2)">
+            ⓘ <b>Uç eksik (C-2):</b> <code>GET /activity-logs</code> bugün <code>user_id</code>, <code>action_type</code>, <code>resource_type</code>
+            ve tarihle filtreliyor; <code>resource_id</code> filtresi yok. “Şu müşteriye ait olaylar” sorgulanamıyor.
+          </div>
+          <ul class="tl">
+            <li><div class="row" style="justify-content:space-between"><div><div class="t">Satış oluşturuldu — SAT-2026-000482</div><div class="body2">Berkay Sungur · POS · 22.07.2026 14:02</div></div><span class="chip chip-info">satış</span></div></li>
+            <li><div class="row" style="justify-content:space-between"><div><div class="t">Tahsilat kaydedildi — ₺ 60.000,00</div><div class="body2">Ahmet Kaya · Havale · 18.07.2026 09:41</div></div><span class="chip chip-success">tahsilat</span></div></li>
+            <li><div class="row" style="justify-content:space-between"><div><div class="t">Risk limiti değiştirildi — ₺ 350.000 → ₺ 400.000</div><div class="body2">Berkay Sungur · 05.07.2026 16:20</div></div><span class="chip chip-warning">cari</span></div></li>
+            <li><div class="row" style="justify-content:space-between"><div><div class="t">Vade farkı belgesi işlendi — VF-2026-0044</div><div class="body2">Sistem · 01.07.2026 00:05</div></div><span class="chip chip-danger">finans</span></div></li>
+            <li><div class="row" style="justify-content:space-between"><div><div class="t">Makine sahipliği devredildi — Lemken Juwel 8</div><div class="body2">Berkay Sungur · 12.03.2026 11:08</div></div><span class="chip chip-info">makine</span></div></li>
+          </ul>
+        </div>
+
+        <!-- ===== DAHA FAZLA ===== -->
+        <div class="panel" id="p-daha">
+          <div class="note" style="margin-bottom:var(--s2)">
+            Düşük frekanslı sekmeler burada toplanır (doküman §3.2 · açık soru E). Dokunmatikte kaydırmalı sekme şeridini önler.
+          </div>
+          <div class="cols">
+            <div class="subcard">
+              <header><h3>Yetkili Kişiler</h3><button class="btn btn-ghost">+ Ekle</button></header>
+              <div>
+                <div class="lrow"><div><div class="t">Mehmet Yılmaz <span class="chip chip-success">Birincil</span></div><div class="body2">İşletme sahibi · 0532 118 44 07</div></div></div>
+                <div class="lrow"><div><div class="t">Havva Yılmaz</div><div class="body2">Muhasebe · 0536 907 21 55</div></div></div>
+              </div>
+            </div>
+            <div class="subcard">
+              <header><h3>Notlar</h3><button class="btn btn-ghost">+ Ekle</button></header>
+              <div>
+                <div class="lrow"><div><div class="t">Harman sonrası toplu ödeme yapacağını beyan etti.</div><div class="body2">18.07.2026 · Ahmet Kaya</div></div></div>
+                <div class="lrow"><div><div class="t">Gübre fiyatı için sezon başı sözleşme talebi var.</div><div class="body2">02.03.2026 · Berkay Sungur</div></div></div>
+              </div>
+            </div>
+            <div class="subcard">
+              <header><h3>Ürünler</h3></header>
+              <div class="empty"><div class="big">📦</div>Ürün kırılımı “Özet → En Çok Alınan Ürünler” kartından da açılabilir.</div>
+            </div>
+            <div class="subcard">
+              <header><h3>Görevler</h3><button class="btn btn-ghost">+ Ekle</button></header>
+              <div>
+                <div class="lrow"><div><div class="t">Harman öncesi tahsilat görüşmesi</div><div class="body2">01.08.2026 · Ahmet Kaya</div></div><span class="chip chip-danger">yüksek</span></div>
+                <div class="lrow"><div><div class="t">Risk limiti revizyonu teklifi</div><div class="body2">05.08.2026 · Atanmamış</div></div><span class="chip chip-warning">normal</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <p class="body2" style="text-align:center;padding:var(--s3) 0">
+        Sungur Tarım ERP · UX Yenileme FAZ-0 mockup · sahte veri · <b>kod değil</b>
+      </p>
+
+    </main>
+  </div>
+</div>
+
+<script>
+/* ==========================================================================
+   NAVİGASYON TANIMI — doküman §2.1 / §2.3
+   Tek kaynak: etiket + ikon + izin + grup.  U1'de bu yapı koda taşınır.
+   ========================================================================== */
+const ROLE_PERMS = {
+  admin:    ['*'],
+  yonetici: ['read','sales','purchases','payments','finance','stock','reports','users','machines'],
+  muhasebe: ['read','sales','purchases','payments','finance','reports'],
+  satis:    ['read','sales','payments'],
+  depo:     ['read','stock','purchases'],
+  rapor:    ['read','reports'],
+};
+
+/* Bugünkü düz menü — karşılaştırma sayacı için (AppShell.tsx:17) */
+const TODAY_PERMS = ['read','sales','read','read','read','read','read','read','read','read','read','read',
+  'payments','read','payments','finance','finance','read','stock','stock','read','reports','reports',
+  'reports','reports','reports','reports','read','users','users','users'];
+
+const NAV = [
+  {kind:'item', label:'Ana Sayfa',   icon:'⌂', perm:'read',  active:false},
+  {kind:'item', label:'Hızlı Satış', icon:'⚡', perm:'sales', pinned:true},
+  {kind:'group', label:'Satış', icon:'🧾', items:[
+    {label:'Satışlar', perm:'read'},
+    {label:'Teklif / Sipariş / İade', perm:'read'},
+  ]},
+  {kind:'group', label:'Müşteriler', icon:'👥', open:true, items:[
+    {label:'Müşteri Listesi', perm:'read', active:true},
+  ]},
+  {kind:'group', label:'Stok & Ürünler', icon:'📦', items:[
+    {label:'Ürünler', perm:'read'},
+    {label:'Stok Hareketleri', perm:'read'},
+    {label:'Depolar', perm:'stock'},
+    {label:'Stok Sayımları', perm:'stock'},
+    {label:'Şubeler Arası Transfer', perm:'read'},
+    {label:'Sezonsal Stok Planı', perm:'read'},
+    {label:'Parça Supersession', perm:'read'},
+  ]},
+  {kind:'group', label:'Satın Alma', icon:'🛒', items:[
+    {label:'Alışlar', perm:'read'},
+    {label:'Tedarikçiler', perm:'read'},
+    {label:'Satın Alma Panosu', perm:'reports'},
+    {label:'Tedarikçi Karşılaştırma', perm:'reports'},
+  ]},
+  {kind:'group', label:'Servis', icon:'🔧', items:[
+    {label:'İş Emirleri', perm:'read'},
+    {label:'Makineler', perm:'read'},
+    {label:'Teknisyenler', perm:'machines', soon:true},
+  ]},
+  {kind:'group', label:'Finans', icon:'💰', items:[
+    {label:'Tahsilat / Ödeme', perm:'payments'},
+    {label:'Alacaklar (Harman Vadesi)', perm:'payments'},
+    {label:'Tahsis Defteri', perm:'read'},
+    {label:'Nakit Yönetimi', perm:'finance'},
+    {label:'Alacak Yaşlandırma', perm:'reports'},
+    {label:'Harman Sezon Takvimi', perm:'finance'},
+  ]},
+  {kind:'group', label:'Yönetim', icon:'⚙️', items:[
+    {label:'Raporlar & Analizler', perm:'reports'},
+    {label:'Emilim Oranı', perm:'reports'},
+    {label:'Kullanıcılar', perm:'users'},
+    {label:'Firma / Şubeler', perm:'users'},
+    {label:'Aktivite', perm:'users'},
+    {label:'İşlem Geçmişi', perm:'users'},
+  ]},
+];
+
+const can = (role, perm) => {
+  const p = ROLE_PERMS[role];
+  return p.includes('*') || p.includes(perm);
+};
+
+function renderNav(role){
+  const nav = document.getElementById('nav');
+  nav.innerHTML = '';
+  let topLevel = 0;
+
+  const section = document.createElement('div');
+  section.className = 'overline nav-section';
+  section.textContent = 'Çalışma Alanı';
+  nav.appendChild(section);
+
+  NAV.forEach(entry => {
+    if(entry.kind === 'item'){
+      if(!can(role, entry.perm)) return;
+      topLevel++;
+      const b = document.createElement('button');
+      b.className = 'nav-item' + (entry.pinned ? ' group-head pinned' : '') + (entry.active ? ' active' : '');
+      b.innerHTML = `<span class="ico">${entry.icon}</span>${entry.label}`;
+      nav.appendChild(b);
+      return;
+    }
+
+    const visible = entry.items.filter(i => can(role, i.perm));
+    if(visible.length === 0) return;
+    topLevel++;
+
+    const d = document.createElement('details');
+    d.className = 'group';
+    if(entry.open) d.open = true;
+
+    const s = document.createElement('summary');
+    s.className = 'group-head';
+    s.style.listStyle = 'none';
+    s.innerHTML = `<span class="ico">${entry.icon}</span>${entry.label}<span class="chev">▶</span>`;
+    d.appendChild(s);
+
+    const body = document.createElement('div');
+    body.className = 'group-body';
+    visible.forEach(i => {
+      const b = document.createElement('button');
+      b.className = 'nav-item' + (i.active ? ' active' : '');
+      b.innerHTML = i.label + (i.soon ? '<span class="badge-soon">yakında</span>' : '');
+      body.appendChild(b);
+    });
+    d.appendChild(body);
+    nav.appendChild(d);
+  });
+
+  document.getElementById('navCount').textContent = topLevel + ' üst düzey';
+  document.getElementById('navToday').textContent =
+    TODAY_PERMS.filter(p => can(role, p)).length + ' düz madde';
+}
+
+/* rol seçici */
+const roleSel = document.getElementById('roleSel');
+roleSel.addEventListener('change', () => renderNav(roleSel.value));
+renderNav(roleSel.value);
+
+/* sekmeler */
+document.getElementById('tabs').addEventListener('click', e => {
+  const tab = e.target.closest('.tab');
+  if(!tab) return;
+  document.querySelectorAll('#tabs .tab').forEach(t => t.setAttribute('aria-selected', String(t === tab)));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.id === 'p-' + tab.dataset.p));
+});
+
+/* tema */
+const themeBtn = document.getElementById('themeBtn');
+themeBtn.addEventListener('click', () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme === 'dark';
+  root.dataset.theme = dark ? 'light' : 'dark';
+  themeBtn.textContent = dark ? '🌙' : '☀️';
+});
+
+/* dokunmatik yoğunluk */
+const dDesktop = document.getElementById('dDesktop');
+const dPos = document.getElementById('dPos');
+function setDensity(mode){
+  document.documentElement.dataset.density = mode;
+  dDesktop.setAttribute('aria-pressed', String(mode === 'desktop'));
+  dPos.setAttribute('aria-pressed', String(mode === 'pos'));
+}
+dDesktop.addEventListener('click', () => setDensity('desktop'));
+dPos.addEventListener('click', () => setDensity('pos'));
+</script>
+</body>
+</html>

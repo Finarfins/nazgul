@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Harman Zamanı</string>
+    <string name="title_activity_main">Harman Zamanı</string>
+    <string name="package_name">com.harmanzamani.app</string>
+    <string name="custom_url_scheme">com.harmanzamani.app</string>
+</resources>

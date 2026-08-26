@@ -1,0 +1,26 @@
+YEREL HESAP PRO NEXT 1.0.4
+
+Referans ekranlardan uyarlanan iş akışları:
+- Müşteri ve tedarikçi listelerinde hızlı işlem şeridi
+- Toplam kayıt göstergesi
+- İsim/ünvan alanında vurgulu, kolay seçilebilir satır görünümü
+- Ürün listesinde vurgulu ürün satırları
+- Excel'den müşteri yükleme
+- Excel'den tedarikçi yükleme
+- Excel'den ürün yükleme
+- Müşteri, tedarikçi ve ürün Excel şablonları
+- Excel aktarımında ekle/güncelle ayrımı
+- Ürün aktarımında kod, barkod veya isim eşleştirmesi
+- Excel stok aktarımının depo stoklarına ve hareket geçmişine işlenmesi
+- Mobil uyumlu Excel yükleme penceresi
+
+Kalite kapıları:
+- Tüm mevcut backend testleri geçti
+- Yeni Excel içe aktarma testleri geçti
+- Frontend TypeScript production build geçti
+- SQLite integrity_check: ok
+
+Çalıştırılamayan kapılar:
+- Docker runtime testi
+- Gerçek PostgreSQL runtime testi
+- Playwright gerçek tarayıcı testi

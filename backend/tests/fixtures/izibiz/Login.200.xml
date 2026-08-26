@@ -1,0 +1,1 @@
+<?xml version='1.0' encoding='UTF-8'?><S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/"><S:Body><ns3:LoginResponse xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:ns3="http://schemas.i2i.com/ei/wsdl"><SESSION_ID>oturum-jetonu</SESSION_ID></ns3:LoginResponse></S:Body></S:Envelope>

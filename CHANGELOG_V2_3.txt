@@ -1,0 +1,27 @@
+YEREL HESAP PRO V2.3 — TAHSİLAT/ÖDEME LİSTE STABİLİZASYONU
+
+Tamamlananlar:
+- Tahsilat/ödeme listesinde tarih aralığı filtresi
+- İşlem türü, ödeme yöntemi ve kaynak filtresi
+- Tarih, tutar ve cari adına göre sunucu taraflı sıralama
+- Tahsilat, ödeme, manuel hareket ve belgeye bağlı hareket özet kartları
+- Cari adına tıklayarak müşteri/tedarikçi detayına doğrudan geçiş
+- Mobil karttan cari detayına geçiş
+- Filtreleri tek tuşla temizleme
+- Geciken isteklerin yeni liste sonucunu ezmesini engelleme
+- Tahsilat/ödeme düzenleme ve silme sonrası finans hareketi tutarlılık testi
+- Belgeye bağlı otomatik hareketlerin koruması devam ediyor
+- Uygulama sürümü 2.3.0
+
+Kalite kapıları:
+- Tüm backend regresyon testleri geçti
+- ALL_V2_3_PAYMENT_LIST_TESTS_PASSED
+- Frontend TypeScript production build geçti
+- Gerçek servis smoke testi geçti
+- React index ve JS asset testi geçti
+- SQLite integrity_check: ok
+
+Çalıştırılamayan kapılar:
+- Playwright gerçek tarayıcı testi: çalışma ortamında localhost tarayıcı erişimi engelli
+- Docker runtime testi
+- Gerçek PostgreSQL runtime testi

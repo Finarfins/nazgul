@@ -1,0 +1,28 @@
+# Yerel sanal ortamların tümü: .venv, .venv-sandbox, .venv312 ...
+# (.gitignore backend/.venv-sandbox/ tanır; tek `**/.venv` onu kaçırıyordu ve
+# içindeki kırık symlink build context yüklemesini komple düşürüyordu)
+**/.venv*
+**/node_modules
+**/__pycache__
+**/*.pyc
+.git
+frontend/dist
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/*.db-journal
+**/*.sqlite3
+# Runtime restore journal yalnız kalıcı SUNGUR_DATA_DIR hacminden gelmelidir.
+**/restore_journal.jsonl
+**/*.dump
+**/*.bak
+**/migration_snapshots
+**/yedekler
+
+# Never send local secrets to the Docker build context
+.env
+.env.*
+**/.env
+**/.env.*
+!**/.env.example
+!.env.docker.example

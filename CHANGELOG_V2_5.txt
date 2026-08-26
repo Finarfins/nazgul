@@ -1,0 +1,32 @@
+YEREL HESAP PRO V2.5 — CARİ CRM VE RİSK YÖNETİMİ
+
+Tamamlananlar:
+- Müşteri ve tedarikçi kartına yetkili kişi
+- Risk limiti ve risk kullanım yüzdesi
+- Risk limiti aşıldı uyarısı
+- Varsayılan vade günü
+- Genel cari notu
+- Aktif / pasif cari yönetimi
+- Aktif, pasif ve tüm cariler filtresi
+- Vadesi geçen bakiye hesabı
+- Vadesi geçene göre sıralama
+- Son işlem tarihine göre sıralama
+- İsim, telefon, e-posta ve vergi no ile arama
+- Cari detayında vadesi geçen, risk limiti ve son hareket özeti
+- Müşteri ve tedarikçi için tarihçeli not ekleme/silme
+- Hareketi olan cariyi silmek yerine pasife alma yönlendirmesi
+- Mobil cari kartlarında vadesi geçen ve son işlem bilgisi
+- Uygulama sürümü 2.5.0
+
+Kalite kapıları:
+- Tüm önceki backend regresyon testleri yeniden geçti
+- ALL_V2_5_CARI_CRM_TESTS_PASSED
+- FRONTEND_TYPESCRIPT_BUILD_PASSED
+- SERVICE_SMOKE_TEST_PASSED
+- REACT_ASSET_SYNTAX_CHECK_PASSED
+- SQLITE_INTEGRITY_CHECK_PASSED
+
+Bekleyen ortam kapıları:
+- Playwright gerçek tarayıcı E2E
+- Docker image build
+- Gerçek PostgreSQL runtime testi

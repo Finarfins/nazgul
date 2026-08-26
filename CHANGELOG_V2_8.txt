@@ -1,0 +1,26 @@
+YEREL HESAP PRO V2.8 — DASHBOARD TIKLANABİLİR İŞLEMLER
+
+- Son satış satırları ilgili satış detayını router state/openId ile açar.
+- Son hareketlerde satış kaydı ilgili satış belgesini açar.
+- Tahsilat kaydı ilgili müşteri kartına gider.
+- Ödeme kaydı ilgili tedarikçi kartına gider.
+- Finans hareketi Nakit Yönetimi ekranına yönlendirir.
+- Vadesi geçen alacak satırları müşteri kartına gider.
+- Kritik/negatif stok satırları ürün detayını açar.
+- Kasa/banka hesap satırları Nakit Yönetimi ekranına gider.
+- Dashboard API recent_activity kayıtlarına entity_id/entity_type/account_id gezinme metadatası eklendi.
+- Dashboard için 3 yeni frontend regresyon testi eklendi.
+- Uygulama sürümü 2.8.0.
+
+Kalite kapıları:
+- Backend regresyon testleri geçti (Playwright hariç).
+- Frontend Vitest: 3 dosya / 6 test geçti.
+- Frontend TypeScript production build geçti.
+- Service smoke testi geçti.
+- React JS asset syntax kontrolü geçti.
+- SQLite integrity_check: ok.
+
+Bekleyen:
+- Playwright gerçek tarayıcı E2E: ortam localhost erişimini ERR_BLOCKED_BY_ADMINISTRATOR ile engelliyor.
+- Docker runtime testi.
+- Gerçek PostgreSQL runtime testi.

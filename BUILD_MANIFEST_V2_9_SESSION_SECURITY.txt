@@ -1,0 +1,22 @@
+Yerel Hesap Pro X V2.9 Session Security Checkpoint
+Tarih: 14 Temmuz 2026
+
+Ana değişen dosyalar:
+- backend/app/auth.py
+- backend/app/config.py
+- backend/app/main.py
+- backend/app/routers/auth.py
+- backend/alembic/versions/20260714_0004_rotating_sessions.py
+- backend/test_v2_9_session_security.py
+- frontend/src/api.ts
+- frontend/src/AuthContext.tsx
+- frontend/dist/*
+- docker-compose.yml
+- .env.docker.example
+
+Doğrulama:
+- Backend: 49 passed, 5 skipped, 0 failed
+- Frontend: 6/6 passed
+- Production build: passed
+- Alembic head: 20260714_0004
+- Production-ready: NO
