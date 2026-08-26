@@ -336,20 +336,7 @@ def test_checked_in_non_twin_skip_exception_list_matches_expectations() -> None:
 
     assert json.loads(path.read_text(encoding="utf-8")) == {
         "version": 1,
-        "exceptions": [
-            {
-                "nodeid": "tests/test_ci_playwright_hazirlik.py::test_durum_yok_sinir_asiminda_bir_dondurur",
-                "reason": "kutuya ozgu tarayici onbellek; sinir yolu tetiklenmiyor",
-            },
-            {
-                "nodeid": "tests/test_ci_playwright_hazirlik.py::test_durum_yok_komut_dusunce_bir_dondurur",
-                "reason": "kutuya ozgu tarayici onbellek; komut yolu tetiklenmiyor",
-            },
-            {
-                "nodeid": "tests/test_ci_playwright_hazirlik.py::test_iki_yok_gerekcesi_birbirinden_ayirt_ediliyor",
-                "reason": "kutuya ozgu tarayici onbellek; iki YOK yolu da tetiklenmiyor",
-            },
-        ],
+        "exceptions": [],
     }
 
 
