@@ -41,6 +41,11 @@ export type Parcel = {
 export type CropSeason = {
   id: number; parcel_id: number; parcel_name?: string | null;
   season_year: number; crop: string; variety: string | null; status: string;
+  // Sezonun bildirdiği stok ürünü. `crop` insanın okuduğu serbest metin,
+  // `product_id` ise stok defterine giden bağ — hasat ürününü buradan
+  // devralır. Bildirilmemişse null ve o sezonun hasatları stok hareketi
+  // üretmez (sunucuda adı konmuş `SKIPPED_NO_PRODUCT` kovası).
+  product_id: number | null;
   started_on: string | null; ended_on: string | null;
   planted_area_decare: Numeric | null; notes: string | null; updated_at: string;
 };

@@ -523,6 +523,76 @@ def _faaliyet_kalemleri(db: Session, firma: int, faaliyet_id: int) -> list[dict]
     return [dict(s) for s in satirlar]
 
 
+def _hasat_kalemleri(db: Session, firma: int, hasat_id: int) -> list[dict]:
+    """Hasadın ürünü: SEZON bildirir, hasat DEVRALIR (göç 20260827_0062).
+
+    `_faaliyet_kalemleri`nin KARDEŞİ ve SÖZLEŞMESİ AYNI: `id`, `product_id`,
+    `quantity` anahtarlı sözlüklerden oluşan bir liste. Çağıran ikisini AYIRT
+    ETMEZ — aynı döngü `Decimal(str(kalem["quantity"])) * yon` ile hareketi
+    yazar; yön `_KAYNAK`tan gelir ve hasat için +1'dir (ÜRETİM).
+
+    FAALİYETTEN TEK YAPISAL FARK: bir faaliyetin BİRDEN ÇOK girdisi olabilir,
+    bir hasat satırı ise TEK kalemdir. Liste yine de dönüyor, çünkü sözleşme
+    çağıranda tek: liste boşsa olay `SKIPPED_NO_PRODUCT` kovasına düşer.
+
+    `field_harvests.unit` OKUNMUYOR — kardeşi `field_activity_inputs.unit`i
+    okumadığı gibi. Hareket defteri birimi taşımıyor; miktar ürünün KENDİ
+    biriminde yazılıyor. Birimi burada okuyup görmezden gelmek, taşınıyormuş
+    izlenimi verirdi.
+
+    `product_id IS NOT NULL` KOŞULU KARDEŞİYLE AYNI GEREKÇEDEDİR ve
+    KALDIRILAMAZ: sütun NULL kabul eder (kabul etmek zorunda — bkz. göç
+    başlığı), ve ürünü bildirilmemiş sezonun hasadı ürün UYDURULARAK
+    yazılamaz. Bu koşul, `SKIPPED_NO_PRODUCT` kovasını ERİŞİLEBİLİR tutan
+    satırdır.
+
+    BİRLEŞTİRME İKİ YANDAN DA KİRACI KAPSAMLIDIR (`h.company_id` VE
+    `s.company_id`). Sezonu başka firmada olan bir hasat — veritabanı kısıtı
+    bunu zaten engelliyor — burada da ürünsüz görünür, sessizce başka
+    firmanın ürününü taşımaz.
+    """
+    satirlar = db.execute(
+        text(
+            """SELECT h.id AS id, s.product_id AS product_id,
+                   h.quantity AS quantity
+            FROM field_harvests h
+            JOIN crop_seasons s
+              ON s.id = h.season_id AND s.company_id = h.company_id
+            WHERE h.company_id = :company_id AND h.id = :hid
+              AND s.company_id = :company_id
+              AND s.product_id IS NOT NULL"""
+        ),
+        {"company_id": int(firma), "hid": int(hasat_id)},
+    ).mappings().all()
+    return [dict(s) for s in satirlar]
+
+
+#: Kaynak tipi -> stok taşıyacak KALEMLERİ okuyan işlev.
+#: ANAHTAR KÜMESİ `_KAYNAK` İLE AYNI OLMAK ZORUNDA. Eksik bir anahtar sessiz
+#: değil, ADI KONMUŞ bir yanlış cevap üretirdi: o kaynağın HER olayı sonsuza
+#: kadar `SKIPPED_NO_PRODUCT` kovasına düşer ve hiçbir yerde hata görünmez —
+#: bu dosyanın kapattığı kusurun TAM OLARAK kendisi. Eşitlik
+#: `tests/test_field_stok_tuketici.py` içinde dondurulmuştur.
+_KALEM_OKUYUCU = {
+    "field_activity": _faaliyet_kalemleri,
+    "field_harvest": _hasat_kalemleri,
+}
+
+#: `SKIPPED_NO_PRODUCT` kovasının GEREKÇESİ, kaynak tipine göre.
+#: Kova tek ama ORAYA DÜŞME SEBEBİ tek değil, ve ikisi FARKLI işler gerektirir:
+#: hasat için yapılacak şey SEZONA ürün bildirmek, faaliyet için GİRDİYE. Tek
+#: bir genel metin, `last_error`ı okuyan kişiyi hangi kaydı düzelteceğini
+#: bilmeden bırakırdı.
+_URUNSUZ_VARSAYILAN = "stok taşıyacak ürün bağı yok (%s)"
+_URUNSUZ_GEREKCE = {
+    "field_harvest": (
+        "sezonun ürünü bildirilmemiş; hasat stok taşıyamaz "
+        "(%s -> crop_seasons.product_id NULL)"
+    ),
+    "field_activity": "ürüne bağlı girdi yok; faaliyet stok taşıyamaz (%s)",
+}
+
+
 def _taze_oturumda_kurtar(
     db: Session, firma: int, olay_id: int, deneme: int, azami_deneme: int,
     mesaj: str,
@@ -739,16 +809,19 @@ def _bir_olayi_isle(
             db.commit()
             return DURUM_GORUNMEZ
 
-        kalemler = (
-            _faaliyet_kalemleri(db, firma, int(olay["source_id"]))
-            if tip == "field_activity" else []
-        )
-        # HASAT: ürüne giden yol YOK (ölçüldü). Ürün uydurmak yerine ADI KONMUŞ
-        # kovaya düşer. Ürünsüz girdi taşıyan faaliyet de buraya düşer.
+        kalem_oku = _KALEM_OKUYUCU.get(tip)
+        kalemler = kalem_oku(db, firma, int(olay["source_id"])) if kalem_oku else []
+        # ÜRÜNSÜZ KOVA — KALDIRILMADI, KAÇINILABİLİR YAPILDI.
+        # Buraya üç yoldan düşülür ve ÜÇÜ DE ADI KONMUŞ bir karardır:
+        #   * ürünü BİLDİRİLMEMİŞ sezonun hasadı (`crop_seasons.product_id`
+        #     NULL — göç 20260827_0062 sütunu bilerek NULL kabul eden yaptı),
+        #   * ürünsüz girdi taşıyan faaliyet,
+        #   * `_KAYNAK`ta olup `_KALEM_OKUYUCU`da olmayan bir kaynak tipi.
+        # Ürün uydurmak yerine olay burada SAYILARAK biter.
         if not kalemler:
             _olayi_sonlandir(
                 db, firma, olay_id, DURUM_URUNSUZ,
-                "stok taşıyacak ürün bağı yok (%s)" % tablo, deneme)
+                _URUNSUZ_GEREKCE.get(tip, _URUNSUZ_VARSAYILAN) % tablo, deneme)
             db.commit()
             return DURUM_URUNSUZ
 
