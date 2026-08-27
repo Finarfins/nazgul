@@ -1509,9 +1509,28 @@ print("TENANT_TABLES_JSON=" + json.dumps(tables))
 #      PG ikizi (test_field_stok_0061_postgresql.py) bu sayaca GIRMEZ:
 #      alt surec KULLANMIYOR, `test_platform_backups_postgresql.py` gibi
 #      surec ICINDE `command.downgrade` cagiriyor.
+#
+# 99/156 -> 99/160 (#2, 0062'nin BILESIK yabanci anahtari): +0 DOSYA, +4 metin.
+#   Dosya sayisi DEGISMIYOR: dordu de zaten sayilan
+#   `test_field_stok_tuketici_postgresql.py` icinde. Ayri surec bu dosyanin
+#   KURULU deseni; yeni problar onu izliyor.
+#   +1 metin  `_BILESIK_KURULUM` — iki kiracinin birer urunu ve A kiracisinda
+#      bir parsel. Capraz probun hedefi olan B urunu OLMADAN kisit hicbir sey
+#      reddedemezdi.
+#   +1 metin  `_PROB_GOVDESI` — sezona urun yazmayi UC kez dener (AYNI kiraci
+#      / BASKA kiraci / NULL) ve her birinin sonucunu SINIF + KISIT ADI ile
+#      basar. Zincir probu AYNI govdeyi tekrar kullanir: geri alma + yeniden
+#      kurulumdan sonra olculen sey oncekiyle HARFI HARFINE ayni olmali.
+#   +1 metin  `_HASAT_KURULUM` — urununu BILDIREN ve BILDIRMEYEN iki sezon,
+#      her birinde birer hasat ve olay.
+#   +1 metin  `_HASAT_TUKETICI` — tuketiciyi kosturup hareketi miktar VE TIP
+#      ile basar; PG NUMERIC -> `Decimal` sozlesmesi sqlite3'te olculemez.
+#   Bilesik yabanci anahtar SQLite'ta `PRAGMA foreign_keys` kapaliyken HIC
+#   denetlenmez ve 0062'nin batch yeniden kurulumu pragma'yi tam o pencerede
+#   kapatir; guvence ancak gercek PG'de olculebilir.
 # app/ altinda yine SIFIR: uretim kodu SQL'i alt surece VERMIYOR.
 BEKLENEN_ALT_SUREC_SQL_DOSYA = 99
-BEKLENEN_ALT_SUREC_SQL_METIN = 156
+BEKLENEN_ALT_SUREC_SQL_METIN = 160
 
 
 def _alt_surecte_sql() -> tuple[list[str], int]:
