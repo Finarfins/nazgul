@@ -31,7 +31,8 @@ import {
 } from '../farm/farmMetadataCache';
 import QuickActivity from './QuickActivity';
 
-const SEASON: CropSeason = {id: 5, parcel_id: 2, season_year: 2026, crop: 'Wheat', variety: null,
+const SEASON: CropSeason = {id: 5, parcel_id: 2, season_year: 2026, crop: 'Wheat',
+  product_id: null, variety: null,
   status: 'ACTIVE', started_on: '2026-03-01', ended_on: null,
   planted_area_decare: '40.0000', notes: null, updated_at: '2026-08-08T10:00:00Z'};
 

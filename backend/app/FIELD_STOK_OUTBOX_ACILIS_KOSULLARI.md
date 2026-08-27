@@ -3,10 +3,30 @@
 `FIELD_STOCK_OUTBOX_ENABLED` varsayılan olarak **false**'tur ve aşağıdaki
 DÖRT koşulun DÖRDÜ de var olmadan **true yapılmamalıdır**:
 
-1. **Hasat → ürün yolu.** Bugün `field_harvests` içinde `product_id` yok,
-   `crop_seasons.crop` serbest metin ve ikisinden de `products`a bağ yok
-   (ölçüldü, c9d3eb1). Bu yol olmadan HER hasat olayı terminal
-   `SKIPPED_NO_PRODUCT` kovasına düşer.
+1. ~~**Hasat → ürün yolu.**~~ **KARŞILANDI** (göç `20260827_0062`).
+   Eskiden: `field_harvests` içinde `product_id` yoktu, `crop_seasons.crop`
+   serbest metindi ve ikisinden de `products`a bağ yoktu (ölçüldü, c9d3eb1);
+   bu yol olmadan HER hasat olayı terminal `SKIPPED_NO_PRODUCT` kovasına
+   düşüyordu.
+
+   Bugün: **ÜRÜNÜ SEZON BİLDİRİR, HASAT DEVRALIR.** `crop_seasons.product_id`
+   var, `products`a bileşik (kiracı kapsamlı) yabancı anahtarla bağlı, ve
+   `field_stok_tuketici._hasat_kalemleri` hasadı sezonu üzerinden ürüne
+   çözüyor.
+
+   **KOVA KALDIRILMADI, KAÇINILABİLİR YAPILDI.** Sütun NULL kabul eder:
+   ürünü bildirilmemiş bir sezonun hasadı hâlâ `SKIPPED_NO_PRODUCT`a düşer —
+   artık gerekçesinde hangi kaydın düzeltileceğini söyleyerek. Yani bu koşul
+   "hiçbir hasat kovaya düşmez" anlamına GELMEZ; "düşmesi artık bir VERİ
+   EKSİĞİDİR, bir ŞEMA EKSİĞİ değil" anlamına gelir.
+
+   **ANAHTARI AÇMADAN ÖNCE ÖLÇÜLECEK ŞEY.** Mevcut sezonların ürünü
+   bildirilmemiş olarak gelir (göç değer UYDURMAZ). Açmadan önce:
+
+       SELECT count(*) FROM crop_seasons WHERE product_id IS NULL;
+
+   Sıfır değilse o sezonların hasatları kovaya düşmeye devam eder. Bu
+   ölçümün ANLAMLI olması, aşağıdaki 2. koşula (okuma yüzeyi) bağlıdır.
 2. **Başarısızlık sonuçları için bir okuma yüzeyi.** Uygulamada
    `field_integration_events` tablosunu okuyan hiçbir ekran/uç yok; kovalar
    yalnız süreç günlüğünde görünür.

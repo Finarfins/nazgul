@@ -25,14 +25,19 @@ import {
   type CropSeason, type Page, type Parcel,
 } from '../farm/farmApi';
 
+/** Ürün seçicinin listesi. `/products` düz dizi döner; `HarvestSeasonAdmin`
+ *  ile aynı savunmacı okuma kullanılıyor (dizi ya da `{items}`). */
+type ProductRow = {id: number; name: string; product_code?: string | null};
+
 type Form = {
-  parcel_id: string; season_year: string; crop: string; variety: string;
+  parcel_id: string; season_year: string; crop: string; product_id: string; variety: string;
   started_on: string; ended_on: string; planted_area_decare: string;
   status: string; notes: string;
 };
 
 const bosForm = (): Form => ({
-  parcel_id: '', season_year: String(new Date().getFullYear()), crop: '', variety: '',
+  parcel_id: '', season_year: String(new Date().getFullYear()), crop: '', product_id: '',
+  variety: '',
   started_on: '', ended_on: '', planted_area_decare: '', status: 'PLANNED', notes: '',
 });
 
@@ -46,6 +51,7 @@ export default function CropSeasons() {
 
   const [seasons, setSeasons] = useState<CropSeason[]>([]);
   const [parcels, setParcels] = useState<Parcel[]>([]);
+  const [products, setProducts] = useState<ProductRow[]>([]);
   const [yilFiltre, setYilFiltre] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -75,6 +81,22 @@ export default function CropSeasons() {
     }
   }, [yilFiltre]);
 
+  /** Ürün listesi AYRI yükleniyor ve hatası SESSİZ: ürün seçimi opsiyonel bir
+   *  alan, listesi gelmezse sezon yine kaydedilebilmeli. Sezon/parsel
+   *  yüklemesiyle aynı `Promise.all`a konsaydı `/products`taki bir arıza
+   *  bütün sayfayı hata ekranına düşürürdü. */
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await api.get<ProductRow[] | {items: ProductRow[]}>(
+          '/products', {params: {limit: 1000}});
+        setProducts(Array.isArray(r.data) ? r.data : r.data?.items || []);
+      } catch {
+        setProducts([]);
+      }
+    })();
+  }, []);
+
   useEffect(() => {
     void yukle();
   }, [yukle]);
@@ -85,6 +107,15 @@ export default function CropSeasons() {
     return map;
   }, [parcels]);
   const parselAdi = (id: number) => parselBilgi.get(id)?.name ?? `#${id}`;
+
+  const urunAdi = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const p of products) map.set(p.id, p.name);
+    // Bildirilmemiş ürün "—" DEĞİL, açıkça söyleniyor: bu sezonun hasadı
+    // stoğa işlenmez ve kullanıcının düzeltebilmesi için bunu görmesi gerek.
+    return (id: number | null | undefined) =>
+      id === null || id === undefined ? 'Bildirilmemiş' : map.get(id) ?? `#${id}`;
+  }, [products]);
 
   /** Seçili parselin alanı — forma "en fazla bu kadar" bilgisi düşmek için. */
   const secilenParsel = parselBilgi.get(Number(dialog.form.parcel_id));
@@ -97,6 +128,8 @@ export default function CropSeasons() {
       parcel_id: Number(form.parcel_id),
       season_year: Number(form.season_year),
       crop: form.crop.trim(),
+      // Boş seçim NULL gider — "ürün bildirilmemiş" geçerli bir durum.
+      product_id: form.product_id === '' ? null : Number(form.product_id),
       variety: bosNull(form.variety),
       started_on: bosNull(form.started_on),
       ended_on: bosNull(form.ended_on),
@@ -126,7 +159,10 @@ export default function CropSeasons() {
       open: true, row,
       form: {
         parcel_id: String(row.parcel_id), season_year: String(row.season_year),
-        crop: row.crop, variety: row.variety || '',
+        crop: row.crop,
+        product_id: row.product_id === null || row.product_id === undefined
+          ? '' : String(row.product_id),
+        variety: row.variety || '',
         started_on: row.started_on?.slice(0, 10) || '', ended_on: row.ended_on?.slice(0, 10) || '',
         planted_area_decare: row.planted_area_decare === null ? '' : String(row.planted_area_decare),
         status: row.status, notes: row.notes || '',
@@ -205,6 +241,7 @@ export default function CropSeasons() {
         cardTitle={row => (row.variety ? `${row.crop} (${row.variety})` : row.crop)}
         cardSubtitle={row => `${row.season_year} · ${parselAdi(row.parcel_id)}`}
         cardFields={[
+          {label: 'Stok ürünü', value: row => urunAdi(row.product_id)},
           {label: 'Ekilen alan', value: row => (row.planted_area_decare === null ? 'Girilmemiş' : `${qty(row.planted_area_decare)} dekar`)},
           {label: 'Başlangıç', value: row => isoDate(row.started_on)},
           {label: 'Durum', value: row => <Chip size="small" color={durumRengi(row.status)} label={seasonStatusLabel(row.status)} />},
@@ -232,6 +269,25 @@ export default function CropSeasons() {
               <TextField label="Yıl" required type="number" sx={{minWidth: 110}} value={dialog.form.season_year}
                 onChange={e => setDialog(d => ({...d, form: {...d.form, season_year: e.target.value}}))} />
             </Stack>
+            <TextField
+              select
+              label="Stok ürünü"
+              value={dialog.form.product_id}
+              disabled={!products.length}
+              helperText={
+                products.length
+                  ? 'Bu sezonun hasadı hangi stok ürününe yazılsın? Boş bırakılabilir — ama boşsa hasat stoğa işlenmez.'
+                  : 'Ürün listesi yüklenemedi; sezon ürünsüz kaydedilebilir.'
+              }
+              onChange={e => setDialog(d => ({...d, form: {...d.form, product_id: e.target.value}}))}
+            >
+              <MenuItem value="">Ürün bildirilmemiş</MenuItem>
+              {products.map(p => (
+                <MenuItem key={p.id} value={String(p.id)}>
+                  {p.name}{p.product_code ? ` — ${p.product_code}` : ''}
+                </MenuItem>
+              ))}
+            </TextField>
             <TextField
               label="Ekilen alan (dekar)"
               inputMode="decimal"

@@ -7835,6 +7835,8 @@ export interface components {
             parcel_id: number;
             /** Planted Area Decare */
             planted_area_decare?: number | string | null;
+            /** Product Id */
+            product_id?: number | null;
             /** Season Year */
             season_year: number;
             /** Started On */
@@ -7859,6 +7861,8 @@ export interface components {
             parcel_id: number;
             /** Planted Area Decare */
             planted_area_decare?: number | string | null;
+            /** Product Id */
+            product_id?: number | null;
             /** Season Year */
             season_year: number;
             /** Started On */

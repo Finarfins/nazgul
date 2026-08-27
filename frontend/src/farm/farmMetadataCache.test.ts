@@ -12,7 +12,8 @@ import {
 } from './farmMetadataCache';
 
 const season = (id: number): CropSeason => ({
-  id, parcel_id: id * 10, season_year: 2026, crop: `Crop ${id}`, variety: null,
+  id, parcel_id: id * 10, season_year: 2026, crop: `Crop ${id}`, product_id: null,
+  variety: null,
   status: 'ACTIVE', started_on: '2026-03-01', ended_on: null,
   planted_area_decare: '20.0000', notes: null, updated_at: '2026-08-08T10:00:00Z',
 });

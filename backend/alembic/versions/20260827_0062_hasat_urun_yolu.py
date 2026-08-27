@@ -78,11 +78,28 @@ ile KIRIK REFERANS KALMADIĞINI ÖLÇ, pragma'yı GERİ AÇ.
 1. **`foreign_key_check` ATLANAMAZ.** Pragma kapalıyken yeniden kurulum
    sessizce kırık referans bırakabilir; kontrol olmadan bu ancak aylar sonra,
    rastgele bir sorguda görünürdü. Kırık referans bulunursa göç DURUR.
-2. **PRAGMA GERİ AÇILMAK ZORUNDA.** Bağlantı HAVUZLUDUR: kapalı bırakılan
-   pragma o bağlantının ÖMRÜ BOYUNCA bütün uygulamada yabancı anahtar
-   denetimini sessizce kapatırdı. Ölçüldü: geri açılmayan bir koşumda
-   çapraz-firma ürün işaret eden bir sezon KABUL EDİLDİ; geri açılan koşumda
-   `IntegrityError` ile REDDEDİLDİ. Bu yüzden geri açma `finally`dedir.
+2. **GERİ AÇMAYI BU GÖÇ TEK BAŞINA YAPAMAZ — GÜVENCE `app/db.py`DEDİR.**
+   Bağlantı HAVUZLUDUR: kapalı bırakılan pragma o bağlantının ÖMRÜ BOYUNCA
+   bütün uygulamada yabancı anahtar denetimini sessizce kapatır.
+
+   Buradaki `finally` geri açmayı DENER ama ETKİSİZDİR ve bu ölçüldü:
+   `PRAGMA foreign_keys` AÇIK BİR İŞLEM İÇİNDE NO-OP'tur, yeniden kurulumun
+   kopyalama adımı ise işlemi çoktan açmıştır. Ölçüm (2026-08-27, bu depo):
+   göçten sonra havuzdan gelen bağlantı `foreign_keys=0` ile geliyordu ve
+   `field_activity_inputs -> products` kısıtının 409 döndürmesi gereken yerde
+   200 döndüğü `test_supplier_price_profile_delete_net.py` ile KIRMIZI
+   yakalandı. (Açılıştaki `PRAGMA foreign_keys=OFF` ETKİLİDİR: o anda açık
+   işlem YOKTUR.)
+
+   Bu yüzden güvence buraya değil, pragma sözleşmesinin yaşadığı yere kondu:
+   `app/db.py` artık pragma'yı HER HAVUZ TESLİMİNDE (`checkout`) yeniden
+   dayatıyor — teslim anında açık işlem olmadığı için orada GERÇEKTEN etki
+   eder. Buradaki `finally` savunmanın İKİNCİ katmanıdır, BİRİNCİSİ değil.
+
+   İŞLEM SINIRINA DOKUNULMADI. Pragma'yı etkili kılmanın öbür yolu göç
+   ortasında COMMIT etmekti; bu, alembic'in `transaction_per_migration`
+   işlemini İKİYE BÖLERDİ. Ölçülen kusur bunu gerektirmiyor, o yüzden
+   yapılmadı.
 
 PostgreSQL'de yeniden kurulum YOKTUR — `ALTER TABLE ... ADD CONSTRAINT`
 yerinde çalışır — ve pragma da yoktur; yordamın tamamı diyalekte bağlıdır.
@@ -164,8 +181,10 @@ class _YenidenKurulumKapisi:
                         f"durdu. PRAGMA foreign_key_check: {kirik[:5]!r}"
                     )
         finally:
-            # HAVUZLU BAĞLANTI: bu satır atlanırsa yabancı anahtar denetimi
-            # bütün uygulamada sessizce kapalı kalır (ölçüldü, bkz. başlık).
+            # İKİNCİ KATMAN, BİRİNCİSİ DEĞİL. Bu satır AÇIK BİR İŞLEM İÇİNDE
+            # NO-OP'tur (ölçüldü, bkz. başlık); asıl güvence `app/db.py`nin
+            # `checkout` kancasıdır. Yine de duruyor: işlemin kapalı olduğu
+            # bir çağrı yolu ortaya çıkarsa temizliği burada yapar.
             self._bind.exec_driver_sql("PRAGMA foreign_keys=ON")
         return False
 

@@ -51,6 +51,37 @@ if is_sqlite:
         finally:
             cursor.close()
 
+    @event.listens_for(engine, "checkout")
+    def _reassert_foreign_keys(dbapi_connection, _connection_record, _proxy) -> None:
+        """Yabancı anahtar denetimini HER TESLİMDE yeniden dayat.
+
+        NEDEN BAĞLANTI AÇILIŞI YETMİYOR — ÖLÇÜLDÜ, VARSAYILMADI.
+        `PRAGMA foreign_keys` BAĞLANTI ÖMÜRLÜDÜR ve bir kez kapatıldığında o
+        bağlantı havuza KAPALI olarak geri döner; sonraki her istek onu ölü bir
+        güvenceyle devralır. Kapatan taraf niyetli de olabilir: SQLite'ta tablo
+        yeniden kurmanın (bileşik kısıt eklemenin) BELGELENMİŞ yordamı
+        pragma'yı kapatmaktır — bkz. göç `20260827_0062`.
+
+        VE KAPATAN TARAF KENDİ TEMİZLİĞİNİ YAPAMAZ: `PRAGMA foreign_keys`
+        AÇIK BİR İŞLEM İÇİNDE NO-OP'TUR ve yeniden kurulumun kopyalama adımı
+        işlemi çoktan açmıştır. Ölçüldü (2026-08-27): göç sonunda pragma'yı
+        geri açan bir `finally` HİÇBİR ŞEY YAPMIYOR; havuzdan gelen bağlantı
+        `foreign_keys=0` ile geliyor ve `field_activity_inputs -> products`
+        gibi bir kısıtın 409 döndürmesi gereken yerde 200 dönüyordu
+        (`test_supplier_price_profile_delete_net.py` bunu KIRMIZI yakaladı).
+
+        Teslim anında hiçbir işlem açık DEĞİLDİR; pragma burada GERÇEKTEN
+        etki eder. Böylece güvence "kimse kapatmadıysa geçerli"den
+        "teslim edilen her bağlantıda geçerli"ye çıkar.
+
+        Bedeli SQLite'ta teslim başına tek bir pragma ifadesidir.
+        """
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA foreign_keys=ON")
+        finally:
+            cursor.close()
+
 def _is_write_statement(statement) -> bool:
     if isinstance(statement, (Insert, Update, Delete)):
         return True
