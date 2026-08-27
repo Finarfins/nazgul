@@ -48,6 +48,7 @@ from .routers import (
     customers,
     dashboard,
     demo,
+    entegrasyon_olaylari,
     finance,
     farm,
     cost_rates,
@@ -514,6 +515,11 @@ app.include_router(finance.router, prefix="/api")
 # Tarla Yönetimi V1 (mobil-erp#2). Öneksiz: uçlar /api/farms,
 # /api/farm-parcels, /api/field-activities … olarak issue'da sabitlendi.
 app.include_router(farm.router, prefix="/api")
+# Outbox okuma yuzeyi (FIELD_STOK_OUTBOX acilis kosulu 2). AYRI router:
+# alan bir PARAMETREDIR (bkz. `OlayYuzeyi`), yani ikinci outbox tablosu
+# (`herd_integration_events`) icin ayni modulde bir betimleyici eklemek
+# yeterli olacak; farm.py'ye gomulseydi surunun yuzeyi ORAYA yazilirdi.
+app.include_router(entegrasyon_olaylari.router, prefix="/api")
 # Hayvancılık V1 (mobil-erp#17). Öneksiz: uçlar /api/animals, /api/animal-*,
 # /api/milk-yields, /api/herd-dashboard olarak issue'da sabitlendi.
 app.include_router(herd.router, prefix="/api")

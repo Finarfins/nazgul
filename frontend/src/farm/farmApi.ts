@@ -95,6 +95,98 @@ export type FarmDashboardData = {
 
 export type Page<T> = {items: T[]; total: number; limit: number; offset: number};
 
+// ---------------------------------------------------------------------------
+// Outbox okuma yüzeyi (FIELD_STOK_OUTBOX açılış koşulu 2).
+//
+// TİPLER ALAN ADI TAŞIMIYOR — bilerek. Sunucu tarafında alan bir PARAMETRE
+// (`OlayYuzeyi`); ikinci outbox tablosu (`herd_integration_events`) eklendiğinde
+// yanıt AYNI anahtarları döndürecek, yalnız `source` değişecek. Tipleri
+// `Field...` diye adlandırmak, o gün her şeyi yeniden adlandırmak demek olurdu.
+//
+// `attempts` ve `processed_at` NULL OLABİLİR: sürü tablosunda o sütunlar YOK ve
+// sunucu onları `null` olarak döndürüyor. Bugün tarla için hep dolu; tip yine de
+// gerçeği söylüyor.
+// ---------------------------------------------------------------------------
+
+/** Outbox olayı — kuyruğun tek satırı. */
+export type IntegrationEvent = {
+  id: number;
+  source_type: string;
+  source_id: number;
+  target: string;
+  status: string;
+  attempts: number | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+  processed_at: string | null;
+};
+
+/** Kaynak tipi × durum kırılımında tek kova. */
+export type IntegrationEventBucket = {
+  source_type: string;
+  status: string;
+  count: number;
+  /** Kovadaki EN ESKİ olayın zamanı: birikimin yaşı. */
+  oldest_created_at: string | null;
+};
+
+export type IntegrationEventSummary = {
+  source: string;
+  buckets: IntegrationEventBucket[];
+  total: number;
+  pending_total: number;
+  failed_total: number;
+};
+
+export type IntegrationEventPage = Page<IntegrationEvent> & {source: string};
+
+/** Yüzeyin kök yolu. İkinci alan eklendiğinde burası bir eşleme olur. */
+export const FIELD_EVENTS_PATH = '/field-integration-events';
+
+export async function fetchIntegrationEventSummary(
+  path: string = FIELD_EVENTS_PATH,
+): Promise<IntegrationEventSummary> {
+  const response = await api.get(`${path}/summary`);
+  return response.data as IntegrationEventSummary;
+}
+
+export async function fetchIntegrationEvents(
+  params: {limit?: number; offset?: number; status?: string; source_type?: string; failed_only?: boolean} = {},
+  path: string = FIELD_EVENTS_PATH,
+): Promise<IntegrationEventPage> {
+  const response = await api.get(path, {params});
+  return response.data as IntegrationEventPage;
+}
+
+/**
+ * Kova adının insan okunur karşılığı. ADI OLMAYAN bir durum GİZLENMEZ —
+ * ham değer geri döner: sunucu yeni bir kova eklerse ekran onu "bilinmeyen"
+ * diye yutmak yerine adıyla gösterir.
+ */
+export const EVENT_STATUS_LABELS: Record<string, string> = {
+  PENDING: 'Bekliyor',
+  CLAIMED: 'İşleniyor',
+  SENT: 'Stok hareketi yazıldı',
+  SKIPPED_SOURCE_NOT_VISIBLE: 'Kaynak kayıt bu firmada yok',
+  SKIPPED_NO_PRODUCT: 'Ürün bağı yok',
+  DEAD: 'Deneme hakkı bitti',
+};
+export const eventStatusLabel = (v: string) => EVENT_STATUS_LABELS[v] ?? v;
+
+export const EVENT_SOURCE_LABELS: Record<string, string> = {
+  field_activity: 'Faaliyet',
+  field_harvest: 'Hasat',
+};
+export const eventSourceLabel = (v: string) => EVENT_SOURCE_LABELS[v] ?? v;
+
+/** BAŞARISIZLIK kovaları — sunucudaki `basarisiz_kovalar` demetinin ikizi. */
+export const FAILED_EVENT_STATUSES = [
+  'SKIPPED_SOURCE_NOT_VISIBLE',
+  'SKIPPED_NO_PRODUCT',
+  'DEAD',
+] as const;
+
 /** Yürürlükteki ilaç güvenlik kısıtı (bkz. /api/field-safety). */
 export type SafetyBlock = {
   activity_id: number; activity_type: string; performed_on: string;

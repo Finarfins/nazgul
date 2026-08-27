@@ -735,6 +735,12 @@ _FARM_PATH_PREFIXES = (
     # yaşandı; `tests/test_farm_management_api.py` artık öneki `/api/field-`
     # olan HER tarla ucunun burada olmasını zorluyor.
     "/api/field-safety",
+    # Outbox okuma yuzeyi (acilis kosulu 2). BU LISTEDE OLMAK ZORUNDA:
+    # "/api/field-integration-events" de "/api/field" ile BASLIYOR, yani
+    # asagidaki genel kural onu SESSIZCE `field_service` iznine baglardi —
+    # saha teknisyeni tarla kuyrugunu okur, satis/rapor rolleri okuyamazdi.
+    # Kuyruk TARLA verisidir; GET -> `farm.view`.
+    "/api/field-integration-events",
 )
 
 #: Hayvancılık uçları (mobil-erp#17). Tarla ile AYNI TUZAK burada da var:

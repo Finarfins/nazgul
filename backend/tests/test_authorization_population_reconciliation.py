@@ -13,8 +13,9 @@ Denetim iki rakam üretti ve ikisi bir süre "uzlaştırılmamış" kaldı:
   "Yetki nerede yapısal olarak HAYIR diyemiyor?" sorusunun doğru cevabı.
 * **67** — kesişim: 95'in ``read`` alt kümesi (denetim anında 66 idi).
 
-İlişki ``90 = 67 + 23`` ve ``95 = 67 + 28`` (denetim anında ``89 = 66 + 23``
-ve ``94 = 66 + 28``). Bu ilişki bir süre yalnız DÜZ YAZI
+İlişki ``90 = 67 + 23`` ve ``97 = 67 + 30`` (denetim anında ``89 = 66 + 23``
+ve ``94 = 66 + 28``; ``95 -> 97`` outbox okuma yüzeyinin iki ucudur, bkz.
+``EXPECTED_UNDENIABLE`` üstündeki SAYAÇ HAREKETİ notu). Bu ilişki bir süre yalnız DÜZ YAZI
 olarak vardı ve inceleme haklı olarak reddetti: **yanlış sınıflanmış ya da
 atlanmış tek bir uç, büyüklükleri KORUYARAK ilişkiyi geçersiz kılabilir.**
 Doğru kanıt sayı değil, ÜYELİKTİR — bu yüzden aşağıdaki iki küme elle yazıldı
@@ -78,9 +79,30 @@ from app.main import PUBLIC_API, app  # noqa: E402
 #:
 #: Maruziyet: tek bir boolean yapılandırma bayrağı. Kiracı verisi yok; uç
 #: ``company_id(request)`` çağırdığı için kiracı kapısı korunur.
-EXPECTED_AUTHENTICATED = 328
+#: SAYAÇ HAREKETİ — outbox OKUMA yüzeyi (FIELD_STOK_OUTBOX açılış koşulu 2).
+#: İki salt-okuma uç eklendi: GET /api/field-integration-events ve
+#: .../summary. İkisi de `farm.view` iznine çözülür.
+#:
+#: ÜÇ SAYACIN İKİSİ ARTAR:
+#:   * kimlik ister (PUBLIC_API'de değil)            -> 328 -> 330
+#:   * `read`E ÇÖZÜLMEZ (`farm.view`), yani EXPECTED_READ DEĞİŞMEZ -> 91
+#:   * altı rolün altısı da `farm.view` taşıdığı için hiçbir rol
+#:     değeriyle reddedilemez; FARM_HERD_VIEW_OPERATIONS'a girer
+#:     ve reddedilemez küme büyür                    -> 95 -> 97
+#:
+#: 95 -> 97 ARTIŞI SESSİZ DEĞİLDİR ve bedeli AÇIKÇA yazılıyor: kuyruğu
+#: okumak `farm.view` demektir ve bu izni altı rolün altısı da taşır, yani
+#: tarla verisini görebilen HERKES kuyruğu da görür. Bu bilinçli: kuyruk
+#: parsel/sezon/hasat listeleriyle AYNI veriyi başka bir açıdan gösteriyor
+#: (hangi faaliyet/hasat stoğa işlenmedi ve neden) — ondan daha dar bir
+#: izin, aynı bilgiyi zaten görebilen bir role kapı kapatmak olurdu.
+#: Uçlar SALT OKUR; yeniden kuyruklama (koşul 3) bu yüzeyde YOKTUR ve
+#: geldiği gün kendi YAZMA iznini gerektirir — `farm.view` ona yetmez.
+#: Maruziyet: olayın kimliği, kaynak tipi/kimliği, durumu, deneme sayısı,
+#: gerekçe metni ve zaman damgaları. `idempotency_key` DÖNDÜRÜLMÜYOR.
+EXPECTED_AUTHENTICATED = 330
 EXPECTED_READ = 91
-EXPECTED_UNDENIABLE = 95
+EXPECTED_UNDENIABLE = 97
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
 #: sonra kendi kapılarına takılırlar. 89'a dahil, 94'e DEĞİL.
@@ -140,6 +162,8 @@ FARM_HERD_VIEW_OPERATIONS = {
     ("GET", "/api/field-dashboard"),
     ("GET", "/api/field-harvest-decision"),
     ("GET", "/api/field-harvests"),
+    ("GET", "/api/field-integration-events"),
+    ("GET", "/api/field-integration-events/summary"),
     ("GET", "/api/field-safety"),
     ("GET", "/api/field-tasks"),
     ("GET", "/api/herd-dashboard"),
@@ -335,7 +359,8 @@ def test_guarded_read_membership_not_just_magnitude() -> None:
 def test_farm_and_herd_view_membership_not_just_magnitude() -> None:
     _, _, _, farm_herd = _populations()
     assert farm_herd == FARM_HERD_VIEW_OPERATIONS
-    assert len(farm_herd) == 28
+    # 28 -> 30: outbox okuma yüzeyinin iki ucu (bkz. SAYAÇ HAREKETİ notu).
+    assert len(farm_herd) == 30
 
 
 def test_eightynine_partitions_into_sixtysix_and_twentythree() -> None:

@@ -64,6 +64,7 @@ const FieldActivities=lazy(()=>import('./pages/FieldActivities'));
 const FieldTasks=lazy(()=>import('./pages/FieldTasks'));
 const FieldHarvests=lazy(()=>import('./pages/FieldHarvests'));
 const ParcelDetail=lazy(()=>import('./pages/ParcelDetail'));
+const IntegrationEvents=lazy(()=>import('./pages/IntegrationEvents'));
 const QuickActivity=lazy(()=>import('./pages/QuickActivity'));
 const HerdDashboard=lazy(()=>import('./pages/HerdDashboard'));
 const Animals=lazy(()=>import('./pages/Animals'));
@@ -130,6 +131,7 @@ export default function App(){
       <Route path="tarla/faaliyetler" element={<FieldActivities/>}/>
       <Route path="tarla/gorevler" element={<FieldTasks/>}/>
       <Route path="tarla/hasat" element={<FieldHarvests/>}/>
+      <Route path="tarla/olay-kuyrugu" element={<IntegrationEvents/>}/>
       <Route path="tarla/hizli-giris" element={<QuickActivity/>}/>
       <Route path="tarla/parseller/:id" element={<ParcelDetail/>}/>
       {/* Hayvancılık AYRI bir alan (mobil-erp#17): tarlanın altına konsaydı
