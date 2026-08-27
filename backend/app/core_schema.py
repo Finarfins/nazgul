@@ -98,6 +98,14 @@ products = Table(
     # later-added column shows up as a presence diff and breaks the numeric
     # migration reconciliation gate.
     Column("company_id", Integer, nullable=False, index=True),
+    # Çocuğun bileşik yabancı anahtarının hedefi — `orders`taki ile aynı
+    # gerekçe. Bugünkü tek çocuk `crop_seasons.product_id`
+    # (`fk_crop_seasons_product_same_company`, göç 20260827_0062): bir
+    # kiracının sezonu BAŞKA kiracının ürününü işaret edemesin diye referans
+    # `company_id`yi de adlandırıyor, ve bunun için hedefin çift üzerinden
+    # tekil olması gerekiyor. Taze kurulumda buradan, mevcut veritabanlarında
+    # 20260827_0062'den gelir; iki yol AYNI kısıtı bırakmak zorunda.
+    UniqueConstraint("company_id", "id", name="uq_products_company_id"),
 )
 Index("ix_products_company_active_name", products.c.company_id, products.c.active, products.c.name)
 Index("ix_products_company_code", products.c.company_id, products.c.product_code)

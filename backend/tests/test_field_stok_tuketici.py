@@ -153,11 +153,38 @@ def girdi(db, gid, aid, urun, miktar, firma=FIRMA):
          i=gid, c=firma, a=aid, p=urun, q=miktar, z=ZAMAN)
 
 
-def hasat(db, hid, firma=FIRMA):
+def hasat(db, hid, firma=FIRMA, sezon_id=None):
+    """50 kg hasat. `sezon_id` verilmezse firmanın varsayılan sezonu (ÜRÜNSÜZ)."""
+    sez = sezon_id if sezon_id is not None else (1 if firma == FIRMA else 2)
     _yaz(db, "INSERT INTO field_harvests (id,company_id,season_id,harvested_on,"
              "quantity,unit,status,created_at,updated_at) "
              "VALUES (:i,:c,:sez,'2026-08-15','50.0000','kg','RECORDED',:z,:z)",
-         i=hid, c=firma, sez=(1 if firma == FIRMA else 2), z=ZAMAN)
+         i=hid, c=firma, sez=sez, z=ZAMAN)
+
+
+def sezon(db, sid, urun=None, firma=FIRMA):
+    """Ek sezon. `urun` None ise sezon ÜRÜNÜNÜ BİLDİRMEMİŞTİR (göç 0062)."""
+    _yaz(db, "INSERT INTO crop_seasons (id,company_id,parcel_id,season_year,crop,"
+             "product_id,status,created_at,updated_at) "
+             "VALUES (:i,:c,:p,2026,'Ek Ekim',:u,'ACTIVE',:z,:z)",
+         i=sid, c=firma, p=(1 if firma == FIRMA else 2), u=urun, z=ZAMAN)
+
+
+def sezon_urunu(db, sid, urun, firma=FIRMA):
+    _yaz(db, "UPDATE crop_seasons SET product_id = :u "
+             "WHERE id = :i AND company_id = :c", u=urun, i=sid, c=firma)
+
+
+def gerekce(db, oid):
+    return db.execute(_sql(
+        "SELECT last_error FROM field_integration_events WHERE id = :i"),
+        {'i': oid}).scalar_one()
+
+
+def hareketler(db):
+    return db.execute(_sql(
+        "SELECT product_id, quantity FROM stock_movements "
+        "WHERE reference_type = 'field_integration_event' ORDER BY id")).all()
 
 
 def olay(db, oid, tip, sid, firma=FIRMA, deneme=0):
@@ -346,11 +373,109 @@ print('KIRACI-TAMAM')
 
 
 def test_hasat_URUNSUZ_kovasina_dusuyor(tmp_path: Path) -> None:
-    """Hasadın ürüne giden yolu YOK; uydurmak yerine adı konmuş kovaya düşer."""
+    """Ürünü BİLDİRİLMEMİŞ sezonun hasadı adı konmuş kovaya düşer.
+
+    Göç 20260827_0062 `crop_seasons.product_id`yi ekledi ama NULL KABUL EDEN
+    yaptı; `kur`un bıraktığı sezon 1 ürününü BİLDİRMEZ. Yani bu kova
+    KALDIRILMADI, KAÇINILABİLİR yapıldı — ve kaçınılmadığında hâlâ buraya
+    düşülür. Kardeşi `test_hasat_URUNLU_sezonda_HAREKET_uretiyor` aynı
+    kurulumda diğer yönü ölçer; ikisi birlikte "hasat hiç hareket üretmiyor"
+    ve "hasat her zaman hareket üretiyor" yanlışlarının İKİSİNİ de çürütür.
+    """
     _kos(r'''
 with SessionLocal() as db:
     kur(db)
-    hasat(db, 1)
+    hasat(db, 1)                       # sezon 1: product_id NULL
+    olay(db, 1, 'field_harvest', 1)
+    db.commit()
+
+    sayac = olaylari_isle(db, FIRMA)
+    db.commit()
+    neden = gerekce(db, 1)
+
+print('SAYAC %r' % (sayac,))
+print('GEREKCE %r' % (neden,))
+assert sayac['SKIPPED_NO_PRODUCT'] == 1, sayac
+assert hareket_sayisi(db) == 0, 'urun bagi yokken hareket yazildi'
+assert neden and 'crop_seasons.product_id' in neden, (
+    'gerekce HANGI kaydin duzeltilecegini SOYLEMIYOR', neden)
+print('URUNSUZ-TAMAM')
+''', tmp_path / "urunsuz.db", "URUNSUZ-TAMAM")
+
+
+def test_hasat_URUNLU_sezonda_HAREKET_uretiyor(tmp_path: Path) -> None:
+    """İKİ YÖN TEK ÖLÇÜMDE: ürünlü sezon taşır, ürünsüz sezon kovaya düşer.
+
+    Mutlu yolu TEK BAŞINA ölçmek yetmezdi. "Her hasat hareket üretiyor"
+    (sezonun bildirimi HİÇ okunmuyor) bir mutlu-yol testinden YEŞİL geçerdi
+    ve `SKIPPED_NO_PRODUCT` kovasını sessizce erişilemez kılardı. Bu yüzden
+    AYNI koşumda iki hasat var — biri ürünü bildirilmiş sezondan, biri
+    bildirilmemiş sezondan — ve hareket SAYISI da, hareketin ÜRÜNÜ de
+    ölçülüyor.
+
+    YÖN DE BURADA ÖLÇÜLÜR: hasat stok ÜRETİR (`_KAYNAK` yönü +1). Ters işaret
+    HATA VERMEZ; envanteri düşürür ve rapor doğru görünür.
+    """
+    from decimal import Decimal
+
+    cikti = _kos(r'''
+with SessionLocal() as db:
+    kur(db)
+    sezon_urunu(db, 1, 10)             # sezon 1 -> Bugday Tohumu (acilis 200)
+    sezon(db, 3, urun=None)            # sezon 3 -> urunu BILDIRILMEMIS
+    hasat(db, 1, sezon_id=1)           # 50 kg, URUNLU sezondan
+    hasat(db, 2, sezon_id=3)           # 50 kg, URUNSUZ sezondan
+    olay(db, 1, 'field_harvest', 1)
+    olay(db, 2, 'field_harvest', 2)
+    db.commit()
+
+    onceki = Decimal(str(stok(db, 10)))
+    sayac = olaylari_isle(db, FIRMA)
+    db.commit()
+    sonraki = Decimal(str(stok(db, 10)))
+    kayitlar = hareketler(db)
+
+print('ONCE %s SONRA %s' % (onceki, sonraki))
+print('SAYAC %r' % (sayac,))
+print('HAREKETLER %r' % ([(int(p), str(q)) for p, q in kayitlar],))
+assert sayac['SENT'] == 1, ('urunlu sezonun hasadi UYGULANMADI', sayac)
+assert sayac['SKIPPED_NO_PRODUCT'] == 1, (
+    'urunsuz sezonun hasadi kovaya DUSMEDI; kova erisilemez olmus', sayac)
+assert len(kayitlar) == 1, ('tam bir hareket beklendi', kayitlar)
+assert int(kayitlar[0][0]) == 10, ('hareket YANLIS urune yazildi', kayitlar)
+assert sonraki == onceki + Decimal('50.0000'), (onceki, sonraki)
+print('HASAT-URUNLU-TAMAM')
+''', tmp_path / "hasat_urunlu.db", "HASAT-URUNLU-TAMAM")
+
+    satir = [s for s in cikti.splitlines() if s.startswith("HAREKETLER")][0]
+    miktar = Decimal(satir.rsplit("'", 2)[1])
+    beklenen_yon = BEKLENEN_YON["field_harvest"]
+    assert (miktar < 0) == (beklenen_yon < 0), (
+        "YÖN İHLALİ: kaynak=field_harvest bildirilen yön="
+        f"{YON_ADI[beklenen_yon]} ama yazılan hareket {miktar}. "
+        "Hasat stok ÜRETİR; ters işaret hata vermez, envanteri YANLIŞ YÖNDE "
+        "oynatır ve rapor doğru görünür."
+    )
+
+
+def test_hasat_kalemleri_KALDIRILINCA_kapi_KIRMIZI(tmp_path: Path) -> None:
+    """MUTASYON: `_hasat_kalemleri` boş dönerse mutlu yol KIRMIZI olmalı.
+
+    Yukarıdaki yeşilin bir TOTOLOJİ olmadığını gösteren ölçüm. Okuyucu devre
+    dışı bırakılınca hasat yine `SKIPPED_NO_PRODUCT`a düşer — yani mutasyon
+    kapıyı çökertmez, SESSİZCE eski davranışa döndürür. Kırmızının, kapının
+    KENDİ metniyle gelmesi bu yüzden şart.
+    """
+    _kos_kirmizi(r'''
+from app import field_stok_tuketici as C
+
+C._KALEM_OKUYUCU = dict(C._KALEM_OKUYUCU, field_harvest=lambda *_a, **_k: [])
+print('MUTASYON-KURULDU')
+
+with SessionLocal() as db:
+    kur(db)
+    sezon_urunu(db, 1, 10)
+    hasat(db, 1, sezon_id=1)
     olay(db, 1, 'field_harvest', 1)
     db.commit()
 
@@ -358,10 +483,25 @@ with SessionLocal() as db:
     db.commit()
 
 print('SAYAC %r' % (sayac,))
-assert sayac['SKIPPED_NO_PRODUCT'] == 1, sayac
-assert hareket_sayisi(db) == 0, 'urun bagi yokken hareket yazildi'
-print('URUNSUZ-TAMAM')
-''', tmp_path / "urunsuz.db", "URUNSUZ-TAMAM")
+assert sayac['SENT'] == 1, ('urunlu sezonun hasadi UYGULANMADI', sayac)
+''', tmp_path / "hasat_mutasyon.db", "urunlu sezonun hasadi UYGULANMADI")
+
+
+def test_kalem_okuyucu_KAYNAKLA_ayni_anahtarlari_tasiyor() -> None:
+    """`_KAYNAK`ta olup `_KALEM_OKUYUCU`da olmayan tip SESSİZCE kovaya düşer.
+
+    Yeni bir kaynak tipi eklenip kalem okuyucusu unutulursa hiçbir yerde hata
+    görünmez: o kaynağın HER olayı `SKIPPED_NO_PRODUCT` olur. Bu dosyanın
+    kapattığı kusurun tam olarak kendisi; eşitlik bu yüzden dondurulur.
+    """
+    from app import field_stok_tuketici as tuketici
+
+    assert set(tuketici._KALEM_OKUYUCU) == set(tuketici._KAYNAK), (
+        "Kaynak tipleri ile kalem okuyucuları AYRIŞTI. Eksik okuyucu hata "
+        "vermez, o kaynağın her olayını sessizce SKIPPED_NO_PRODUCT yapar. "
+        f"_KAYNAK={sorted(tuketici._KAYNAK)} "
+        f"_KALEM_OKUYUCU={sorted(tuketici._KALEM_OKUYUCU)}"
+    )
 
 
 def test_deneme_tavani_OLU_kovasina_dusuruyor(tmp_path: Path) -> None:
@@ -427,11 +567,16 @@ print('KORUNUM-TAMAM')
 # kaynak başına ölçülür ve kırmızı, HANGİ kaynağın HANGİ yönde yanlış
 # olduğunu SÖYLER.
 #
-# Bugün yalnız `field_activity` hareket üretebiliyor: `field_harvests`ten
-# `products`a giden yol YOK (ölçüldü, c9d3eb1). Hasadın yönü yine de
-# bildirilir ve hareket üretemediği ADI KONMUŞ kovayla birlikte çapalanır;
-# şema hasadı bir ürüne bağladığı gün bu testin hasat satırı ölçülebilir hâle
-# gelir ve kova boşalır.
+# EskiDEN yalnız `field_activity` hareket üretebiliyordu: `field_harvests`ten
+# `products`a giden yol YOKTU (ölçüldü, c9d3eb1). Göç 20260827_0062
+# `crop_seasons.product_id`yi ekledi — ÜRÜNÜ SEZON BİLDİRİR, HASAT DEVRALIR —
+# ve hasadın yönü artık ÖLÇÜLEBİLİR:
+# `test_hasat_URUNLU_sezonda_HAREKET_uretiyor` yazılan hareketin işaretini
+# okur.
+#
+# KOVA BOŞALMADI, BOŞALTILABİLİR OLDU. Sütun NULL kabul eder; ürünü
+# bildirilmemiş sezonun hasadı hâlâ `SKIPPED_NO_PRODUCT`a düşer ve
+# `test_hasat_URUNSUZ_kovasina_dusuyor` bunu ayrıca dondurur.
 YON_ADI = {-1: "TÜKETİM (eksi)", 1: "ÜRETİM (artı)"}
 
 # YÖN BURADA DONDURULUR, MODÜLDEN OKUNMAZ. Ölçüldü: beklentiyi `_KAYNAK`tan

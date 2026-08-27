@@ -853,7 +853,8 @@ def list_seasons(
     ).scalar()
     rows = db.execute(
         text(
-            f"""SELECT id,parcel_id,season_year,crop,variety,started_on,ended_on,
+            f"""SELECT id,parcel_id,season_year,crop,product_id,variety,
+            started_on,ended_on,
             status,planted_area_decare,notes,updated_at
             FROM crop_seasons WHERE company_id=:cid{kosul}
             ORDER BY season_year DESC,id DESC LIMIT :limit OFFSET :offset"""
@@ -869,18 +870,39 @@ def create_season(payload: SeasonWrite, request: Request, db: Session = Depends(
     cid = company_id(request)
     parsel = _satir(db, cid, "farm_parcels", payload.parcel_id)
     _ekim_alani_dogrula(payload.planted_area_decare, parsel)
+    _sezon_urunu_dogrula(db, cid, payload.product_id)
     now = _simdi()
     yeni = db.execute(
         text(
-            """INSERT INTO crop_seasons(company_id,parcel_id,season_year,crop,variety,
+            """INSERT INTO crop_seasons(company_id,parcel_id,season_year,crop,product_id,
+            variety,
             started_on,ended_on,status,planted_area_decare,notes,created_at,updated_at)
-            VALUES(:cid,:parcel_id,:season_year,:crop,:variety,:started_on,:ended_on,
+            VALUES(:cid,:parcel_id,:season_year,:crop,:product_id,:variety,
+            :started_on,:ended_on,
             'PLANNED',:planted_area_decare,:notes,:now,:now) RETURNING id"""
         ),
         {"cid": cid, "now": now, **payload.model_dump()},
     ).scalar_one()
     db.commit()
     return _satir(db, cid, "crop_seasons", int(yeni))
+
+
+def _sezon_urunu_dogrula(db: Session, cid: int, product_id: int | None) -> None:
+    """Sezonun bildirdiği ürün ÇAĞIRANIN firmasında olmalı.
+
+    Ürün opsiyoneldir: bildirilmemiş sezon serbestçe geçer ve hasadı
+    tüketicide adı konmuş `SKIPPED_NO_PRODUCT` kovasına düşer.
+
+    Kapı `_urun_dogrula` — faaliyet girdilerinin `product_id`si için
+    kullanılan AYNI kapı. Veritabanındaki bileşik yabancı anahtar
+    (`fk_crop_seasons_product_same_company`) bu kapıyı GEREKSİZ KILMAZ, ikisi
+    AYRI şey söyler: kısıt çapraz-firma yazımı ENGELLER (ve `IntegrityError`
+    olarak 500 döndürürdü), bu kapı ise onu çağırana ANLAŞILIR bir 404 olarak
+    söyler. Kısıt son savunmadır, kapı ilk.
+    """
+    if product_id is None:
+        return
+    _urun_dogrula(db, cid, product_id)
 
 
 def _ekim_alani_dogrula(ekilen: Decimal | None, parsel: dict[str, Any]) -> None:
@@ -910,11 +932,13 @@ def update_season(season_id: int, payload: SeasonUpdate, request: Request, db: S
     beklenen_surum = _surum_dogrula(mevcut, payload.expected_updated_at)
     parsel = _satir(db, cid, "farm_parcels", payload.parcel_id)
     _ekim_alani_dogrula(payload.planted_area_decare, parsel)
+    _sezon_urunu_dogrula(db, cid, payload.product_id)
     veri = payload.model_dump(exclude={"expected_updated_at"})
     sonuc = db.execute(
         text(
             """UPDATE crop_seasons SET parcel_id=:parcel_id,season_year=:season_year,
-            crop=:crop,variety=:variety,started_on=:started_on,ended_on=:ended_on,
+            crop=:crop,product_id=:product_id,
+            variety=:variety,started_on=:started_on,ended_on=:ended_on,
             status=:status,planted_area_decare=:planted_area_decare,notes=:notes,
             updated_at=:now WHERE id=:id AND company_id=:cid
             AND updated_at=:expected_updated_at"""

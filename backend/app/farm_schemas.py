@@ -152,6 +152,19 @@ class SeasonWrite(_Taban):
     parcel_id: int = Field(gt=0)
     season_year: int = Field(ge=2000, le=2200)
     crop: str = Field(min_length=1, max_length=120)
+    # ÜRÜNÜ SEZON BİLDİRİR, HASAT DEVRALIR (göç 20260827_0062). `crop` serbest
+    # metin olarak KALIR — insanın okuduğu ad odur; `product_id` ise stok
+    # defterine giden bağdır. İkisi ayrı şeyler olduğu için birbirinin yerine
+    # geçmiyor.
+    #
+    # OPSİYONEL OLMAK ZORUNDA: ürünü bildirilmemiş sezonun hasadı tüketicide
+    # adı konmuş `SKIPPED_NO_PRODUCT` kovasına düşer. Zorunlu yapmak, mevcut
+    # sezonlara bir ürün UYDURMAYI dayatırdı.
+    #
+    # `gt=0` biçim kapısıdır, KİRACI KAPISI DEĞİL: ürünün çağıranın firmasına
+    # ait olduğu yönlendiricide `_urun_dogrula` ile ölçülür — `ActivityInput`
+    # ailesindeki `product_id` ile AYNI desen.
+    product_id: int | None = Field(default=None, gt=0)
     variety: str | None = Field(default=None, max_length=120)
     started_on: date | None = None
     ended_on: date | None = None
