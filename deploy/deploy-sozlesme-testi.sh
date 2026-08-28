@@ -1221,6 +1221,8 @@ else
   # satırı TAM OLARAK `run: ./deploy/artifact-imaj-kimlik-kapisi.sh`tır
   # (`|| true`, alt kabuk, `if false` gibi sarmalamalar bu tam-satır eşleşmesini
   # BOZAR), `shell:` ile `{0}` şablonu üzerinden sarmalama yoktur, beklenti
+  # `needs.container.outputs.tested_image_id`den gelir, işin KOŞULSUZ koştuğu
+  # (job-level `if:` yok — onunla kapı hiç koşmadan yok edilebilirdi, ÖLÇÜLDÜ)
   # `needs.container.outputs.tested_image_id`den gelir ve `container` o kimliği
   # `docker save`in girdisiyle AYNI nesneden okur.
   #
@@ -1253,6 +1255,7 @@ else
      && [ -x "$REPO_KOKU/$K5_KAPI_BETIGI" ] \
      && [ "$(printf '%s\n' "$VERIFY_ISI" | grep -cxF "$K5_CAGRI_SATIRI")" = "1" ] \
      && ! printf '%s\n' "$VERIFY_ISI" | grep -qE '^[[:space:]]+shell:[[:space:]]' \
+     && ! printf '%s\n' "$VERIFY_ISI" | grep -qE '^    if:[[:space:]]' \
      && printf '%s\n' "$VERIFY_ISI" \
        | grep -qxF '          IMAJ_REF: yerel-hesap-pro:${{ github.sha }}' \
      && printf '%s\n' "$VERIFY_ISI" \
@@ -1320,8 +1323,14 @@ K8_LOG="$(mktemp)"
 K8_YAPI="$(mktemp -d)"
 
 k8_kos() {
-  IMAJ_REF="$1" BEKLENEN_IMAJ_KIMLIGI="$2" BEKLENEN_OCI_REVIZYONU="$3" \
-    bash "$K8_KAPI" >"$K8_LOG" 2>&1 && printf '0\n' || printf '%s\n' "$?"
+  # CI adımının yaptığının AYNISI: depo kökünden, GÖRELİ yolla, aynı ortam
+  # değişkenleriyle. Farklı bir çağrı biçimi (ör. mutlak yol) mutantın
+  # "$0"a bakıp üretimi ayırt etmesine kapı açardı.
+  (
+    cd "$REPO_KOKU" \
+      && IMAJ_REF="$1" BEKLENEN_IMAJ_KIMLIGI="$2" BEKLENEN_OCI_REVIZYONU="$3" \
+         ./deploy/artifact-imaj-kimlik-kapisi.sh
+  ) >"$K8_LOG" 2>&1 && printf '0\n' || printf '%s\n' "$?"
 }
 
 k8_olc() {
@@ -1349,8 +1358,13 @@ elif ! docker version --format '{{.Server.Version}}' >/dev/null 2>&1; then
 else
   # GERÇEK bir imaj kurulur. `FROM scratch` ağ istemez; ölçüm kayıt sunucusuna
   # bağlı değildir.
-  K8_ETIKET="sozlesme-k8-kapi-testi:$$"
+  # Fikstür, ÜRETİM girdisinden AYIRT EDİLEMEZ olmalı: aynı imaj adı ve aynı
+  # 40 haneli SHA biçimi. Ayırt edilebilir bir fikstür (ör. başka bir imaj adı)
+  # ölçüldü ve KAÇIŞ ÜRETTİ: `case "$IMAJ_REF" in yerel-hesap-pro:*) exit 0` diyen
+  # bir mutant K8'i geçip CI'da kapıyı öldürüyordu. Fikstür üretime benzedikçe
+  # "teste göre davran" numarası zorlaşır.
   K8_REV="0123456789abcdef0123456789abcdef01234567"
+  K8_ETIKET="yerel-hesap-pro:$K8_REV"
   printf 'FROM scratch\nLABEL org.opencontainers.image.revision=%s\n' "$K8_REV" > "$K8_YAPI/Dockerfile"
   K8_GERCEK_ID=""
   if ! docker build -q -t "$K8_ETIKET" "$K8_YAPI" >"$K8_LOG" 2>&1; then
