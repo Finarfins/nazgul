@@ -1149,6 +1149,13 @@ else
   kirmizi "$K7_CIKTI"
 fi
 
+K8_CIKTI=""
+if K8_CIKTI="$(python3 "$REPO_KOKU/deploy/ci-gerekli-baglam-kapisi.py" "$CI_WORKFLOW" 2>&1)"; then
+  yesil "$K8_CIKTI"
+else
+  kirmizi "$K8_CIKTI"
+fi
+
 if ! YAYIN_ISI="$(ci_is_bloku publish-image)" \
    || ! CONTAINER_ISI="$(ci_is_bloku container)" \
    || ! VERIFY_ISI="$(ci_is_bloku verify-image-artifact)"; then
