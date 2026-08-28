@@ -874,6 +874,12 @@ jobs:
     timeout-minutes: 12
     permissions:
       contents: read
+    # Test edilen imajın KİMLİĞİ job çıktısı olarak taşınır; verify-image-artifact
+    # beklenen değeri artifact'in İÇİNDEN okumaz. Beklenti ölçülen nesnenin
+    # YANINDA taşınsaydı kapı kendi kopyasına bakıyor olurdu: takas edilmiş bir
+    # tarball kendi ID'sini de beraberinde getirir ve kapı yine yeşil kalırdı.
+    outputs:
+      tested_image_id: ${{ steps.paketle.outputs.tested_image_id }}
     steps:
       - uses: actions/checkout@v4
       # Caddyfile'daki yazım hatası / kaldırılmış / olmayan direktif prod'da
@@ -1040,8 +1046,15 @@ jobs:
       # Yalnız develop push'unda, bütün container kapılarından geçen TAM imajı
       # artifact olarak aktar; yeniden derleyip test edilmemiş bir imaj yayınlama.
       - name: Package tested production image
+        id: paketle
         run: |
           set -euo pipefail
+          # Kaydedilmek ÜZERE olan imajın kimliği: `docker save`in girdisiyle
+          # AYNI nesneden okunur. verify-image-artifact yüklediği imajın
+          # kimliğini buna karşı ölçer.
+          tested_image_id="$(docker image inspect yerel-hesap-pro:${{ github.sha }} --format '{{.Id}}')"
+          [ -n "$tested_image_id" ] || { echo "::error::test edilen imaj ID'si okunamadı" >&2; exit 1; }
+          echo "tested_image_id=$tested_image_id" >> "$GITHUB_OUTPUT"
           docker save yerel-hesap-pro:${{ github.sha }} \
             | gzip -1 > "$RUNNER_TEMP/tested-production-image.tar.gz"
       - name: Upload tested production image
@@ -1075,7 +1088,18 @@ jobs:
           image_ref="yerel-hesap-pro:${{ github.sha }}"
           image_id="$(docker image inspect "$image_ref" --format '{{.Id}}')"
           revision="$(docker image inspect "$image_ref" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+          expected_image_id="${{ needs.container.outputs.tested_image_id }}"
           [ -n "$image_id" ] || { echo "::error::artifact image ID boş" >&2; exit 1; }
+          # KİMLİK KARŞILAŞTIRMASI. Adımın adı baştan beri "identity" diyordu
+          # ama image_id yalnız BOŞ MU diye ölçülüyordu; hiçbir şeye eşitlenmiyordu.
+          # OCI revision etiketi bu boşluğu KAPATMAZ: etiket imajın İÇERİĞİNE
+          # bağlı değildir, başka bir imaj aynı etiketi taşıyabilir (ölçüldü).
+          # `docker save` -> `docker load` .Id'yi AYNEN korur (ölçüldü), bu yüzden
+          # eşitsizlik artifact'in container'ın TEST ETTİĞİ imaj olmadığı demektir.
+          [ -n "$expected_image_id" ] \
+            || { echo "::error::container isi test edilen imaj ID'sini bildirmedi; kimlik karsilastirilamaz" >&2; exit 1; }
+          [ "$image_id" = "$expected_image_id" ] \
+            || { echo "::error::artifact imaji container'in TEST ETTIGI imaj degil: yuklenen='$image_id' beklenen='$expected_image_id'" >&2; exit 1; }
           [ "$revision" = "${{ github.sha }}" ] \
             || { echo "::error::artifact OCI revision yanlış: '$revision'" >&2; exit 1; }
           printf 'artifact_image_ref=%s\nartifact_image_id=%s\nartifact_oci_revision=%s\n' \
