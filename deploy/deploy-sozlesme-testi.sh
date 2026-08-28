@@ -975,7 +975,7 @@ akis_senaryo "etiket-kapisi"  "iyi"       ""                   "sha256:aaaa" "$S
 baslik "J) Deploy hijyeni — çalıştırılabilir betikler ve geri dönüş runbook'u"
 
 REPO_KOKU="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BEKLENEN_DEPLOY_SH=4
+BEKLENEN_DEPLOY_SH=5
 DEPLOY_INDEXI=""
 if ! DEPLOY_INDEXI="$(git -C "$REPO_KOKU" ls-files -s -- deploy 2>/dev/null)"; then
   kirmizi "J1 git indexi okunamadı; deploy betik modları ölçülemedi"
@@ -1199,53 +1199,74 @@ else
     kirmizi "K4 test edilen imajın save/upload/download/load zinciri eksik veya publish-image yeniden build ediyor"
   fi
 
-  # K5'in ölçtüğü şey satırın VARLIĞI değil, KAPI OLUŞUDUR. Sabit dizge araması
-  # tek başına yetmez; ölçüldü (gerçek Docker, `ci.yml`den ayrıştırılmış adım
-  # gövdesi, takas edilmiş artifact): karşılaştırma satırı YERİNDE dururken
-  #   - hata dalı `|| true`ya çevrilirse adım exit 0,
-  #   - `expected_image_id="$image_id"` ikinci ataması eklenirse adım exit 0
-  # verir. Her iki durumda kapı ÖLÜR ve yalnız varlığa bakan bir K5 yeşil kalır.
-  # Bu yüzden karşılaştırmanın kırmızıya BAĞLANIŞI ve beklentinin KAYNAĞI da
-  # ölçülür. `|| true` sonrası `set -euo pipefail` de kurtarmaz: `[ ... ] || true`
-  # bir bütün olarak 0 döner.
+  # ---------------------------------------------------------------------
+  # K5 — ÇAĞRI YERİ. Ne ölçer, ne ÖLÇMEZ: burada yazılı.
+  #
+  # Bu, aynı kusurun ÜÇÜNCÜ turudur. #6'da K5 üç SABİT DİZGE arıyordu; dört
+  # kaçış yeşil ölçüldü. #7'de K5 akıllandı (karşılaştırmayı İZLEYEN satırda
+  # `exit 1`, tek atama, beklentinin kaynağı); dört kaçış daha bulundu ve
+  # ÜÇÜ DE o kontrollerden geçti: `image_id="$expected_image_id"` (atama
+  # SOLDAKİ ada bakan sayıma görünmez), `if false; then … fi`, alt kabuk +
+  # dışarıda `|| true`, ve karşılaştırmadan önce `exit 0`.
+  #
+  # Her iki tur da metin üzerinden bir AKIŞ DENETİMİ özelliği kanıtlamaya
+  # çalıştı. KONUM, BAŞARISIZLIK SEMANTİĞİ İÇİN YETERLİ BİR DEĞİŞMEZ DEĞİLDİR.
+  # Bu yüzden kapı mantığı `deploy/artifact-imaj-kimlik-kapisi.sh`e taşındı;
+  # onun GERÇEKTEN kırmızı verdiğini K8 ÇALIŞTIRARAK ölçer. K5'e kalan iş,
+  # metnin dürüstçe çivileyebileceği tek şeydir: adımın O BETİĞİ çağırması ve
+  # çağrının etkisiz bırakılmamış olması.
+  #
+  # K5'İN GARANTİ ETTİĞİ: `verify-image-artifact` işinin adım listesi TAM
+  # OLARAK beklenen dörtlüdür (araya betiği ezen bir adım sokulamaz), çağrı
+  # satırı TAM OLARAK `run: ./deploy/artifact-imaj-kimlik-kapisi.sh`tır
+  # (`|| true`, alt kabuk, `if false` gibi sarmalamalar bu tam-satır eşleşmesini
+  # BOZAR), `shell:` ile `{0}` şablonu üzerinden sarmalama yoktur, beklenti
+  # `needs.container.outputs.tested_image_id`den gelir ve `container` o kimliği
+  # `docker save`in girdisiyle AYNI nesneden okur.
+  #
+  # K5'İN GARANTİ ETMEDİĞİ: betiğin İÇİNDE kapı olduğu — bunu K8 ölçer;
+  # sözleşme betiğinin KENDİSİNİN düzenlenmesi — K5 de K8 de kendi dosyasını
+  # korumaz, bu tur bunu kapatmaz.
+  # ---------------------------------------------------------------------
+  # Beklenti, `docker save`in girdisiyle AYNI nesneden okunmalı. K4 save
+  # hedefini zaten çiviliyor; burada kimliğin O hedeften okunduğu çivilenir.
+  # Başka bir nesneden (ör. tarball'ın kendisinden) okunan bir kimlik,
+  # kapıyı yine kendi kopyasına baktırırdı.
+  K5_KIMLIK_KAYNAGI='          tested_image_id="$(docker image inspect yerel-hesap-pro:${{ github.sha }} --format '"'"'{{.Id}}'"'"')"'
+  K5_KAPI_BETIGI="deploy/artifact-imaj-kimlik-kapisi.sh"
+  K5_CAGRI_SATIRI="        run: ./$K5_KAPI_BETIGI"
 
-  # (1) Karşılaştırmayı İZLEYEN satır işi düşürmek ZORUNDA.
-  K5_KARSILASTIRMA_DALI="$(printf '%s\n' "$VERIFY_ISI" \
-    | grep -A1 -F '[ "$image_id" = "$expected_image_id" ]' \
-    | grep -cF 'exit 1' || true)"
-  # (2) Beklenti TEK yerde kurulur. İkinci bir atama karşılaştırmayı kendi
-  #     ölçtüğü değere bağlar; kapı kendi kopyasına bakar ve hep yeşil kalır.
-  K5_BEKLENTI_ATAMASI="$(printf '%s\n' "$VERIFY_ISI" \
-    | grep -cE '^[[:space:]]*expected_image_id=' || true)"
-  # (3) Beklenti, `docker save`in girdisiyle AYNI nesneden okunmalı. K4 save
-  #     hedefini zaten çiviliyor; burada kimliğin O hedeften okunduğu çivilenir.
-  #     Başka bir nesneden (ör. tarball'ın kendisinden) okunan bir kimlik,
-  #     kapıyı yine kendi kopyasına baktırırdı.
-  K5_KIMLIK_KAYNAGI=$'          tested_image_id="$(docker image inspect yerel-hesap-pro:${{ github.sha }} --format \'{{.Id}}\')"'
+  # Adım listesi TAM eşleşmeli. Yalnız "yasak deseni yok" demek AÇIK UÇLU bir
+  # iddiadır ve tam da kaçılmaya çalışılan whack-a-mole'dur; adımları SAYIP
+  # SIRALAMAK ise KAPALI bir kümedir: araya sokulan HER adım bunu bozar.
+  K5_ADIM_LISTESI="$(printf '%s\n' "$VERIFY_ISI" \
+    | sed -n 's/^      - \(name\|uses\): //p' | tr '\n' '|')"
+  K5_BEKLENEN_ADIMLAR='actions/checkout@v4|Download tested production image|Load tested production image|Verify loaded image identity and OCI revision|'
 
   if printf '%s\n' "$VERIFY_ISI" \
        | grep -qE '^    needs:[[:space:]]*\[container\][[:space:]]*$' \
+     && [ "$K5_ADIM_LISTESI" = "$K5_BEKLENEN_ADIMLAR" ] \
      && printf '%s\n' "$VERIFY_ISI" \
        | grep -qE '^[[:space:]]+uses: actions/download-artifact@v4[[:space:]]*$' \
      && printf '%s\n' "$VERIFY_ISI" \
        | grep -qF '        run: gzip -dc "$RUNNER_TEMP/tested-production-image/tested-production-image.tar.gz" | docker load' \
+     && [ -x "$REPO_KOKU/$K5_KAPI_BETIGI" ] \
+     && [ "$(printf '%s\n' "$VERIFY_ISI" | grep -cxF "$K5_CAGRI_SATIRI")" = "1" ] \
+     && ! printf '%s\n' "$VERIFY_ISI" | grep -qE '^[[:space:]]+shell:[[:space:]]' \
      && printf '%s\n' "$VERIFY_ISI" \
-       | grep -qE '^[[:space:]]*- name: Verify loaded image identity and OCI revision[[:space:]]*$' \
-     && printf '%s\n' "$VERIFY_ISI" | grep -qF 'artifact_image_id=%s' \
-     && printf '%s\n' "$VERIFY_ISI" | grep -qF 'artifact_oci_revision=%s' \
+       | grep -qxF '          IMAJ_REF: yerel-hesap-pro:${{ github.sha }}' \
+     && printf '%s\n' "$VERIFY_ISI" \
+       | grep -qxF '          BEKLENEN_IMAJ_KIMLIGI: ${{ needs.container.outputs.tested_image_id }}' \
+     && printf '%s\n' "$VERIFY_ISI" \
+       | grep -qxF '          BEKLENEN_OCI_REVIZYONU: ${{ github.sha }}' \
      && printf '%s\n' "$CONTAINER_ISI" \
        | grep -qF '      tested_image_id: ${{ steps.paketle.outputs.tested_image_id }}' \
-     && printf '%s\n' "$VERIFY_ISI" \
-       | grep -qF '          expected_image_id="${{ needs.container.outputs.tested_image_id }}"' \
-     && printf '%s\n' "$VERIFY_ISI" \
-       | grep -qF '[ "$image_id" = "$expected_image_id" ]' \
-     && [ "$K5_KARSILASTIRMA_DALI" = "1" ] \
-     && [ "$K5_BEKLENTI_ATAMASI" = "1" ] \
-     && printf '%s\n' "$CONTAINER_ISI" | grep -qF "$K5_KIMLIK_KAYNAGI" \
+     && printf '%s\n' "$CONTAINER_ISI" \
+       | grep -qF "$K5_KIMLIK_KAYNAGI" \
      && ! printf '%s\n' "$VERIFY_ISI" | grep -qE '^[[:space:]]+packages:[[:space:]]+write[[:space:]]*$'; then
-    yesil "K5 artifact doğrulama job'ı yüklenen imajı container'ın SAVE ettiği nesneden okunan kimliğe eşitliyor, eşitsizlik işi DÜŞÜRÜYOR, OCI revision ölçülüyor ve packages:write yok"
+    yesil "K5 doğrulama adımı kapı betiğini SARMALANMAMIŞ tek satırda çağırıyor, adım listesi tam, beklenti container'ın SAVE ettiği nesneden geliyor ve packages:write yok"
   else
-    kirmizi "K5 artifact doğrulama job'ı eksik; kimliği bir BEKLENTİYE eşitlemiyor (yalnız boşluk kontrolü kapı DEĞİLDİR), karşılaştırma işi DÜŞÜRMÜYOR (\`|| true\`), beklenti ikinci kez atanmış, kimlik \`docker save\`in nesnesinden okunmuyor, revision ölçmüyor veya packages:write içeriyor"
+    kirmizi "K5 doğrulama adımı kapı betiğini tek satırda çağırmıyor (sarmalanmış veya shell: ile şablonlanmış olabilir), adım listesi beklenenden farklı (araya adım sokulmuş), betik yok/çalıştırılabilir değil, beklenti container çıktısına bağlı değil veya packages:write var"
   fi
 
   K6_BUILD_SAYISI=""
@@ -1264,6 +1285,87 @@ else
     kirmizi "K6 build sayısı/politikası hatalı (build=$K6_BUILD_SAYISI, bayraklı=$K6_POLITIKA_SAYISI) veya registry-direct yol karışmış"
   fi
 fi
+
+
+baslik "K8) Artifact kimlik kapısı — DAVRANIŞSAL: kapı gerçekten kırmızı veriyor mu"
+
+# ---------------------------------------------------------------------------
+# NEDEN BURASI METİN DEĞİL DAVRANIŞ ÖLÇÜYOR
+#
+# K5 iki turdur metin üzerinden bir AKIŞ DENETİMİ özelliği kanıtlamaya çalıştı
+# ve iki turda da yeni kaçış şekilleri çıktı: `|| true`, `exit 1` yerine `echo`,
+# ikinci bir atama, `|| [ 1 = 1 ]`, `image_id="$expected_image_id"`,
+# `if false; then … fi`, alt kabuk + dışarıda `|| true`, erken `exit 0`.
+# Hepsi karşılaştırmanın KIRMIZIYA BAĞLANIŞINI bozar. Bir metin kontrolü bu
+# kümeyi kapatamaz, çünkü küme AÇIK UÇLUDUR.
+#
+# Bu yüzden buradaki kapı, CI adımının çağırdığı BETİĞİN TA KENDİSİNİ çalıştırır
+# ve kirli girdide SIFIRDAN FARKLI çıkmasını ŞART KOŞAR. Yukarıdaki kaçışların
+# hepsi "kirli girdide yine de exit 0" demektir; hepsi burada kırmızıdır.
+#
+# TUZAK — bu depo bunu bir kez yaşadı: beş yeşil frontend testi kendi mock'una
+# iddia ederken iki gerçek gösterim yolu da bozuktu. Bu yüzden test kapının bir
+# KOPYASINI değil, `ci.yml`in çağırdığı AYNI dosyayı çalıştırır; K5 de çağrılan
+# yolun bu dosya olduğunu çiviler. İkisi birlikte TEK artefakta bakar.
+#
+# OLUMLU DURUM DA ÖLÇÜLÜR: her zaman kırmızı veren bir betik de "kirli girdide
+# kırmızı" şartını sağlar ve kapıyı kullanışsız kılardı. Doğru beklentide YEŞİL
+# şartı o boş geçişi kapatır.
+#
+# DOCKER YOKSA KIRMIZI, ATLAMA YOK: bu betik CI'da `container` işinde koşar ve
+# orada Docker HER ZAMAN vardır. Atlanan bir kapı, geçen bir kapı değildir.
+# ---------------------------------------------------------------------------
+K8_KAPI="$REPO_KOKU/deploy/artifact-imaj-kimlik-kapisi.sh"
+K8_LOG="$(mktemp)"
+K8_YAPI="$(mktemp -d)"
+
+k8_kos() {
+  IMAJ_REF="$1" BEKLENEN_IMAJ_KIMLIGI="$2" BEKLENEN_OCI_REVIZYONU="$3" \
+    bash "$K8_KAPI" >"$K8_LOG" 2>&1 && printf '0\n' || printf '%s\n' "$?"
+}
+
+k8_olc() {
+  ad="$1"; kirmizi_olmali="$2"; shift 2
+  rc="$(k8_kos "$@")"
+  if [ "$kirmizi_olmali" = "1" ]; then
+    if [ "$rc" != "0" ]; then
+      yesil "K8/$ad kapı KIRMIZI verdi (exit $rc) — etkisizleştirme bu koşulda yaşayamaz"
+    else
+      kirmizi "K8/$ad kapı EXIT 0 verdi; kirli girdide yeşil kalan bir kapı, kapı DEĞİLDİR"
+    fi
+  else
+    if [ "$rc" = "0" ]; then
+      yesil "K8/$ad kapı doğru girdide YEŞİL — her zaman kırmızı veren boş bir kapı değil"
+    else
+      kirmizi "K8/$ad kapı doğru girdide KIRMIZI verdi (exit $rc); kapı kullanılamaz: $(head -c 200 "$K8_LOG")"
+    fi
+  fi
+}
+
+if [ ! -x "$K8_KAPI" ]; then
+  kirmizi "K8 kapı betiği yok veya çalıştırılabilir değil: deploy/artifact-imaj-kimlik-kapisi.sh"
+elif ! docker version --format '{{.Server.Version}}' >/dev/null 2>&1; then
+  kirmizi "K8 Docker daemon'ına ulaşılamadı; kapı DAVRANIŞSAL olarak ölçülemedi (atlama geçme değildir)"
+else
+  # GERÇEK bir imaj kurulur. `FROM scratch` ağ istemez; ölçüm kayıt sunucusuna
+  # bağlı değildir.
+  K8_ETIKET="sozlesme-k8-kapi-testi:$$"
+  K8_REV="0123456789abcdef0123456789abcdef01234567"
+  printf 'FROM scratch\nLABEL org.opencontainers.image.revision=%s\n' "$K8_REV" > "$K8_YAPI/Dockerfile"
+  K8_GERCEK_ID=""
+  if ! docker build -q -t "$K8_ETIKET" "$K8_YAPI" >"$K8_LOG" 2>&1; then
+    kirmizi "K8 ölçüm imajı kurulamadı: $(head -c 200 "$K8_LOG")"
+  elif ! K8_GERCEK_ID="$(docker image inspect "$K8_ETIKET" --format '{{.Id}}')" || [ -z "$K8_GERCEK_ID" ]; then
+    kirmizi "K8 ölçüm imajının kimliği okunamadı"
+  else
+    k8_olc "olumlu-dogru-beklenti"    0 "$K8_ETIKET" "$K8_GERCEK_ID" "$K8_REV"
+    k8_olc "kimlik-uyusmazligi"       1 "$K8_ETIKET" "sha256:0000000000000000000000000000000000000000000000000000000000000000" "$K8_REV"
+    k8_olc "bos-beklenti-fail-closed" 1 "$K8_ETIKET" "" "$K8_REV"
+    k8_olc "revizyon-uyusmazligi"     1 "$K8_ETIKET" "$K8_GERCEK_ID" "ffffffffffffffffffffffffffffffffffffffff"
+  fi
+  docker image rm -f "$K8_ETIKET" >/dev/null 2>&1 || true
+fi
+rm -rf "$K8_YAPI" "$K8_LOG"
 
 printf '\n%s\n' "SONUÇ: $GECTI geçti, $KALDI kaldı"
 [ "$KALDI" -eq 0 ] || exit 1
