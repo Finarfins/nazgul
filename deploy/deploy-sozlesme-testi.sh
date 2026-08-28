@@ -1199,6 +1199,30 @@ else
     kirmizi "K4 test edilen imajın save/upload/download/load zinciri eksik veya publish-image yeniden build ediyor"
   fi
 
+  # K5'in ölçtüğü şey satırın VARLIĞI değil, KAPI OLUŞUDUR. Sabit dizge araması
+  # tek başına yetmez; ölçüldü (gerçek Docker, `ci.yml`den ayrıştırılmış adım
+  # gövdesi, takas edilmiş artifact): karşılaştırma satırı YERİNDE dururken
+  #   - hata dalı `|| true`ya çevrilirse adım exit 0,
+  #   - `expected_image_id="$image_id"` ikinci ataması eklenirse adım exit 0
+  # verir. Her iki durumda kapı ÖLÜR ve yalnız varlığa bakan bir K5 yeşil kalır.
+  # Bu yüzden karşılaştırmanın kırmızıya BAĞLANIŞI ve beklentinin KAYNAĞI da
+  # ölçülür. `|| true` sonrası `set -euo pipefail` de kurtarmaz: `[ ... ] || true`
+  # bir bütün olarak 0 döner.
+
+  # (1) Karşılaştırmayı İZLEYEN satır işi düşürmek ZORUNDA.
+  K5_KARSILASTIRMA_DALI="$(printf '%s\n' "$VERIFY_ISI" \
+    | grep -A1 -F '[ "$image_id" = "$expected_image_id" ]' \
+    | grep -cF 'exit 1' || true)"
+  # (2) Beklenti TEK yerde kurulur. İkinci bir atama karşılaştırmayı kendi
+  #     ölçtüğü değere bağlar; kapı kendi kopyasına bakar ve hep yeşil kalır.
+  K5_BEKLENTI_ATAMASI="$(printf '%s\n' "$VERIFY_ISI" \
+    | grep -cE '^[[:space:]]*expected_image_id=' || true)"
+  # (3) Beklenti, `docker save`in girdisiyle AYNI nesneden okunmalı. K4 save
+  #     hedefini zaten çiviliyor; burada kimliğin O hedeften okunduğu çivilenir.
+  #     Başka bir nesneden (ör. tarball'ın kendisinden) okunan bir kimlik,
+  #     kapıyı yine kendi kopyasına baktırırdı.
+  K5_KIMLIK_KAYNAGI=$'          tested_image_id="$(docker image inspect yerel-hesap-pro:${{ github.sha }} --format \'{{.Id}}\')"'
+
   if printf '%s\n' "$VERIFY_ISI" \
        | grep -qE '^    needs:[[:space:]]*\[container\][[:space:]]*$' \
      && printf '%s\n' "$VERIFY_ISI" \
@@ -1215,10 +1239,13 @@ else
        | grep -qF '          expected_image_id="${{ needs.container.outputs.tested_image_id }}"' \
      && printf '%s\n' "$VERIFY_ISI" \
        | grep -qF '[ "$image_id" = "$expected_image_id" ]' \
+     && [ "$K5_KARSILASTIRMA_DALI" = "1" ] \
+     && [ "$K5_BEKLENTI_ATAMASI" = "1" ] \
+     && printf '%s\n' "$CONTAINER_ISI" | grep -qF "$K5_KIMLIK_KAYNAGI" \
      && ! printf '%s\n' "$VERIFY_ISI" | grep -qE '^[[:space:]]+packages:[[:space:]]+write[[:space:]]*$'; then
-    yesil "K5 artifact doğrulama job'ı yüklenen imajı container'ın bildirdiği kimliğe EŞİTLİYOR, OCI revision ölçüyor ve packages:write taşımıyor"
+    yesil "K5 artifact doğrulama job'ı yüklenen imajı container'ın SAVE ettiği nesneden okunan kimliğe eşitliyor, eşitsizlik işi DÜŞÜRÜYOR, OCI revision ölçülüyor ve packages:write yok"
   else
-    kirmizi "K5 artifact doğrulama job'ı eksik, kimliği bir BEKLENTİYE eşitlemiyor (yalnız boşluk kontrolü kapı DEĞİLDİR), revision ölçmüyor veya packages:write içeriyor"
+    kirmizi "K5 artifact doğrulama job'ı eksik; kimliği bir BEKLENTİYE eşitlemiyor (yalnız boşluk kontrolü kapı DEĞİLDİR), karşılaştırma işi DÜŞÜRMÜYOR (\`|| true\`), beklenti ikinci kez atanmış, kimlik \`docker save\`in nesnesinden okunmuyor, revision ölçmüyor veya packages:write içeriyor"
   fi
 
   K6_BUILD_SAYISI=""
