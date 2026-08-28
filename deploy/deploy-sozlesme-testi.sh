@@ -1358,12 +1358,27 @@ else
   elif ! K8_GERCEK_ID="$(docker image inspect "$K8_ETIKET" --format '{{.Id}}')" || [ -z "$K8_GERCEK_ID" ]; then
     kirmizi "K8 ölçüm imajının kimliği okunamadı"
   else
-    k8_olc "olumlu-dogru-beklenti"    0 "$K8_ETIKET" "$K8_GERCEK_ID" "$K8_REV"
-    k8_olc "kimlik-uyusmazligi"       1 "$K8_ETIKET" "sha256:0000000000000000000000000000000000000000000000000000000000000000" "$K8_REV"
-    k8_olc "bos-beklenti-fail-closed" 1 "$K8_ETIKET" "" "$K8_REV"
-    k8_olc "revizyon-uyusmazligi"     1 "$K8_ETIKET" "$K8_GERCEK_ID" "ffffffffffffffffffffffffffffffffffffffff"
+    # "Yanlış" beklenti UYDURMA bir değer değil, BAŞKA GERÇEK bir imajın
+    # kimliğidir: bu, CI'daki takas senaryosunun ta kendisidir. Uydurma bir
+    # nöbetçi değer (ör. sırf sıfırlardan oluşan bir ID) kapının İÇİNDE
+    # tanınabilirdi ve "yalnız teste göre kırmızı ver" diyen bir mutant K8'i
+    # geçerdi. Gerçek bir ikinci imaj bu numarayı kapatır.
+    printf 'FROM scratch\nLABEL org.opencontainers.image.revision=%s\nLABEL takas=1\n' "$K8_REV" > "$K8_YAPI/Dockerfile"
+    K8_BASKA_ID=""
+    if docker build -q -t "$K8_ETIKET-baska" "$K8_YAPI" >"$K8_LOG" 2>&1; then
+      K8_BASKA_ID="$(docker image inspect "$K8_ETIKET-baska" --format '{{.Id}}')"
+    fi
+    if [ -z "$K8_BASKA_ID" ] || [ "$K8_BASKA_ID" = "$K8_GERCEK_ID" ]; then
+      kirmizi "K8 ikinci (takas) ölçüm imajı kurulamadı veya birinciyle aynı; takas senaryosu ölçülemedi"
+    else
+      k8_olc "olumlu-dogru-beklenti"    0 "$K8_ETIKET" "$K8_GERCEK_ID" "$K8_REV"
+      k8_olc "kimlik-uyusmazligi"       1 "$K8_ETIKET" "$K8_BASKA_ID" "$K8_REV"
+      k8_olc "bos-beklenti-fail-closed" 1 "$K8_ETIKET" "" "$K8_REV"
+      k8_olc "revizyon-uyusmazligi"     1 "$K8_ETIKET" "$K8_GERCEK_ID" "ffffffffffffffffffffffffffffffffffffffff"
+    fi
   fi
   docker image rm -f "$K8_ETIKET" >/dev/null 2>&1 || true
+  docker image rm -f "$K8_ETIKET-baska" >/dev/null 2>&1 || true
 fi
 rm -rf "$K8_YAPI" "$K8_LOG"
 
