@@ -1217,3 +1217,426 @@ def test_dongu_SURE_BUTCESI_catismada_ISIRIYOR_ve_kalan_SONRAKI_dongude() -> Non
     assert korunum.get("2", "").split() and len(set(korunum["2"].split())) == 1, (
         f"döngü 2 korunum denklemi tutmadı. çıktı={cikti!r}"
     )
+
+
+# --- BİLEŞİK YABANCI ANAHTAR: SEZONUN ÜRÜNÜ KİRACI SINIRINI GEÇEMEZ ---------
+#
+# Göç 20260827_0062 `crop_seasons.product_id`yi eklerken kısıtı ÇIPLAK değil
+# BİLEŞİK kurdu: `(company_id, product_id) -> products(company_id, id)`, hedef
+# tekil olsun diye `products`a `UNIQUE(company_id, id)` eklendi. Çıplak
+# `product_id -> products.id` bir kiracının sezonunun BAŞKA kiracının ürününü
+# işaret etmesini ENGELLEMEZ; bileşik olan engeller.
+#
+# BU BÖLÜMÜN SOMUT SEBEBİ: o güvence BİR KEZ, ELLE ölçüldü ve ARDINDA DURAN
+# TEST YOKTU. Bu dosyada `field_harvest` geçmiyordu bile. Yani özellik bugün
+# doğru, ama yarın kırılsa CI'da hiçbir yerde kırmızı görünmezdi.
+#
+# NEDEN SQLite İKİZİ YETMEZ: SQLite'ta bileşik yabancı anahtar bir TABLO
+# KISITIDIR, `PRAGMA foreign_keys` kapalıyken HİÇ denetlenmez ve göçün batch
+# yeniden kurulumu pragma'yı tam da o pencerede kapatır (0062 başlığında
+# ölçüldü: havuzdan gelen bağlantı `foreign_keys=0` ile geliyordu). Orada
+# alınacak yeşil, kısıtın değil ORTAMIN özelliği olurdu. Kısıtın ISIRDIĞI
+# gerçek PG'de ölçülmelidir.
+#
+# ÖLÇÜLEN DÖRT ŞEY:
+#   * AYNI kiracının ürünü KABUL edilir (kısıt meşru yazmayı engellemiyor),
+#   * BAŞKA kiracının ürünü REDDEDİLİR — hem HATA SINIFI hem KISIT ADI ile,
+#   * `product_id = NULL` KABUL edilir (MATCH SIMPLE; `SKIPPED_NO_PRODUCT`
+#     kovası ERİŞİLEBİLİR kalmak zorunda),
+#   * kısıt GERİ ALMA + YENİDEN KURULUM zincirinden sonra HÂLÂ ısırıyor.
+#
+# "Bir şey fırlattı" YETMEZ ve bilerek yetmiyor: sezon satırı NOT NULL, CHECK
+# ve `fk_crop_seasons_parcel_same_company` kısıtlarını da taşıyor. Yanlış
+# kurulmuş bir prob bunlardan birine takılıp "REDDEDİLDİ" derdi ve test,
+# ölçtüğünü sandığı şeyi HİÇ ölçmemiş olurdu. Bu yüzden red iddiası
+# `ForeignKeyViolation` SINIFINA ve `fk_crop_seasons_product_same_company`
+# KISIT ADINA bağlanıyor.
+
+# Sentetik ad alanı: önyükleme verisiyle ve bu dosyanın öbür problarıyla
+# (id = 1, 2, 7, 10) çarpışmayacak kadar yüksek.
+_A_FIRMA = 1
+_B_FIRMA = 2
+_A_URUN = 960301
+_B_URUN = 960302
+_KISIT_ADI = "fk_crop_seasons_product_same_company"
+
+_BILESIK_KURULUM = r'''
+import os, sys
+sys.path.insert(0, os.environ["BACKEND"])
+from sqlalchemy import text as _sql
+from app.db import SessionLocal
+import app.main  # göç + önyükleme: şema BU SATIRLA head'e çıkar
+Z = '2026-08-01T00:00:00'
+with SessionLocal() as db:
+    # Sentetik ad alanını ÖNCE boşalt: prob tekrar tekrar koşabilmeli.
+    db.execute(_sql("DELETE FROM field_integration_events WHERE id >= 960000"))
+    db.execute(_sql("DELETE FROM field_harvests WHERE id >= 960000"))
+    db.execute(_sql("DELETE FROM crop_seasons WHERE id >= 960000"))
+    db.execute(_sql("DELETE FROM farm_parcels WHERE id >= 960000"))
+    db.execute(_sql("DELETE FROM farms WHERE id >= 960000"))
+    db.execute(_sql("DELETE FROM warehouse_stocks WHERE product_id >= 960000"))
+    db.execute(_sql("DELETE FROM products WHERE id >= 960000"))
+    db.execute(_sql(
+        "INSERT INTO companies (id,name,is_active,created_at) "
+        "VALUES (2,'Ikinci Firma',true,:z) ON CONFLICT (id) DO NOTHING"), {"z": Z})
+    # İKİ KİRACININ BİRER ÜRÜNÜ. Çapraz prob B'nin ürününü A'nın sezonuna
+    # bağlamayı dener; kısıt tam olarak bunu reddetmek için var.
+    for pid, firma, ad in ((960301, 1, 'A Bugdayi'), (960302, 2, 'B Arpasi')):
+        db.execute(_sql(
+            "INSERT INTO products (id,name,purchase_price,sale_price,vat_rate,"
+            "stock,unit,price_per,active,critical_stock,minimum_stock,company_id) "
+            "VALUES (:i,:n,0,0,0,'0.0000','kg','unit',true,0,0,:c)"),
+            {"i": pid, "n": ad, "c": firma})
+    # Sezonun parseli de BİLEŞİK anahtarla bağlı; A kiracısında kurulmalı.
+    db.execute(_sql(
+        "INSERT INTO farms (id,company_id,code,name,status,created_at,updated_at) "
+        "VALUES (960101,1,'f960101','A Ciftligi','ACTIVE',:z,:z)"), {"z": Z})
+    db.execute(_sql(
+        "INSERT INTO farm_parcels (id,company_id,farm_id,code,name,area_decare,"
+        "status,created_at,updated_at) "
+        "VALUES (960101,1,960101,'p960101','A Parseli','40.0000','ACTIVE',:z,:z)"),
+        {"z": Z})
+    db.commit()
+print("BILESIK-KURULUM-TAMAM")
+'''
+
+#: Üç yazmayı deneyip HER BİRİ için tek satır basan prob gövdesi. Zincir probu
+#: da aynı gövdeyi kullanır: geri alma + yeniden kurulumdan SONRA ölçülen şey,
+#: öncekiyle HARFİ HARFİNE aynı olmak zorunda.
+_PROB_GOVDESI = r'''
+Z = '2026-08-01T00:00:00'
+SEZON_SQL = (
+    "INSERT INTO crop_seasons (id,company_id,parcel_id,season_year,crop,"
+    "product_id,status,created_at,updated_at) "
+    "VALUES (:i,1,960101,2026,'Bugday',:u,'ACTIVE',:z,:z)")
+
+
+def dene(etiket, sezon_id, urun):
+    """Tek yazma dener ve SONUCU ADIYLA basar.
+
+    Red hâlinde SINIF ve KISIT ADI da basılır: "bir sey firladi" bu satirin
+    tasiyabilecegi en zayif ifade olurdu ve sezon satiri NOT NULL, CHECK ve
+    parsel kisitlarini da tasidigi icin YANLIS POZITIF verirdi.
+    """
+    with SessionLocal() as db:
+        db.execute(_sql("DELETE FROM crop_seasons WHERE id = :i"), {"i": sezon_id})
+        db.commit()
+        try:
+            db.execute(_sql(SEZON_SQL), {"i": sezon_id, "u": urun, "z": Z})
+            db.commit()
+        except Exception as hata:
+            db.rollback()
+            asil = getattr(hata, "orig", None) or hata
+            tani = getattr(asil, "diag", None)
+            print("%s RED sinif=%s kisit=%s" % (
+                etiket, type(asil).__name__,
+                getattr(tani, "constraint_name", None)))
+            return
+        okunan = db.execute(_sql(
+            "SELECT product_id FROM crop_seasons WHERE id = :i"),
+            {"i": sezon_id}).scalar_one()
+        print("%s KABUL urun=%r" % (etiket, okunan))
+
+
+dene("AYNI", 960201, 960301)     # A kiracisinin sezonu, A kiracisinin urunu
+dene("CAPRAZ", 960202, 960302)   # A kiracisinin sezonu, B kiracisinin urunu
+dene("BOS", 960203, None)        # urun BILDIRILMEMIS
+'''
+
+_BILESIK_PROB = r'''
+import os, sys
+sys.path.insert(0, os.environ["BACKEND"])
+from sqlalchemy import text as _sql
+from app.db import SessionLocal
+''' + _PROB_GOVDESI
+
+
+def _bilesik_prob() -> str:
+    """Kurulum + prob; her iddia KENDİ taze koşumunu ölçer."""
+    assert "BILESIK-KURULUM-TAMAM" in _kos(_BILESIK_KURULUM)
+    return _kos(_BILESIK_PROB)
+
+
+def test_sezon_urunu_AYNI_firmada_KABUL_ediliyor_pg() -> None:
+    """Kısıt MEŞRU yazmayı engellemiyor — probun geçerlilik koşulu.
+
+    Bu iddia olmadan çapraz-red testi YANLIŞ POZİTİF verebilirdi: kısıt her
+    yazmayı reddediyor olsa da o test yeşil kalırdı ve "kiracılar arası
+    referans engelleniyor" yerine "sezona ürün hiç yazılamıyor" ölçülmüş
+    olurdu.
+    """
+    cikti = _bilesik_prob()
+    assert "AYNI KABUL urun=960301" in cikti, (
+        "Aynı kiracının ürünü sezona YAZILAMADI. Kısıt meşru yazmayı da "
+        "engelliyorsa çapraz-red iddiası hiçbir şey ölçmüyor demektir. "
+        f"çıktı={cikti!r}"
+    )
+
+
+def test_sezon_urunu_BASKA_firmada_REDDEDILIYOR_pg() -> None:
+    """KİRACI SINIRI: A'nın sezonu B'nin ürününü işaret EDEMEZ.
+
+    Bu satır göç 20260827_0062'nin "çıplak değil BİLEŞİK" kararının TEK
+    davranışsal kanıtıdır. Kısıt çıplağa (`product_id -> products.id`)
+    dönerse yazma KABUL edilir ve bu test kırmızı olur — mutasyonla ölçüldü.
+    """
+    cikti = _bilesik_prob()
+    assert "CAPRAZ KABUL" not in cikti, (
+        "KİRACI SINIRI DELİNDİ: bir firmanın sezonu BAŞKA firmanın ürününü "
+        "işaret edebildi. Kısıt çıplak `product_id -> products.id`ye "
+        f"dönmüş olabilir. çıktı={cikti!r}"
+    )
+    assert "CAPRAZ RED sinif=ForeignKeyViolation kisit=%s" % _KISIT_ADI in cikti, (
+        "Çapraz yazma reddedildi ama BEKLENEN kısıt tarafından değil. Sezon "
+        "satırı NOT NULL, CHECK ve parsel kısıtlarını da taşıyor; başka bir "
+        "kısıta takılan bir prob bu güvenceyi ÖLÇMÜŞ SAYILMAZ. "
+        f"beklenen kısıt={_KISIT_ADI!r} çıktı={cikti!r}"
+    )
+
+
+def test_sezon_urunu_NULL_KABUL_ediliyor_pg() -> None:
+    """MATCH SIMPLE: ürün bildirilmemiş sezon serbestçe geçer.
+
+    Sütun NULL KABUL EDEN olmak ZORUNDA (0062 başlığı): aksi hâlde mevcut
+    sezonlara ürün UYDURULURDU ve `SKIPPED_NO_PRODUCT` kovası ERİŞİLEMEZ
+    olurdu. Kova bir karardır; sessizleşmemesi gerekir.
+    """
+    cikti = _bilesik_prob()
+    assert "BOS KABUL urun=None" in cikti, (
+        "Ürünü bildirilmemiş sezon yazılamadı. Sütun NOT NULL'a çevrilmiş ya "
+        "da NULL demet denetleniyor olabilir; her iki hâlde de "
+        f"`SKIPPED_NO_PRODUCT` kovası ERİŞİLEMEZ olur. çıktı={cikti!r}"
+    )
+
+
+_ZINCIR = r'''
+import os, sys
+sys.path.insert(0, os.environ["BACKEND"])
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import inspect, text as _sql
+from app.db import SessionLocal, engine
+
+
+def kisit_var():
+    return any(
+        y.get("name") == "fk_crop_seasons_product_same_company"
+        for y in inspect(engine).get_foreign_keys("crop_seasons"))
+
+
+def sutun_var():
+    return any(
+        s["name"] == "product_id"
+        for s in inspect(engine).get_columns("crop_seasons"))
+
+
+print("ONCE kisit=%s sutun=%s" % (kisit_var(), sutun_var()))
+try:
+    command.downgrade(Config("alembic.ini"), "20260824_0061")
+    engine.dispose()  # yansitici onbellegi degil, TAZE baglanti okusun
+    print("GERI kisit=%s sutun=%s" % (kisit_var(), sutun_var()))
+finally:
+    command.upgrade(Config("alembic.ini"), "head")
+    engine.dispose()
+print("SONRA kisit=%s sutun=%s" % (kisit_var(), sutun_var()))
+''' + _PROB_GOVDESI
+
+
+def test_bilesik_kisit_GERI_ALMA_ve_YENIDEN_KURULUMDAN_sonra_ISIRIYOR_pg() -> None:
+    """Zincir bir adım geri alınıp yeniden çıkıldığında kısıt AYNI kısıt mı?
+
+    Göçün `upgrade()`i koşullu: her adım "zaten var mı" diye bakar. Geri alma
+    bir parçayı düşürmeden bırakırsa (örneğin `products` üzerindeki
+    `UNIQUE(company_id, id)`), yeniden çıkışta o adım ATLANIR ve bileşik
+    anahtar sessizce YARIM kurulabilir. Bunu yalnız zinciri GERÇEKTEN
+    yürüterek görmek mümkündür — şemayı bir kez kurup bakmakla değil.
+
+    Zincir PAYLAŞILAN test veritabanını değiştirir; prob `finally` kolunda
+    `head`e geri çıkar (aynı desen `test_field_stok_0061_postgresql.py`).
+    """
+    assert "BILESIK-KURULUM-TAMAM" in _kos(_BILESIK_KURULUM)
+    cikti = _kos(_ZINCIR)
+
+    assert "ONCE kisit=True sutun=True" in cikti, (
+        f"Zincir başlangıçta head'de değil; prob geçersiz. çıktı={cikti!r}")
+    # NEGATİF KONTROL: geri alma GERÇEKTEN indi mi? Bu satır olmadan, hiç
+    # koşmamış bir downgrade'in ardından yapılan ölçüm "kısıt duruyor" derdi
+    # ve test zinciri sınadığını SANARAK yeşil kalırdı.
+    assert "GERI kisit=False sutun=False" in cikti, (
+        "GERİ ALMA İNMEDİ: bir adım geri alındıktan sonra kısıt ya da sütun "
+        "hâlâ duruyor. Bu koşum zinciri ölçmüyor, yalnız öyle görünüyor. "
+        f"çıktı={cikti!r}"
+    )
+    assert "SONRA kisit=True sutun=True" in cikti, (
+        "Yeniden kurulumdan sonra kısıt ya da sütun GERİ GELMEDİ. Göçün "
+        "koşullu adımlarından biri, geri almanın düşürmediği bir parça "
+        f"yüzünden atlanmış olabilir. çıktı={cikti!r}"
+    )
+    # Ve DAVRANIŞ: şema görüntüsü değil, kısıtın ISIRMASI ölçülür.
+    assert "AYNI KABUL urun=960301" in cikti, (
+        f"Zincirden sonra meşru yazma reddediliyor. çıktı={cikti!r}")
+    assert "CAPRAZ RED sinif=ForeignKeyViolation kisit=%s" % _KISIT_ADI in cikti, (
+        "ZİNCİRDEN SONRA KİRACI SINIRI DELİK: geri alma + yeniden kurulum "
+        f"bileşik anahtarı aynı biçimde geri getirmedi. çıktı={cikti!r}"
+    )
+    assert "BOS KABUL urun=None" in cikti, (
+        f"Zincirden sonra sütun NULL kabul etmiyor. çıktı={cikti!r}")
+
+
+# --- TÜKETİCİ YOLU PG'DE: SEZON ÜRÜNÜ BİLDİRİR, HASAT DEVRALIR --------------
+#
+# `tests/test_field_stok_tuketici.py` bu yolu SQLite'ta zaten ölçüyor. İkizin
+# sebebi kapsam değil, ARKA UÇ FARKI:
+#
+#   * MİKTAR TİPİ. `stock_movements.quantity` PG'de NUMERIC'tir ve psycopg
+#     `Decimal` döndürür; sqlite3 aynı sütunu float/str olarak verir. Hasat
+#     ÜRETİMDİR (`_KAYNAK` yönü +1) ve işaretin + kaldığı, miktarın ÖLÇEĞİYLE
+#     birlikte, güvenilen arka uçta ölçülmelidir.
+#   * KISIT DENETİMİ. `_hasat_kalemleri` hasat -> sezon -> ürün yolunu iki
+#     yandan kiracı kapsamlı okur; o yolun ucundaki bileşik anahtar SQLite'ta
+#     (yukarıdaki bölümde ölçüldüğü gibi) kapatılabiliyor, PG'de kapatılamaz.
+#
+# UYGULAMA KODUNA DOKUNULMADI: yol 0062 + `_KALEM_OKUYUCU` ile zaten açık;
+# burada yalnız ÖLÇÜLÜYOR.
+_HASAT_KURULUM = r'''
+import os, sys
+sys.path.insert(0, os.environ["BACKEND"])
+from sqlalchemy import text as _sql
+from app.db import SessionLocal
+import app.main
+Z = '2026-08-01T00:00:00'
+with SessionLocal() as db:
+    db.execute(_sql("DELETE FROM stock_movements"))
+    db.execute(_sql("DELETE FROM field_integration_events"))
+    db.execute(_sql("DELETE FROM field_harvests WHERE id >= 960000"))
+    db.execute(_sql("DELETE FROM crop_seasons WHERE id >= 960000"))
+    db.execute(_sql("DELETE FROM farm_parcels WHERE id >= 960000"))
+    db.execute(_sql("DELETE FROM farms WHERE id >= 960000"))
+    db.execute(_sql("DELETE FROM warehouse_stocks WHERE product_id >= 960000"))
+    db.execute(_sql("DELETE FROM products WHERE id >= 960000"))
+    depo = db.execute(_sql(
+        "SELECT id FROM warehouses WHERE company_id = 1 AND is_active "
+        "ORDER BY is_default DESC, id")).scalars().first()
+    assert depo is not None, 'KURULUM: aktif depo yok'
+    db.execute(_sql(
+        "INSERT INTO products (id,name,purchase_price,sale_price,vat_rate,"
+        "stock,unit,price_per,active,critical_stock,minimum_stock,company_id) "
+        "VALUES (960301,'A Bugdayi',0,0,0,'0.0000','kg','unit',true,0,0,1)"))
+    db.execute(_sql(
+        "INSERT INTO warehouse_stocks (company_id,warehouse_id,product_id,"
+        "quantity,critical_stock,reserved_quantity) "
+        "VALUES (1,:w,960301,'0.0000',0,0)"), {"w": depo})
+    db.execute(_sql(
+        "INSERT INTO farms (id,company_id,code,name,status,created_at,updated_at) "
+        "VALUES (960101,1,'f960101','A Ciftligi','ACTIVE',:z,:z)"), {"z": Z})
+    db.execute(_sql(
+        "INSERT INTO farm_parcels (id,company_id,farm_id,code,name,area_decare,"
+        "status,created_at,updated_at) "
+        "VALUES (960101,1,960101,'p960101','A Parseli','40.0000','ACTIVE',:z,:z)"),
+        {"z": Z})
+    # İKİ SEZON: biri ürününü BİLDİRİR, öteki BİLDİRMEZ.
+    for sid, urun in ((960201, 960301), (960203, None)):
+        db.execute(_sql(
+            "INSERT INTO crop_seasons (id,company_id,parcel_id,season_year,crop,"
+            "product_id,status,created_at,updated_at) "
+            "VALUES (:i,1,960101,2026,'Bugday',:u,'ACTIVE',:z,:z)"),
+            {"i": sid, "u": urun, "z": Z})
+    # Her sezonda BİRER hasat; ikisi de 50 kg.
+    for hid, sid in ((960401, 960201), (960402, 960203)):
+        db.execute(_sql(
+            "INSERT INTO field_harvests (id,company_id,season_id,harvested_on,"
+            "quantity,unit,status,created_at,updated_at) "
+            "VALUES (:i,1,:s,'2026-08-15','50.0000','kg','RECORDED',:z,:z)"),
+            {"i": hid, "s": sid, "z": Z})
+    for oid, hid in ((960501, 960401), (960502, 960402)):
+        db.execute(_sql(
+            "INSERT INTO field_integration_events (id,company_id,source_type,"
+            "source_id,target,idempotency_key,status,attempts,created_at,"
+            "updated_at) VALUES (:i,1,'field_harvest',:h,'stock',:k,'PENDING',"
+            "0,:z,:z)"), {"i": oid, "h": hid, "k": 'field_harvest:%d:stock' % hid,
+                          "z": Z})
+    db.commit()
+print("HASAT-KURULUM-TAMAM")
+'''
+
+_HASAT_TUKETICI = r'''
+import os, sys
+sys.path.insert(0, os.environ["BACKEND"])
+from sqlalchemy import text as _sql
+from app.db import SessionLocal
+from app.field_stok_tuketici import olaylari_isle
+with SessionLocal() as db:
+    print("SAYAC %r" % (olaylari_isle(db, 1),))
+with SessionLocal() as db:
+    for satir in db.execute(_sql(
+            "SELECT product_id, quantity, reference_id FROM stock_movements "
+            "WHERE reference_type = 'field_integration_event' ORDER BY id")):
+        # TİP DE BASILIYOR: PG NUMERIC -> Decimal; sqlite3 aynı sütunu
+        # float/str verir ve bu ikizin ölçtüğü fark tam olarak budur.
+        print("HAREKET urun=%s miktar=%s tip=%s olay=%s" % (
+            satir[0], satir[1], type(satir[1]).__name__, satir[2]))
+    print("HAREKET-SAYISI %d" % db.execute(_sql(
+        "SELECT COUNT(*) FROM stock_movements "
+        "WHERE reference_type = 'field_integration_event'")).scalar_one())
+    for etiket, oid in (("URUNLU", 960501), ("URUNSUZ", 960502)):
+        durum, gerekce = db.execute(_sql(
+            "SELECT status, last_error FROM field_integration_events "
+            "WHERE id = :i"), {"i": oid}).first()
+        print("OLAY %s durum=%s gerekce=%s" % (etiket, durum, gerekce))
+'''
+
+
+def test_hasat_URUNLU_sezonda_PG_de_HAREKET_uretiyor() -> None:
+    """Ürünü bildirilmiş sezonun hasadı stok ÜRETİR; miktar PG'de NUMERIC.
+
+    Yön `_KAYNAK`tan gelir ve hasat için +1'dir: hareket ARTI olmalı. İşaretin
+    ve ÖLÇEĞİN doğruluğu, karara güvenilen arka uçta ölçülür — sqlite3 aynı
+    sütunu float verir ve orada `50.0` ile `50.0000` ayırt edilemez.
+    """
+    assert "HASAT-KURULUM-TAMAM" in _kos(_HASAT_KURULUM)
+    cikti = _kos(_HASAT_TUKETICI)
+
+    assert "'SENT': 1" in cikti, (
+        "Ürünlü sezonun hasadı UYGULANMADI; hasadın ürüne giden yolu bu "
+        f"koşumda hiç yürümemiş olabilir. çıktı={cikti!r}"
+    )
+    assert "HAREKET-SAYISI 1" in cikti, (
+        "Tam olarak BİR hareket bekleniyordu: ürünsüz sezonun hasadı hareket "
+        f"ÜRETMEMELİ. çıktı={cikti!r}"
+    )
+    assert "HAREKET urun=960301 miktar=50.0000 tip=Decimal olay=960501" in cikti, (
+        "Hareket beklenen ürün/miktar/tip ile yazılmadı. ARTI işaret ÜRETİM "
+        "yönüdür (`_KAYNAK['field_harvest']` = +1); eksi bir miktar hasadı "
+        "TÜKETİM saymak olurdu. `tip=Decimal` PG NUMERIC sözleşmesidir — "
+        f"float okunuyorsa ölçek sessizce kaybolur. çıktı={cikti!r}"
+    )
+    assert "OLAY URUNLU durum=SENT" in cikti, (
+        f"Ürünlü hasat olayı `SENT` olarak terminalleşmedi. çıktı={cikti!r}")
+
+
+def test_hasat_URUNSUZ_sezonda_PG_de_SKIPPED_NO_PRODUCT_kovasina_dusuyor() -> None:
+    """Kova KALDIRILMADI, KAÇINILABİLİR yapıldı — ve ADI KONMUŞ kalmalı.
+
+    Ürünü bildirilmemiş sezonun hasadı ürün UYDURULARAK yazılamaz. Gerekçe
+    HANGİ kaydın düzeltileceğini söylemek zorunda: kova tek ama oraya düşme
+    sebebi tek değil (hasat için sezona, faaliyet için girdiye ürün bildirilir)
+    ve ikisi FARKLI iş gerektirir.
+    """
+    assert "HASAT-KURULUM-TAMAM" in _kos(_HASAT_KURULUM)
+    cikti = _kos(_HASAT_TUKETICI)
+
+    assert "'SKIPPED_NO_PRODUCT': 1" in cikti, (
+        "Ürünsüz sezonun hasadı ADI KONMUŞ kovaya düşmedi; sayaç bu koşumda "
+        f"o kovayı hiç saymadı. çıktı={cikti!r}"
+    )
+    assert "OLAY URUNSUZ durum=SKIPPED_NO_PRODUCT" in cikti, (
+        f"Ürünsüz hasat olayı o kovada TERMİNALLEŞMEDİ. çıktı={cikti!r}")
+    assert "crop_seasons.product_id" in cikti, (
+        "Gerekçe HANGİ kaydın düzeltileceğini söylemiyor. Genel bir metin, "
+        "`last_error`ı okuyan kişiyi sezonu mu girdiyi mi düzelteceğini "
+        f"bilmeden bırakır. çıktı={cikti!r}"
+    )
+    assert "olay=960502" not in cikti, (
+        "Ürünsüz hasat için envanter OYNAMIŞ: ürün uydurulmuş olabilir. "
+        f"çıktı={cikti!r}"
+    )

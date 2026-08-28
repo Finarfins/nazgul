@@ -1517,16 +1517,37 @@ print("TENANT_TABLES_JSON=" + json.dumps(tables))
 #      PG ikizi (test_field_stok_0061_postgresql.py) bu sayaca GIRMEZ:
 #      alt surec KULLANMIYOR, `test_platform_backups_postgresql.py` gibi
 #      surec ICINDE `command.downgrade` cagiriyor.
+#
+# 99/156 -> 99/160 (#2, 0062'nin BILESIK yabanci anahtari): +0 DOSYA, +4 metin.
+#   Dosya sayisi DEGISMIYOR: dordu de zaten sayilan
+#   `test_field_stok_tuketici_postgresql.py` icinde. Ayri surec bu dosyanin
+#   KURULU deseni; yeni problar onu izliyor.
+#   +1 metin  `_BILESIK_KURULUM` — iki kiracinin birer urunu ve A kiracisinda
+#      bir parsel. Capraz probun hedefi olan B urunu OLMADAN kisit hicbir sey
+#      reddedemezdi.
+#   +1 metin  `_PROB_GOVDESI` — sezona urun yazmayi UC kez dener (AYNI kiraci
+#      / BASKA kiraci / NULL) ve her birinin sonucunu SINIF + KISIT ADI ile
+#      basar. Zincir probu AYNI govdeyi tekrar kullanir: geri alma + yeniden
+#      kurulumdan sonra olculen sey oncekiyle HARFI HARFINE ayni olmali.
+#   +1 metin  `_HASAT_KURULUM` — urununu BILDIREN ve BILDIRMEYEN iki sezon,
+#      her birinde birer hasat ve olay.
+#   +1 metin  `_HASAT_TUKETICI` — tuketiciyi kosturup hareketi miktar VE TIP
+#      ile basar; PG NUMERIC -> `Decimal` sozlesmesi sqlite3'te olculemez.
+#   Bilesik yabanci anahtar SQLite'ta `PRAGMA foreign_keys` kapaliyken HIC
+#   denetlenmez ve 0062'nin batch yeniden kurulumu pragma'yi tam o pencerede
+#   kapatir; guvence ancak gercek PG'de olculebilir.
 # app/ altinda yine SIFIR: uretim kodu SQL'i alt surece VERMIYOR.
-# 99 -> 100 / 156 -> 157 (2026-08-28): `tests/
-# test_entegrasyon_olaylari_gerekce_arindirma.py` eklendi. BILINCLI KARAR ve
-# app/ ALTINDA DEGIL — ustteki `test_alt_surecte_sql_uretim_kodunda_yok`
-# kapisi ETKILENMEZ. Dosya, okuma yuzeyinin SAKLANMIS istisna metnini
-# sizdirmadigini olcer; senaryosu kardesleriyle (`test_v2_9_*_sanitization.py`)
-# ayni desende TAZE bir veritabaninda alt surecte kosar ve gomulu SQL yalniz
-# kanarya satirini yazan INSERT'tir.
+# 99 -> 100 / 160 -> 161: bu tur `tests/
+# test_entegrasyon_olaylari_gerekce_arindirma.py` eklendi (okuma yuzeyinin
+# SAKLANMIS istisna metnini sizdirmadigini olcer). BILINCLI KARAR ve app/
+# ALTINDA DEGIL — ustteki `test_alt_surecte_sql_uretim_kodunda_yok` kapisi
+# ETKILENMEZ. Senaryo kardesleriyle (`test_v2_9_*_sanitization.py`) ayni
+# desende TAZE bir veritabaninda alt surecte kosar; gomulu SQL yalniz kanarya
+# satirini yazan INSERT'tir. Metin sayisindaki 160 tabani develop'tan gelir:
+# iki dal da alt surece SQL eklediginde bu sayac CAKISIR ve uzlasmayi ZORLAR —
+# kapinin amaci tam olarak budur.
 BEKLENEN_ALT_SUREC_SQL_DOSYA = 100
-BEKLENEN_ALT_SUREC_SQL_METIN = 157
+BEKLENEN_ALT_SUREC_SQL_METIN = 161
 
 
 def _alt_surecte_sql() -> tuple[list[str], int]:
