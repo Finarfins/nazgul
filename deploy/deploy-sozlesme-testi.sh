@@ -1209,10 +1209,16 @@ else
        | grep -qE '^[[:space:]]*- name: Verify loaded image identity and OCI revision[[:space:]]*$' \
      && printf '%s\n' "$VERIFY_ISI" | grep -qF 'artifact_image_id=%s' \
      && printf '%s\n' "$VERIFY_ISI" | grep -qF 'artifact_oci_revision=%s' \
+     && printf '%s\n' "$CONTAINER_ISI" \
+       | grep -qF '      tested_image_id: ${{ steps.paketle.outputs.tested_image_id }}' \
+     && printf '%s\n' "$VERIFY_ISI" \
+       | grep -qF '          expected_image_id="${{ needs.container.outputs.tested_image_id }}"' \
+     && printf '%s\n' "$VERIFY_ISI" \
+       | grep -qF '[ "$image_id" = "$expected_image_id" ]' \
      && ! printf '%s\n' "$VERIFY_ISI" | grep -qE '^[[:space:]]+packages:[[:space:]]+write[[:space:]]*$'; then
-    yesil "K5 artifact doğrulama job'ı imaj kimliği+OCI revision ölçüyor ve packages:write taşımıyor"
+    yesil "K5 artifact doğrulama job'ı yüklenen imajı container'ın bildirdiği kimliğe EŞİTLİYOR, OCI revision ölçüyor ve packages:write taşımıyor"
   else
-    kirmizi "K5 artifact doğrulama job'ı eksik, kimlik/revision ölçmüyor veya packages:write içeriyor"
+    kirmizi "K5 artifact doğrulama job'ı eksik, kimliği bir BEKLENTİYE eşitlemiyor (yalnız boşluk kontrolü kapı DEĞİLDİR), revision ölçmüyor veya packages:write içeriyor"
   fi
 
   K6_BUILD_SAYISI=""
