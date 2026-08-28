@@ -251,6 +251,11 @@ DYNAMIC_SQL_FILE_ALLOWLIST: dict[str, tuple[int, str, str]] = {
     # `_faaliyet_satiri` yardımcısı (mevcut `_satir` çağrısını sarıyor, YENİ
     # sorgu değil) ve dört çağrı yerinin ona taşınması. Dinamik çağrı sayısı
     # 13'te sabit; parmak izi dosya içeriğinden türediği için yenilendi.
+    "backend/app/routers/entegrasyon_olaylari.py": (
+        3,
+        "a2c5ed3d0b278b63148e993456ba7e09a5e59a4cf7f0d8d965e289ac1c4a0a0c",
+        "outbox READ surface (acilis kosulu 2). Uc dinamik text() cagrisi: liste COUNT, liste SELECT ve ozet GROUP BY. Dinamik parcalarin TAMAMI modul ici: tablo/sutun adlari `_YUZEYLER` kumesindeki donmus `OlayYuzeyi` betimleyicisinden, filtre parcalari `_kosul`daki KAPALI dallardan gelir. Istek verisi SQL METNINE hicbir yoldan girmez: status/source_type DEGERLERI :status ve :source_type olarak baglanir, `failed_only` ise yalnizca yer tutucu SAYISINI (demet uzunlugu) belirler ve kova adlari :kova0..:kovaN olarak baglanir. Her uc kok `company_id=:cid` yuklemini tasir. Ayni desen `routers/herd.py` icin zaten gozden gecirilmisti (tablo adinin modul ici kumeden gelmesi). Parmak izi 2026-08-28de guncellendi: liste ucunun `last_error` alani yanit yolunda ARINDIRILIYOR (`_gerekceyi_arindir`). Tuketicinin SAKLADIGI ham istisna metni (`beklenmeyen hata: ` onekinden sonrasi) sabit bir cumleyle degistirilir; kurate Turkce gerekce ve onekten ONCEKI parca AYNEN gecer. OLCULDU: SQL METNI DEGISMEDI — dinamik text() cagrisi sayisi 3te SABIT, uc sorgunun argumanlari develop ile BIREBIR ayni ve her kok `company_id=:cid` yuklemini tasimaya devam ediyor. Degisen tek sey Python tarafi: satirlar sozluge cevrildikten SONRA tek alan uzerinde bir donusum. Parmak izi degisti cunku dosya AST'sinin TAMAMINDAN turuyor.",
+    ),
     "backend/app/routers/farm.py": (13, "70f18351b52d823f65b7aeb7567cbfbc488cf2621ff0fab4ceb4a9c8fa13b9ae", "closed filter fragments and module-internal table names; every root binds company_id. FAZ 4 adds no new interpolation: the replay ledger uses static SQL and the lost-race path rolls the transaction back instead of deleting rows. Gerçek Maliyet FAZ 2 adds three fully literal, module-level cost-rate lookups, each with its own bound company_id predicate; the read-side rate mask and the single-door read helper touch no SQL at all. FAZ 3 dilim 1 re-review: parmak izi dosya AST'sinin tamamından türediği için SQL'e dokunmayan değişiklikler de bu kapıyı açar; bu turda değişenler yalnız Python tarafı — eksik-oran sayacı faaliyet başına indi, revenue_amount money() ile normalize edildi ve _maliyet_ozeti bayrak yerine Request alıyor. Dinamik text() çağrısı sayısı 13'te sabit ve argümanları develop ile BİREBİR aynı; hiçbir sorgu metni değişmedi Parmak izi 2026-08-18'de guncellendi: FAZ 4 outbox YAZICISI eklendi (_entegrasyon_olayi_yaz). Yeni text() cagrisi SABIT bir INSERT INTO field_integration_events'tir; company_id ACIK sutun olarak :cid ile baglanir, dinamik parca tasimaz. Dosyadaki mevcut dinamik cagrilarin sayisi ve argumanlari DEGISMEDI. Parmak izi 2026-08-21 yeniden gozden gecirildi: FAZ 4 HASAT dilimi (create_harvest icinde _entegrasyon_olayi_yaz cagrisi). Bu tur SQL metni EKLEMEDI - yalniz mevcut ve zaten gozden gecirilmis SABIT INSERT INTO field_integration_events yazicisi ikinci bir yerden CAGRILIYOR; company_id yine ACIK sutun olarak :cid ile baglaniyor. OLCULDU: dosyadaki dinamik text() cagrisi sayisi 13te SABIT kaldi, yani dinamik yuzey buyumedi; parmak izi degisti cunku dosya AST'sinin TAMAMINDAN turuyor ve Python tarafi degisti. Parmak izi 2026-08-27de yeniden gozden gecirildi: SEZON URUNU dilimi (goc 20260827_0062). Bu tur YENI dinamik text() EKLEMEDI. Degisenler: (a) list_seasons'un f-string SELECT'inin PROJEKSIYONUNA product_id eklendi — WHERE company_id=:cid{kosul} yuklemi ve kosul'un geldigi KAPALI kume (parcel_id, season_year) DEGISMEDI; (b) create_season/update_season'un SABIT metinlerine product_id sutunu ve :product_id yer tutucusu eklendi; (c) _sezon_urunu_dogrula eklendi ve SQL'i YOK — zaten gozden gecirilmis _urun_dogrula'yi cagiriyor (SELECT 1 FROM products WHERE id=:id AND company_id=:cid). OLCULDU: dinamik text() cagrisi sayisi 13te SABIT kaldi."),
     "backend/app/routers/finance.py": (7, "6e4fdec89c2253e152abbc69f73f78742e7958715e1bd51128a332618f0420ee", "closed entity/sort maps; roots and joins tenant-scoped"),
     "backend/app/routers/invoices.py": (2, "c75698af0f9fe7a4a2be62aacba6585ae715df18e8597c6926e080c0a56133d8", "fixed filter/sort fragments after company predicate"),
@@ -1047,7 +1052,10 @@ def test_every_dynamic_text_call_is_exactly_reviewed() -> None:
             "koşun. (Tek bir dosya uymuyorsa o gerçek bir değişikliktir.)\n"
         )
 
-    assert sum(item[0] for item in DYNAMIC_SQL_FILE_ALLOWLIST.values()) == 248
+    # 248 -> 251: outbox okuma yuzeyi (`routers/entegrasyon_olaylari.py`)
+    # UC dinamik cagri ekledi. Toplam burada da donuk: tek tek dosya girdileri
+    # dogru olsa bile toplu bir kayma bu satirda gorunur.
+    assert sum(item[0] for item in DYNAMIC_SQL_FILE_ALLOWLIST.values()) == 251
     assert not mismatched, (
         f"{ipucu}Dynamic SQL source changed and needs re-review: {mismatched}"
     )
@@ -1529,8 +1537,17 @@ print("TENANT_TABLES_JSON=" + json.dumps(tables))
 #   denetlenmez ve 0062'nin batch yeniden kurulumu pragma'yi tam o pencerede
 #   kapatir; guvence ancak gercek PG'de olculebilir.
 # app/ altinda yine SIFIR: uretim kodu SQL'i alt surece VERMIYOR.
-BEKLENEN_ALT_SUREC_SQL_DOSYA = 99
-BEKLENEN_ALT_SUREC_SQL_METIN = 160
+# 99 -> 100 / 160 -> 161: bu tur `tests/
+# test_entegrasyon_olaylari_gerekce_arindirma.py` eklendi (okuma yuzeyinin
+# SAKLANMIS istisna metnini sizdirmadigini olcer). BILINCLI KARAR ve app/
+# ALTINDA DEGIL — ustteki `test_alt_surecte_sql_uretim_kodunda_yok` kapisi
+# ETKILENMEZ. Senaryo kardesleriyle (`test_v2_9_*_sanitization.py`) ayni
+# desende TAZE bir veritabaninda alt surecte kosar; gomulu SQL yalniz kanarya
+# satirini yazan INSERT'tir. Metin sayisindaki 160 tabani develop'tan gelir:
+# iki dal da alt surece SQL eklediginde bu sayac CAKISIR ve uzlasmayi ZORLAR —
+# kapinin amaci tam olarak budur.
+BEKLENEN_ALT_SUREC_SQL_DOSYA = 100
+BEKLENEN_ALT_SUREC_SQL_METIN = 161
 
 
 def _alt_surecte_sql() -> tuple[list[str], int]:

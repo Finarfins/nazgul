@@ -125,6 +125,10 @@ export const ROUTE_PERMISSIONS = {
   '/tarla/faaliyetler': 'farm.view',
   '/tarla/gorevler': 'farm.view',
   '/tarla/hasat': 'farm.view',
+  // Olay kuyrugu OKUMA iznine bagli. Kuyruk TARLA verisidir: hangi
+  // faaliyet/hasat stoga islenmedi ve NEDEN. Backend'de de `farm.view`
+  // (bkz. `_FARM_PATH_PREFIXES`); ekran ile uc ayni role bagli.
+  '/tarla/olay-kuyrugu': 'farm.view',
   // Hızlı giriş OKUMA iznine bağlı; kaydetme sayfa içinde `farm.manage`
   // ile sınırlanıyor ve asıl karar backend'de.
   '/tarla/hizli-giris': 'farm.view',
@@ -293,6 +297,7 @@ export const NAV_LABELS = {
   fieldActivities: 'Faaliyetler & Girdiler',
   fieldTasks: 'Tarla Görevleri',
   fieldHarvests: 'Hasat Kayıtları',
+  integrationEvents: 'Olay Kuyruğu',
   quickActivity: 'Hızlı Faaliyet Girişi',
   herdDashboard: 'Sürü Panosu',
   animals: 'Hayvanlar & Sürüler',
@@ -420,6 +425,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       item('/tarla/faaliyetler', NAV_LABELS.fieldActivities, <SpaIcon />),
       item('/tarla/gorevler', NAV_LABELS.fieldTasks, <FactCheckOutlinedIcon />),
       item('/tarla/hasat', NAV_LABELS.fieldHarvests, <AgricultureIcon />),
+      item('/tarla/olay-kuyrugu', NAV_LABELS.integrationEvents, <SwapHorizIcon />),
     ],
   },
   {

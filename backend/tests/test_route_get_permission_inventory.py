@@ -68,6 +68,12 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/field-dashboard"): "farm.view",
     ("GET", "/api/field-harvest-decision"): "farm.view",
     ("GET", "/api/field-harvests"): "farm.view",
+    # Outbox okuma yüzeyi (FIELD_STOK_OUTBOX açılış koşulu 2). AYNI TUZAK:
+    # "/api/field" ile başlıyor, `_FARM_PATH_PREFIXES`e yazılmasaydı
+    # `field_service` iznine düşerdi. Kuyruk TARLA verisidir; okuması
+    # `farm.view`, yani parsel/sezon/hasat listeleriyle AYNI role bağlı.
+    ("GET", "/api/field-integration-events"): "farm.view",
+    ("GET", "/api/field-integration-events/summary"): "farm.view",
     # DİKKAT: `/api/field` önekine benziyor ama TARLA ucu. Önek listesine
     # eklenmeseydi `field_service` iznine düşerdi — bu tuzak iki kez yaşandı.
     ("GET", "/api/field-safety"): "farm.view",
@@ -259,9 +265,12 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 }
 
 #: Toplu kaymayı tek satırda görünür kılan drift kontrolü.
-GET_INVENTORY_COUNT = 160
+# 160 -> 162: outbox okuma yüzeyinin İKİ GET ucu (liste + özet). Başka
+# hiçbir ucun izni değişmedi; drift raporu `changed` ve `stale` listelerini
+# BOŞ ölçtü, yani bu artış YALNIZ ekleme.
+GET_INVENTORY_COUNT = 162
 GET_INVENTORY_FINGERPRINT = (
-    "dea9711df0ddde319c4858811ebb550db6e86100b16653d566b51622c25990ef"
+    "9ee2e037105c6c9320cb5b6be0576165d6455b633a5db00d7d856e556af75895"
 )
 
 

@@ -304,7 +304,10 @@ describe('AppShell mevcut rotaları kırmaz',()=>{
   // 43 → 47: Hayvancılık grubunun dört maddesi (mobil-erp#17).
   // 47 → 48: Süt & Besi ekranı (FAZ 6).
   // 48 → 49: Maliyet Oranları (mobil-erp#24).
-  expect(new Set(hrefs).size).toBe(49);
+  // 49 → 50: Olay Kuyruğu (FIELD_STOK_OUTBOX açılış koşulu 2) — Tarla
+  // grubunda; menüde GÖRÜNÜR, yani parsel/hayvan detayı gibi "listeden
+  // açılan" bir ekran DEĞİL. Kuyruğu okumak için bir kayıt seçmek gerekmez.
+  expect(new Set(hrefs).size).toBe(50);
   for(const path of ALL_NAV_ITEMS.map(item=>item.path))expect(hrefs).toContain(path);
  });
 });

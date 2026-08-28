@@ -31,6 +31,10 @@ const menuItems=ALL_NAV_ITEMS.map(item=>[item.path] as const);
  *
  * 2026-08-08 (Hayvancılık V1, mobil-erp#17): /hayvancilik ve üç alt adresi
  * YENİ olarak eklendi. Mevcut adreslerin hiçbirine dokunulmadı.
+ *
+ * 2026-08-27 (outbox okuma yüzeyi, FIELD_STOK_OUTBOX açılış koşulu 2):
+ * /tarla/olay-kuyrugu YENİ adres olarak eklendi. Mevcut adreslerin hiçbiri
+ * değişmedi ya da silinmedi — yani hiçbir yer imi kırılmıyor.
  */
 const BOOKMARKED_MENU_URLS=[
  '/',
@@ -76,6 +80,7 @@ const BOOKMARKED_MENU_URLS=[
  '/tarla/gorevler',
  '/tarla/hasat',
  '/tarla/hizli-giris',
+ '/tarla/olay-kuyrugu',
  '/hayvancilik',
  '/hayvancilik/hayvanlar',
  '/hayvancilik/saglik',
@@ -165,15 +170,17 @@ describe('navigasyon izin tutarlılığı',()=>{
   // 47 → 48: Süt & Besi ekranı (FAZ 6).
   // 48 → 49: Maliyet Oranları (mobil-erp#24 FAZ 1) — Finans grubuna eklendi,
   // grup sayısı DEĞİŞMEDİ.
-  expect(ALL_NAV_ITEMS.length).toBe(49);
+  // 49 → 50: Olay Kuyruğu (FIELD_STOK_OUTBOX açılış koşulu 2) — Tarla
+  // grubuna eklendi, grup sayısı yine DEĞİŞMEDİ ve hiçbir madde çıkmadı.
+  expect(ALL_NAV_ITEMS.length).toBe(50);
   expect(PINNED_ITEMS.length).toBe(2);
   expect(NAV_GROUPS.length).toBe(9);
  });
 
  it('menü URL sözleşmesi korunur: elle yazılmış adreslerle küme eşitliği',()=>{
   // Bağımsız sözleşme listesiyle karşılaştırma (bkz. BOOKMARKED_MENU_URLS).
-  expect(BOOKMARKED_MENU_URLS).toHaveLength(49);
-  expect(new Set(BOOKMARKED_MENU_URLS).size).toBe(49);
+  expect(BOOKMARKED_MENU_URLS).toHaveLength(50);
+  expect(new Set(BOOKMARKED_MENU_URLS).size).toBe(50);
   const actual=ALL_NAV_ITEMS.map(item=>item.path);
   // Küme eşitliği: sıra önemli değil, içerik birebir olmalı.
   expect([...actual].sort()).toEqual([...BOOKMARKED_MENU_URLS].sort());

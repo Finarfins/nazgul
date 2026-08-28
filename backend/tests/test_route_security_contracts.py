@@ -229,8 +229,8 @@ DYNAMIC_PERMISSION_CASES = {
     },
 }
 
-EXPECTED_OPERATION_COUNT = 338
-EXPECTED_PATH_COUNT = 261
+EXPECTED_OPERATION_COUNT = 340
+EXPECTED_PATH_COUNT = 263
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -281,7 +281,18 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # Parmak izi DONDURULMADAN ÖNCE iznin `read` olduğu ve operatör olmayan bir
     # admin'in 403 aldığı ayrı ayrı ölçüldü (bu dosyanın yukarıdaki notu, yanlış
     # izni sadakatle çivilemenin iki kez yaşandığını söylüyor).
-    "0f22230a7601fca60ce77cce4c093e533d3cb7234bfe51a9dbe12359832be290"
+    # 20260827 (FIELD_STOK_OUTBOX açılış koşulu 2 — outbox OKUMA yüzeyi):
+    # 2 işlem / 2 yol eklendi — GET /api/field-integration-events ve
+    # GET /api/field-integration-events/summary. İkisi de `farm.view`.
+    # AYNI TUZAK YİNE KURULDU VE YİNE ELLE AÇILDI: yollar `/api/field` ile
+    # BAŞLIYOR, `_FARM_PATH_PREFIXES`'e eklenmeseydi sessizce
+    # `field_service`'e düşerlerdi. Bu dosyanın yukarıdaki notu, parmak
+    # izini YANLIŞ izinle dondurmanın iki kez yaşandığını söylüyor; bu
+    # yüzden sıra korundu: önce önek listesine eklendi, `required_permission`
+    # ile `farm.view` ÖLÇÜLDÜ, SONRA parmak izi alındı.
+    # Uçlar SALT OKUR; tüketici davranışı ve `FIELD_STOCK_OUTBOX_ENABLED`
+    # varsayılanı DEĞİŞMEDİ.
+    "c7a3c174419f7f1d6bd62ac36f7ffc476a84377b010d526925096b54aaf380a6"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 
