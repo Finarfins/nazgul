@@ -152,11 +152,32 @@ def _projeksiyon(yuzey: OlayYuzeyi) -> str:
 
 
 #: Tüketicinin BEKLENMEYEN bir istisnayı `last_error`e yazarken koyduğu ÖNEK
-#: (`app/field_stok_tuketici.py`, tek yazım yeri). Tüketicinin YAZDIĞI diğer
-#: her gerekçe ELDE yazılmış Türkçe bir cümledir; ham bir istisnanın `str()`i
-#: sütuna YALNIZ bu önekten sonra girer. Ayrım bu yüzden bir SEZGİ değil,
-#: KENDİ kodumuzun bıraktığı bir İŞARETTİR — içeriğe bakan bir kara liste
+#: (`app/field_stok_tuketici.py`). Tüketicinin YAZDIĞI diğer her gerekçe ELDE
+#: yazılmış Türkçe bir cümledir. Ayrım bu yüzden bir SEZGİ değil, KENDİ
+#: kodumuzun bıraktığı bir İŞARETTİR — içeriğe bakan bir kara liste
 #: (bkz. `notifications/content_gate.py` başlığı) burada gereksizdir.
+#:
+#: DÜZELTME — İSTİSNA `str()`İ SÜTUNA İKİ YERDEN GİRER, BİRİNDEN DEĞİL.
+#: Burada önce "tek yazım yeri" yazıyordu ve bu YANLIŞTI. Sayıldı, İKİ yer var:
+#:
+#:   1. `field_stok_tuketici.py` beklenmeyen istisna kolu — mesajı BU ÖNEKLE
+#:      kurar. Arındırmanın gördüğü ve kestiği yer burasıdır.
+#:   2. `field_stok_tuketici._bir_olayi_isle` içinde `default_warehouse`
+#:      çağrısını saran `except RuntimeError` kolu (bu yazının yazıldığı gün
+#:      831. satır); `str(hata)`yı ÖNEKSİZ yazar.
+#:
+#: İKİNCİSİ NEDEN GÜVENLİ, VE NEDEN ÖLÇÜLÜYOR. O kolun sardığı tek çağrı
+#: `inventory.default_warehouse`tır ve o fonksiyonun TEK `raise`i sabit bir
+#: yazılı metindir: `RuntimeError("Aktif depo bulunamadı")` — 21 karakter,
+#: SQL yok, kısıt adı yok, satır değeri yok. SQLAlchemy/psycopg hataları
+#: `RuntimeError` DEĞİLDİR, yani o kola HİÇ düşmez; onlar aşağıdaki geniş
+#: `except`e gider ve ÖNEĞİ alır.
+#:
+#: Ama bu, BAŞKA bir modüldeki bir olguya dayanan bir güvenlik savıdır ve
+#: sınanmadan yazılmamalıdır. `tests/test_entegrasyon_olaylari_depo_yolu.py`
+#: o yolu GERÇEKTEN koşturur ve sunulan metnin TAM OLARAK o sabit cümle
+#: olduğunu ölçer: `default_warehouse` bir gün daha zengin bir `RuntimeError`
+#: atarsa o kapı KIRMIZI olur ve bu paragraf yeniden yazılmak zorunda kalır.
 _HAM_ISTISNA_ONEKI = "beklenmeyen hata: "
 
 #: Önekten SONRAKİ her şeyin yerine geçen SABİT metin. Deponun canlı
