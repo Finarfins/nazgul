@@ -268,6 +268,7 @@ jobs:
         with:
           name: backend-test-canonical-${{ github.sha }}
           path: backend/canonical-test-manifest.json
+          if-no-files-found: error
           retention-days: 1
 
   backend-quality:
@@ -306,6 +307,7 @@ jobs:
         with:
           name: backend-test-shard-${{ matrix.shard-index }}-${{ github.sha }}
           path: backend/isolated-test-report.json
+          if-no-files-found: error
           retention-days: 1
 
   backend-quality-aggregate:
@@ -451,11 +453,13 @@ jobs:
           # company_id default contract'i adinda "postgresql" gecmese de migration
           # yolunu REQUIRE_PG=1 ile gercek PostgreSQL 16 uzerinde calistirir.
           all_files=(test_*postgresql*.py tests/test_company_id_default_contract.py tests/test_ci_playwright_hazirlik.py)
-          # Lower bound, not exact: 16+ passes (parallel lanes may add PG tests →
-          # 17/18 is fine), but dropping below 16 (a test accidentally deleted or
-          # renamed out of the glob) fails CI instead of silently losing coverage.
-          if [ "${#all_files[@]}" -lt 16 ]; then
-            echo "FAIL: en az 16 PG dosyası bekleniyor, ${#all_files[@]} bulundu" >&2
+          # Donmuş PostgreSQL test popülasyonu (92 postgresql-adlı + 2 özel dosya = 94).
+          # Alt sınır yerine tam eşitlik: dosya silinmesi veya yeniden adlandırma ile
+          # sessizce test kapsamının düşmesini engeller. Yeni PG testi eklendiğinde
+          # veya çıkarıldığında bu sabit bilinçli olarak güncellenmelidir.
+          BEKLENEN_PG_DOSYA_SAYISI=94
+          if [ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]; then
+            echo "FAIL: tam $BEKLENEN_PG_DOSYA_SAYISI PG dosyası bekleniyor, ${#all_files[@]} bulundu" >&2
             exit 1
           fi
 

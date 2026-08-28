@@ -1,0 +1,19 @@
+[
+  "alembic-chain",
+  "backend-postgresql (0)",
+  "backend-postgresql (1)",
+  "backend-postgresql (2)",
+  "backend-postgresql (3)",
+  "backend-quality (0)",
+  "backend-quality (1)",
+  "backend-quality (2)",
+  "backend-quality (3)",
+  "backend-quality-aggregate",
+  "backend-quality-canonical",
+  "container",
+  "contract-drift",
+  "durum-kaydi",
+  "e2e",
+  "frontend",
+  "verify-image-artifact"
+]
