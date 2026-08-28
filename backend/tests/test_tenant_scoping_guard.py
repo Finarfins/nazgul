@@ -1546,8 +1546,62 @@ print("TENANT_TABLES_JSON=" + json.dumps(tables))
 # satirini yazan INSERT'tir. Metin sayisindaki 160 tabani develop'tan gelir:
 # iki dal da alt surece SQL eklediginde bu sayac CAKISIR ve uzlasmayi ZORLAR —
 # kapinin amaci tam olarak budur.
-BEKLENEN_ALT_SUREC_SQL_DOSYA = 100
-BEKLENEN_ALT_SUREC_SQL_METIN = 161
+# 100/161 -> 102/163 (arindirmanin ETRAFINDAKI kapinin uc bosluğu): +2 DOSYA,
+# +2 metin. Uc yeni iddianin ikisi YENI DOSYA acti, biri MEVCUT dosyayi
+# genisletti — ve tam bu ayrim yuzunden sayac 3 degil 2 hareket ediyor.
+#   +1 dosya / +1 metin  tests/test_entegrasyon_olaylari_onek_baglantisi.py —
+#      YENI dosya. Arindirmanin kestigi ONEK ucta, o oneği yazan bicim dizgisi
+#      BASKA modulde (`app/field_stok_tuketici.py`) ve arada HICBIR BAG YOKTU.
+#      OLCULDU: tuketicinin literalindeki tek kelime degistirildiginde 49
+#      `test_field_stok_*` testi ve yuzeyin 4 testi YESIL kaldi, sizinti uctan
+#      uca YENIDEN ACILDI. Kapi tuketiciyi GERCEK bir veritabani hatasina
+#      surer (goc 0060'in kismi benzersiz indeksi) ve SUTUNA GIREN metnin ucun
+#      sabitiyle BASLADIGINI olcer; bunun icin AYRI SUREC sart: `import
+#      app.main` goc zincirini surec basina bir kez kurar ve senaryo KENDI taze
+#      veritabanini ister.
+#   +1 dosya / +1 metin  tests/test_entegrasyon_olaylari_depo_yolu.py — YENI
+#      dosya. Ham istisna `str()`i sutuna IKI yerden girer, birinden degil;
+#      ikincisi (`default_warehouse` cagrisini saran `except RuntimeError`)
+#      ONEKSIZ yazar, yani arindirmanin YANINDAN gecer. Bugun zararsiz oldugu
+#      SINANMIYORDU. Kapi o yolu gercekten kosturur ve sunulan metnin TAM
+#      OLARAK sabit cumle oldugunu olcer.
+#   +0 dosya / +0 metin  tests/test_entegrasyon_olaylari_gerekce_arindirma.py —
+#      ZATEN sayiliyordu (99->100 turunda eklenmisti). Bu tur ona `PENDING`
+#      tasiyici bir satir ekledi; gomulu SQL yine TEK senaryo sabiti icinde
+#      oldugu icin metin sayisi DEGISMEDI. Sayacin dosya-ici buyumeyi
+#      gormemesi bilincli: kapi ALT SUREC YUZEYINI olcer, satir sayisini degil.
+# app/ altinda yine SIFIR: uretim kodu SQL'i alt surece VERMIYOR (olculdu).
+# 102/163 -> 102/165 (arindirmanin IKINCI ayagi: dar `except` yerine ARIZA
+# olculuyor): +0 DOSYA, +2 metin. Ikisi de MEVCUT
+# `tests/test_entegrasyon_olaylari_depo_yolu.py` icinde acildi; dosya zaten
+# sayiliyordu (100/161 -> 102/163 turunda eklenmisti), bu yuzden DOSYA sayaci
+# KIMILDAMIYOR.
+#   +1 metin  `_SENARYO_ARIZA` — o dosyanin ILK kapisi yalniz BIRINCI ayagi
+#      (kurate metnin sabitligini) olcuyordu. IKINCI ayak — `except
+#      RuntimeError`in surucu/ORM hatalarini o kola HIC dusurmeyecek kadar DAR
+#      oldugu — HICBIR YERDE sinanmiyordu. OLCULDU: tek kelime (`except
+#      RuntimeError` -> `except Exception`) degistirildiginde
+#      `default_warehouse` icindeki GERCEK bir surucu arizasi ONEKSIZ yaziliyor
+#      ve HTTP cagirana `[SQL: ...] [parameters: (1,)]` AYNEN sunuluyordu; tum
+#      kosum YESIL kaliyordu. Yeni senaryo bir `except` kolunun GENISLIGINI
+#      olcmez (olculemez); ILISKIYI ADIYLA YOK EDER (`ALTER TABLE warehouses
+#      RENAME TO ...`), yani UYDURMA DEGIL GERCEK bir `OperationalError`
+#      dogurur ve DISARI CIKAN METNI olcer. AYRI SUREC sart: `import app.main`
+#      goc zincirini surec basina BIR KEZ kurar ve senaryo hem KENDI taze
+#      veritabanini hem de o veritabaninda GERI ALINABILIR bir sema arizasi
+#      ister — ayni surecte hem saglam hem arizali iliski gozlenemez.
+#   +1 metin  `_SENARYO_SUZGEC` — `_depo_gerekcesi` suzgecinin KENDISINI olcer
+#      (kurate metin AYNEN gecer, kurate OLMAYAN her metin ISARETLENIR ve
+#      arindirmadan sonra iz tasimaz) ve `KURATE_DEPO_GEREKCELERI` kumesinin
+#      `inventory.py`deki GERCEK `raise` ile BAGINI kosturarak dogrular.
+#      ARIZA senaryosundan AYRI TUTULMASI BILINCLIDIR: ariza senaryosu
+#      tuketicinin ic adlarindan HICBIRINI import ETMEZ, boylece suzgec HIC
+#      var olmayan bir agacta da (yani asil kusurun kendisinde) KIRMIZI
+#      olabilir. Tek dosyada birlestirilseydi o agacta `ImportError` verir ve
+#      sizintiyi HIC olcemezdi — olculdu.
+# app/ altinda yine SIFIR: bu tur uretim kodu SQL'i alt surece VERMIYOR.
+BEKLENEN_ALT_SUREC_SQL_DOSYA = 102
+BEKLENEN_ALT_SUREC_SQL_METIN = 165
 
 
 def _alt_surecte_sql() -> tuple[list[str], int]:

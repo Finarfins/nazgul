@@ -291,6 +291,63 @@ def _kisalt(hata: str | None) -> str | None:
     return metin[:AZAMI_HATA_METNI - 3] + "..."
 
 
+#: HAM istisna metninin ISARETI. Okuma yuzeyinin arindirmasi
+#: (`routers/entegrasyon_olaylari._gerekceyi_arindir`) saklanmis metni TAM
+#: OLARAK bu isaretten keser; isareti TASIMAYAN metin arindirmanin YANINDAN
+#: gecer ve `farm.view` tasiyan salt okur rollere AYNEN sunulur.
+#:
+#: NEDEN SABIT: bu modulde isareti yazan IKI yer var (beklenmeyen istisna kolu
+#: ve `_depo_gerekcesi`). Uclusu ayri ayri yazili literal olsaydi, birinde
+#: degisen tek kelime otekilerde sessizce eski kalirdi — o kaymanin ta kendisi
+#: `tests/test_entegrasyon_olaylari_onek_baglantisi.py`in var olma nedenidir.
+#: Modul ici bag BURADA kurulur; modul DISI bag (bu isaret ile ucun
+#: `_HAM_ISTISNA_ONEKI`i) o dosyada KOSTURULARAK olculur.
+_HAM_ISTISNA_ONEKI = "beklenmeyen hata: "
+
+
+#: `inventory.default_warehouse`in KURATE gerekce KUMESI: bu kolun ONEKSIZ,
+#: yani ARINDIRILMADAN gecirmesine izin verilen metinlerin TAMAMI.
+#:
+#: OLCULDU (CPython 3.12, AST ile): `default_warehouse` bir YAPRAKTIR — govdesi
+#: yalniz `db.execute`, `select` ve `int` cagirir, baska hicbir uygulama
+#: fonksiyonuna inmez — ve TEK bir `raise` tasir:
+#: `RuntimeError("Aktif depo bulunamadı")`. Metin duz bir literaldir; icine
+#: hicbir yakalanmis istisna interpole EDILMEZ.
+#:
+#: NEDEN KUME, NEDEN SABITIN KENDISI DEGIL: bu kol `str(hata)`yi kume UYELIGI
+#: ile suzer, dogrudan bu sabiti YAZMAZ. Fark, `default_warehouse` bir gun
+#: ikinci bir `RuntimeError` atarsa ortaya cikar: sabit yazilsaydi o YENI
+#: gerekce, kullaniciya AYNEN "Aktif depo bulunamadı" diye YALAN soylenerek
+#: sunulurdu. Uyelik suzgeci ise onu isaretler ve arindirilir — yani
+#: bilinmeyen metin SESSIZCE YANLIS degil, GORUNUR bicimde SAKLI olur.
+#: `RuntimeError`in ALT SINIFLARI (`RecursionError`, `NotImplementedError`)
+#: da bu kola duser ve ayni suzgecten gecer.
+KURATE_DEPO_GEREKCELERI = frozenset({"Aktif depo bulunamadı"})
+
+
+def _depo_gerekcesi(hata: BaseException) -> str:
+    """Depo cozumleme kolunun `last_error` metnini kurar. FAIL CLOSED.
+
+    KURATE metin AYNEN gecer — o cumlenin tum degeri okuyana HANGI KAYDI
+    duzeltecegini soylemesindedir ve arindirilirsa yuzey degersizlesir.
+    KURATE OLMAYAN her metin ISARETLENIR, yani okuma yuzeyinde sabit cumleye
+    indirgenir.
+
+    NE KAZANILIR: bu kol boylece ARTIK bir HAM ISTISNA yazim yeri DEGILDIR.
+    Once guvenligi `except RuntimeError`in DARLIGINA dayaniyordu — surucu /
+    ORM hatalarinin o kola HIC dusmedigi olgusuna. O olgu bu modulde HICBIR
+    yerde sinanmiyordu ve tek kelimelik bir genisletme (`except Exception`)
+    onu sessizce cururtuyordu; OLCULDU: o mutasyon altinda sunulan metin ham
+    `[SQL: ...] [parameters: ...]` oluyor ve TUM kosum YESIL kaliyordu.
+    Suzgec, kolun DARLIGINI TASIYICI olmaktan cikarir: kol genisletilse bile
+    disari cikan metin isaretli, yani arindirilmis olur.
+    """
+    metin = str(hata)
+    if metin in KURATE_DEPO_GEREKCELERI:
+        return metin
+    return "%s%s: %s" % (_HAM_ISTISNA_ONEKI, type(hata).__name__, metin)
+
+
 def _oturumu_sinirla(oturum: Session) -> None:
     """Verilen oturumun ISLEMINE KILIT ve IFADE ustu koyar. FAIL CLOSED.
 
@@ -828,7 +885,10 @@ def _bir_olayi_isle(
         try:
             depo = default_warehouse(db, firma)
         except RuntimeError as hata:
-            _olayi_sonlandir(db, firma, olay_id, DURUM_OLU, str(hata), deneme)
+            # ONEKSIZ GECEN metin ARTIK yalnizca KURATE kumenin uyesi olabilir;
+            # gerisi isaretlenir ve okuma yuzeyinde arindirilir.
+            _olayi_sonlandir(
+                db, firma, olay_id, DURUM_OLU, _depo_gerekcesi(hata), deneme)
             db.commit()
             return DURUM_OLU
 
@@ -844,7 +904,7 @@ def _bir_olayi_isle(
         db.commit()
         return DURUM_UYGULANDI
     except Exception as hata:  # noqa: BLE001 - kova adi konmus, sayilir
-        mesaj = "beklenmeyen hata: %s: %s" % (type(hata).__name__, hata)
+        mesaj = "%s%s: %s" % (_HAM_ISTISNA_ONEKI, type(hata).__name__, hata)
         logger.exception(
             "Field stok olayi islenemedi; firma=%s olay=%s deneme=%s",
             firma, olay_id, deneme,
