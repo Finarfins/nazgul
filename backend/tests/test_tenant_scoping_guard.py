@@ -1571,8 +1571,37 @@ print("TENANT_TABLES_JSON=" + json.dumps(tables))
 #      oldugu icin metin sayisi DEGISMEDI. Sayacin dosya-ici buyumeyi
 #      gormemesi bilincli: kapi ALT SUREC YUZEYINI olcer, satir sayisini degil.
 # app/ altinda yine SIFIR: uretim kodu SQL'i alt surece VERMIYOR (olculdu).
+# 102/163 -> 102/165 (arindirmanin IKINCI ayagi: dar `except` yerine ARIZA
+# olculuyor): +0 DOSYA, +2 metin. Ikisi de MEVCUT
+# `tests/test_entegrasyon_olaylari_depo_yolu.py` icinde acildi; dosya zaten
+# sayiliyordu (100/161 -> 102/163 turunda eklenmisti), bu yuzden DOSYA sayaci
+# KIMILDAMIYOR.
+#   +1 metin  `_SENARYO_ARIZA` — o dosyanin ILK kapisi yalniz BIRINCI ayagi
+#      (kurate metnin sabitligini) olcuyordu. IKINCI ayak — `except
+#      RuntimeError`in surucu/ORM hatalarini o kola HIC dusurmeyecek kadar DAR
+#      oldugu — HICBIR YERDE sinanmiyordu. OLCULDU: tek kelime (`except
+#      RuntimeError` -> `except Exception`) degistirildiginde
+#      `default_warehouse` icindeki GERCEK bir surucu arizasi ONEKSIZ yaziliyor
+#      ve HTTP cagirana `[SQL: ...] [parameters: (1,)]` AYNEN sunuluyordu; tum
+#      kosum YESIL kaliyordu. Yeni senaryo bir `except` kolunun GENISLIGINI
+#      olcmez (olculemez); ILISKIYI ADIYLA YOK EDER (`ALTER TABLE warehouses
+#      RENAME TO ...`), yani UYDURMA DEGIL GERCEK bir `OperationalError`
+#      dogurur ve DISARI CIKAN METNI olcer. AYRI SUREC sart: `import app.main`
+#      goc zincirini surec basina BIR KEZ kurar ve senaryo hem KENDI taze
+#      veritabanini hem de o veritabaninda GERI ALINABILIR bir sema arizasi
+#      ister — ayni surecte hem saglam hem arizali iliski gozlenemez.
+#   +1 metin  `_SENARYO_SUZGEC` — `_depo_gerekcesi` suzgecinin KENDISINI olcer
+#      (kurate metin AYNEN gecer, kurate OLMAYAN her metin ISARETLENIR ve
+#      arindirmadan sonra iz tasimaz) ve `KURATE_DEPO_GEREKCELERI` kumesinin
+#      `inventory.py`deki GERCEK `raise` ile BAGINI kosturarak dogrular.
+#      ARIZA senaryosundan AYRI TUTULMASI BILINCLIDIR: ariza senaryosu
+#      tuketicinin ic adlarindan HICBIRINI import ETMEZ, boylece suzgec HIC
+#      var olmayan bir agacta da (yani asil kusurun kendisinde) KIRMIZI
+#      olabilir. Tek dosyada birlestirilseydi o agacta `ImportError` verir ve
+#      sizintiyi HIC olcemezdi — olculdu.
+# app/ altinda yine SIFIR: bu tur uretim kodu SQL'i alt surece VERMIYOR.
 BEKLENEN_ALT_SUREC_SQL_DOSYA = 102
-BEKLENEN_ALT_SUREC_SQL_METIN = 163
+BEKLENEN_ALT_SUREC_SQL_METIN = 165
 
 
 def _alt_surecte_sql() -> tuple[list[str], int]:
