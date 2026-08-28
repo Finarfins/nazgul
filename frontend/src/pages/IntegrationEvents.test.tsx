@@ -22,14 +22,38 @@ vi.mock('../api', () => ({
   api: {get: (...args: unknown[]) => get(...args)},
   errorDetail: (_error: unknown, fallback: string) => fallback,
 }));
-// Tablo yerine satırların GÖRÜNEN alanlarını basan bir vekil: ızgarayı değil,
-// sayfanın tabloya NE VERDİĞİNİ ölçmek istiyoruz.
+// Vekil YALNIZ KAPSAYICIDIR — GÖSTERİMİ SAYFANIN KENDİ KODU YAPAR.
+//
+// Vekil eskiden `row.last_error`ı KENDİ basıyordu; o hâlde 2 numaralı test
+// vekilin markup'ını ölçüyordu, sayfanın gösterimini değil. ÖLÇÜLDÜ: sayfanın
+// HER İKİ gerçek gösterim yolu da ('Gerekçe' sütununun `renderCell`i ve kart
+// görünümünün `cardFields` değeri) kırıldığında beş test de YEŞİL kalıyor,
+// gerçek tarayıcıda ise ekranda '—' yazıyordu.
+//
+// Bu yüzden vekil artık kendi metnini basmaz: sayfanın GEÇTİĞİ `columns`
+// ve `cardFields` fonksiyonlarını ÇAĞIRIR. Izgarayı (DataGrid) hâlâ kurmuyoruz
+// — jsdom'da sanallaştırma yüzünden ölçülemez —, ama içine koyduğu gösterim
+// kodu artık GERÇEKTEN koşuyor. İki yoldan biri bozulursa test kırılır.
 vi.mock('../components/ResponsiveTable', () => ({
-  default: ({rows}: {rows: Array<Record<string, unknown>>}) => (
+  default: ({rows, columns, cardFields}: {
+    rows: Array<Record<string, unknown>>;
+    columns: Array<{field: string; renderCell?: (p: {row: any}) => React.ReactNode}>;
+    cardFields: Array<{label: string; value: (row: any) => React.ReactNode}>;
+  }) => (
     <div data-testid="tablo">
       {rows.map(row => (
         <div key={String(row.id)} data-testid={`satir-${row.id}`}>
-          {String(row.status)} · {String(row.last_error ?? '')}
+          {String(row.status)}
+          <span data-testid={`masaustu-${row.id}`}>
+            {columns.filter(s => s.renderCell).map(s => (
+              <span key={s.field}>{s.renderCell!({row})}</span>
+            ))}
+          </span>
+          <span data-testid={`kart-${row.id}`}>
+            {cardFields.map(alan => (
+              <span key={alan.label}>{alan.value(row)}</span>
+            ))}
+          </span>
         </div>
       ))}
     </div>
@@ -106,8 +130,14 @@ it('başarısız olayın GEREKÇE METNİ ekranda görünür', async () => {
   goster();
   await waitFor(() => expect(screen.getByTestId('satir-7')).toBeTruthy());
 
-  // Kova ADI değil, DÜZELTİLECEK KAYDI söyleyen metin.
-  expect(screen.getByTestId('satir-7').textContent).toContain('crop_seasons.product_id');
+  // Kova ADI değil, DÜZELTİLECEK KAYDI söyleyen metin. Bu metin artık
+  // vekilin markup'ından DEĞİL, sayfanın kendi `renderCell`/`cardFields`
+  // gösteriminden geliyor (bkz. vekil tanımındaki ölçüm notu).
+  // HER İKİ GÖSTERİM YOLU AYRI AYRI. Tek bir birleşik metinde ölçülseydi,
+  // yollardan biri bozulup öteki sağlam kaldığında test YEŞİL kalırdı
+  // (ölçüldü: tam olarak öyle oluyordu).
+  expect(screen.getByTestId('masaustu-7').textContent).toContain('crop_seasons.product_id');
+  expect(screen.getByTestId('kart-7').textContent).toContain('crop_seasons.product_id');
 });
 
 it('PENDING "sorun yok" diye okunmasın: uyarı metni ekranda', async () => {

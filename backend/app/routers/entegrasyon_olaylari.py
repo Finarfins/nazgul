@@ -151,6 +151,57 @@ def _projeksiyon(yuzey: OlayYuzeyi) -> str:
     )
 
 
+#: Tüketicinin BEKLENMEYEN bir istisnayı `last_error`e yazarken koyduğu ÖNEK
+#: (`app/field_stok_tuketici.py`, tek yazım yeri). Tüketicinin YAZDIĞI diğer
+#: her gerekçe ELDE yazılmış Türkçe bir cümledir; ham bir istisnanın `str()`i
+#: sütuna YALNIZ bu önekten sonra girer. Ayrım bu yüzden bir SEZGİ değil,
+#: KENDİ kodumuzun bıraktığı bir İŞARETTİR — içeriğe bakan bir kara liste
+#: (bkz. `notifications/content_gate.py` başlığı) burada gereksizdir.
+_HAM_ISTISNA_ONEKI = "beklenmeyen hata: "
+
+#: Önekten SONRAKİ her şeyin yerine geçen SABİT metin. Deponun canlı
+#: istisnalar için zaten uyguladığı desen budur: ham metin ATILIR, yerine
+#: sabit bir Türkçe cümle konur (`routers/products.py` PRODUCT_FAILED_MESSAGE,
+#: `routers/transactions.py`). Burada tek fark, istisnanın CANLI değil
+#: SAKLANMIŞ olması.
+_HAM_ISTISNA_YERINE = (
+    "beklenmeyen bir hata (ayrıntı yalnız sunucu günlüğünde ve veritabanında)"
+)
+
+
+def _gerekceyi_arindir(hata: Any) -> Any:
+    """SAKLANMIŞ ham istisna metnini yanıttan ÇIKARIR — KÜRATE METNE DOKUNMAZ.
+
+    NEDEN OKUMA ZAMANINDA, YAZMA ZAMANINDA DEĞİL. İki gerekçe:
+
+    1. **Yazma zamanı, ZATEN YAZILMIŞ satırı kurtarmaz.** Tüketiciyi
+       düzeltmek bugünkü tablodaki metni değiştirmez; bu uç onları
+       DEĞİŞMEDEN sunmaya devam ederdi. Sızıntı sınıfı ancak metnin
+       ÇIKTIĞI yerde kapanır.
+    2. **Adli değer veritabanında KALIR.** Ham metin operatör için
+       teşhisin kendisidir; SQL erişimi olan onu görmeye devam eder.
+       Kaybedilen tek şey, `farm.view` taşıyan SALT OKUR rollerin
+       (ölçüldü: rapor, muhasebe, depo dahil altı rol) o metne HTTP
+       üzerinden erişmesidir — kapatılmak istenen tam olarak budur.
+
+    KÜRATE GEREKÇE AYNEN GEÇER. Bu yüzeyin bütün değeri o metinde:
+    "sezonun ürünü bildirilmemiş; hasat stok taşıyamaz (field_harvests ->
+    crop_seasons.product_id NULL)" okuyana HANGİ KAYDI düzelteceğini söyler.
+    Toptan bir karartma, ucu kova adından ibaret bırakır ve ekranı
+    değersizleştirirdi.
+
+    Önekten ÖNCEKİ parça da KORUNUR: orası tüketicinin kendi cümlesidir
+    ("deneme tavani asildi (3): "), yani kaçıncı denemede kapandığı bilgisi
+    kaybolmaz.
+    """
+    if not isinstance(hata, str):
+        return hata
+    yer = hata.find(_HAM_ISTISNA_ONEKI)
+    if yer < 0:
+        return hata
+    return hata[:yer] + _HAM_ISTISNA_YERINE
+
+
 def _kosul(
     yuzey: OlayYuzeyi,
     params: dict[str, Any],
@@ -249,9 +300,16 @@ def kaydet(yuzey: OlayYuzeyi) -> None:
             ),
             params,
         ).mappings().all()
+        # ARINDIRMA BURADA, projeksiyonun HEMEN ardında: yanıta giden TEK
+        # yol bu. Sorgu ham metni okumaya devam eder; dışarı çıkan çıkmaz.
+        kalemler = []
+        for satir in rows:
+            kalem = dict(satir)
+            kalem["last_error"] = _gerekceyi_arindir(kalem.get("last_error"))
+            kalemler.append(kalem)
         return {
             "source": yuzey.alan,
-            "items": [dict(satir) for satir in rows],
+            "items": kalemler,
             "total": int(toplam or 0),
             "limit": limit,
             "offset": offset,
