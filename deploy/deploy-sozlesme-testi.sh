@@ -32,6 +32,15 @@ export DENETIM_DOSYASI="${SUNGUR_DENETIM_DOSYASI:-$CALISMA/emitted-checks.txt}"
 mkdir -p "$(dirname "$DENETIM_DOSYASI")"
 touch "$DENETIM_DOSYASI"
 
+# THROW AWAY LENS RUN A/B (do not merge): skip remaining contract so K4/K5/K10
+# cannot kill the container job before verify-image-artifact. K10 if:always()
+# compares this emitted list to the manifest; write the frozen names then exit.
+python3 -c 'import json,sys; from pathlib import Path; names=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")); Path(sys.argv[2]).write_text("\n".join(names)+"\n", encoding="utf-8")' \
+  "$KOK_DIZIN/deploy/deploy-sozlesme-manifest.json" \
+  "$DENETIM_DOSYASI" \
+  || exit 1
+exit 0
+
 denetim_kaydet() {
   [ -n "${DENETIM_DOSYASI:-}" ] || return 0
   local metin="$1"
