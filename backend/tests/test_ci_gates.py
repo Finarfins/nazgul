@@ -16,6 +16,7 @@ MANIFEST_FILE = REPO_ROOT / "deploy" / "ci-required-contexts.json"
 CONTEXT_GATE = REPO_ROOT / "deploy" / "ci-gerekli-baglam-kapisi.py"
 SHARD_GATE = REPO_ROOT / "deploy" / "ci-postgresql-shard-kapisi.py"
 NEEDS_GATE = REPO_ROOT / "deploy" / "ci-yayin-needs-kapisi.py"
+CALL_SITE_GATE = REPO_ROOT / "deploy" / "ci-verify-cagri-kapisi.py"
 BACKEND = REPO_ROOT / "backend"
 
 
@@ -163,3 +164,76 @@ def test_ci_shard_gate_fails_on_missing_sqlite_upload_error_policy(tmp_path: Pat
     )
     assert res.returncode == 1
     assert "bos SQLite shard artifact fail-closed degil" in res.stdout
+
+
+def test_k5_call_site_gate_passes_clean_workflow() -> None:
+    """Call-site YAML gate must exit 0 on the committed workflow."""
+    res = subprocess.run(
+        [sys.executable, str(CALL_SITE_GATE), str(CI_WORKFLOW)],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "K5 verify-image-artifact cagri yeri YESIL" in res.stdout
+
+
+def test_k5_call_site_gate_fails_on_step_level_if(tmp_path: Path) -> None:
+    """Step-level `if: false` skipped the script while grep-K5 stayed green."""
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    mutated = text.replace(
+        "      - name: Verify loaded image identity and OCI revision\n        env:",
+        "      - name: Verify loaded image identity and OCI revision\n        if: false\n        env:",
+        1,
+    )
+    assert mutated != text
+    mutated_file = tmp_path / "ci_step_if.yml"
+    mutated_file.write_text(mutated, encoding="utf-8")
+    res = subprocess.run(
+        [sys.executable, str(CALL_SITE_GATE), str(mutated_file)],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 1
+    assert "verify adimi anahtar kumesi kapali degil" in res.stdout
+    assert "if" in res.stdout
+
+
+def test_k5_call_site_gate_fails_on_duplicate_run_key(tmp_path: Path) -> None:
+    """Duplicate YAML `run:` keeps the call-site line in the file; last key wins."""
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    mutated = text.replace(
+        "        run: ./deploy/artifact-imaj-kimlik-kapisi.sh\n",
+        '        run: ./deploy/artifact-imaj-kimlik-kapisi.sh\n        run: "true"\n',
+        1,
+    )
+    assert mutated != text
+    mutated_file = tmp_path / "ci_dup_run.yml"
+    mutated_file.write_text(mutated, encoding="utf-8")
+    res = subprocess.run(
+        [sys.executable, str(CALL_SITE_GATE), str(mutated_file)],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 1
+    assert "yinelenen YAML anahtari" in res.stdout
+
+
+def test_k5_call_site_gate_fails_on_extra_bash_env(tmp_path: Path) -> None:
+    """Extra BASH_ENV makes the identity script exit 0 before any comparison."""
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    mutated = text.replace(
+        "          BEKLENEN_OCI_REVIZYONU: ${{ github.sha }}\n        run:",
+        "          BEKLENEN_OCI_REVIZYONU: ${{ github.sha }}\n"
+        "          BASH_ENV: ${{ github.workspace }}/deploy/kapi-oldur.sh\n        run:",
+        1,
+    )
+    assert mutated != text
+    mutated_file = tmp_path / "ci_bash_env.yml"
+    mutated_file.write_text(mutated, encoding="utf-8")
+    res = subprocess.run(
+        [sys.executable, str(CALL_SITE_GATE), str(mutated_file)],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 1
+    assert "BASH_ENV/PATH" in res.stdout

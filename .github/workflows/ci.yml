@@ -1086,11 +1086,12 @@ jobs:
         with:
           name: tested-production-image-${{ github.sha }}
           path: ${{ runner.temp }}/tested-production-image
+          if-no-files-found: error
       - name: Load tested production image
         run: gzip -dc "$RUNNER_TEMP/tested-production-image/tested-production-image.tar.gz" | docker load
       # Bu adım KAPI MANTIĞINI İÇERMEZ; yalnızca onu ÇAĞIRIR. Mantık
       # `deploy/artifact-imaj-kimlik-kapisi.sh`de yaşar ve sözleşme testi O BETİĞİ
-      # ÇALIŞTIRIP kirli bir beklentide KIRMIZI vermesini şart koşar (K8). Böylece
+      # ÇALIŞTIRIP kirli bir beklentide KIRMIZI vermesini şart koşar (K9). Böylece
       # kapının ölümü metin analiziyle değil DAVRANIŞLA yakalanır ve metinle
       # çivilenmesi gereken yüzey bir bloktan aşağıdaki TEK satıra iner (K5).
       - name: Verify loaded image identity and OCI revision

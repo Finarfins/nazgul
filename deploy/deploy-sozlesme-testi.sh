@@ -1209,74 +1209,36 @@ else
   # ---------------------------------------------------------------------
   # K5 — ÇAĞRI YERİ. Ne ölçer, ne ÖLÇMEZ: burada yazılı.
   #
-  # Bu, aynı kusurun ÜÇÜNCÜ turudur. #6'da K5 üç SABİT DİZGE arıyordu; dört
-  # kaçış yeşil ölçüldü. #7'de K5 akıllandı (karşılaştırmayı İZLEYEN satırda
-  # `exit 1`, tek atama, beklentinin kaynağı); dört kaçış daha bulundu ve
-  # ÜÇÜ DE o kontrollerden geçti: `image_id="$expected_image_id"` (atama
-  # SOLDAKİ ada bakan sayıma görünmez), `if false; then … fi`, alt kabuk +
-  # dışarıda `|| true`, ve karşılaştırmadan önce `exit 0`.
+  # #6/#7 metin grep'i akış denetimini kanıtlayamadı. develop'a #9 indikten
+  # sonra bu dalda yeniden ölçüldü ve grep hâlâ şunları YEŞİL bırakıyordu:
+  # adım-seviyesi `if: false`, yinelenen `run:` (YAML son anahtar kazanır),
+  # fazladan `BASH_ENV`/`PATH`. Bu yüzden çağrı yeri artık
+  # `deploy/ci-verify-cagri-kapisi.py` ile PARSE edilir: iş anahtar kümesi
+  # kapalıdır, doğrulama adımının `run`/`env`/`if` değerleri parse edilmiş
+  # nesnedendir, yinelenen YAML anahtarı kırmızıdır.
   #
-  # Her iki tur da metin üzerinden bir AKIŞ DENETİMİ özelliği kanıtlamaya
-  # çalıştı. KONUM, BAŞARISIZLIK SEMANTİĞİ İÇİN YETERLİ BİR DEĞİŞMEZ DEĞİLDİR.
-  # Bu yüzden kapı mantığı `deploy/artifact-imaj-kimlik-kapisi.sh`e taşındı;
-  # onun GERÇEKTEN kırmızı verdiğini K8 ÇALIŞTIRARAK ölçer. K5'e kalan iş,
-  # metnin dürüstçe çivileyebileceği tek şeydir: adımın O BETİĞİ çağırması ve
-  # çağrının etkisiz bırakılmamış olması.
+  # K1..K8 develop'ta DOLUDUR (K8 = `ci-gerekli-baglam-kapisi.py` /
+  # `K8_CIKTI`). Davranışsal kimlik kapısı bu yüzden K9'dur.
   #
-  # K5'İN GARANTİ ETTİĞİ: `verify-image-artifact` işinin adım listesi TAM
-  # OLARAK beklenen dörtlüdür (araya betiği ezen bir adım sokulamaz), çağrı
-  # satırı TAM OLARAK `run: ./deploy/artifact-imaj-kimlik-kapisi.sh`tır
-  # (`|| true`, alt kabuk, `if false` gibi sarmalamalar bu tam-satır eşleşmesini
-  # BOZAR), `shell:` ile `{0}` şablonu üzerinden sarmalama yoktur, beklenti
-  # `needs.container.outputs.tested_image_id`den gelir, işin KOŞULSUZ koştuğu
-  # (job-level `if:` yok — onunla kapı hiç koşmadan yok edilebilirdi, ÖLÇÜLDÜ)
-  # `needs.container.outputs.tested_image_id`den gelir ve `container` o kimliği
-  # `docker save`in girdisiyle AYNI nesneden okur.
-  #
-  # K5'İN GARANTİ ETMEDİĞİ: betiğin İÇİNDE kapı olduğu — bunu K8 ölçer;
-  # sözleşme betiğinin KENDİSİNİN düzenlenmesi — K5 de K8 de kendi dosyasını
-  # korumaz, bu tur bunu kapatmaz.
+  # K5'İN GARANTİ ETMEDİĞİ: betiğin İÇİNDE kapı olduğu — bunu K9 ölçer;
+  # sözleşme betiğinin KENDİSİNİN düzenlenmesi — K5 de K9 da kendi dosyasını
+  # korumaz.
   # ---------------------------------------------------------------------
   # Beklenti, `docker save`in girdisiyle AYNI nesneden okunmalı. K4 save
   # hedefini zaten çiviliyor; burada kimliğin O hedeften okunduğu çivilenir.
   # Başka bir nesneden (ör. tarball'ın kendisinden) okunan bir kimlik,
   # kapıyı yine kendi kopyasına baktırırdı.
   K5_KIMLIK_KAYNAGI='          tested_image_id="$(docker image inspect yerel-hesap-pro:${{ github.sha }} --format '"'"'{{.Id}}'"'"')"'
-  K5_KAPI_BETIGI="deploy/artifact-imaj-kimlik-kapisi.sh"
-  K5_CAGRI_SATIRI="        run: ./$K5_KAPI_BETIGI"
-
-  # Adım listesi TAM eşleşmeli. Yalnız "yasak deseni yok" demek AÇIK UÇLU bir
-  # iddiadır ve tam da kaçılmaya çalışılan whack-a-mole'dur; adımları SAYIP
-  # SIRALAMAK ise KAPALI bir kümedir: araya sokulan HER adım bunu bozar.
-  K5_ADIM_LISTESI="$(printf '%s\n' "$VERIFY_ISI" \
-    | sed -n 's/^      - \(name\|uses\): //p' | tr '\n' '|')"
-  K5_BEKLENEN_ADIMLAR='actions/checkout@v4|Download tested production image|Load tested production image|Verify loaded image identity and OCI revision|'
-
-  if printf '%s\n' "$VERIFY_ISI" \
-       | grep -qE '^    needs:[[:space:]]*\[container\][[:space:]]*$' \
-     && [ "$K5_ADIM_LISTESI" = "$K5_BEKLENEN_ADIMLAR" ] \
-     && printf '%s\n' "$VERIFY_ISI" \
-       | grep -qE '^[[:space:]]+uses: actions/download-artifact@v4[[:space:]]*$' \
-     && printf '%s\n' "$VERIFY_ISI" \
-       | grep -qF '        run: gzip -dc "$RUNNER_TEMP/tested-production-image/tested-production-image.tar.gz" | docker load' \
-     && [ -x "$REPO_KOKU/$K5_KAPI_BETIGI" ] \
-     && [ "$(printf '%s\n' "$VERIFY_ISI" | grep -cxF "$K5_CAGRI_SATIRI")" = "1" ] \
-     && ! printf '%s\n' "$VERIFY_ISI" | grep -qE '^[[:space:]]+shell:[[:space:]]' \
-     && ! printf '%s\n' "$VERIFY_ISI" | grep -qE '^    if:[[:space:]]' \
-     && printf '%s\n' "$VERIFY_ISI" \
-       | grep -qxF '          IMAJ_REF: yerel-hesap-pro:${{ github.sha }}' \
-     && printf '%s\n' "$VERIFY_ISI" \
-       | grep -qxF '          BEKLENEN_IMAJ_KIMLIGI: ${{ needs.container.outputs.tested_image_id }}' \
-     && printf '%s\n' "$VERIFY_ISI" \
-       | grep -qxF '          BEKLENEN_OCI_REVIZYONU: ${{ github.sha }}' \
-     && printf '%s\n' "$CONTAINER_ISI" \
-       | grep -qF '      tested_image_id: ${{ steps.paketle.outputs.tested_image_id }}' \
-     && printf '%s\n' "$CONTAINER_ISI" \
-       | grep -qF "$K5_KIMLIK_KAYNAGI" \
-     && ! printf '%s\n' "$VERIFY_ISI" | grep -qE '^[[:space:]]+packages:[[:space:]]+write[[:space:]]*$'; then
-    yesil "K5 doğrulama adımı kapı betiğini SARMALANMAMIŞ tek satırda çağırıyor, adım listesi tam, beklenti container'ın SAVE ettiği nesneden geliyor ve packages:write yok"
+  K5_CAGRI=""
+  if ! K5_CAGRI="$(python3 "$REPO_KOKU/deploy/ci-verify-cagri-kapisi.py" "$CI_WORKFLOW" 2>&1)"; then
+    kirmizi "$K5_CAGRI"
+  elif printf '%s\n' "$CONTAINER_ISI" \
+         | grep -qF '      tested_image_id: ${{ steps.paketle.outputs.tested_image_id }}' \
+       && printf '%s\n' "$CONTAINER_ISI" \
+         | grep -qF "$K5_KIMLIK_KAYNAGI"; then
+    yesil "$K5_CAGRI; beklenti container'ın SAVE ettiği nesneden geliyor"
   else
-    kirmizi "K5 doğrulama adımı kapı betiğini tek satırda çağırmıyor (sarmalanmış veya shell: ile şablonlanmış olabilir), adım listesi beklenenden farklı (araya adım sokulmuş), betik yok/çalıştırılabilir değil, beklenti container çıktısına bağlı değil veya packages:write var"
+    kirmizi "K5 çağrı yeri YAML olarak duruyor ama beklenti container çıktısına / docker save girdisine bağlı değil"
   fi
 
   K6_BUILD_SAYISI=""
@@ -1297,7 +1259,7 @@ else
 fi
 
 
-baslik "K8) Artifact kimlik kapısı — DAVRANIŞSAL: kapı gerçekten kırmızı veriyor mu"
+baslik "K9) Artifact kimlik kapısı — DAVRANIŞSAL: kapı gerçekten kırmızı veriyor mu"
 
 # ---------------------------------------------------------------------------
 # NEDEN BURASI METİN DEĞİL DAVRANIŞ ÖLÇÜYOR
@@ -1313,6 +1275,9 @@ baslik "K8) Artifact kimlik kapısı — DAVRANIŞSAL: kapı gerçekten kırmız
 # ve kirli girdide SIFIRDAN FARKLI çıkmasını ŞART KOŞAR. Yukarıdaki kaçışların
 # hepsi "kirli girdide yine de exit 0" demektir; hepsi burada kırmızıdır.
 #
+# AD K9, K8 DEĞİL: develop'ta K1..K8 dolu (K8 = gerekli-bağlam kapısı,
+# değişken `K8_CIKTI`). Davranışsal kimlik ölçümü o ismi alamaz.
+#
 # TUZAK — bu depo bunu bir kez yaşadı: beş yeşil frontend testi kendi mock'una
 # iddia ederken iki gerçek gösterim yolu da bozuktu. Bu yüzden test kapının bir
 # KOPYASINI değil, `ci.yml`in çağırdığı AYNI dosyayı çalıştırır; K5 de çağrılan
@@ -1322,14 +1287,23 @@ baslik "K8) Artifact kimlik kapısı — DAVRANIŞSAL: kapı gerçekten kırmız
 # kırmızı" şartını sağlar ve kapıyı kullanışsız kılardı. Doğru beklentide YEŞİL
 # şartı o boş geçişi kapatır.
 #
+# FİXTÜR ÜRETİMDEN AYIRT EDİLEMEZ ve SATIR İÇİ SABİT DEĞİL:
+#   * imaj adı `yerel-hesap-pro:<40 hex>` — üretim `github.sha` ile aynı biçim
+#   * 40 hex HER KOŞUMDA rastgele (sabit `01234567…` ölçüldü: mutant
+#     `case "$IMAJ_REF" in *:o-sabit) ;; *) exit 0` ile K9'u geçip CI'da
+#     kapıyı öldürüyordu)
+#   * ikinci (takas) imaj ETİKETSİZ kurulur (`-baska` soneki ölçüldü: mutant
+#     o etiketin varlığına bakıp yalnız testte gerçek kapı, üretimde `exit 0`
+#     veriyordu)
+#
 # DOCKER YOKSA KIRMIZI, ATLAMA YOK: bu betik CI'da `container` işinde koşar ve
 # orada Docker HER ZAMAN vardır. Atlanan bir kapı, geçen bir kapı değildir.
 # ---------------------------------------------------------------------------
-K8_KAPI="$REPO_KOKU/deploy/artifact-imaj-kimlik-kapisi.sh"
-K8_LOG="$(mktemp)"
-K8_YAPI="$(mktemp -d)"
+K9_KAPI="$REPO_KOKU/deploy/artifact-imaj-kimlik-kapisi.sh"
+K9_LOG="$(mktemp)"
+K9_YAPI="$(mktemp -d)"
 
-k8_kos() {
+k9_kos() {
   # CI adımının yaptığının AYNISI: depo kökünden, GÖRELİ yolla, aynı ortam
   # değişkenleriyle. Farklı bir çağrı biçimi (ör. mutlak yol) mutantın
   # "$0"a bakıp üretimi ayırt etmesine kapı açardı.
@@ -1337,71 +1311,77 @@ k8_kos() {
     cd "$REPO_KOKU" \
       && IMAJ_REF="$1" BEKLENEN_IMAJ_KIMLIGI="$2" BEKLENEN_OCI_REVIZYONU="$3" \
          ./deploy/artifact-imaj-kimlik-kapisi.sh
-  ) >"$K8_LOG" 2>&1 && printf '0\n' || printf '%s\n' "$?"
+  ) >"$K9_LOG" 2>&1 && printf '0\n' || printf '%s\n' "$?"
 }
 
-k8_olc() {
+k9_olc() {
   ad="$1"; kirmizi_olmali="$2"; shift 2
-  rc="$(k8_kos "$@")"
+  rc="$(k9_kos "$@")"
   if [ "$kirmizi_olmali" = "1" ]; then
     if [ "$rc" != "0" ]; then
-      yesil "K8/$ad kapı KIRMIZI verdi (exit $rc) — etkisizleştirme bu koşulda yaşayamaz"
+      yesil "K9/$ad kapı KIRMIZI verdi (exit $rc) — etkisizleştirme bu koşulda yaşayamaz"
     else
-      kirmizi "K8/$ad kapı EXIT 0 verdi; kirli girdide yeşil kalan bir kapı, kapı DEĞİLDİR"
+      kirmizi "K9/$ad kapı EXIT 0 verdi; kirli girdide yeşil kalan bir kapı, kapı DEĞİLDİR"
     fi
   else
     if [ "$rc" = "0" ]; then
-      yesil "K8/$ad kapı doğru girdide YEŞİL — her zaman kırmızı veren boş bir kapı değil"
+      yesil "K9/$ad kapı doğru girdide YEŞİL — her zaman kırmızı veren boş bir kapı değil"
     else
-      kirmizi "K8/$ad kapı doğru girdide KIRMIZI verdi (exit $rc); kapı kullanılamaz: $(head -c 200 "$K8_LOG")"
+      kirmizi "K9/$ad kapı doğru girdide KIRMIZI verdi (exit $rc); kapı kullanılamaz: $(head -c 200 "$K9_LOG")"
     fi
   fi
 }
 
-if [ ! -x "$K8_KAPI" ]; then
-  kirmizi "K8 kapı betiği yok veya çalıştırılabilir değil: deploy/artifact-imaj-kimlik-kapisi.sh"
+if [ ! -x "$K9_KAPI" ]; then
+  kirmizi "K9 kapı betiği yok veya çalıştırılabilir değil: deploy/artifact-imaj-kimlik-kapisi.sh"
 elif ! docker version --format '{{.Server.Version}}' >/dev/null 2>&1; then
-  kirmizi "K8 Docker daemon'ına ulaşılamadı; kapı DAVRANIŞSAL olarak ölçülemedi (atlama geçme değildir)"
+  kirmizi "K9 Docker daemon'ına ulaşılamadı; kapı DAVRANIŞSAL olarak ölçülemedi (atlama geçme değildir)"
 else
   # GERÇEK bir imaj kurulur. `FROM scratch` ağ istemez; ölçüm kayıt sunucusuna
   # bağlı değildir.
-  # Fikstür, ÜRETİM girdisinden AYIRT EDİLEMEZ olmalı: aynı imaj adı ve aynı
-  # 40 haneli SHA biçimi. Ayırt edilebilir bir fikstür (ör. başka bir imaj adı)
-  # ölçüldü ve KAÇIŞ ÜRETTİ: `case "$IMAJ_REF" in yerel-hesap-pro:*) exit 0` diyen
-  # bir mutant K8'i geçip CI'da kapıyı öldürüyordu. Fikstür üretime benzedikçe
-  # "teste göre davran" numarası zorlaşır.
-  K8_REV="0123456789abcdef0123456789abcdef01234567"
-  K8_ETIKET="yerel-hesap-pro:$K8_REV"
-  printf 'FROM scratch\nLABEL org.opencontainers.image.revision=%s\n' "$K8_REV" > "$K8_YAPI/Dockerfile"
-  K8_GERCEK_ID=""
-  if ! docker build -q -t "$K8_ETIKET" "$K8_YAPI" >"$K8_LOG" 2>&1; then
-    kirmizi "K8 ölçüm imajı kurulamadı: $(head -c 200 "$K8_LOG")"
-  elif ! K8_GERCEK_ID="$(docker image inspect "$K8_ETIKET" --format '{{.Id}}')" || [ -z "$K8_GERCEK_ID" ]; then
-    kirmizi "K8 ölçüm imajının kimliği okunamadı"
+  K9_REV=""
+  if ! K9_REV="$(python3 -c 'import secrets; print(secrets.token_hex(20))')" \
+     || [ "${#K9_REV}" -ne 40 ]; then
+    kirmizi "K9 rastgele 40 haneli fikstür SHA üretilemedi"
   else
-    # "Yanlış" beklenti UYDURMA bir değer değil, BAŞKA GERÇEK bir imajın
-    # kimliğidir: bu, CI'daki takas senaryosunun ta kendisidir. Uydurma bir
-    # nöbetçi değer (ör. sırf sıfırlardan oluşan bir ID) kapının İÇİNDE
-    # tanınabilirdi ve "yalnız teste göre kırmızı ver" diyen bir mutant K8'i
-    # geçerdi. Gerçek bir ikinci imaj bu numarayı kapatır.
-    printf 'FROM scratch\nLABEL org.opencontainers.image.revision=%s\nLABEL takas=1\n' "$K8_REV" > "$K8_YAPI/Dockerfile"
-    K8_BASKA_ID=""
-    if docker build -q -t "$K8_ETIKET-baska" "$K8_YAPI" >"$K8_LOG" 2>&1; then
-      K8_BASKA_ID="$(docker image inspect "$K8_ETIKET-baska" --format '{{.Id}}')"
-    fi
-    if [ -z "$K8_BASKA_ID" ] || [ "$K8_BASKA_ID" = "$K8_GERCEK_ID" ]; then
-      kirmizi "K8 ikinci (takas) ölçüm imajı kurulamadı veya birinciyle aynı; takas senaryosu ölçülemedi"
+    K9_ETIKET="yerel-hesap-pro:$K9_REV"
+    K9_BASKA_ID=""
+    printf 'FROM scratch\nLABEL org.opencontainers.image.revision=%s\n' "$K9_REV" > "$K9_YAPI/Dockerfile"
+    K9_GERCEK_ID=""
+    if ! docker build -q -t "$K9_ETIKET" "$K9_YAPI" >"$K9_LOG" 2>&1; then
+      kirmizi "K9 ölçüm imajı kurulamadı: $(head -c 200 "$K9_LOG")"
+    elif ! K9_GERCEK_ID="$(docker image inspect "$K9_ETIKET" --format '{{.Id}}')" || [ -z "$K9_GERCEK_ID" ]; then
+      kirmizi "K9 ölçüm imajının kimliği okunamadı"
     else
-      k8_olc "olumlu-dogru-beklenti"    0 "$K8_ETIKET" "$K8_GERCEK_ID" "$K8_REV"
-      k8_olc "kimlik-uyusmazligi"       1 "$K8_ETIKET" "$K8_BASKA_ID" "$K8_REV"
-      k8_olc "bos-beklenti-fail-closed" 1 "$K8_ETIKET" "" "$K8_REV"
-      k8_olc "revizyon-uyusmazligi"     1 "$K8_ETIKET" "$K8_GERCEK_ID" "ffffffffffffffffffffffffffffffffffffffff"
+      # "Yanlış" beklenti UYDURMA bir değer değil, BAŞKA GERÇEK bir imajın
+      # kimliğidir. İkinci imaj ETİKETSİZ kurulur; bilinen bir sonek (`-baska`)
+      # veya `LABEL takas=1` mutantın "yalnız testte kapı ol" demesine yarar.
+      # `docker build -q` kimliği stdout'a yazar; DEPRECATED uyarısı stderr'dedir.
+      K9_AYIRICI=""
+      if ! K9_AYIRICI="$(python3 -c 'import secrets; print(secrets.token_hex(8))')"; then
+        kirmizi "K9 ikinci imaj ayırıcısı üretilemedi"
+        K9_AYIRICI=""
+      fi
+      printf 'FROM scratch\nLABEL org.opencontainers.image.revision=%s\nLABEL n=%s\n' "$K9_REV" "$K9_AYIRICI" > "$K9_YAPI/Dockerfile"
+      if [ -n "$K9_AYIRICI" ]; then
+        K9_BASKA_ID="$(docker build -q "$K9_YAPI" 2>"$K9_LOG" || true)"
+      fi
+      if [ -z "$K9_BASKA_ID" ] || [ "$K9_BASKA_ID" = "$K9_GERCEK_ID" ]; then
+        kirmizi "K9 ikinci (takas) ölçüm imajı kurulamadı veya birinciyle aynı; takas senaryosu ölçülemedi"
+      else
+        k9_olc "olumlu-dogru-beklenti"    0 "$K9_ETIKET" "$K9_GERCEK_ID" "$K9_REV"
+        k9_olc "kimlik-uyusmazligi"       1 "$K9_ETIKET" "$K9_BASKA_ID" "$K9_REV"
+        k9_olc "bos-beklenti-fail-closed" 1 "$K9_ETIKET" "" "$K9_REV"
+        k9_olc "revizyon-uyusmazligi"     1 "$K9_ETIKET" "$K9_GERCEK_ID" "ffffffffffffffffffffffffffffffffffffffff"
+      fi
+    fi
+    docker image rm -f "$K9_ETIKET" >/dev/null 2>&1 || true
+    if [ -n "${K9_BASKA_ID:-}" ]; then
+      docker image rm -f "$K9_BASKA_ID" >/dev/null 2>&1 || true
     fi
   fi
-  docker image rm -f "$K8_ETIKET" >/dev/null 2>&1 || true
-  docker image rm -f "$K8_ETIKET-baska" >/dev/null 2>&1 || true
 fi
-rm -rf "$K8_YAPI" "$K8_LOG"
+rm -rf "$K9_YAPI" "$K9_LOG"
 
 printf '\n%s\n' "SONUÇ: $GECTI geçti, $KALDI kaldı"
 [ "$KALDI" -eq 0 ] || exit 1

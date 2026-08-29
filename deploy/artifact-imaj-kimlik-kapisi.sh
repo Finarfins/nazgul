@@ -17,7 +17,7 @@
 # Konum, başarısızlık semantiği için yeterli bir değişmez değildir. Bu yüzden
 # mantık buraya taşındı: sözleşme artık bu betiği METİN olarak incelemek yerine
 # ÇALIŞTIRIP kırmızı vermesini ŞART KOŞUYOR (bkz. `deploy-sozlesme-testi.sh`
-# K8). CI adımı da bu betiği çağırmaktan BAŞKA bir şey yapmaz; böylece
+# K9). CI adımı da bu betiği çağırmaktan BAŞKA bir şey yapmaz; böylece
 # metinle çivilenmesi gereken yüzey bir bloktan TEK SATIRA iner.
 #
 # Girdi ortam değişkenleriyle alınır (CI çağrı yerinin tek satır kalması için):
