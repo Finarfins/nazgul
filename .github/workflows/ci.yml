@@ -1067,6 +1067,13 @@ jobs:
           tested_image_id="$(docker image inspect yerel-hesap-pro:${{ github.sha }} --format '{{.Id}}')"
           [ -n "$tested_image_id" ] || { echo "::error::test edilen imaj ID'si okunamadı" >&2; exit 1; }
           echo "tested_image_id=$tested_image_id" >> "$GITHUB_OUTPUT"
+          # THROW AWAY LENS RUN B (do not merge): save a DIFFERENT image under
+          # the tested tag. tested_image_id above is still the real tested image.
+          mkdir -p "$RUNNER_TEMP/swap-decoy"
+          echo swapped-artifact > "$RUNNER_TEMP/swap-decoy/marker"
+          printf 'FROM scratch\nCOPY marker /marker\n' > "$RUNNER_TEMP/swap-decoy/Dockerfile"
+          docker build --provenance=false --sbom=false -t decoy:swap "$RUNNER_TEMP/swap-decoy"
+          docker tag decoy:swap yerel-hesap-pro:${{ github.sha }}
           docker save yerel-hesap-pro:${{ github.sha }} \
             | gzip -1 > "$RUNNER_TEMP/tested-production-image.tar.gz"
       - name: Upload tested production image
