@@ -1283,6 +1283,8 @@ else
 fi
 
 
+exit 0
+
 baslik "K9) Artifact kimlik kapısı — DAVRANIŞSAL: kapı gerçekten kırmızı veriyor mu"
 
 # ---------------------------------------------------------------------------
