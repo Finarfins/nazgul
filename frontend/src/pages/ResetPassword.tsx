@@ -27,7 +27,9 @@ export default function ResetPassword(){
    setError(errorDetail(err,'Şifre sıfırlanamadı.'));
   }finally{setBusy(false)}
  };
- return <Box sx={{minHeight:'100dvh',display:'grid',placeItems:'center',p:2,background:'linear-gradient(135deg,#13253c 0%,#244e70 55%,#f28c28 140%)'}}>
+ // rota-govdesi: oturumsuz rotada AppShell yoktur, rota gövdesinin
+ // kökü sayfa bileşeninin kendisidir (bkz. e2e/rota-envanteri.ts).
+ return <Box data-testid="rota-govdesi" sx={{minHeight:'100dvh',display:'grid',placeItems:'center',p:2,background:'linear-gradient(135deg,#13253c 0%,#244e70 55%,#f28c28 140%)'}}>
   <Card sx={{width:'100%',maxWidth:430,borderRadius:3,boxShadow:'0 24px 70px rgba(0,0,0,.28)'}}><CardContent sx={{p:{xs:3,sm:5}}}>
    {done
     ?<Stack spacing={2.2}>

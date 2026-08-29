@@ -1,5 +1,7 @@
 import {test as base, expect, request as apiRequest, type APIRequestContext, type Page} from '@playwright/test';
 
+import {ziyaretKaydiniKur} from './rota-ziyaret-kaydi';
+
 // Tohum belleği ayrı bir modülde: gerekçe, ölçüm ve tek-üretici güvencesi
 // için bkz. `tohum-bellegi.ts`. Buradan yeniden dışa aktarılıyor ki spec'lerin
 // içe aktarma yüzeyi değişmesin.
@@ -26,6 +28,21 @@ export const SEED = {
  * sınıftır — sayfa render olmaya devam etse bile test kırmızı yanar.
  */
 export const test = base.extend({
+  // ROTA ZİYARET KAYDI — `spec` tasnifinin çalışma zamanı kanıtı.
+  //
+  // BAĞLAM SEVİYESİNDE, SAYFA SEVİYESİNDE DEĞİL: bir spec ikinci bir sekme
+  // açabilir (`/saha` ölçümü tam olarak bunu yapar) ve o sekmedeki gezinti de
+  // gerçek bir ziyarettir. Bildirim ile başlangıç betiği bağlama kurulunca
+  // bağlamda AÇILAN HER sayfa kayda girer; `page` fixture'ı zaten bu bağlamdan
+  // türer, dolayısıyla kurulum sayfa yaratılmadan ÖNCE tamamlanır.
+  //
+  // Gerekçesi ve "olumsuz yönlendirme kanıt sayılmaz" kuralı için bkz.
+  // `rota-ziyaret-kaydi.ts`.
+  context: async ({context}, use, testInfo) => {
+    const kaydiIlistir = await ziyaretKaydiniKur(context, testInfo);
+    await use(context);
+    await kaydiIlistir();
+  },
   page: async ({page}, use) => {
     const errors: string[] = [];
     page.on('console', (message) => {

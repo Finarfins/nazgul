@@ -33,6 +33,23 @@
  *  yeşile dönmemeli. */
 export const KAPSAM_KAPISI_DOSYASI = 'e2e/rota-render-kapisi.spec.ts';
 
+/**
+ * Rota gövdesinin (sayfa kökünün) test kimliği.
+ *
+ * ÖLÇÜLEN BOŞLUK. `kapi` işareti daha önce `page.getByText(isaret).first()` ile
+ * aranıyordu — yani SAYFANIN TAMAMINDA. İşaretlerin çoğu aynı zamanda kenar
+ * çubuğu etiketidir (`Alışlar`, `Akıllı Analizler`, `İşlem Geçmişi`, ...) ve
+ * aktif grubun kenar çubuğunda AÇIK olması AppShell'in kuralıdır. Sonuç: sayfa
+ * gövdesi hiç çizilmese bile kenar çubuğundaki etiket görünür kalıyor ve kapı
+ * YEŞİL dönebiliyordu — tam olarak kapının önlemek için var olduğu durum.
+ *
+ * Ayrım artık metinde değil YAPIDA: bu kimlik rotanın çizildiği kökün üzerinde
+ * durur (oturumlu rotalarda `AppShell`in `<Outlet/>`ü saran kutusu, oturumsuz
+ * rotalarda sayfa bileşeninin kendi kökü). Kenar çubuğu, üst çubuk ve komut
+ * paleti bu kökün DIŞINDADIR; işaret oradan gelemez.
+ */
+export const ROTA_GOVDESI_TESTID = 'rota-govdesi';
+
 /** `kapi` rotasının oturum koşulu. `anonim` rotalar giriş YAPILMADAN ölçülür;
  *  sınanan şey oturumsuz ziyaretçinin gördüğü ekrandır. */
 export type Oturum = 'oturumlu' | 'anonim';

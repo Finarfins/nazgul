@@ -1,5 +1,5 @@
 import {test, expect, login} from './helpers';
-import {KAPI_GIRDILERI, kapiTestBasligi} from './rota-envanteri';
+import {KAPI_GIRDILERI, ROTA_GOVDESI_TESTID, kapiTestBasligi} from './rota-envanteri';
 
 // Rota açılış kapısı — testleri ROTA ENVANTERİNDEN üretilir.
 //
@@ -49,9 +49,23 @@ for (const girdi of KAPI_GIRDILERI) {
   test(kapiTestBasligi(girdi), async ({page}) => {
     if (girdi.oturum === 'oturumlu') await login(page);
     await page.goto(girdi.rota);
+
+    // İŞARET SAYFA GÖVDESİNDE ARANIR — SAYFANIN TAMAMINDA DEĞİL.
+    //
+    // Ölçülen boşluk (bkz. `rota-envanteri.ts`, ROTA_GOVDESI_TESTID): işaretlerin
+    // büyük kısmı aynı zamanda kenar çubuğu etiketidir ve AppShell aktif grubu
+    // her zaman AÇIK gösterir. Sayfanın TAMAMINDA yapılan bir metin araması
+    // gövde boşken bile o etiketi bulurdu; kapı çökmüş bir ekranı YEŞİL sayardı.
+    const govde = page.getByTestId(ROTA_GOVDESI_TESTID);
     await expect(
-      page.getByText(girdi.isaret).first(),
-      `${girdi.rota} çizilmedi (işaret: "${girdi.isaret}")`,
+      govde,
+      `${girdi.rota}: rota gövdesi kökü (data-testid="${ROTA_GOVDESI_TESTID}") tam olarak BİR kez bulunmalı; ` +
+        'oturumlu rotalarda AppShell, oturumsuz rotalarda sayfa bileşeni onu taşır',
+    ).toHaveCount(1, {timeout: 15_000});
+    await expect(
+      govde.getByText(girdi.isaret).first(),
+      `${girdi.rota} çizilmedi (işaret: "${girdi.isaret}" sayfa GÖVDESİNDE yok; ` +
+        'kenar çubuğunda görünmesi kapsam kanıtı değildir)',
     ).toBeVisible({timeout: 15_000});
     await page.waitForLoadState('networkidle');
     expect(

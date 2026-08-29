@@ -1,21 +1,32 @@
-import {existsSync, readFileSync} from 'node:fs';
-import {resolve} from 'node:path';
+import {existsSync, readFileSync, readdirSync, statSync} from 'node:fs';
+import {join, resolve} from 'node:path';
 
 import {describe, expect, it} from 'vitest';
 
+import {
+  metindekiRouteEtiketSayisi,
+  routeEtiketleriniAyristir,
+} from '../e2e/rota-ayristirici';
+import {
+  kaliciZiyaretler,
+  yoluRotayaCoz,
+  type ZiyaretKaydi,
+} from '../e2e/rota-ziyaret-kaydi';
 import {
   KAPI_GIRDILERI,
   KAPSAM_KAPISI_DOSYASI,
   MUAF_GIRDILERI,
   ROTA_ENVANTERI,
+  ROTA_GOVDESI_TESTID,
   SPEC_GIRDILERI,
 } from '../e2e/rota-envanteri';
 
-// ROTA KAPSAM SÖZLEŞMESİ — statik yarısı (G1-G7).
+// ROTA KAPSAM SÖZLEŞMESİ — statik yarısı (G1-G10).
 //
 // İŞ BÖLÜMÜ. Bu dosya envanterin App.tsx ile ve diskteki spec dosyalarıyla
 // TUTARLI olduğunu ölçer; envanterin bildirdiği testlerin gerçekten KOŞTUĞUNU ve
-// GEÇTİĞİNİ ölçen şey `e2e/rota-kapsam-raportoru.ts`dir (R1-R4). İkisi ayrı
+// GEÇTİĞİNİ (ve rotayı GERÇEKTEN ziyaret ettiğini) ölçen şey
+// `e2e/rota-kapsam-raportoru.ts`dir (R1-R6). İkisi ayrı
 // olmak zorunda: statik bir test "bu test koştu mu" diyemez, bir raportör de
 // "App.tsx'te kaç rota var" demek için tarayıcı açmak zorunda kalırdı.
 //
@@ -104,41 +115,90 @@ const DESCRIBE_CAGRILARI = [
   'rawTest.describe',
 ] as const;
 
-/** App.tsx'ten adlandırılmış rota kümesi.
+/** App.tsx'in rota beyanı — KAYNAĞIN YAPISINDAN, metninden değil.
  *
- *  YALNIZ REGEX, BİLEREK: App.tsx'i çalıştırıp `Routes` ağacını gezmek jsdom'da
- *  mümkündü ama ölçüm o zaman React Router'ın eşleme davranışına bağlanırdı.
- *  Sözleşmenin savunduğu şey KAYNAKTAKİ BEYAN: bir geliştirici dosyaya rota
- *  eklediğinde envanteri de güncellemek zorunda kalmalı. */
-function appRotalari(): {rotalar: string[]; toplamRouteEtiketi: number; elementOlanlar: number} {
-  const yollar = [...APP_KAYNAGI.matchAll(/<Route\s+path="([^"]+)"/g)].map(eslesme => eslesme[1]);
-  const indexSayisi = [...APP_KAYNAGI.matchAll(/<Route\s+index\b/g)].length;
-  const elementOlanlar = [...APP_KAYNAGI.matchAll(/<Route\s+element=/g)].length;
-  const toplamRouteEtiketi = [...APP_KAYNAGI.matchAll(/<Route\b/g)].length;
-  const rotalar = yollar
-    // `path="*"` bir rota DEĞİL, yakalayıcıdır: `<Navigate to="/">` ile ana
-    // sayfaya düşürür ve ekran çizmez.
-    .filter(yol => yol !== '*')
-    .map(yol => (yol.startsWith('/') ? yol : `/${yol}`));
-  for (let i = 0; i < indexSayisi; i += 1) rotalar.push('/');
-  return {rotalar, toplamRouteEtiketi, elementOlanlar};
+ *  YALNIZ REGEX ARTIK YETMİYOR — ÖLÇÜLDÜ. Eski desen (`/<Route\s+path="([^"]+)"/g`)
+ *  `path` özniteliğinin İLK SIRADA ve ÇİFT TIRNAKLI olmasına bağlıydı; sıra ters
+ *  çevrilmiş ya da tek tırnaklı bir rota kapıdan sessizce kaçıyordu. Ayrıştırma
+ *  artık TypeScript'in kendi AST'sinden okunur (bkz. `e2e/rota-ayristirici.ts`):
+ *  AST'de öznitelik sırası ve tırnak biçimi diye bir kavram yoktur.
+ *
+ *  App.tsx'i ÇALIŞTIRMAK yine tercih edilmedi: ölçüm o zaman React Router'ın
+ *  eşleme davranışına bağlanırdı. Sözleşmenin savunduğu şey KAYNAKTAKİ BEYAN —
+ *  bir geliştirici dosyaya rota eklediğinde envanteri de güncellemek zorunda
+ *  kalmalı. */
+function appRotalari(): {
+  rotalar: string[];
+  toplamRouteEtiketi: number;
+  duzenSayisi: number;
+  indexSayisi: number;
+  yakalayiciSayisi: number;
+} {
+  const sonuc = routeEtiketleriniAyristir(yol('src/App.tsx'), APP_KAYNAGI);
+  return {
+    rotalar: [...sonuc.rotalar],
+    toplamRouteEtiketi: sonuc.hepsi.length,
+    duzenSayisi: sonuc.duzenSayisi,
+    indexSayisi: sonuc.indexSayisi,
+    yakalayiciSayisi: sonuc.yakalayiciSayisi,
+  };
+}
+
+/** `src/` altında `<Route` beyan eden TÜM dosyalar. */
+function routeBeyanEdenDosyalar(): string[] {
+  const bulunan: string[] = [];
+  const tara = (dizin: string): void => {
+    for (const girdi of readdirSync(dizin)) {
+      const mutlak = join(dizin, girdi);
+      if (statSync(mutlak).isDirectory()) {
+        tara(mutlak);
+        continue;
+      }
+      // Birim testleri kendi `MemoryRouter` ağaçlarını kurar; uygulamanın rota
+      // beyanı değildirler ve kapsam kapısının konusu da değiller.
+      if (!/\.(tsx|jsx)$/.test(girdi) || /\.(test|spec)\.(tsx|jsx)$/.test(girdi)) continue;
+      if (metindekiRouteEtiketSayisi(readFileSync(mutlak, 'utf8')) > 0) {
+        bulunan.push(mutlak.slice(FRONTEND_KOKU.length + 1).split('\\').join('/'));
+      }
+    }
+  };
+  tara(yol('src'));
+  return bulunan.sort();
 }
 
 const ENVANTER_ROTALARI = ROTA_ENVANTERI.map(girdi => girdi.rota);
 
 describe('rota kapsam sözleşmesi', () => {
   it('G1: App.tsx rota kümesi ile envanter rota kümesi İKİ YÖNDE de eşit', () => {
-    const {rotalar, toplamRouteEtiketi, elementOlanlar} = appRotalari();
+    const {rotalar, toplamRouteEtiketi, duzenSayisi, indexSayisi, yakalayiciSayisi} = appRotalari();
 
-    // ÖNCE AYRIŞTIRMANIN KENDİSİ. Regex sessizce bir `<Route` biçimini
-    // kaçırırsa kapı "eşit" deyip hiçbir şey ölçmemiş olurdu. Her `<Route`
-    // etiketi ya adlandırılmış bir rotadır ya da `element=` taşıyan düzen
-    // rotasıdır; toplam tutmuyorsa App.tsx yeni bir biçim kullanıyor demektir
-    // ve ayrıştırıcı ONA göre güncellenmeli.
+    // ÖNCE AYRIŞTIRMANIN KENDİSİ. Ayrıştırıcı fail-closed'dır (anlamadığı bir
+    // `<Route>` biçiminde İSTİSNA fırlatır), ama tasnif toplamı yine de
+    // yazılır: her `<Route>` etiketi tam olarak BİR kovaya düşmeli.
     expect(
-      rotalar.length + elementOlanlar + 1,
-      'App.tsx ayrıştırması eksik: <Route etiketi sayısı adlandırılmış rota + düzen rotası + `path="*"` toplamına eşit değil',
+      rotalar.length + duzenSayisi + yakalayiciSayisi,
+      'App.tsx ayrıştırması eksik: <Route etiketi sayısı, tasniflerin toplamına eşit değil',
     ).toBe(toplamRouteEtiketi);
+    // Kaynaktaki `<Route` GEÇİŞ sayısı ile AST'nin bulduğu etiket sayısı da
+    // ayrışmamalı: ayrışıyorsa bir etiket yorum içinde ya da ayrıştırıcının
+    // görmediği bir yerdedir ve kapı kör kalmış olur.
+    expect(
+      metindekiRouteEtiketSayisi(APP_KAYNAGI),
+      'App.tsx içindeki `<Route` geçiş sayısı AST sayımıyla tutmuyor',
+    ).toBe(toplamRouteEtiketi);
+    // `index` rotası tam olarak `/`yi üretir ve `path="*"` bir rota DEĞİL,
+    // yakalayıcıdır (`<Navigate to="/">`); ikisinin ayrımı korunur.
+    expect(indexSayisi, 'App.tsx bir `index` rotası bildirmeli (Pano)').toBeGreaterThan(0);
+    expect(rotalar.filter(rota => rota === '/').length).toBe(indexSayisi);
+    expect(rotalar, '`path="*"` rota sayılamaz').not.toContain('*');
+    expect(yakalayiciSayisi, 'App.tsx `path="*"` yakalayıcısını bildirmeli').toBe(1);
+
+    // ROTA BEYANI TEK DOSYADA. Ayrıştırıcı App.tsx'i okur; başka bir dosyada
+    // açılan bir `<Route>` ağacı kapının GÖRÜŞ ALANI DIŞINDA kalırdı.
+    expect(
+      routeBeyanEdenDosyalar(),
+      'rota beyanı yalnız src/App.tsx içinde olmalı; başka bir dosyadaki <Route> ağacı kapsam kapısının görüş alanı dışında kalır',
+    ).toEqual(['src/App.tsx']);
 
     const appKumesi = [...new Set(rotalar)].sort();
     const envanterKumesi = [...new Set(ENVANTER_ROTALARI)].sort();
@@ -298,5 +358,182 @@ describe('rota kapsam sözleşmesi', () => {
       existsSync(yol(KAPSAM_KAPISI_DOSYASI)),
       `kapsam kapısı dosyası yok: ${KAPSAM_KAPISI_DOSYASI}`,
     ).toBe(true);
+
+    // RAPORTÖR DEVRE DIŞI BIRAKILAMAZ. Bu kapının kendi ölçülmüş boşluğu:
+    // `--reporter=list` raportörü hiç yüklemeden süiti yeşil bitirebiliyordu ve
+    // G7'nin saydığı yapılandırma metni değişmediği için o da yeşil kalıyordu.
+    // Kapatan şey `globalTeardown`dur: yapılandırmadan gelir, komut satırından
+    // ezilemez ve raportörün bıraktığı makbuzu arar.
+    expect(
+      existsSync(yol('e2e/rota-kapsam-teardown.ts')),
+      'koşum sonu kapısı dosyası yok',
+    ).toBe(true);
+    expect(
+      PLAYWRIGHT_YAPILANDIRMASI,
+      "raportör komut satırından kapatılabilir olmamalı: `globalTeardown` bildirilmemiş",
+    ).toContain("globalTeardown: './e2e/rota-kapsam-teardown.ts'");
+    // globalSetup yerinde kalmalı: teardown onun YERİNE geçmez, yanına eklenir.
+    expect(PLAYWRIGHT_YAPILANDIRMASI).toContain("globalSetup: './e2e/global-setup.ts'");
+    // Teardown makbuzu raportörden okur; ikisi aynı modülü paylaşmalı, yoksa
+    // kapı iki ayrı yerde iki ayrı dosya adına bakar ve sessizce hiç ölçmez.
+    const teardownKaynagi = oku('e2e/rota-kapsam-teardown.ts');
+    const raportorKaynagi = oku('e2e/rota-kapsam-raportoru.ts');
+    expect(teardownKaynagi).toContain("from './rota-kapsam-makbuzu'");
+    expect(raportorKaynagi).toContain("from './rota-kapsam-makbuzu'");
+    expect(
+      raportorKaynagi,
+      'makbuz `onBegin` içinde yazılmalı: `globalTeardown` raportörün `onEnd`inden ÖNCE koşar',
+    ).toContain('makbuzYaz()');
+  });
+
+  it('G8: `kapi` işareti sayfa GÖVDESİNDE aranır — kenar çubuğu metni kabul edilmez', () => {
+    // ÖLÇÜLEN BOŞLUK. İşaret daha önce `page.getByText(...)` ile SAYFANIN
+    // TAMAMINDA aranıyordu. İşaretlerin çoğu aynı zamanda bir kenar çubuğu
+    // etiketidir ve AppShell aktif grubu daima açık gösterir; gövde hiç
+    // çizilmese bile kapı yeşil kalabiliyordu.
+    const kapiKaynagi = oku(KAPSAM_KAPISI_DOSYASI);
+
+    // 1. Kapı, işareti YALNIZ gövde kökünün altında arar.
+    expect(
+      kapiKaynagi,
+      'kapı rota gövdesi kökünü kullanmalı',
+    ).toContain('page.getByTestId(ROTA_GOVDESI_TESTID)');
+    expect(
+      kapiKaynagi.includes('page.getByText('),
+      'kapıda `page.getByText(` KALMAMALI: kenar çubuğu/üst çubuk metni kapsam kanıtı değildir',
+    ).toBe(false);
+    // Genel bir kaçış yolu da bırakılmasın.
+    expect(kapiKaynagi.includes('page.locator(')).toBe(false);
+    expect(kapiKaynagi.includes('page.getByRole(')).toBe(false);
+
+    // 2. Kök TAM OLARAK BİR kez bulunmalı — kapının kendi çalışma zamanı
+    //    iddiası budur; burada o iddianın kaynakta durduğu ölçülür.
+    expect(kapiKaynagi).toContain('.toHaveCount(1');
+
+    // 3. Kök uygulama tarafında GERÇEKTEN bildirilmiş olmalı: oturumlu
+    //    rotalarda AppShell'in `<Outlet/>`ü saran kutusunda, oturumsuz `kapi`
+    //    rotalarında sayfa bileşeninin kendi kökünde.
+    const nitelik = `data-testid="${ROTA_GOVDESI_TESTID}"`;
+    const kabukKaynagi = oku('src/components/AppShell.tsx');
+    expect(
+      kabukKaynagi.split(nitelik).length - 1,
+      `AppShell tam olarak BİR ${nitelik} bildirmeli`,
+    ).toBe(1);
+    expect(
+      kabukKaynagi,
+      'gövde kökü `<Outlet/>`ü saran kutuda olmalı',
+    ).toContain('<Outlet/>');
+
+    const OTURUMSUZ_KOK_DOSYALARI: Record<string, string> = {
+      '/sifremi-unuttum': 'src/pages/ForgotPassword.tsx',
+      '/sifre-sifirla': 'src/pages/ResetPassword.tsx',
+    };
+    for (const girdi of KAPI_GIRDILERI) {
+      if (girdi.oturum !== 'anonim') continue;
+      const dosya = OTURUMSUZ_KOK_DOSYALARI[girdi.rota];
+      expect(
+        dosya,
+        `${girdi.rota} oturumsuz bir kapı ama gövde kökünü taşıyan sayfası bildirilmemiş; ` +
+          'AppShell bu rotada çizilmez, kökü sayfa bileşeni taşımalı',
+      ).toBeDefined();
+      expect(
+        oku(dosya).split(nitelik).length - 1,
+        `${dosya} tam olarak BİR ${nitelik} bildirmeli`,
+      ).toBe(1);
+    }
+  });
+
+  it('G9: rota ayrıştırıcısı öznitelik SIRASINDAN ve TIRNAK biçiminden bağımsız', () => {
+    // Ayrıştırıcının kendi sözleşmesi. G1 App.tsx'i ölçer; burada ölçülen şey
+    // ÖLÇÜM ARACININ kendisi — eski regex tam olarak bu üç biçimde kör kalıyordu.
+    const ornek = [
+      '<Routes>',
+      '  <Route path="ilk" element={<A/>}/>',
+      '  <Route element={<B/>} path="sira-ters"/>',
+      "  <Route path='tek-tirnak' element={<C/>}/>",
+      '  <Route path={"suslu-parantez"} element={<D/>}/>',
+      '  <Route element={<Duzen/>}>',
+      '    <Route index element={<E/>}/>',
+      '    <Route path="ic-ice" element={<F/>}/>',
+      '  </Route>',
+      '  <Route path="*" element={<Navigate to="/" replace/>}/>',
+      '</Routes>',
+    ].join('\n');
+    const sonuc = routeEtiketleriniAyristir('ornek.tsx', `const X = () => ${ornek};`);
+    expect([...sonuc.rotalar].sort()).toEqual(
+      ['/', '/ic-ice', '/ilk', '/sira-ters', '/suslu-parantez', '/tek-tirnak'].sort(),
+    );
+    expect(sonuc.yakalayiciSayisi).toBe(1);
+    expect(sonuc.duzenSayisi).toBe(1);
+    expect(sonuc.indexSayisi).toBe(1);
+
+    // FAIL-CLOSED: çözülemeyen bir `path` sessizce ATLANMAZ.
+    expect(() =>
+      routeEtiketleriniAyristir('ornek.tsx', 'const X = () => <Route path={YOL} element={<A/>}/>;'),
+    ).toThrow(/ROTA AYRIŞTIRILAMADI/);
+    expect(() =>
+      routeEtiketleriniAyristir('ornek.tsx', 'const X = () => <Route {...tanim}/>;'),
+    ).toThrow(/ROTA AYRIŞTIRILAMADI/);
+  });
+
+  it('G10: ziyaret kanıtı — olumsuz yönlendirme kapsam sayılmaz, `:id` deseni çözülür', () => {
+    const kayit = (
+      yol: string,
+      kaynak: ZiyaretKaydi['kaynak'],
+      etkilesim = false,
+      sekme = 0,
+    ): ZiyaretKaydi => ({sekme, yol, kaynak, etkilesim});
+    const yollar = (kayitlar: readonly ZiyaretKaydi[]): string[] =>
+      kaliciZiyaretler(kayitlar).map(girdi => girdi.yol);
+
+    // OLUMSUZ YÖNLENDİRME: rotaya varıldı, sayfayla HİÇ etkileşilmeden
+    // `replace` ile düşürüldü. Kapsam kanıtı DEĞİLDİR.
+    expect(
+      yollar([kayit('/nakit-yonetimi', 'yukleme'), kayit('/', 'replace')]),
+      'izin duvarına çarpıp düşen rota kapsanmış sayılamaz',
+    ).toEqual(['/']);
+
+    // GERÇEK ZİYARET: rotada iş yapıldı (form dolduruldu, düğmeye basıldı) ve
+    // uygulama BUNUN ARDINDAN `replace` etti. Ziyaret gerçektir.
+    expect(
+      yollar([
+        kayit('/giris', 'yukleme'),
+        kayit('/sifre-degistir', 'replace', true),
+        kayit('/', 'replace', true),
+      ]),
+    ).toEqual(['/giris', '/sifre-degistir', '/']);
+
+    // `push` bir öncekini geçersiz KILMAZ; aynı yola `replace` de kılmaz.
+    expect(yollar([kayit('/alislar', 'yukleme'), kayit('/satislar', 'push')])).toEqual([
+      '/alislar',
+      '/satislar',
+    ]);
+    expect(yollar([kayit('/faturalar', 'yukleme'), kayit('/faturalar', 'replace')])).toEqual([
+      '/faturalar',
+      '/faturalar',
+    ]);
+
+    // Sekmeler AYRI geçmişlerdir: ikinci sekmedeki bir `replace`, birinci
+    // sekmedeki ziyareti düşürmez.
+    expect(
+      yollar([kayit('/saha', 'yukleme', false, 1), kayit('/', 'replace', false, 0)]),
+    ).toEqual(['/saha', '/']);
+
+    // DESEN ÇÖZÜMÜ: gerçek URL rota desenine indirgenir; sabit segment
+    // parametreye yeğlenir; bilinmeyen yol kanıt üretmez.
+    const desenler = ROTA_ENVANTERI.map(girdi => girdi.rota);
+    expect(yoluRotayaCoz('/musteriler/7', desenler)).toBe('/musteriler/:id');
+    expect(yoluRotayaCoz('/musteriler', desenler)).toBe('/musteriler');
+    expect(yoluRotayaCoz('/tarla/parseller/12', desenler)).toBe('/tarla/parseller/:id');
+    expect(yoluRotayaCoz('/', desenler)).toBe('/');
+    expect(yoluRotayaCoz('/boyle-bir-rota-yok', desenler)).toBeNull();
+    expect(yoluRotayaCoz('/tarla/ciftlikler', desenler)).toBe('/tarla/ciftlikler');
+    expect(
+      yoluRotayaCoz('/depolar/9', ['/depolar/:id', '/depolar/yeni']),
+      'sabit segment parametreye yeğlenmeli ama yalnız GERÇEKTEN tutuyorsa',
+    ).toBe('/depolar/:id');
+    expect(yoluRotayaCoz('/depolar/yeni', ['/depolar/:id', '/depolar/yeni'])).toBe(
+      '/depolar/yeni',
+    );
   });
 });

@@ -7,7 +7,7 @@
 // eksiltmek (30 test kaldı, YEŞİL) ve döngüye `test.skip` koymak (28 atlandı,
 // 3 geçti, YEŞİL). Statik bir test bu ikisini göremez; raportör görür.
 //
-// DÖRT ÖLÇÜM:
+// ALTI ÖLÇÜM:
 //   R1 — envanterdeki HER `kapi` girdisinin ürettiği test başlığı koşuda VAR.
 //        Envanterden rota düşerse testi de düşer; başlık kaybolur, R1 kırmızı.
 //   R2 — o testlerin HİÇBİRİ atlanmadı. `test.skip` ile susturulan bir kapı,
@@ -16,6 +16,24 @@
 //        bir dosya/test adı yazmak, o testin varlığını kanıtlamaz; koşu kanıtlar.
 //   R4 — kapsam kapısının KENDİSİ koşuda yoksa sözleşme KAPALI DÜŞER. Kapıyı
 //        silerek ya da içini boşaltarak yeşile dönmek mümkün olmamalı.
+//   R5 — her `spec` tasnifinin adlandırdığı test o rotayı GERÇEKTEN ZİYARET
+//        ETTİ. R3'e kadar rota ile test arasında ÇALIŞMA ZAMANI bağı yoktu:
+//        `/alislar` girdisini, koşan ve geçen ama yalnız `/` açan bir teste
+//        bağlamak G3'ü de R3'ü de yeşil bırakıyordu. Kanıt artık tarayıcının
+//        kendi gezinti olaylarından gelir (bkz. `rota-ziyaret-kaydi.ts`).
+//   R6 — üretilen her `kapi` testi de kendi rotasını ziyaret etmiş olmalı. Aynı
+//        ölçüm, aynı kanıt; kapı testinin gövdesindeki pathname iddiasının
+//        yanında ikinci ve BAĞIMSIZ bir kayıt.
+//
+// ZİYARET KANITI NASIL OKUNUR. Her test, `helpers.ts`teki bağlam fixture'ı
+// sayesinde gezinti kaydını bir testInfo EKİ olarak bırakır. Raportör kaydı
+// okur, "olumsuz yönlendirme" ile biten ziyaretleri eler (bkz.
+// `kaliciZiyaretler`) ve kalan her yolu envanterin rota DESENLERİNE indirger —
+// böylece `/musteriler/7` ziyareti `/musteriler/:id` girdisini kanıtlar.
+//
+// ÇOKLU KAPSAM AÇIK YAZILIR. Bir test birden fazla `spec` rotasını kapsıyorsa
+// (touch-targets'ın mobil toplu kapıları tam olarak bunu yapar) özet o testi ve
+// kanıtladığı rotaların TAMAMINI listeler; kapsam tek satıra saklanmaz.
 //
 // DARALTILMIŞ KOŞUM SORUNU — VE NASIL ÇÖZÜLDÜĞÜ.
 // CI, Playwright'ı İKİ kez çağırır: bir kez tam süit, bir kez de yalnız
@@ -48,8 +66,10 @@ import type {
   Reporter,
   Suite,
   TestCase,
+  TestResult,
 } from '@playwright/test/reporter';
 
+import {makbuzYaz} from './rota-kapsam-makbuzu';
 import {
   KAPI_GIRDILERI,
   KAPSAM_KAPISI_DOSYASI,
@@ -58,6 +78,12 @@ import {
   SPEC_GIRDILERI,
   kapiTestBasligi,
 } from './rota-envanteri';
+import {
+  ZIYARET_EKI,
+  kaliciZiyaretler,
+  yoluRotayaCoz,
+  type ZiyaretKaydi,
+} from './rota-ziyaret-kaydi';
 
 /** Playwright'ın `--list` kipinde hiçbir test KOŞMAZ; ölçülecek sonuç da yoktur.
  *  Bu kipte raportör susar — aksi halde her listeleme "hiçbir kapı testi
@@ -126,6 +152,49 @@ interface KosanTest {
   readonly dosya: string;
   readonly baslik: string;
   readonly sonuc: ReturnType<TestCase['outcome']>;
+  /** Bu testin bıraktığı gezinti kaydından çözülmüş rota DESENLERİ. */
+  readonly ziyaretler: ReadonlySet<string>;
+  /** Kayıt hiç bulunamadıysa `false` — ölçümsüzlük, "ziyaret yok" değil. */
+  readonly kayitVar: boolean;
+}
+
+/** Envanterdeki bütün rota desenleri — ziyaret çözümlemesinin sözlüğü. */
+const ROTA_DESENLERI: readonly string[] = ROTA_ENVANTERI.map(girdi => girdi.rota);
+
+/** Bir testin BÜTÜN denemelerinden (retry dahil) gezinti kayıtlarını toplar. */
+function ziyaretKayitlari(sonuclar: readonly TestResult[]): ZiyaretKaydi[] | null {
+  let bulundu = false;
+  const hepsi: ZiyaretKaydi[] = [];
+  for (const sonuc of sonuclar) {
+    for (const ek of sonuc.attachments) {
+      if (ek.name !== ZIYARET_EKI || !ek.body) continue;
+      bulundu = true;
+      try {
+        const cozulen = JSON.parse(ek.body.toString('utf8')) as ZiyaretKaydi[];
+        hepsi.push(...cozulen);
+      } catch {
+        // Bozuk bir ek, kayıt YOK demektir; kapı kapalı düşsün diye yutulmaz.
+        return null;
+      }
+    }
+  }
+  return bulundu ? hepsi : null;
+}
+
+/**
+ * Bir testin KANITLADIĞI rota kümesi.
+ *
+ * İki eleme birlikte uygulanır: önce olumsuz yönlendirmeyle biten ziyaretler
+ * düşer (`kaliciZiyaretler`), sonra kalan her yol envanterin desenlerine
+ * indirgenir. Hiçbir desene oturmayan yol (ör. `/olmayan-sayfa`) kanıt değildir.
+ */
+function kanitlananRotalar(kayitlar: readonly ZiyaretKaydi[]): Set<string> {
+  const kanit = new Set<string>();
+  for (const ziyaret of kaliciZiyaretler(kayitlar)) {
+    const desen = yoluRotayaCoz(ziyaret.yol, ROTA_DESENLERI);
+    if (desen !== null) kanit.add(desen);
+  }
+  return kanit;
 }
 
 export default class RotaKapsamRaportoru implements Reporter {
@@ -141,6 +210,11 @@ export default class RotaKapsamRaportoru implements Reporter {
   onBegin(config: FullConfig, suite: Suite): void {
     this.config = config;
     this.kokSuite = suite;
+    // MAKBUZ. Raportörün bu koşuda YÜKLENDİĞİNİN kanıtı; `globalTeardown` onu
+    // arar ve bulamazsa koşuyu düşürür. Gerekçesi için bkz.
+    // `rota-kapsam-makbuzu.ts` (kısaca: `--reporter=list` bu dosyayı hiç
+    // yüklemeden süiti yeşil bitirebiliyordu).
+    if (!LISTELEME_KIPI) makbuzYaz();
   }
 
   async onEnd(sonuc: FullResult): Promise<{status?: FullResult['status']} | void> {
@@ -153,11 +227,16 @@ export default class RotaKapsamRaportoru implements Reporter {
       this.yaz(`ROTA KAPSAM SÖZLEŞMESİ ÖLÇEMEDİ — kök çözülemedi: ${kok}`);
       return {status: 'failed'};
     }
-    const kosanlar: KosanTest[] = this.kokSuite.allTests().map(test => ({
-      dosya: koke_gore(kok, test.location.file),
-      baslik: tamBaslik(test),
-      sonuc: test.outcome(),
-    }));
+    const kosanlar: KosanTest[] = this.kokSuite.allTests().map(test => {
+      const kayitlar = ziyaretKayitlari(test.results);
+      return {
+        dosya: koke_gore(kok, test.location.file),
+        baslik: tamBaslik(test),
+        sonuc: test.outcome(),
+        ziyaretler: kayitlar === null ? new Set<string>() : kanitlananRotalar(kayitlar),
+        kayitVar: kayitlar !== null,
+      };
+    });
     const kosanDosyalar = new Set(kosanlar.map(test => test.dosya));
     const eksikDosyalar = [...disktekiSpecDosyalari(this.config, kok)]
       .filter(dosya => !kosanDosyalar.has(dosya))
@@ -219,6 +298,21 @@ export default class RotaKapsamRaportoru implements Reporter {
             `R2: ${girdi.rota} kapısı ATLANDI ("${beklenen}"). Atlanan kapı, ` +
               `kurulmamış kapıdır.`,
           );
+          continue;
+        }
+        // R6 — kapı testi rotayı GERÇEKTEN açtı mı. Gövdedeki pathname iddiası
+        // testin kendi ölçüsüdür; bu, koşudan bağımsız ikinci kayıttır.
+        if (!test.kayitVar) {
+          ihlaller.push(
+            `R6: ${girdi.rota} kapısı gezinti KAYDI bırakmadı ("${beklenen}"). ` +
+              `Test helpers.tsteki bağlam fixture'ını kullanmıyor olabilir; ` +
+              `kayıt olmadan ziyaret ölçülemez ve kapı kapalı düşer.`,
+          );
+        } else if (!test.ziyaretler.has(girdi.rota)) {
+          ihlaller.push(
+            `R6: ${girdi.rota} kapısı bu rotayı ZİYARET ETMEDİ ("${beklenen}"). ` +
+              `Kalıcı ziyaretler: ${[...test.ziyaretler].sort().join(', ') || '(yok)'}.`,
+          );
         }
       }
     }
@@ -236,24 +330,80 @@ export default class RotaKapsamRaportoru implements Reporter {
         );
         continue;
       }
+      let ziyaretKanitlandi = false;
+      let kayitEksik = false;
       for (const test of eslesen) {
         if (test.sonuc !== 'expected' && test.sonuc !== 'flaky') {
           ihlaller.push(
             `R3: ${girdi.rota} için bildirilen test GEÇMEDİ (${test.sonuc}) — ` +
               `${girdi.dosya} :: "${girdi.testAdi}".`,
           );
+          continue;
         }
+        if (!test.kayitVar) kayitEksik = true;
+        else if (test.ziyaretler.has(girdi.rota)) ziyaretKanitlandi = true;
+      }
+
+      // --- R5 --------------------------------------------------------------
+      // Testin ADI kanıt değildir; rotanın o test İÇİNDE gerçekten açılmış
+      // olması kanıttır. Olumsuz yönlendirme (rotaya gidip `replace` ile
+      // düşürülme) bu kümeye GİRMEZ — bkz. `rota-ziyaret-kaydi.ts`.
+      if (!ziyaretKanitlandi && eslesen.some(test => test.sonuc === 'expected' || test.sonuc === 'flaky')) {
+        const kaliciKume = [
+          ...new Set(eslesen.flatMap(test => [...test.ziyaretler])),
+        ].sort();
+        ihlaller.push(
+          kayitEksik
+            ? `R5: ${girdi.rota} için gezinti KAYDI yok — ${girdi.dosya} :: ` +
+                `"${girdi.testAdi}". Test helpers.ts'teki bağlam fixture'ını kullanmalı; ` +
+                `kayıt olmadan ziyaret ölçülemez ve kapı kapalı düşer.`
+            : `R5: ${girdi.rota} bu testte ZİYARET EDİLMEDİ — ${girdi.dosya} :: ` +
+                `"${girdi.testAdi}". Testin koşup geçmesi rotayı kapsadığı anlamına ` +
+                `gelmez. Testin kalıcı ziyaretleri: ${kaliciKume.join(', ') || '(yok)'}.`,
+        );
       }
     }
 
-    this.ozetiYaz(kosanDosyalar.size, ihlaller);
+    this.ozetiYaz(kosanDosyalar.size, ihlaller, this.cokluKapsam(kosanlar));
 
     if (ihlaller.length > 0) return {status: 'failed'};
     // Süitin kendi sonucunu EZMEZ: kapı yeşilse koşunun durumu neyse odur.
     return {status: sonuc.status};
   }
 
-  private ozetiYaz(kosanDosyaSayisi: number, ihlaller: readonly string[]): void {
+  /**
+   * Birden fazla `spec` rotasını tek başına kanıtlayan testler.
+   *
+   * AÇIK YAZILIR, SAKLANMAZ. `touch-targets`ın mobil toplu kapıları dört-beş
+   * rotayı aynı gövdede açar; kapsamın hangi rotalarının TEK bir teste
+   * dayandığını görmek, o test kırılgan hâle geldiğinde neyin birlikte
+   * düşeceğini de göstermiş olur. Liste ziyaret KAYDINDAN türer, envanterdeki
+   * beyandan değil.
+   */
+  private cokluKapsam(kosanlar: readonly KosanTest[]): readonly string[] {
+    const satirlar: string[] = [];
+    for (const test of kosanlar) {
+      if (!test.kayitVar) continue;
+      const bildirilen = SPEC_GIRDILERI.filter(
+        girdi => girdi.dosya === test.dosya && girdi.testAdi === test.baslik,
+      ).map(girdi => girdi.rota);
+      if (bildirilen.length < 2) continue;
+      const kanitli = bildirilen.filter(rota => test.ziyaretler.has(rota)).sort();
+      const kanitsiz = bildirilen.filter(rota => !test.ziyaretler.has(rota)).sort();
+      satirlar.push(
+        `${test.dosya} :: "${test.baslik}" -> ${kanitli.length}/${bildirilen.length} ` +
+          `rota kanıtladı: ${kanitli.join(', ')}` +
+          (kanitsiz.length > 0 ? ` | KANITSIZ: ${kanitsiz.join(', ')}` : ''),
+      );
+    }
+    return satirlar.sort();
+  }
+
+  private ozetiYaz(
+    kosanDosyaSayisi: number,
+    ihlaller: readonly string[],
+    cokluKapsam: readonly string[],
+  ): void {
     const satirlar = [
       '',
       'ROTA KAPSAM SÖZLEŞMESİ (çalışma zamanı)',
@@ -265,6 +415,10 @@ export default class RotaKapsamRaportoru implements Reporter {
       `  ihlal                  : ${ihlaller.length}`,
     ];
     for (const ihlal of ihlaller) satirlar.push(`  - ${ihlal}`);
+    if (cokluKapsam.length > 0) {
+      satirlar.push('  çoklu kapsam (bir test, birden fazla `spec` rotası):');
+      for (const satir of cokluKapsam) satirlar.push(`    * ${satir}`);
+    }
     satirlar.push('');
     this.yaz(satirlar.join('\n'));
   }
