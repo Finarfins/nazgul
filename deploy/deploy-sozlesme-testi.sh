@@ -19,6 +19,12 @@
 set -uo pipefail
 
 KOK_DIZIN="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ "${1:-}" = "--list" ] || [ "${1:-}" = "--liste" ]; then
+  python3 "$KOK_DIZIN/deploy/ci-deploy-sozlesme-kapisi.py" --list "${BASH_SOURCE[0]}"
+  exit 0
+fi
+
 CALISMA="$(mktemp -d)"
 GECTI=0; KALDI=0
 
