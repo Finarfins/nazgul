@@ -1044,7 +1044,15 @@ jobs:
           "$RUNNER_TEMP/ci-contract-venv/bin/pip" install --disable-pip-version-check PyYAML==6.0.3
           echo "$RUNNER_TEMP/ci-contract-venv/bin" >> "$GITHUB_PATH"
       - name: Üretim deploy sözleşmesi (mount, manifest izolasyonu, tohumlama)
+        env:
+          SUNGUR_DENETIM_DOSYASI: ${{ runner.temp }}/deploy-contract-emitted-checks.txt
         run: ./deploy/deploy-sozlesme-testi.sh
+      - name: Deploy sözleşmesi denetim kümesi çalışma-anı doğrulaması (K10)
+        if: always()
+        run: >-
+          python3 deploy/ci-deploy-sozlesme-kapisi.py --emitted
+          "${{ runner.temp }}/deploy-contract-emitted-checks.txt"
+          deploy/deploy-sozlesme-manifest.json
 
       # Ayrı runner'daki publish-image job'ı yerel Docker daemon'ını devralamaz.
       # Yalnız develop push'unda, bütün container kapılarından geçen TAM imajı

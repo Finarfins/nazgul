@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
-"""deploy-sozlesme-testi.sh içindeki denetim kümesini fail-closed doğrular.
+"""deploy-sozlesme-testi.sh içindeki denetim kümesini statik ve çalışma anında doğrular.
 
-Bu kapı `deploy/deploy-sozlesme-testi.sh` dosyasını ayrıştırarak tanımlı
-tüm test/denetim kimliklerini çıkarır ve dondurulmuş manifest ile
-birebir (tam küme ve sıra eşitliğinde) karşılaştırır.
+Bu kapı:
+  1) Statik mod (<script> <manifest>): `deploy/deploy-sozlesme-testi.sh`
+     metnini ayrıştırarak tanımlı denetim kimliklerini dondurulmuş manifest ile
+     karşılaştırır.
+  2) Çalışma anı modu (--emitted <emitted_file> <manifest>): Gerçek koşuda
+     `yesil` tarafından dosyaya yazılan denetim kimliklerini manifest ile
+     birebir karşılaştırır. `if false` veya erken `exit 0` ile devre dışı
+     bırakılan kapılar bu modda fail-closed KIRMIZI olur.
+  3) Listeleme modu (--list <script>): Script içindeki tüm denetim kimliklerini
+     çalıştırmadan stdout'a döker.
 """
 
 from __future__ import annotations
@@ -78,6 +85,7 @@ def main() -> int:
     if len(sys.argv) < 2:
         print("Kullanim:", file=sys.stderr)
         print("  ci-deploy-sozlesme-kapisi.py --list <deploy-sozlesme-testi.sh>", file=sys.stderr)
+        print("  ci-deploy-sozlesme-kapisi.py --emitted <emitted_file> <manifest.json>", file=sys.stderr)
         print("  ci-deploy-sozlesme-kapisi.py <deploy-sozlesme-testi.sh> <manifest.json>", file=sys.stderr)
         return 1
 
@@ -92,6 +100,36 @@ def main() -> int:
         checks = extract_checks(script_path.read_text(encoding="utf-8"))
         for c in checks:
             print(c)
+        return 0
+
+    if sys.argv[1] in ("--emitted", "--runtime"):
+        if len(sys.argv) != 4:
+            print("Hata: --emitted icin <emitted_file> <manifest.json> gereklidir", file=sys.stderr)
+            return 1
+        emitted_path = Path(sys.argv[2])
+        manifest_path = Path(sys.argv[3])
+        if not emitted_path.exists():
+            print(f"K10 deploy sozlesme calisma-ani kapisi KIRMIZI: calisan denetim dosyasi bulunamadi: {emitted_path}")
+            return 1
+        if not manifest_path.exists():
+            print(f"K10 deploy sozlesme calisma-ani kapisi KIRMIZI: manifest bulunamadi: {manifest_path}")
+            return 1
+
+        emitted_checks = [line.strip() for line in emitted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        manifest_checks: list[str] = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        missing = [c for c in manifest_checks if c not in emitted_checks]
+        unexpected = [c for c in emitted_checks if c not in manifest_checks]
+
+        if missing or unexpected or emitted_checks != manifest_checks:
+            print(
+                f"K10 deploy sozlesme calisma-ani kapisi KIRMIZI: calisan denetimler manifest ile uyusmuyor "
+                f"(emitted={len(emitted_checks)}, manifest={len(manifest_checks)}, "
+                f"eksik={missing}, beklenmeyen={unexpected})"
+            )
+            return 1
+
+        print(f"K10 deploy sozlesme calisma-ani kapisi YESIL: {len(emitted_checks)}/{len(manifest_checks)} denetim gercekten kostu ve manifest ile eslesti")
         return 0
 
     if len(sys.argv) != 3:

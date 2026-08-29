@@ -28,7 +28,25 @@ fi
 CALISMA="$(mktemp -d)"
 GECTI=0; KALDI=0
 
-yesil()   { printf '  \033[32m✓ %s\033[0m\n' "$*"; GECTI=$((GECTI+1)); }
+export DENETIM_DOSYASI="${SUNGUR_DENETIM_DOSYASI:-$CALISMA/emitted-checks.txt}"
+mkdir -p "$(dirname "$DENETIM_DOSYASI")"
+touch "$DENETIM_DOSYASI"
+
+denetim_kaydet() {
+  [ -n "${DENETIM_DOSYASI:-}" ] || return 0
+  local metin="$1"
+  local etiket=""
+  if [[ "$metin" == J4/*" runbook'ta sabit"* ]]; then
+    etiket="${metin%% runbook\'ta sabit*}"
+  else
+    etiket="${metin%% *}"
+  fi
+  if [ -n "$etiket" ]; then
+    printf '%s\n' "$etiket" >> "$DENETIM_DOSYASI"
+  fi
+}
+
+yesil()   { printf '  \033[32m✓ %s\033[0m\n' "$*"; GECTI=$((GECTI+1)); denetim_kaydet "$*"; }
 kirmizi() { printf '  \033[31m✗ %s\033[0m\n' "$*"; KALDI=$((KALDI+1)); }
 baslik()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
 

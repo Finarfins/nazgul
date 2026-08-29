@@ -346,3 +346,74 @@ def test_deploy_contract_checks_gate_fails_on_deleted_manifest_check(tmp_path: P
     assert "K10 deploy sozlesme testleri kapisi KIRMIZI" in res.stdout
     assert "K9/olumlu-dogru-beklenti" in res.stdout
 
+
+def test_deploy_contract_emitted_checks_passes_clean_emission(tmp_path: Path) -> None:
+    """Runtime emitted checks validation passes when all 83 checks were emitted."""
+    data: list[str] = json.loads(DEPLOY_CONTRACT_MANIFEST.read_text(encoding="utf-8"))
+    emitted_file = tmp_path / "emitted.txt"
+    emitted_file.write_text("\n".join(data) + "\n", encoding="utf-8")
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(DEPLOY_CONTRACT_GATE),
+            "--emitted",
+            str(emitted_file),
+            str(DEPLOY_CONTRACT_MANIFEST),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "K10 deploy sozlesme calisma-ani kapisi YESIL: 83/83 denetim gercekten kostu" in res.stdout
+
+
+def test_deploy_contract_emitted_checks_fails_on_m1_skipped_k9(tmp_path: Path) -> None:
+    """M1: Wrapping K9 in if-false emits only 79 checks; runtime validation fails."""
+    data: list[str] = json.loads(DEPLOY_CONTRACT_MANIFEST.read_text(encoding="utf-8"))
+    # Simulate K9 block not emitting anything (79 checks)
+    emitted_79 = [c for c in data if not c.startswith("K9/")]
+    assert len(emitted_79) == 79
+    emitted_file = tmp_path / "emitted_m1.txt"
+    emitted_file.write_text("\n".join(emitted_79) + "\n", encoding="utf-8")
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(DEPLOY_CONTRACT_GATE),
+            "--emitted",
+            str(emitted_file),
+            str(DEPLOY_CONTRACT_MANIFEST),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 1
+    assert "K10 deploy sozlesme calisma-ani kapisi KIRMIZI" in res.stdout
+    assert "K9/olumlu-dogru-beklenti" in res.stdout
+
+
+def test_deploy_contract_emitted_checks_fails_on_m2_early_exit(tmp_path: Path) -> None:
+    """M2: Early exit 0 stops execution early; runtime validation fails."""
+    data: list[str] = json.loads(DEPLOY_CONTRACT_MANIFEST.read_text(encoding="utf-8"))
+    # Truncate at first 30 checks
+    emitted_short = data[:30]
+    emitted_file = tmp_path / "emitted_m2.txt"
+    emitted_file.write_text("\n".join(emitted_short) + "\n", encoding="utf-8")
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(DEPLOY_CONTRACT_GATE),
+            "--emitted",
+            str(emitted_file),
+            str(DEPLOY_CONTRACT_MANIFEST),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 1
+    assert "K10 deploy sozlesme calisma-ani kapisi KIRMIZI" in res.stdout
+    assert "emitted=30, manifest=83" in res.stdout
+
+
