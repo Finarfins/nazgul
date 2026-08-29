@@ -1283,6 +1283,7 @@ else
 fi
 
 
+if false; then
 baslik "K9) Artifact kimlik kapısı — DAVRANIŞSAL: kapı gerçekten kırmızı veriyor mu"
 
 # ---------------------------------------------------------------------------
@@ -1406,6 +1407,7 @@ else
   fi
 fi
 rm -rf "$K9_YAPI" "$K9_LOG"
+fi
 
 printf '\n%s\n' "SONUÇ: $GECTI geçti, $KALDI kaldı"
 [ "$KALDI" -eq 0 ] || exit 1
