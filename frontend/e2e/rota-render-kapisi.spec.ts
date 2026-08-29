@@ -19,8 +19,12 @@ import {test, expect, login} from './helpers';
 // HER ROTADA ÜÇ ÖLÇÜM, ÜÇÜ DE GEREKLİ:
 //   1. `marker` görünür  -> sayfa GERÇEKTEN çizildi. Yalnız konsola bakmak
 //      yetmez: boş ekran da konsol-temizdir.
-//   2. `networkidle`     -> geç gelen istekler (grafikler, listeler) hatayı
-//      testten SONRA üretip sessizce kaybolmasın.
+//   2. `networkidle`     -> havada olan ağ isteklerinin sonuçlanmasını bekler,
+//      böylece yoldaki bir hatanın assert öncesinde düşmesini sağlar. Test
+//      gövdesi İÇİNDE çıkan hatalar helpers.ts konsol/sayfa hatası
+//      dinleyicisi tarafından yakalanır. Test gövdesi BİTTİKTEN SONRA çıkan
+//      hatalar — örneğin testi aşan bir zamanlayıcı (timer) — YAKALANMAZ. Bu
+//      bekleme yarış penceresini daraltır; tamamen kapatmaz.
 //   3. pathname aynı     -> rota bir izin duvarına çarpıp `/`'a düşmüş olmasın.
 //      Bu olmadan test Pano'yu ölçer ve "kapsandı" der; kapsam sayısı şişer,
 //      kapı hiçbir şeyi korumaz.
@@ -95,9 +99,12 @@ const KAPSANMAYAN = {
 } as const;
 
 test('kapsanmayan rota listesi boş sayılmaz (gerekçe kaybolmasın)', () => {
-  // Bu test kapsam ölçmez; KAYDIN kendisini korur. Yukarıdaki gerekçe silinip
-  // rota sessizce unutulursa, sözleşme sessiz bir eksilme yaşamış olur.
-  expect(Object.keys(KAPSANMAYAN)).toEqual(['/yedekler']);
+  // Bu test kapsam ölçmez; KAYDIN kendisini ve gerekçesini korur. Gerekçe
+  // silinir veya içeriği boşaltılırsa, sözleşme sessiz bir eksilme yaşamış olur.
+  expect(KAPSANMAYAN).toEqual({
+    '/yedekler':
+      "platform operatörü ortam değişkeni e2e sunucusunda kurulmuyor; rota Protected içinde /'a düşer",
+  });
 });
 
 for (const rota of OTURUMLU_ROTALAR) {
