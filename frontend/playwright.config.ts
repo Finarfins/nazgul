@@ -13,7 +13,19 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? [['list'], ['html', {open: 'never'}]] : 'list',
+  // ROTA KAPSAM RAPORTÖRÜ HER İKİ KİPTE DE KOŞAR — CI'da ve yerelde.
+  //
+  // Sözleşme yalnız CI'da kurulsaydı, yerelde yeşil gördüğü bir daldan CI'a
+  // kırmızı gönderirdi ve kapı "sürpriz" olurdu. Raportörün kendisi hangi
+  // koşumda ölçüp hangisinde susacağını DİSKTEN türetir (bkz. dosya başlığı:
+  // daraltılmış koşum ayrımı), bu yüzden CI'ın ikinci — yalnız
+  // `touch-targets.spec.ts` çağıran — Playwright koşumunu KIRMAZ.
+  //
+  // `list` ve `html` raportörleri AYNEN yerinde: kapsam raportörü onların
+  // yerine geçmez, yanlarına eklenir.
+  reporter: process.env.CI
+    ? [['list'], ['html', {open: 'never'}], ['./e2e/rota-kapsam-raportoru.ts']]
+    : [['list'], ['./e2e/rota-kapsam-raportoru.ts']],
   use: {
     baseURL: 'http://127.0.0.1:5599',
     trace: 'retain-on-failure',
