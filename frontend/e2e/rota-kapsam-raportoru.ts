@@ -76,8 +76,10 @@ import {
   MUAF_GIRDILERI,
   ROTA_ENVANTERI,
   SPEC_GIRDILERI,
+  SPEC_RENDER_GIRDILERI,
   kapiTestBasligi,
 } from './rota-envanteri';
+import {ROTA_RENDER_EKI} from './rota-render-kaniti';
 import {
   ZIYARET_EKI,
   kaliciZiyaretler,
@@ -156,6 +158,9 @@ interface KosanTest {
   readonly ziyaretler: ReadonlySet<string>;
   /** Kayıt hiç bulunamadıysa `false` — ölçümsüzlük, "ziyaret yok" değil. */
   readonly kayitVar: boolean;
+  /** Bu test render kanıtı (ROTA_RENDER_EKI) bıraktı mı — RENDER KONTRATINDAKİ
+   *  girdilerin R5 ölçümünün ikinci yarısı. */
+  readonly renderVar: boolean;
 }
 
 /** Envanterdeki bütün rota desenleri — ziyaret çözümlemesinin sözlüğü. */
@@ -179,6 +184,18 @@ function ziyaretKayitlari(sonuclar: readonly TestResult[]): ZiyaretKaydi[] | nul
     }
   }
   return bulundu ? hepsi : null;
+}
+
+/** Bir test herhangi bir izinde render kanıtı (ROTA_RENDER_EKI) bıraktı mı.
+ *
+ *  R5'in RENDER KONTRATINDAKİ girdiler için istediği ikinci yarıyı ölçer.
+ *  Attachment geçersiz JSON olsa bile yalnız VARLIĞI ölçülür: raportör kanıtın
+ *  İÇERİĞİNİ değil, bırakılıp bırakılmadığını doğrular (içerik sözleşmesi
+ *  rota-render-kaniti.ts'nin işidir). */
+function renderKanitiVarMi(sonuclar: readonly TestResult[]): boolean {
+  return sonuclar.some(sonuc =>
+    sonuc.attachments.some(ek => ek.name === ROTA_RENDER_EKI && ek.body),
+  );
 }
 
 /**
@@ -235,6 +252,7 @@ export default class RotaKapsamRaportoru implements Reporter {
         sonuc: test.outcome(),
         ziyaretler: kayitlar === null ? new Set<string>() : kanitlananRotalar(kayitlar),
         kayitVar: kayitlar !== null,
+        renderVar: renderKanitiVarMi(test.results),
       };
     });
     const kosanDosyalar = new Set(kosanlar.map(test => test.dosya));
@@ -318,6 +336,11 @@ export default class RotaKapsamRaportoru implements Reporter {
     }
 
     // --- R3 ------------------------------------------------------------------
+    // RENDER KONTRATI KÜMESİ: `olcum:'positive'` + `isaret` olan girdiler. Bunlar
+    // için raportör (R5) ziyaret + render kanıtını BİRLİKTE ister. Küme, koşu
+    // başına BİR kez kurulur; envanter beyanı test koşusundan bağımsız olarak
+    // kapsamın RENDER tarafını belirler.
+    const renderKontratKumesi = new Set(SPEC_RENDER_GIRDILERI.map(girdi => girdi.rota));
     for (const girdi of SPEC_GIRDILERI) {
       const eslesen = kosanlar.filter(
         test => test.dosya === girdi.dosya && test.baslik === girdi.testAdi,
@@ -332,6 +355,7 @@ export default class RotaKapsamRaportoru implements Reporter {
       }
       let ziyaretKanitlandi = false;
       let kayitEksik = false;
+      let renderKanitlandi = false;
       for (const test of eslesen) {
         if (test.sonuc !== 'expected' && test.sonuc !== 'flaky') {
           ihlaller.push(
@@ -342,13 +366,40 @@ export default class RotaKapsamRaportoru implements Reporter {
         }
         if (!test.kayitVar) kayitEksik = true;
         else if (test.ziyaretler.has(girdi.rota)) ziyaretKanitlandi = true;
+        if (test.renderVar) renderKanitlandi = true;
       }
 
       // --- R5 --------------------------------------------------------------
       // Testin ADI kanıt değildir; rotanın o test İÇİNDE gerçekten açılmış
       // olması kanıttır. Olumsuz yönlendirme (rotaya gidip `replace` ile
       // düşürülme) bu kümeye GİRMEZ — bkz. `rota-ziyaret-kaydi.ts`.
-      if (!ziyaretKanitlandi && eslesen.some(test => test.sonuc === 'expected' || test.sonuc === 'flaky')) {
+      const renderKontratinda = renderKontratKumesi.has(girdi.rota);
+      const gecenTestVar = eslesen.some(test => test.sonuc === 'expected' || test.sonuc === 'flaky');
+      if (renderKontratinda) {
+        // RENDER KONTRATINDAKİ girdi: ziyaret + render kanıtı BİRLİKTE istenir.
+        // "Sayfa çizilmedi" boş ekranı, "ziyaret edilmedi" ise hiç açılmayan
+        // rotayı ayrı ölçer; ikisinden biri eksikse kapı kırmızıdır.
+        if (gecenTestVar && !ziyaretKanitlandi) {
+          ihlaller.push(
+            kayitEksik
+              ? `R5: ${girdi.rota} için gezinti KAYDI yok — ${girdi.dosya} :: ` +
+                  `"${girdi.testAdi}". Test helpers.ts'teki bağlam fixture'ını kullanmalı; ` +
+                  `kayıt olmadan ziyaret ölçülemez ve kapı kapalı düşer.`
+              : `R5: ${girdi.rota} bu testte ZİYARET EDİLMEDİ — ${girdi.dosya} :: ` +
+                  `"${girdi.testAdi}". Testin koşup geçmesi rotayı kapsadığı anlamına ` +
+                  `gelmez. Testin kalıcı ziyaretleri: ${
+                    [...new Set(eslesen.flatMap(test => [...test.ziyaretler]))].sort().join(', ') || '(yok)'
+                  }.`,
+          );
+        } else if (gecenTestVar && !renderKanitlandi) {
+          ihlaller.push(
+            `R5: ${girdi.rota} RENDER KONTRATINDA ama render KANITI YOK — ${girdi.dosya} :: ` +
+              `"${girdi.testAdi}". Test rota-render-kaniti.ts'teki renderKanitiniDogrula ` +
+              `çağırmalı (rota-govdesi kökü + işaret kanıtı bırakır); kanıt olmadan ` +
+              `sayfanın GERÇEKTEN çizildiği ölçülemez.`,
+          );
+        }
+      } else if (!ziyaretKanitlandi && gecenTestVar) {
         const kaliciKume = [
           ...new Set(eslesen.flatMap(test => [...test.ziyaretler])),
         ].sort();

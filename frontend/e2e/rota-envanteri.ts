@@ -63,7 +63,8 @@ export interface KapiTasnifi {
   readonly oturum: Oturum;
 }
 
-export interface SpecTasnifi {
+/** Positive spec-girdisinin ortak alanları. */
+interface SpecTasnifiTemel {
   readonly tur: 'spec';
   /** `frontend/` köküne göre spec dosyası, ör. `e2e/screens.spec.ts`. */
   readonly dosya: string;
@@ -75,6 +76,34 @@ export interface SpecTasnifi {
   /** Rotanın o test İÇİNDE nasıl ziyaret edildiği — ve varsa ölçümün sınırı. */
   readonly gerekce: string;
 }
+
+/** POZITIF RENDER KONTRATINDAKİ spec: işaret zorunlu, gövde kökünde aranır,
+ *  raportör (R5) ziyaret + render kanıtını BİRLİKTE ister. Kullanıcı bunu
+ *  izin verilmiş bir ölçüm biçimi olarak açar. */
+export interface PozitifRenderSpec extends SpecTasnifiTemel {
+  readonly olcum: 'positive';
+  /** Sayfaya ÖZGÜ, ekranda görünen metin — `kapi`'deki `isaret` ile aynı anlam.
+   *  Yalnız gövde kökünde aranır; kenar çubuğu etiketi kabul edilmez. */
+  readonly isaret: string;
+}
+
+/** NEGATIVE spec: rota izinli bir biçimde açılmaz, ölçüm OLUMSUZDUR (girişe
+ *  yönlendirilmediği / formun çizilmediği ölçülür). İşaret aranmaz. */
+export interface NegatifSpec extends SpecTasnifiTemel {
+  readonly olcum: 'negative';
+}
+
+/** POZITIF (render konTRATI DIŞI) spec: işaretli bir ekran çizer ama render
+ *  kanıtı konTRATINDA DEĞİLDİR. Mevcut 27 positive spec PR #14 kapsamında
+ *  dönüştürülmez — coverage modeli aynen kalır. */
+export interface PozitifSpec extends SpecTasnifiTemel {
+  readonly olcum: 'positive';
+}
+
+/** `spec` tasnifinin üç ölçüm biçimi. Ayrım EXPLICIT bir alanla (olcum) ve
+ *  render konTRATINDA olup olmamakla (`PozitifRenderSpec` vs `PozitifSpec`)
+ *  taşınır — rationale metninden tahmin edilmez. */
+export type SpecTasnifi = PozitifRenderSpec | PozitifSpec | NegatifSpec;
 
 export interface MuafTasnifi {
   readonly tur: 'muaf';
@@ -96,6 +125,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/tanitim',
     tur: 'spec',
+    olcum: 'negative',
     dosya: 'e2e/public-routes.spec.ts',
     testAdi: 'anonim ziyaretçi tanıtım sayfası sayfasında kalır, girişe fırlatılmaz',
     gerekce:
@@ -104,6 +134,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/giris',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/login.spec.ts',
     testAdi: 'giriş yapılır ve panel konsol-temiz açılır',
     gerekce: 'giriş formu doldurulup gönderilir; helpers.login her spec\'in de giriş yoludur',
@@ -111,6 +142,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/kayit',
     tur: 'spec',
+    olcum: 'negative',
     dosya: 'e2e/public-routes.spec.ts',
     testAdi: 'anonim ziyaretçi self-servis kayıt sayfasında kalır, girişe fırlatılmaz',
     gerekce:
@@ -119,6 +151,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/eposta-dogrula',
     tur: 'spec',
+    olcum: 'negative',
     dosya: 'e2e/public-routes.spec.ts',
     testAdi: 'anonim ziyaretçi e-posta doğrulama bağlantısı sayfasında kalır, girişe fırlatılmaz',
     gerekce:
@@ -127,6 +160,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/sifre-degistir',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/session-lifecycle.spec.ts',
     testAdi: 'zorunlu ilk şifre değişimi: yeni hesap panele değil /sifre-degistir ekranına düşer',
     gerekce: 'yeni sağlanan hesabın zorunlu yönlendirmesiyle varılır ve ekranın çizildiği ölçülür',
@@ -148,6 +182,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/screens.spec.ts',
     testAdi: '/ ekranı konsol-temiz açılır',
     gerekce: 'Pano; "Son Satışlar" işaretiyle ölçülür ve her spec\'in giriş sonrası varış noktasıdır',
@@ -155,6 +190,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/satislar',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/screens.spec.ts',
     testAdi: '/satislar ekranı konsol-temiz açılır',
     gerekce: '"Satışlar" işaretiyle ölçülür',
@@ -162,6 +198,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/hizli-satis',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/pos.spec.ts',
     testAdi: 'barkodla ürün eklenir ve satış tamamlanır',
     gerekce: 'POS ekranı açılır, barkodla ürün eklenir ve satış uçtan uca tamamlanır',
@@ -183,6 +220,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/musteriler',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/screens.spec.ts',
     testAdi: '/musteriler ekranı konsol-temiz açılır',
     gerekce: '"Müşteriler" işaretiyle ölçülür',
@@ -196,28 +234,45 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/musteriler/:id',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/pos-credit-sale.spec.ts',
     testAdi: 'veresiye satış müşterinin açık bakiyesini satış tutarı kadar artırır',
     gerekce: 'tohumlanan müşterinin kartı açılır ve açık bakiyesi satış tutarıyla karşılaştırılır',
   },
   {
     rota: '/tedarikciler/:id',
-    tur: 'muaf',
-    gerekce: TOHUM_GEREKTIREN_ID,
+    tur: 'spec',
+    olcum: 'positive',
+    dosya: 'e2e/rota-muaf-kapsami.spec.ts',
+    testAdi: 'tedarikçi detayı: testin ürettiği tedarikçi adı gövdede görünür ve rota korunur',
+    // İşaret = testin oluşturduğu DETERMINISTIK tedarikçi adı literalı.
+    isaret: 'ROTAKAPSAM Tedarikci',
+    gerekce:
+      'tedarikçi detayı gerçek API üzerinden testin ürettiği deterministik tedarikçiyle açılır; işaret testin yarattığı tedarikçi ADIDIR — kenar çubuğu etiketi değil; R5 ziyaret + render kanıtı BİRLİKTE istenir',
   },
 
   // --- Ürünler ---------------------------------------------------------------
   {
     rota: '/urunler',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/screens.spec.ts',
     testAdi: '/urunler ekranı konsol-temiz açılır',
     gerekce: '"Yeni Ürün" işaretiyle ölçülür',
   },
   {
     rota: '/urunler/:id',
-    tur: 'muaf',
-    gerekce: TOHUM_GEREKTIREN_ID,
+    tur: 'spec',
+    olcum: 'positive',
+    dosya: 'e2e/rota-muaf-kapsami.spec.ts',
+    testAdi: 'ürün detayı: testin ürettiği ürün adı gövdede görünür ve rota korunur',
+    // İşaret = testin oluşturduğu DETERMINISTIK ürün adı literalı. Render kanıtı
+    // tam bu metni gövde kökünde arar (rota-muaf-kapsami.spec.ts); kenar çubuğu
+    // etiketi değildir. Sözleşme katmanı (G13) bu alanın boş olmadığını ve
+    // BİRİCİK olduğunu doğrular.
+    isaret: 'ROTAKAPSAM Urun',
+    gerekce:
+      'ürün detayı gerçek API üzerinden testin ürettiği deterministik ürünle açılır; işaret testin yarattığı ürün ADIDIR — kenar çubuğu etiketi değil; R5 ziyaret + render kanıtı BİRLİKTE istenir',
   },
   {
     rota: '/parca-supersession',
@@ -230,17 +285,11 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/makineler',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/machine-360.spec.ts',
     testAdi: 'makine kartı açılır ve dört sekme arasında gezilir',
     gerekce:
       'listeye kenar çubuğundan SPA içi gezilerek varılır (bu dosyada giriş dışında goto YOKTUR) ve tohumlanan makinenin satırı bulunur',
-  },
-  {
-    rota: '/makineler/:id',
-    tur: 'spec',
-    dosya: 'e2e/machine-360.spec.ts',
-    testAdi: '?sekme= derin bağlantısı, yenilemede kalıcılık ve geçersiz slug',
-    gerekce: 'makine kartına URL ile doğrudan girilir ve tam yeniden yükleme sonrası sekme korunur',
   },
   {
     rota: '/is-emirleri',
@@ -251,6 +300,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/is-emirleri/:id',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/touch-targets.spec.ts',
     testAdi:
       'touch target and responsive action gate > mobile-390: four screens render and preserve their actions',
@@ -262,6 +312,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/saha',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/field-write-epoch-race.spec.ts',
     testAdi: 'gerçek iki sekme yarışı: logout epoch gerçek applySnapshot commitini reddeder',
     gerekce:
@@ -277,6 +328,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/tarla',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/touch-targets.spec.ts',
     testAdi:
       'touch target and responsive action gate > mobile-390: four screens render and preserve their actions',
@@ -297,6 +349,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/tarla/faaliyetler',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/touch-targets.spec.ts',
     testAdi:
       'touch target and responsive action gate > mobile-390: four screens render and preserve their actions',
@@ -329,6 +382,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/tarla/parseller/:id',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/touch-targets.spec.ts',
     testAdi:
       'touch target and responsive action gate > mobile-390: four screens render and preserve their actions',
@@ -339,6 +393,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/hayvancilik',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/touch-targets.spec.ts',
     testAdi:
       'six-screen measured mobile batch gate > mobile-390: seeded data and required actions survive responsive rendering',
@@ -384,6 +439,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/faturalar',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/work-order-billing.spec.ts',
     testAdi: 'iş emrine parça eklenir, tamamlanır ve faturalandırılıp fatura detayına düşer',
     gerekce: 'faturalandırma sonrası fatura listesi açılır ve üretilen fatura numarası listede aranır',
@@ -391,6 +447,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/faturalar/:id',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/touch-targets.spec.ts',
     testAdi:
       'receivables, invoice, and activity mobile slice gate > mobile-390: seeded data and required actions survive responsive rendering',
@@ -399,6 +456,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/odemeler',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/rbac-finance.spec.ts',
     testAdi: 'satış rolü tahsilata erişir, finans ekranına erişemez',
     gerekce:
@@ -407,6 +465,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/tahsis-defteri',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/screens.spec.ts',
     testAdi: '/tahsis-defteri ekranı konsol-temiz açılır',
     gerekce: '"Tahsis Defteri" işaretiyle, tahsis motoru KAPALI varsayılanında ölçülür',
@@ -449,6 +508,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/sube-transfer',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/transfer.spec.ts',
     testAdi: 'stoğu olan depodan ikinci şubeye transfer oluşturulur',
     gerekce: 'ekran açılır ve gerçek API üzerinden uçtan uca bir transfer oluşturulur',
@@ -475,14 +535,21 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   },
   {
     rota: '/depolar/:id',
-    tur: 'muaf',
-    gerekce: TOHUM_GEREKTIREN_ID,
+    tur: 'spec',
+    olcum: 'positive',
+    dosya: 'e2e/rota-muaf-kapsami.spec.ts',
+    testAdi: 'depo detayı: testin ürettiği depo adı gövdede görünür ve rota korunur',
+    isaret: 'ROTAKAPSAM Depo',
+    // İşaret = testin oluşturduğu DETERMINISTIK depo adı literalı.
+    gerekce:
+      'depo detayı gerçek API üzerinden testin ürettiği deterministik depo ile açılır; işaret testin yarattığı depo ADIDIR — kenar çubuğu etiketi değil; R5 ziyaret + render kanıtı BİRLİKTE istenir',
   },
 
   // --- Raporlar --------------------------------------------------------------
   {
     rota: '/raporlar',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/screens.spec.ts',
     testAdi: '/raporlar ekranı konsol-temiz açılır',
     gerekce: '"Raporlar" işaretiyle ölçülür',
@@ -490,6 +557,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/raporlar/alacak-yaslandirma',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/touch-targets.spec.ts',
     testAdi:
       'receivables, invoice, and activity mobile slice gate > mobile-390: seeded data and required actions survive responsive rendering',
@@ -505,6 +573,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/raporlar/satin-alma-panosu',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/screens.spec.ts',
     testAdi: '/raporlar/satin-alma-panosu ekranı konsol-temiz açılır',
     gerekce: 'taze veritabanında BOŞ veriyle açılır; grafiklerin boş-durum yolu da konsol-temiz olmalı',
@@ -542,6 +611,14 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
     oturum: 'oturumlu',
   },
   {
+    rota: '/makineler/:id',
+    tur: 'spec',
+    olcum: 'positive',
+    dosya: 'e2e/machine-360.spec.ts',
+    testAdi: '?sekme= derin bağlantısı, yenilemede kalıcılık ve geçersiz slug',
+    gerekce: 'makine kartına URL ile doğrudan girilir ve tam yeniden yükleme sonrası sekme korunur',
+  },
+  {
     rota: '/islem-gecmisi',
     tur: 'kapi',
     isaret: 'İşlem Geçmişi',
@@ -550,6 +627,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/aktivite',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/touch-targets.spec.ts',
     testAdi:
       'receivables, invoice, and activity mobile slice gate > mobile-390: seeded data and required actions survive responsive rendering',
@@ -571,6 +649,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/bildirimler',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/touch-targets.spec.ts',
     testAdi:
       'six-screen measured mobile batch gate > mobile-390: seeded data and required actions survive responsive rendering',
@@ -579,6 +658,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   {
     rota: '/bildirimler/sablonlar',
     tur: 'spec',
+    olcum: 'positive',
     dosya: 'e2e/touch-targets.spec.ts',
     testAdi:
       'six-screen measured mobile batch gate > mobile-390: seeded data and required actions survive responsive rendering',
@@ -601,6 +681,16 @@ export const KAPI_GIRDILERI: readonly (RotaGirdisi & KapiTasnifi)[] = ROTA_ENVAN
 export const SPEC_GIRDILERI: readonly (RotaGirdisi & SpecTasnifi)[] = ROTA_ENVANTERI.filter(
   (girdi): girdi is RotaGirdisi & SpecTasnifi => girdi.tur === 'spec',
 );
+
+/** RENDER KONTRATINDAKİ positive spec girdileri. Bunlar `olcum:'positive'` VE
+ *  `isaret` taşır; raportör R5 bunlar için ziyaret + render kanıtını BİRLİKTE
+ *  ister. Mevcut 27 pozitif spec bu listede DEĞİLDİR (PR #14 kapsamında
+ *  dönüştürülmez) — coverage modeli aynen kalır. */
+export const SPEC_RENDER_GIRDILERI: readonly (RotaGirdisi & PozitifRenderSpec)[] =
+  SPEC_GIRDILERI.filter(
+    (girdi): girdi is RotaGirdisi & PozitifRenderSpec =>
+      girdi.olcum === 'positive' && 'isaret' in girdi,
+  );
 
 /** `muaf` tasnifli girdiler — kapsamın ÖLÇÜLMÜŞ sınırı. */
 export const MUAF_GIRDILERI: readonly (RotaGirdisi & MuafTasnifi)[] = ROTA_ENVANTERI.filter(
