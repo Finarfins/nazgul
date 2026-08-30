@@ -291,8 +291,16 @@ export default function AppShell(){
        6px bilinçli — 20px "kayıyor" gibi durur ve her gezinmede yorar; 6px
        "yerleşti" hissi verir. Yalnız opacity+transform, yani düzen hesabı yok.
        prefers-reduced-motion tema seviyesinde bunu da susturur. */}
+   {/* rota-govdesi: ROTA GÖVDESİNİN KÖKÜ.
+       E2E rota kapısı sayfaya özgü işareti YALNIZ bu kökün içinde arar. Kenar
+       çubuğu etiketlerinin çoğu sayfa başlıklarıyla aynı metindir ve aktif grup
+       kenar çubuğunda daima açıktır; kök bildirilmeden yapılan bir metin
+       araması, gövde hiç çizilmese bile kenar çubuğundaki etiketi bulup kapıyı
+       yeşil bırakırdı. Bu nitelik silinirse kapı ölçemez ve KIRMIZI yanar
+       (bkz. e2e/rota-envanteri.ts, ROTA_GOVDESI_TESTID). */}
    <Box
     key={location.pathname}
+    data-testid="rota-govdesi"
     sx={{
      maxWidth:1560,mx:'auto',
      animation:`routeIn ${sungurTokens.motion.base}ms ${sungurTokens.motion.enter} both`,
