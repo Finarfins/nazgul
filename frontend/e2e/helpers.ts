@@ -236,6 +236,43 @@ export async function provisionUser(
   return {username: opts.username, password: PROVISIONED_PASSWORD, userId};
 }
 
+// Verilen firmada bir tedarikçi oluşturur ve id'sini döndürür. Ad, UI'daki
+// sayfa işareti olarak kullanılır; çağıran tarafça benzersiz verilmeli.
+// `POST /api/suppliers` (finance.py) payload'ı `{id, ...payload}` olarak yansıtır.
+export async function createSupplier(
+  admin: AdminApi,
+  name: string,
+  companyId?: string,
+): Promise<number> {
+  const res = await admin.api.post('/api/suppliers', {
+    headers: await admin.headers(companyId),
+    data: {name},
+  });
+  if (!res.ok()) {
+    throw new Error(`createSupplier başarısız (${res.status()}): ${await res.text()}`);
+  }
+  return (await res.json()).id as number;
+}
+
+// Verilen firmada bir depo oluşturur ve id'sini döndürür. Depo detay ekranı adı
+// `GET /warehouses/{id}` üzerinden okur; create yanıtı yalnız id döner
+// (warehouses.py:92).
+export async function createWarehouse(
+  admin: AdminApi,
+  name: string,
+  code: string,
+  companyId?: string,
+): Promise<number> {
+  const res = await admin.api.post('/api/warehouses', {
+    headers: await admin.headers(companyId),
+    data: {name, code},
+  });
+  if (!res.ok()) {
+    throw new Error(`createWarehouse başarısız (${res.status()}): ${await res.text()}`);
+  }
+  return (await res.json()).id as number;
+}
+
 // Belirtilen kullanıcıyla UI'dan giriş yapar. Panele varışı doğrulamaz (rol
 // bazlı ilk ekran değişebilir); onu çağıran spec kendi işaretiyle bekler.
 export async function loginAs(page: Page, username: string, password: string): Promise<void> {

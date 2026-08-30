@@ -20,6 +20,7 @@ import {
   ROTA_ENVANTERI,
   ROTA_GOVDESI_TESTID,
   SPEC_GIRDILERI,
+  SPEC_RENDER_GIRDILERI,
 } from '../e2e/rota-envanteri';
 
 // ROTA KAPSAM SÖZLEŞMESİ — statik yarısı (G1-G10).
@@ -283,18 +284,31 @@ describe('rota kapsam sözleşmesi', () => {
     }
   });
 
+  it('G12: `kapi` rotası parametre (`:`) veya yakalayıcı (`*`) taşıyamaz', () => {
+    // MİMARİ KURAL — `kapi`, üretilen KAPININ sahnede kendi işaretiyle yol
+    // açtığı rotadır. Parametreli bir rota kapının ürettiği tek URL ile asla
+    // gerçek bir kayda bağlanamaz (kapı `:id` doldurmaz); `*` ise bir rota
+    // DEĞİL, `yakalayici`dır. Parametreli rotalar bu nedenle `spec` (başka bir
+    // testin gerçek kaydıyla açması) ya da `muaf` (ölçülmüş sınır) olmalıdır.
+    const kapiParametreli = KAPI_GIRDILERI.filter(girdi => /[:*]/.test(girdi.rota)).map(
+      girdi => girdi.rota,
+    );
+    expect(
+      kapiParametreli,
+      'parametreli/yakalayıcı bir rota `kapi` olamaz: üretilen kapı `:id` doldurmaz ve ' +
+        'sahneyi gerçek bir kayıtla açamaz. Bu rotalar `spec` ya da `muaf` olmalıdır.',
+    ).toEqual([]);
+  });
+
   it('G5: `muaf` kümesi DONMUŞ ve gerekçeleri boşaltılamaz', () => {
     // DONMUŞ KÜME. Muafiyet kapsamın ölçülmüş SINIRIdır; büyümesi bilinçli bir
     // karar olmalı, sessiz bir eksilme değil. Bu liste değişecekse buradaki
     // beyan da elle değiştirilmelidir — ve o değişiklik incelemede görünür.
     const BEKLENEN_MUAF = [
       '/depo-transferleri/:id',
-      '/depolar/:id',
       '/hayvancilik/hayvanlar/:id',
       '/saha/:id',
       '/stok-sayimlari/:id',
-      '/tedarikciler/:id',
-      '/urunler/:id',
       '/yedekler',
     ];
     expect(MUAF_GIRDILERI.map(girdi => girdi.rota).sort()).toEqual(BEKLENEN_MUAF);
@@ -311,6 +325,47 @@ describe('rota kapsam sözleşmesi', () => {
     ).toBe(
       "platform operatörü ortam değişkeni e2e sunucusunda kurulmuyor; rota Protected içinde /'a düşer",
     );
+  });
+
+  it('G13: render kontratı tam olarak üç girdi ve her biri `isaret` taşır', () => {
+    // RENDER KONTRATI, PR #14'ün KAPSAM BÜYÜTMESİDİR. Yalnız bu üç girdi
+    // `olcum:'positive'` + `isaret` taşır: /tedarikciler/:id, /urunler/:id,
+    // /depolar/:id. Bunlar muaf'tan spec'e taşınan rotalardır ve raportör (R5)
+    // onlar için ziyaret + render kanıtını BİRLİKTE ister. Listede başka bir
+    // girdinin VARLIĞI (ya da bu üçünden birinin YOKLUĞU) kontratın
+    // genişletilmesi/daraltılmasıdır — bilinçli bir karardır, sessiz bir kayma
+    // değil. Bu liste değişecekse buradaki beyan da elle değiştirilmelidir.
+    const BEKLENEN_RENDER = ['/depolar/:id', '/tedarikciler/:id', '/urunler/:id'].sort();
+    const renderKontrat = SPEC_RENDER_GIRDILERI.map(girdi => girdi.rota).sort();
+    expect(renderKontrat).toEqual(BEKLENEN_RENDER);
+
+    for (const girdi of SPEC_RENDER_GIRDILERI) {
+      // İşaret boş olamaz: render kanıtı tam bu metni gövde kökünde arar
+      // (rota-render-kaniti.ts). Boş işaret, boş ekranı da kapsam sayar.
+      expect(
+        girdi.isaret.trim().length,
+        `${girdi.rota}: render kontratındaki 'isaret' boş olamaz`,
+      ).toBeGreaterThan(0);
+    }
+
+    // `olcum:'positive'` ama `isaret`'ten YOKSA o bir RENDER KONTRATI DEĞİL,
+    // sıradan PozitifSpec'tir (mevcut 27 pozitif spec). Bu ayrım bilinçlidir;
+    // PR #14 bunları KONTRATA ÇEVİRMEZ, coverage modeli aynen kalır.
+    const zorunluIsaretliOlmayan = SPEC_GIRDILERI.filter(
+      girdi => girdi.olcum === 'positive' && !('isaret' in girdi),
+    ).map(girdi => girdi.rota);
+    expect(
+      zorunluIsaretliOlmayan.includes('/tedarikciler/:id') ||
+        zorunluIsaretliOlmayan.includes('/urunler/:id') ||
+        zorunluIsaretliOlmayan.includes('/depolar/:id'),
+      'muaf\'tan spec\'e taşınan üç rota RENDER KONTRATINDA olmalı (isaret taşımalı)',
+    ).toBe(false);
+
+    // Negative-only: üç negative girdi açıkça tasnif edilmiş olmalı.
+    const negatifler = SPEC_GIRDILERI.filter(girdi => girdi.olcum === 'negative').map(
+      girdi => girdi.rota,
+    );
+    expect(negatifler.sort()).toEqual(['/eposta-dogrula', '/kayit', '/tanitim'].sort());
   });
 
   it('G6: bir rota BİRDEN FAZLA tasnifte görünemez', () => {
