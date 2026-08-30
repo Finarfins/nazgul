@@ -6,6 +6,7 @@ import {describe, expect, it} from 'vitest';
 import {
   metindekiRouteEtiketSayisi,
   routeEtiketleriniAyristir,
+  yasakBeyanVarMi,
 } from '../e2e/rota-ayristirici';
 import {
   kaliciZiyaretler,
@@ -474,6 +475,28 @@ describe('rota kapsam sözleşmesi', () => {
     expect(() =>
       routeEtiketleriniAyristir('ornek.tsx', 'const X = () => <Route {...tanim}/>;'),
     ).toThrow(/ROTA AYRIŞTIRILAMADI/);
+
+    // FAIL-CLOSED: createElement(Route, ...) ve useRoutes([...]).
+    // Mimari kural: uygulama rota beyanları YALNIZ src/App.tsx içindeki JSX
+    // <Route> hiyerarşisi olabilir. Bu iki biçim kapsam kapısının görüş
+    // alanının tamamen dışında kalır; ayrıştırıcı onları sessizce geçemez.
+    //
+    // ÖLÇÜLEN KAÇIŞ (Cursor final runtime review, cc10c27 sonrası):
+    // React.createElement(Route, {path: 'kacak', element: <Login/>}) şeklinde
+    // eklenen bir rota G1'i YEŞIL bırakıyordu çünkü AST gezgini yalnız JSX
+    // açma etiketlerini arıyordu; CallExpression düğümleri görünmüyordu.
+    expect(() =>
+      routeEtiketleriniAyristir(
+        'ornek.tsx',
+        "const X = () => React.createElement(Route, {path: 'mutasyon-create-element', element: null});",
+      ),
+    ).toThrow(/ROTA AYRIŞTIRILAMADI/);
+    expect(() =>
+      routeEtiketleriniAyristir(
+        'ornek.tsx',
+        "const X = () => { return useRoutes([{path: 'mutasyon-use-routes', element: null}]); };",
+      ),
+    ).toThrow(/ROTA AYRIŞTIRILAMADI/);
   });
 
   it('G10: ziyaret kanıtı — olumsuz yönlendirme kapsam sayılmaz, `:id` deseni çözülür', () => {
@@ -535,5 +558,48 @@ describe('rota kapsam sözleşmesi', () => {
     expect(yoluRotayaCoz('/depolar/yeni', ['/depolar/:id', '/depolar/yeni'])).toBe(
       '/depolar/yeni',
     );
+  });
+
+  it('G11: src/ altında `useRoutes` ve `createElement(Route, ...)` beyanı yasak', () => {
+    // MİMARİ KURAL — yorumda bırakılmaz, makine tarafından zorunlu kılınır.
+    // Uygulama rota beyanları YALNIZ src/App.tsx içindeki JSX <Route>
+    // hiyerarşisi olabilir. Aşağıdaki biçimler kapsam kapısının görüş
+    // alanının tamamen dışında kalır:
+    //
+    //   - React.createElement(Route, ...)   ← AST gezgini CallExpression'ı görmez
+    //   - useRoutes([...])                  ← aynı kör nokta
+    //   - başka src dosyasında <Route>      ← zaten G1'de routeBeyanEdenDosyalar()
+    //
+    // Tarama metin tabanlıdır (AST değil); yorumlar ve dize değişmezleri ayırt
+    // edilmez. Bu kasıtlı bir seçimdir: bu kalıpların gerçek bir kaynak dosyada
+    // metin olarak geçmesi zaten kural ihlalidir ve elle incelenmesini gerektirir.
+    const ihlaller: string[] = [];
+    const tara = (dizin: string): void => {
+      for (const girdi of readdirSync(dizin)) {
+        const mutlak = join(dizin, girdi);
+        if (statSync(mutlak).isDirectory()) {
+          tara(mutlak);
+          continue;
+        }
+        if (
+          !/\.(tsx|jsx|ts|js)$/.test(girdi) ||
+          /\.(test|spec)\.(tsx|jsx|ts|js)$/.test(girdi)
+        ) {
+          continue;
+        }
+        const kaynak = readFileSync(mutlak, 'utf8');
+        if (yasakBeyanVarMi(kaynak)) {
+          ihlaller.push(mutlak.slice(FRONTEND_KOKU.length + 1).split('\\').join('/'));
+        }
+      }
+    };
+    tara(yol('src'));
+    expect(
+      ihlaller,
+      'src/ altında yasaklı rota beyan biçimi bulundu. ' +
+        'Uygulama rota beyanları yalnız src/App.tsx içindeki JSX `<Route>` ' +
+        'hiyerarşisi olabilir. `React.createElement(Route, ...)` ve ' +
+        '`useRoutes([...])` kapsam kapısının görüş alanı dışındadır.',
+    ).toEqual([]);
   });
 });

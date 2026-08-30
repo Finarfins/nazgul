@@ -137,6 +137,52 @@ export function routeEtiketleriniAyristir(dosyaYolu: string, kaynak: string): Ay
     }
 
     if (jsx === null) {
+      // YASAK ROTA BEYAN BİÇİMLERİ — FAIL-CLOSED.
+      //
+      // Mimari kural: uygulama rota beyanları YALNIZ src/App.tsx içindeki JSX
+      // <Route> hiyerarşisi olabilir. Aşağıdaki iki biçim kapsam kapısının
+      // görüş alanının tamamen dışında kalır; sessizce geçilmesi G1'i kör bırakır:
+      //
+      //   React.createElement(Route, ...)  ← AST gezgini yalnız JSX etiketlerini
+      //   useRoutes([...])                   izliyordu; CallExpression atlanıyordu.
+      //
+      // ÖLÇÜLEN KAÇIŞ (Cursor final runtime review, cc10c27 sonrası):
+      // React.createElement(Route, {path: 'kacak', element: <Login/>}) şeklinde
+      // eklenen rota G1'i YEŞIL bırakıyordu. Artık FAIL-CLOSED.
+      if (ts.isCallExpression(dugum)) {
+        const cagri = dugum.expression;
+        // React.createElement(Route, ...) veya createElement(Route, ...)
+        const createElementAdi =
+          ts.isIdentifier(cagri)
+            ? cagri.text
+            : ts.isPropertyAccessExpression(cagri)
+              ? cagri.name.text
+              : '';
+        if (createElementAdi === 'createElement' && dugum.arguments.length >= 1) {
+          const ilkArg = dugum.arguments[0];
+          if (ts.isIdentifier(ilkArg) && ilkArg.text === 'Route') {
+            hata(
+              dosyaYolu,
+              dugum,
+              agac,
+              '`React.createElement(Route, ...)` yasaklıdır — ' +
+                'uygulama rota beyanları yalnız src/App.tsx içindeki JSX ' +
+                '`<Route>` hiyerarşisi olabilir',
+            );
+          }
+        }
+        // useRoutes([...])
+        if (ts.isIdentifier(cagri) && cagri.text === 'useRoutes') {
+          hata(
+            dosyaYolu,
+            dugum,
+            agac,
+            '`useRoutes([...])` yasaklıdır — ' +
+              'uygulama rota beyanları yalnız src/App.tsx içindeki JSX ' +
+              '`<Route>` hiyerarşisi olabilir',
+          );
+        }
+      }
       dugum.forEachChild(cocuk => gez(cocuk, ustYol));
       return;
     }
@@ -202,4 +248,17 @@ export function dosyayiAyristir(mutlakYol: string): AyristirmaSonucu {
 /** Kaynakta kaç `<Route` etiketi GEÇTİĞİ — AST sayımıyla karşılaştırmak için. */
 export function metindekiRouteEtiketSayisi(kaynak: string): number {
   return [...kaynak.matchAll(/<Route\b/g)].length;
+}
+
+/** Kaynakta `useRoutes(` ya da `createElement(Route` geçiyor mu?
+ *
+ *  G11'in `src/` taramasında kullanılır. Metin tabanlıdır (AST değil):
+ *  yorumları ve dize değişmezlerini ayırt etmez, ancak bu kalıpların gerçek
+ *  kaynak dosyalarda metin olarak geçmesi zaten kural ihlalidir.
+ *
+ *  Tasarım notu: AST tabanlı `routeEtiketleriniAyristir` App.tsx'i işlerken
+ *  zaten bu kalıpları ROTA AYRIŞTIRILAMADI ile düşürür; bu fonksiyon yalnız
+ *  `src/` altındaki DİĞER dosyaları taramak için vardır. */
+export function yasakBeyanVarMi(kaynak: string): boolean {
+  return /useRoutes\s*\(/.test(kaynak) || /createElement\s*\(\s*Route\b/.test(kaynak);
 }
