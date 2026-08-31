@@ -61,6 +61,7 @@ const FarmDashboard=lazy(()=>import('./pages/FarmDashboard'));
 const Farms=lazy(()=>import('./pages/Farms'));
 const CropSeasons=lazy(()=>import('./pages/CropSeasons'));
 const FieldActivities=lazy(()=>import('./pages/FieldActivities'));
+const PlantProtectionProducts=lazy(()=>import('./pages/PlantProtectionProducts'));
 const FieldTasks=lazy(()=>import('./pages/FieldTasks'));
 const FieldHarvests=lazy(()=>import('./pages/FieldHarvests'));
 const ParcelDetail=lazy(()=>import('./pages/ParcelDetail'));
@@ -129,6 +130,7 @@ export default function App(){
       <Route path="tarla/ciftlikler" element={<Farms/>}/>
       <Route path="tarla/sezonlar" element={<CropSeasons/>}/>
       <Route path="tarla/faaliyetler" element={<FieldActivities/>}/>
+      <Route path="tarla/bku-katalogu" element={<PlantProtectionProducts/>}/>
       <Route path="tarla/gorevler" element={<FieldTasks/>}/>
       <Route path="tarla/hasat" element={<FieldHarvests/>}/>
       <Route path="tarla/olay-kuyrugu" element={<IntegrationEvents/>}/>

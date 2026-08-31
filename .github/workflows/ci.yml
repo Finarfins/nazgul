@@ -457,7 +457,7 @@ jobs:
           # Alt sınır yerine tam eşitlik: dosya silinmesi veya yeniden adlandırma ile
           # sessizce test kapsamının düşmesini engeller. Yeni PG testi eklendiğinde
           # veya çıkarıldığında bu sabit bilinçli olarak güncellenmelidir.
-          BEKLENEN_PG_DOSYA_SAYISI=94
+          BEKLENEN_PG_DOSYA_SAYISI=95
           if [ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]; then
             echo "FAIL: tam $BEKLENEN_PG_DOSYA_SAYISI PG dosyası bekleniyor, ${#all_files[@]} bulundu" >&2
             exit 1

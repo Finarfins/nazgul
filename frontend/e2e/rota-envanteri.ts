@@ -374,6 +374,12 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
     oturum: 'oturumlu',
   },
   {
+    rota: '/tarla/bku-katalogu',
+    tur: 'kapi',
+    isaret: 'BKÜ Kataloğu',
+    oturum: 'oturumlu',
+  },
+  {
     rota: '/tarla/hizli-giris',
     tur: 'kapi',
     isaret: 'Hızlı Faaliyet Girişi',

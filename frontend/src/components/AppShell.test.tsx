@@ -307,7 +307,9 @@ describe('AppShell mevcut rotaları kırmaz',()=>{
   // 49 → 50: Olay Kuyruğu (FIELD_STOK_OUTBOX açılış koşulu 2) — Tarla
   // grubunda; menüde GÖRÜNÜR, yani parsel/hayvan detayı gibi "listeden
   // açılan" bir ekran DEĞİL. Kuyruğu okumak için bir kayıt seçmek gerekmez.
-  expect(new Set(hrefs).size).toBe(50);
+  // 50 → 51: BKÜ Kataloğu (göç 20260901_0063) — Tarla grubunda, menüde
+  // GÖRÜNÜR: katalog kayıt başına değil, firma başına yönetilen bir liste.
+  expect(new Set(hrefs).size).toBe(51);
   for(const path of ALL_NAV_ITEMS.map(item=>item.path))expect(hrefs).toContain(path);
  });
 });

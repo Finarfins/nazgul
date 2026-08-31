@@ -40,6 +40,7 @@ import PointOfSaleIcon from '@mui/icons-material/PointOfSale';
 import PriceCheckIcon from '@mui/icons-material/PriceCheck';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
+import ScienceIcon from '@mui/icons-material/Science';
 import SpaIcon from '@mui/icons-material/Spa';
 import SpeedIcon from '@mui/icons-material/Speed';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
@@ -123,6 +124,9 @@ export const ROUTE_PERMISSIONS = {
   '/tarla/ciftlikler': 'farm.view',
   '/tarla/sezonlar': 'farm.view',
   '/tarla/faaliyetler': 'farm.view',
+  // BKU katalogu OKUMA iznine bagli; yazma sayfa icinde `farm.manage` ile
+  // sinirlanir ve asil karar backend'dedir (`_FARM_PATH_PREFIXES`).
+  '/tarla/bku-katalogu': 'farm.view',
   '/tarla/gorevler': 'farm.view',
   '/tarla/hasat': 'farm.view',
   // Olay kuyrugu OKUMA iznine bagli. Kuyruk TARLA verisidir: hangi
@@ -295,6 +299,7 @@ export const NAV_LABELS = {
   farms: 'Çiftlikler & Parseller',
   cropSeasons: 'Ekim Sezonları',
   fieldActivities: 'Faaliyetler & Girdiler',
+  plantProtectionProducts: 'BKÜ Kataloğu',
   fieldTasks: 'Tarla Görevleri',
   fieldHarvests: 'Hasat Kayıtları',
   integrationEvents: 'Olay Kuyruğu',
@@ -423,6 +428,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       item('/tarla/sezonlar', NAV_LABELS.cropSeasons, <EventRepeatIcon />),
       item('/tarla/hizli-giris', NAV_LABELS.quickActivity, <BoltIcon />),
       item('/tarla/faaliyetler', NAV_LABELS.fieldActivities, <SpaIcon />),
+      item('/tarla/bku-katalogu', NAV_LABELS.plantProtectionProducts, <ScienceIcon />),
       item('/tarla/gorevler', NAV_LABELS.fieldTasks, <FactCheckOutlinedIcon />),
       item('/tarla/hasat', NAV_LABELS.fieldHarvests, <AgricultureIcon />),
       item('/tarla/olay-kuyrugu', NAV_LABELS.integrationEvents, <SwapHorizIcon />),
