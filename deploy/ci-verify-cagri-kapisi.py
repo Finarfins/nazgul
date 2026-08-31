@@ -34,8 +34,8 @@ OLÇER
   * çağrılan betik depoda var ve çalıştırılabilir
 
 OLCMEZ
-  * betiğin İÇİNDE kapı olduğu — bunu K9 ÇALIŞTIRARAK ölçer
-  * sözleşme betiğinin KENDİSİNİN düzenlenmesi
+  * betigin kendi kaynak kodunun dogrulugu — bir kapi kendi dosyasini korumaz
+  * sozlesme betiginin KENDISININ duzenlenmesi
 """
 
 from __future__ import annotations

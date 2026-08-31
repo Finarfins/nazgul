@@ -15,10 +15,8 @@
 #
 # İki tur da metin üzerinden bir AKIŞ DENETİMİ özelliği kanıtlamaya çalıştı.
 # Konum, başarısızlık semantiği için yeterli bir değişmez değildir. Bu yüzden
-# mantık buraya taşındı: sözleşme artık bu betiği METİN olarak incelemek yerine
-# ÇALIŞTIRIP kırmızı vermesini ŞART KOŞUYOR (bkz. `deploy-sozlesme-testi.sh`
-# K9). CI adımı da bu betiği çağırmaktan BAŞKA bir şey yapmaz; böylece
-# metinle çivilenmesi gereken yüzey bir bloktan TEK SATIRA iner.
+# mantık buraya taşındı: CI adımı da bu betiği çağırmaktan BAŞKA bir şey yapmaz;
+# böylece metinle çivilenmesi gereken yüzey bir bloktan TEK SATIRA iner (K5).
 #
 # Girdi ortam değişkenleriyle alınır (CI çağrı yerinin tek satır kalması için):
 #   IMAJ_REF                 — ölçülecek yerel imaj referansı

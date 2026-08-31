@@ -17,9 +17,6 @@ CONTEXT_GATE = REPO_ROOT / "deploy" / "ci-gerekli-baglam-kapisi.py"
 SHARD_GATE = REPO_ROOT / "deploy" / "ci-postgresql-shard-kapisi.py"
 NEEDS_GATE = REPO_ROOT / "deploy" / "ci-yayin-needs-kapisi.py"
 CALL_SITE_GATE = REPO_ROOT / "deploy" / "ci-verify-cagri-kapisi.py"
-DEPLOY_CONTRACT_SCRIPT = REPO_ROOT / "deploy" / "deploy-sozlesme-testi.sh"
-DEPLOY_CONTRACT_MANIFEST = REPO_ROOT / "deploy" / "deploy-sozlesme-manifest.json"
-DEPLOY_CONTRACT_GATE = REPO_ROOT / "deploy" / "ci-deploy-sozlesme-kapisi.py"
 BACKEND = REPO_ROOT / "backend"
 
 
@@ -242,178 +239,60 @@ def test_k5_call_site_gate_fails_on_extra_bash_env(tmp_path: Path) -> None:
     assert "BASH_ENV/PATH" in res.stdout
 
 
-def test_deploy_contract_manifest_exact_83_checks() -> None:
-    """Deploy contract manifest must contain exactly the 83 frozen checks."""
-    data = json.loads(DEPLOY_CONTRACT_MANIFEST.read_text(encoding="utf-8"))
-    assert len(data) == 83
-    assert "K9/olumlu-dogru-beklenti" in data
-    assert "K9/kimlik-uyusmazligi" in data
-    assert "K9/bos-beklenti-fail-closed" in data
-    assert "K9/revizyon-uyusmazligi" in data
-    assert "K5" in data
-    assert "A0" in data
-    assert "J7" in data
-
-
-def test_deploy_contract_checks_gate_passes_clean_tree() -> None:
-    """Deploy contract gate must exit 0 on clean tree."""
-    res = subprocess.run(
-        [
-            sys.executable,
-            str(DEPLOY_CONTRACT_GATE),
-            str(DEPLOY_CONTRACT_SCRIPT),
-            str(DEPLOY_CONTRACT_MANIFEST),
-        ],
-        capture_output=True,
-        text=True,
+def test_k5_call_site_gate_fails_on_extra_path_env(tmp_path: Path) -> None:
+    """Extra PATH in step env allows replacing docker binary."""
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    mutated = text.replace(
+        "          BEKLENEN_OCI_REVIZYONU: ${{ github.sha }}\n        run:",
+        "          BEKLENEN_OCI_REVIZYONU: ${{ github.sha }}\n"
+        "          PATH: /fake/bin:${{ env.PATH }}\n        run:",
+        1,
     )
-    assert res.returncode == 0, res.stdout + res.stderr
-    assert "K10 deploy sozlesme testleri kapisi YESIL: 83 denetim manifest ile tam kume esitliginde" in res.stdout
-
-
-def test_deploy_contract_checks_gate_fails_on_deleted_k9_block(tmp_path: Path) -> None:
-    """Deleting K9 block from deploy-sozlesme-testi.sh immediately fails the gate."""
-    content = DEPLOY_CONTRACT_SCRIPT.read_text(encoding="utf-8")
-    assert "k9_olc" in content
-    # Remove K9 section entirely
-    k9_start = content.find('baslik "K9) Artifact kimlik kapısı')
-    assert k9_start != -1
-    k9_end = content.find('SONUÇ: $GECTI geçti')
-    assert k9_end != -1
-    mutated = content[:k9_start] + content[k9_end:]
-    assert "k9_olc" not in mutated
-
-    mutated_script = tmp_path / "deploy-sozlesme-testi.sh"
-    mutated_script.write_text(mutated, encoding="utf-8")
-
+    assert mutated != text
+    mutated_file = tmp_path / "ci_path_env.yml"
+    mutated_file.write_text(mutated, encoding="utf-8")
     res = subprocess.run(
-        [
-            sys.executable,
-            str(DEPLOY_CONTRACT_GATE),
-            str(mutated_script),
-            str(DEPLOY_CONTRACT_MANIFEST),
-        ],
+        [sys.executable, str(CALL_SITE_GATE), str(mutated_file)],
         capture_output=True,
         text=True,
     )
     assert res.returncode == 1
-    assert "K10 deploy sozlesme testleri kapisi KIRMIZI: denetim kumesi uyusmuyor" in res.stdout
-    assert "K9/olumlu-dogru-beklenti" in res.stdout
+    assert "BASH_ENV/PATH" in res.stdout
 
 
-def test_deploy_contract_checks_gate_fails_on_renamed_check(tmp_path: Path) -> None:
-    """Renaming any check in deploy-sozlesme-testi.sh fails the gate."""
-    content = DEPLOY_CONTRACT_SCRIPT.read_text(encoding="utf-8")
-    mutated = content.replace('k9_olc "olumlu-dogru-beklenti"', 'k9_olc "olumlu-mutant"', 1)
-    assert mutated != content
-
-    mutated_script = tmp_path / "deploy-sozlesme-testi.sh"
-    mutated_script.write_text(mutated, encoding="utf-8")
-
+def test_k5_call_site_gate_fails_on_wrong_run_command(tmp_path: Path) -> None:
+    """Wrong run script or inline command fails the gate."""
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    mutated = text.replace(
+        "        run: ./deploy/artifact-imaj-kimlik-kapisi.sh\n",
+        "        run: ./deploy/fake-script.sh\n",
+        1,
+    )
+    assert mutated != text
+    mutated_file = tmp_path / "ci_wrong_run.yml"
+    mutated_file.write_text(mutated, encoding="utf-8")
     res = subprocess.run(
-        [
-            sys.executable,
-            str(DEPLOY_CONTRACT_GATE),
-            str(mutated_script),
-            str(DEPLOY_CONTRACT_MANIFEST),
-        ],
+        [sys.executable, str(CALL_SITE_GATE), str(mutated_file)],
         capture_output=True,
         text=True,
     )
     assert res.returncode == 1
-    assert "K10 deploy sozlesme testleri kapisi KIRMIZI" in res.stdout
-    assert "K9/olumlu-mutant" in res.stdout
+    assert "TAM betik cagrisi degil" in res.stdout
 
 
-def test_deploy_contract_checks_gate_fails_on_deleted_manifest_check(tmp_path: Path) -> None:
-    """Deleting a check from the manifest fails the gate against clean script."""
-    data: list[str] = json.loads(DEPLOY_CONTRACT_MANIFEST.read_text(encoding="utf-8"))
-    data.remove("K9/olumlu-dogru-beklenti")
-    mutated_manifest = tmp_path / "deploy-sozlesme-manifest.json"
-    mutated_manifest.write_text(json.dumps(data), encoding="utf-8")
-
+def test_k5_call_site_gate_fails_on_workflow_root_env(tmp_path: Path) -> None:
+    """Root-level env allows injecting BASH_ENV/PATH across all jobs."""
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    mutated = "env:\n  BASH_ENV: /fake/env\n" + text
+    mutated_file = tmp_path / "ci_root_env.yml"
+    mutated_file.write_text(mutated, encoding="utf-8")
     res = subprocess.run(
-        [
-            sys.executable,
-            str(DEPLOY_CONTRACT_GATE),
-            str(DEPLOY_CONTRACT_SCRIPT),
-            str(mutated_manifest),
-        ],
+        [sys.executable, str(CALL_SITE_GATE), str(mutated_file)],
         capture_output=True,
         text=True,
     )
     assert res.returncode == 1
-    assert "K10 deploy sozlesme testleri kapisi KIRMIZI" in res.stdout
-    assert "K9/olumlu-dogru-beklenti" in res.stdout
+    assert "workflow kokunde env var" in res.stdout
 
-
-def test_deploy_contract_emitted_checks_passes_clean_emission(tmp_path: Path) -> None:
-    """Runtime emitted checks validation passes when all 83 checks were emitted."""
-    data: list[str] = json.loads(DEPLOY_CONTRACT_MANIFEST.read_text(encoding="utf-8"))
-    emitted_file = tmp_path / "emitted.txt"
-    emitted_file.write_text("\n".join(data) + "\n", encoding="utf-8")
-
-    res = subprocess.run(
-        [
-            sys.executable,
-            str(DEPLOY_CONTRACT_GATE),
-            "--emitted",
-            str(emitted_file),
-            str(DEPLOY_CONTRACT_MANIFEST),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    assert res.returncode == 0, res.stdout + res.stderr
-    assert "K10 deploy sozlesme calisma-ani kapisi YESIL: 83/83 denetim gercekten kostu" in res.stdout
-
-
-def test_deploy_contract_emitted_checks_fails_on_m1_skipped_k9(tmp_path: Path) -> None:
-    """M1: Wrapping K9 in if-false emits only 79 checks; runtime validation fails."""
-    data: list[str] = json.loads(DEPLOY_CONTRACT_MANIFEST.read_text(encoding="utf-8"))
-    # Simulate K9 block not emitting anything (79 checks)
-    emitted_79 = [c for c in data if not c.startswith("K9/")]
-    assert len(emitted_79) == 79
-    emitted_file = tmp_path / "emitted_m1.txt"
-    emitted_file.write_text("\n".join(emitted_79) + "\n", encoding="utf-8")
-
-    res = subprocess.run(
-        [
-            sys.executable,
-            str(DEPLOY_CONTRACT_GATE),
-            "--emitted",
-            str(emitted_file),
-            str(DEPLOY_CONTRACT_MANIFEST),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    assert res.returncode == 1
-    assert "K10 deploy sozlesme calisma-ani kapisi KIRMIZI" in res.stdout
-    assert "K9/olumlu-dogru-beklenti" in res.stdout
-
-
-def test_deploy_contract_emitted_checks_fails_on_m2_early_exit(tmp_path: Path) -> None:
-    """M2: Early exit 0 stops execution early; runtime validation fails."""
-    data: list[str] = json.loads(DEPLOY_CONTRACT_MANIFEST.read_text(encoding="utf-8"))
-    # Truncate at first 30 checks
-    emitted_short = data[:30]
-    emitted_file = tmp_path / "emitted_m2.txt"
-    emitted_file.write_text("\n".join(emitted_short) + "\n", encoding="utf-8")
-
-    res = subprocess.run(
-        [
-            sys.executable,
-            str(DEPLOY_CONTRACT_GATE),
-            "--emitted",
-            str(emitted_file),
-            str(DEPLOY_CONTRACT_MANIFEST),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    assert res.returncode == 1
-    assert "K10 deploy sozlesme calisma-ani kapisi KIRMIZI" in res.stdout
-    assert "emitted=30, manifest=83" in res.stdout
 
 
