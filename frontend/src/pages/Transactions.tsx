@@ -1,6 +1,6 @@
 import React from 'react';
 import {useEffect,useRef,useState} from 'react';
-import {Link as RouterLink,useLocation,useNavigate} from 'react-router-dom';
+import {Link as RouterLink,useLocation,useNavigate,useSearchParams} from 'react-router-dom';
 import {Alert,Box,Button,Chip,Dialog,DialogActions,DialogContent,DialogTitle,Divider,IconButton,InputAdornment,Link,MenuItem,Paper,Stack,TextField,Typography} from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
@@ -23,6 +23,7 @@ type PolicyAction={detail:string;run:(headers:Record<string,string>)=>Promise<vo
 export default function Transactions({kind}:{kind:'sale'|'purchase'}){
  const location=useLocation();
  const navigate=useNavigate();
+ const [searchParams,setSearchParams]=useSearchParams();
  const {user}=useAuth();
  const [rows,setRows]=useState<any[]>([]);
  const [q,setQ]=useState('');
@@ -45,6 +46,10 @@ export default function Transactions({kind}:{kind:'sale'|'purchase'}){
  const [overrideBusy,setOverrideBusy]=useState(false);
  const [deletingId,setDeletingId]=useState<number|null>(null);
  const requestSeq=useRef(0);
+ const quickStart=searchParams.get('new')==='1';
+ // Dashboard 'Vadesi Gecen Alacak' kisayolu: /satislar?status=overdue
+ // Liste ucu due_date dondurmedigi icin filtre acik bakiyeli (odenmemis) belgeleri gosterir.
+ const statusParam=searchParams.get('status');
 
  const endpoint=kind==='sale'?'/orders':'/purchases';
  const title=kind==='sale'?'Satışlar':'Alışlar';
@@ -54,13 +59,25 @@ export default function Transactions({kind}:{kind:'sale'|'purchase'}){
  const load=()=>{
   const seq=++requestSeq.current;
   setLoading(true);setError('');
-  api.get(endpoint,{params:{q,status:status||undefined,date_from:dateFrom||undefined,date_to:dateTo||undefined,sort}})
+  api.get(endpoint,{params:{q,status:status==='overdue'?undefined:status||undefined,date_from:dateFrom||undefined,date_to:dateTo||undefined,sort}})
    .then(response=>{if(seq===requestSeq.current)setRows(response.data)})
     .catch(err=>{if(seq===requestSeq.current)setError(errorDetail(err,'Belge listesi yüklenemedi.'))})
    .finally(()=>{if(seq===requestSeq.current)setLoading(false)});
  };
 
  useEffect(()=>{const timer=setTimeout(load,250);return()=>clearTimeout(timer)},[q,kind,status,dateFrom,dateTo,sort]);
+ useEffect(()=>{
+  if(!quickStart)return;
+  setEditId(null);setOpen(true);
+  const next=new URLSearchParams(searchParams);next.delete('new');
+  setSearchParams(next,{replace:true});
+ },[quickStart,searchParams,setSearchParams]);
+ useEffect(()=>{
+  if(statusParam!=='overdue')return;
+  setStatus('overdue');
+  const next=new URLSearchParams(searchParams);next.delete('status');
+  setSearchParams(next,{replace:true});
+ },[statusParam,searchParams,setSearchParams]);
  useEffect(()=>{
   const state:any=location.state;
   if(!state)return;
@@ -128,7 +145,7 @@ export default function Transactions({kind}:{kind:'sale'|'purchase'}){
   <Paper variant="outlined" sx={{p:{xs:1.5,sm:2},borderRadius:3}}><Stack direction={{xs:'column',lg:'row'}} spacing={1.25}>
    <TextField placeholder="Müşteri veya belge numarası ara" value={q} onChange={event=>setQ(event.target.value)} sx={{minWidth:{lg:300},flex:1}} slotProps={{input:{startAdornment:<InputAdornment position="start"><SearchIcon fontSize="small"/></InputAdornment>},htmlInput:{'aria-label':'Müşteri veya belge numarası ara'}}}/>
    <TextField select size="small" label="Durum" value={status} onChange={event=>setStatus(event.target.value)} sx={{minWidth:180}}>
-    <MenuItem value="">Tümü</MenuItem><MenuItem value="draft">Taslak</MenuItem><MenuItem value="pending">Onay Bekliyor</MenuItem><MenuItem value="approved">Onaylandı</MenuItem><MenuItem value="completed">Tamamlandı</MenuItem><MenuItem value="cancelled">İptal</MenuItem>
+    <MenuItem value="">Tümü</MenuItem><MenuItem value="draft">Taslak</MenuItem><MenuItem value="pending">Onay Bekliyor</MenuItem><MenuItem value="approved">Onaylandı</MenuItem><MenuItem value="completed">Tamamlandı</MenuItem><MenuItem value="cancelled">İptal</MenuItem><MenuItem value="overdue">Ödenmemiş (Açık Bakiye)</MenuItem>
    </TextField>
    <TextField size="small" type="date" label="Başlangıç" value={dateFrom} onChange={event=>setDateFrom(event.target.value)} InputLabelProps={{shrink:true}}/>
    <TextField size="small" type="date" label="Bitiş" value={dateTo} onChange={event=>setDateTo(event.target.value)} InputLabelProps={{shrink:true}}/>
@@ -136,7 +153,7 @@ export default function Transactions({kind}:{kind:'sale'|'purchase'}){
     <MenuItem value="date_desc">Tarih yeni → eski</MenuItem><MenuItem value="date_asc">Tarih eski → yeni</MenuItem><MenuItem value="total_desc">Tutar yüksek → düşük</MenuItem><MenuItem value="total_asc">Tutar düşük → yüksek</MenuItem><MenuItem value="entity_asc">Cari A → Z</MenuItem><MenuItem value="entity_desc">Cari Z → A</MenuItem>
    </TextField>
   </Stack></Paper>
-   <ResponsiveTable rows={rows} columns={columns} loading={loading} onRowClick={show} cardBreakpoint="lg" cardTitle={row=>row[entityField]} cardSubtitle={row=>`${row.document_no||`Belge #${row.id}`} · ${row.transaction_date}`} cardFields={[{label:'Depo',value:row=>row.warehouse_name||'Merkez Depo'},{label:'Durum',value:row=>({draft:'Taslak',pending:'Onay Bekliyor',approved:'Onaylandı',completed:'Tamamlandı',cancelled:'İptal'} as any)[row.status]||row.status},{label:'Kalan',value:row=>money(row.remaining_amount)},{label:'Toplam',value:row=>money(row.final_total)}]} cardActions={[{label:'Düzenle',color:'primary',onClick:row=>{setEditId(row.id);setOpen(true)}},{label:'Sil',color:'error',disabled:row=>deletingId===row.id,onClick:row=>void remove(row.id)}]}/>
+  <ResponsiveTable rows={status==='overdue'?rows.filter(row=>Number(row.remaining_amount)>0&&row.status!=='cancelled'):rows} columns={columns} loading={loading} onRowClick={show} cardBreakpoint="lg" cardTitle={row=>row[entityField]} cardSubtitle={row=>`${row.document_no||`Belge #${row.id}`} · ${row.transaction_date}`} cardFields={[{label:'Depo',value:row=>row.warehouse_name||'Merkez Depo'},{label:'Durum',value:row=>({draft:'Taslak',pending:'Onay Bekliyor',approved:'Onaylandı',completed:'Tamamlandı',cancelled:'İptal',overdue:'Ödenmemiş'} as any)[row.status]||row.status},{label:'Kalan',value:row=>money(row.remaining_amount)},{label:'Toplam',value:row=>money(row.final_total)}]} cardActions={[{label:'Düzenle',color:'primary',onClick:row=>{setEditId(row.id);setOpen(true)}},{label:'Sil',color:'error',disabled:row=>deletingId===row.id,onClick:row=>void remove(row.id)}]}/>
   <TransactionDialog open={open} kind={kind} id={editId} initialEntityId={initialEntityId} initialProductId={initialProductId} onClose={()=>{setOpen(false);setInitialEntityId(null);setInitialProductId(null)}} onSaved={result=>{load();setSaved(result)}}/>
   <Dialog open={!!detail} onClose={()=>setDetail(null)} maxWidth="md" fullWidth>
    <DialogTitle>{kind==='sale'?'Satış':'Alış'} {detail?.document?.document_no||`#${detail?.document?.id}`}</DialogTitle>
