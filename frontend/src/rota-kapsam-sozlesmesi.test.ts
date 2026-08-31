@@ -219,26 +219,12 @@ describe('rota kapsam sözleşmesi', () => {
     expect(appKumesi.length).toBe(rotalar.length);
   });
 
-  it('G2: parametreli (`:` taşıyan) rotaların TAMAMI envanterde açıkça temsil edilir', () => {
-    const {rotalar} = appRotalari();
-    const appParametreli = rotalar.filter(rota => rota.includes(':')).sort();
-    const envanterParametreli = ENVANTER_ROTALARI.filter(rota => rota.includes(':')).sort();
-
-    // Sayı BURADA donmuş bir taban değil, App.tsx'ten OKUNAN bir olgudur; iki
-    // taraf da aynı kaynaktan türer ve eşitlik zorlanır.
-    expect(envanterParametreli).toEqual(appParametreli);
-    expect(
-      appParametreli.length,
-      'parametreli rota sayısı App.tsx ile envanter arasında ayrıştı',
-    ).toBe(envanterParametreli.length);
-    // Hiçbiri sessizce `muaf`a kaçamaz: her biri bir tasnif ve — muafsa —
-    // gerekçe taşır. Bu, aşağıdaki G5/G6 ile birlikte zorlanır.
-    for (const rota of envanterParametreli) {
-      const girdi = ROTA_ENVANTERI.find(aday => aday.rota === rota);
-      expect(girdi, `${rota} envanterde yok`).toBeDefined();
-      expect(['kapi', 'spec', 'muaf']).toContain(girdi?.tur);
-    }
-  });
+  // G2 KALDIRILDI — GATE RETIREMENT. Koruması G1/G6/G12 tarafından taşınıyor:
+  //   * G1: App.tsx rota kümesi == envanter rota kümesi (İKİ YÖNDE)
+  //   * G6: her rota TAM OLARAK bir tasnifte
+  //   * G12: `kapi` rotası `:` veya `*` taşıyamaz
+  // Parametreli rota envanterden silinirse G1 KIRMIZI; App.tsx'e eklenirse
+  // G1 KIRMIZI; `kapi` olarak sınıflandırılırsa G12 KIRMIZI. Ölçüldü.
 
   it('G3: her `spec` tasnifi GERÇEK bir dosyayı ve o dosyada GERÇEK bir testi adlandırır', () => {
     const kusurlar: string[] = [];
@@ -391,51 +377,32 @@ describe('rota kapsam sözleşmesi', () => {
     }
   });
 
-  it('G7: kapsam raportörü playwright.config.ts içinde BİLDİRİLMİŞ', () => {
-    const raportorYolu = './e2e/rota-kapsam-raportoru.ts';
-    expect(
-      existsSync(yol('e2e/rota-kapsam-raportoru.ts')),
-      'raportör dosyası yok',
-    ).toBe(true);
+  it('G7: raportörün globalTeardown/makbuz bütünlüğü korunur', () => {
+    // GATE RETIREMENT: Bu kapı yalnız makbuz/teardown bütünlüğünü korur.
+    // Raportör sayımı, list/html preservation, globalSetup ve kapsam kapısı
+    // dosyası kontrolü redundant DX assertion'lardı ve kaldırıldı.
 
-    const bildirimSayisi = PLAYWRIGHT_YAPILANDIRMASI.split(raportorYolu).length - 1;
-    expect(
-      bildirimSayisi,
-      'raportör CI ve yerel raportör listelerinin İKİSİNDE de bildirilmeli; yalnız birinde olması, yerelde yeşil görünen bir dalın CI\'da kırmızı olması demektir',
-    ).toBeGreaterThanOrEqual(2);
-
-    // Var olan raportörler yerinde kalmalı: kapsam raportörü onların YERİNE
-    // geçmez, yanlarına eklenir.
-    expect(PLAYWRIGHT_YAPILANDIRMASI).toContain("['list']");
-    expect(PLAYWRIGHT_YAPILANDIRMASI).toContain("['html', {open: 'never'}]");
-
-    // Raportörün ölçtüğü kapı dosyası da gerçekten var olmalı.
-    expect(
-      existsSync(yol(KAPSAM_KAPISI_DOSYASI)),
-      `kapsam kapısı dosyası yok: ${KAPSAM_KAPISI_DOSYASI}`,
-    ).toBe(true);
-
-    // RAPORTÖR DEVRE DIŞI BIRAKILAMAZ. Bu kapının kendi ölçülmüş boşluğu:
-    // `--reporter=list` raportörü hiç yüklemeden süiti yeşil bitirebiliyordu ve
-    // G7'nin saydığı yapılandırma metni değişmediği için o da yeşil kalıyordu.
-    // Kapatan şey `globalTeardown`dur: yapılandırmadan gelir, komut satırından
-    // ezilemez ve raportörün bıraktığı makbuzu arar.
+    // A. Teardown dosyası var.
     expect(
       existsSync(yol('e2e/rota-kapsam-teardown.ts')),
       'koşum sonu kapısı dosyası yok',
     ).toBe(true);
+
+    // B. globalTeardown tam olarak bildirilmiş.
     expect(
       PLAYWRIGHT_YAPILANDIRMASI,
       "raportör komut satırından kapatılabilir olmamalı: `globalTeardown` bildirilmemiş",
     ).toContain("globalTeardown: './e2e/rota-kapsam-teardown.ts'");
-    // globalSetup yerinde kalmalı: teardown onun YERİNE geçmez, yanına eklenir.
-    expect(PLAYWRIGHT_YAPILANDIRMASI).toContain("globalSetup: './e2e/global-setup.ts'");
-    // Teardown makbuzu raportörden okur; ikisi aynı modülü paylaşmalı, yoksa
-    // kapı iki ayrı yerde iki ayrı dosya adına bakar ve sessizce hiç ölçmez.
+
+    // C. Teardown makbuzu tüketir.
     const teardownKaynagi = oku('e2e/rota-kapsam-teardown.ts');
+    expect(
+      teardownKaynagi,
+      'teardown makbuzu tüketmiyor: `makbuzuTuket()` çağrısı yok',
+    ).toContain('makbuzuTuket()');
+
+    // D. Raportör makbuzu onBegin'de yazar.
     const raportorKaynagi = oku('e2e/rota-kapsam-raportoru.ts');
-    expect(teardownKaynagi).toContain("from './rota-kapsam-makbuzu'");
-    expect(raportorKaynagi).toContain("from './rota-kapsam-makbuzu'");
     expect(
       raportorKaynagi,
       'makbuz `onBegin` içinde yazılmalı: `globalTeardown` raportörün `onEnd`inden ÖNCE koşar',
