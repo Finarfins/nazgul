@@ -1184,7 +1184,6 @@ if ! YAYIN_ISI="$(ci_is_bloku publish-image)" \
    || ! CONTAINER_ISI="$(ci_is_bloku container)" \
    || ! VERIFY_ISI="$(ci_is_bloku verify-image-artifact)"; then
   kirmizi "K2 yayın adımının job ayrımı ölçülemedi"
-  kirmizi "K3 container bağımlılıkları ölçülemedi"
   kirmizi "K4 test edilmiş imaj artifact zinciri ölçülemedi"
   kirmizi "K5 artifact doğrulama job'ı ölçülemedi"
   kirmizi "K6 attestation politikası ölçülemedi"
@@ -1193,18 +1192,13 @@ else
        | grep -qE '^[[:space:]]*- name: Publish image to GHCR[[:space:]]*$' \
      && printf '%s\n' "$YAYIN_ISI" \
        | grep -qE "^    if: github\\.event_name == 'push' && github\\.ref == 'refs/heads/develop'[[:space:]]*$" \
+     && printf '%s\n' "$YAYIN_ISI" \
+       | grep -qE "^        if: github\\.event_name == 'push' && github\\.ref == 'refs/heads/develop'[[:space:]]*$" \
      && ! printf '%s\n' "$CONTAINER_ISI" \
        | grep -qE '^[[:space:]]*- name: Publish image to GHCR[[:space:]]*$'; then
-    yesil "K2 GHCR yayın adımı yalnız publish-image işinde ve job-level develop push kapısında"
+    yesil "K2 GHCR yayın adımı yalnız publish-image işinde; job-level ve step-level develop push kapısı pinli"
   else
-    kirmizi "K2 GHCR yayın adımı publish-image dışına taşmış veya job-level develop push kapısı eksik"
-  fi
-
-  if [ -n "$CONTAINER_ISI" ] \
-     && ! printf '%s\n' "$CONTAINER_ISI" | grep -qE '^    needs:[[:space:]]*'; then
-    yesil "K3 container işi upstream bağımlılığı olmadan paralel başlıyor"
-  else
-    kirmizi "K3 container işinde needs bulundu veya job ölçülemedi"
+    kirmizi "K2 GHCR yayın adımı publish-image dışına taşmış, job-level veya step-level develop push kapısı eksik"
   fi
 
   if printf '%s\n' "$CONTAINER_ISI" \

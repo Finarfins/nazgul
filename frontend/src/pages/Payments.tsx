@@ -1,6 +1,6 @@
 import React from 'react';
 import {useEffect,useMemo,useRef,useState} from 'react';
-import {useNavigate} from 'react-router-dom';
+import {useNavigate,useSearchParams} from 'react-router-dom';
 import {Alert,Autocomplete,Button,Card,CardContent,Chip,Dialog,DialogActions,DialogContent,DialogTitle,IconButton,MenuItem,Stack,TextField,Tooltip,Typography} from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';import DeleteIcon from '@mui/icons-material/Delete';import EditIcon from '@mui/icons-material/Edit';import LockIcon from '@mui/icons-material/Lock';import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import {GridColDef} from '@mui/x-data-grid';import ResponsiveTable from '../components/ResponsiveTable';
@@ -11,13 +11,22 @@ const methods=[['cash','Nakit'],['card','Kart / POS'],['bank_transfer','Havale /
 
 export default function Payments(){
  const nav=useNavigate();
+ const [searchParams,setSearchParams]=useSearchParams();
  const [rows,setRows]=useState<any[]>([]),[summary,setSummary]=useState<any>({customer_total:0,supplier_total:0,manual_total:0,document_total:0,movement_count:0}),[accounts,setAccounts]=useState<any[]>([]),[accountId,setAccountId]=useState<any>(''),[open,setOpen]=useState(false),[editId,setEditId]=useState<number|null>(null),[type,setType]=useState('customer'),[entities,setEntities]=useState<any[]>([]),[entity,setEntity]=useState<any|null>(null),[amount,setAmount]=useState(0),[date,setDate]=useState(new Date().toISOString().slice(0,10)),[note,setNote]=useState(''),[paymentMethod,setPaymentMethod]=useState('cash'),[error,setError]=useState(''),[q,setQ]=useState(''),[filterType,setFilterType]=useState(''),[dateFrom,setDateFrom]=useState(''),[dateTo,setDateTo]=useState(''),[methodFilter,setMethodFilter]=useState(''),[source,setSource]=useState(''),[sort,setSort]=useState('date_desc'),[loading,setLoading]=useState(false);
  const seq=useRef(0);
+ // Dashboard 'Tahsilat Al' kisayolu: /odemeler?new=customer (tedarikci odemesi icin ?new=supplier).
+ const quickStart=searchParams.get('new');
  const load=()=>{const current=++seq.current;setLoading(true);setError('');const params={q,entity_type:filterType||undefined,date_from:dateFrom||undefined,date_to:dateTo||undefined,payment_method:methodFilter||undefined,source:source||undefined,sort};Promise.all([api.get('/payments',{params}),api.get('/payments/summary',{params:{date_from:dateFrom||undefined,date_to:dateTo||undefined}})]).then(([list,stats])=>{if(current!==seq.current)return;setRows(list.data);setSummary(stats.data)}).catch(e=>{if(current===seq.current)setError(e.response?.data?.detail||'Tahsilat/ödeme listesi yüklenemedi.')}).finally(()=>{if(current===seq.current)setLoading(false)})};
  useEffect(()=>{const t=setTimeout(load,220);return()=>clearTimeout(t)},[q,filterType,dateFrom,dateTo,methodFilter,source,sort]);
  useEffect(()=>{api.get('/payments/accounts',{params:{active_only:true}}).then(r=>setAccounts(r.data)).catch(()=>setAccounts([]))},[]);
  useEffect(()=>{if(!open)return;api.get(type==='customer'?'/customers':'/suppliers').then(r=>{setEntities(r.data);if(editId)setEntity(r.data.find((x:any)=>x.id===entity?.id)||entity)})},[open,type]);
- const startNew=()=>{setEditId(null);setType('customer');setEntity(null);setAmount(0);setDate(new Date().toISOString().slice(0,10));setNote('');setPaymentMethod('cash');setAccountId('');setError('');setOpen(true)};
+ const startNew=(entityType:'customer'|'supplier'='customer')=>{setEditId(null);setType(entityType);setEntity(null);setAmount(0);setDate(new Date().toISOString().slice(0,10));setNote('');setPaymentMethod('cash');setAccountId('');setError('');setOpen(true)};
+ useEffect(()=>{
+  if(quickStart!=='customer'&&quickStart!=='supplier')return;
+  startNew(quickStart);
+  const next=new URLSearchParams(searchParams);next.delete('new');
+  setSearchParams(next,{replace:true});
+ },[quickStart,searchParams,setSearchParams]);
  const startEdit=(r:any)=>{if(r.is_document_payment)return;setEditId(r.id);setType(r.entity_type);setEntity({id:r.entity_id,name:r.entity_name});setAmount(Number(r.amount));setDate(r.payment_date);setNote(r.note||'');setPaymentMethod(r.payment_method||'cash');setAccountId(r.account_id||'');setError('');setOpen(true)};
  const remove=async(r:any)=>{if(r.is_document_payment){setError('Belgeye bağlı otomatik hareket belge üzerinden silinmelidir.');return}try{await api.delete(`/payments/${r.id}`);load()}catch(e:any){setError(e.response?.data?.detail||e.message)}};
  const openEntity=(r:any)=>nav(r.entity_type==='customer'?`/musteriler/${r.entity_id}`:`/tedarikciler/${r.entity_id}`);
@@ -36,7 +45,7 @@ export default function Payments(){
  const [importOpen,setImportOpen]=useState(false);
  const clearFilters=()=>{setQ('');setFilterType('');setDateFrom('');setDateTo('');setMethodFilter('');setSource('');setSort('date_desc')};
  return <Stack spacing={2}>
-  <Stack direction={{xs:'column',sm:'row'}} justifyContent="space-between" gap={1}><Typography variant="h4" fontWeight={900}>Tahsilat / Ödeme</Typography><Stack direction="row" spacing={1}><Button variant="outlined" startIcon={<UploadFileIcon/>} onClick={()=>setImportOpen(true)}>Excel&apos;den Tahsilat</Button><Button variant="contained" startIcon={<AddIcon/>} onClick={startNew}>Yeni Hareket</Button></Stack></Stack>
+  <Stack direction={{xs:'column',sm:'row'}} justifyContent="space-between" gap={1}><Typography variant="h4" fontWeight={900}>Tahsilat / Ödeme</Typography><Stack direction="row" spacing={1}><Button variant="outlined" startIcon={<UploadFileIcon/>} onClick={()=>setImportOpen(true)}>Excel&apos;den Tahsilat</Button><Button variant="contained" startIcon={<AddIcon/>} onClick={()=>startNew()}>Yeni Hareket</Button></Stack></Stack>
   {error&&<Alert severity="error" onClose={()=>setError('')}>{error}</Alert>}
   <Stack direction={{xs:'column',md:'row'}} spacing={1}>{[
    ['Tahsilat Toplamı',summary.customer_total,'success.main'],['Ödeme Toplamı',summary.supplier_total,'error.main'],['Manuel Hareket',summary.manual_total,'primary.main'],['Belgeye Bağlı',summary.document_total,'warning.main']

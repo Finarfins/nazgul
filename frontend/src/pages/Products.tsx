@@ -1,6 +1,6 @@
 import React from 'react';
 import {useEffect,useMemo,useState} from 'react';
-import {useNavigate} from 'react-router-dom';
+import {useNavigate,useSearchParams} from 'react-router-dom';
 import {Alert,Box,Button,Card,CardContent,Chip,Dialog,DialogActions,DialogContent,DialogTitle,IconButton,InputAdornment,MenuItem,Paper,Stack,TextField,Typography} from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -23,8 +23,12 @@ import {api,money,openAuthenticated,policyOverrideHeaders,policyOverrideRequired
 import {useAuth} from '../AuthContext';
 import {headerDarkActionVariant} from '../theme';
 
+// Dashboard 'Kritik / Negatif Stok' karti ile ayni esik: stok <= kritik esik (negatif ve sifir dahil).
+const isCriticalStock=(row:any)=>Number(row.stock)<=Number(row.critical_stock||row.min_stock||5);
+
 export default function Products(){
  const navigate=useNavigate();
+ const [searchParams,setSearchParams]=useSearchParams();
  const {user}=useAuth();
  const manager=user?.role==='admin'||user?.role==='yonetici';
  const [rows,setRows]=useState<any[]>([]);
@@ -47,6 +51,9 @@ export default function Products(){
  const [bulkError,setBulkError]=useState('');
  const [needsOverride,setNeedsOverride]=useState(false);
  const [overrideReason,setOverrideReason]=useState('');
+ // Dashboard 'Kritik / Negatif Stok' kisayolu: /urunler?critical=1
+ const [criticalOnly,setCriticalOnly]=useState(false);
+ const criticalParam=searchParams.get('critical')==='1';
 
  const load=()=>{
   setLoading(true);
@@ -67,6 +74,12 @@ export default function Products(){
   const t=setTimeout(load,200);
   return()=>clearTimeout(t);
  },[q,sort]);
+ useEffect(()=>{
+  if(!criticalParam)return;
+  setCriticalOnly(true);
+  const next=new URLSearchParams(searchParams);next.delete('critical');
+  setSearchParams(next,{replace:true});
+ },[criticalParam,searchParams,setSearchParams]);
 
  const cols=useMemo<GridColDef[]>(()=>[
   {field:'id',headerName:'ID',width:70},
@@ -143,6 +156,8 @@ export default function Products(){
   }
  };
 
+ const visibleRows=useMemo(()=>criticalOnly?rows.filter(isCriticalStock):rows,[rows,criticalOnly]);
+
  const stockSummary=useMemo(()=>({
   critical:rows.filter(row=>Number(row.stock)>0&&Number(row.stock)<=Number(row.critical_stock||row.min_stock||5)).length,
   negative:rows.filter(row=>Number(row.stock)<0).length,
@@ -184,14 +199,15 @@ export default function Products(){
   </Stack>
   <Stack direction="row" spacing={.5} flexWrap="wrap" mt={1.5} pt={1.5} borderTop="1px solid" borderColor="divider">
    <Button size="small" startIcon={<DownloadIcon/>} onClick={()=>openAuthenticated('/exports/products.xlsx','urunler.xlsx')}>Excel</Button>
-   <Button size="small" startIcon={<LocalPrintshopIcon/>} disabled={!rows.length} onClick={()=>{setLabelName(undefined);setLabelIds(rows.map(r=>Number(r.id)))}}>Etiket ({rows.length})</Button>
+   <Button size="small" startIcon={<LocalPrintshopIcon/>} disabled={!visibleRows.length} onClick={()=>{setLabelName(undefined);setLabelIds(visibleRows.map(r=>Number(r.id)))}}>Etiket ({visibleRows.length})</Button>
    <Button size="small" startIcon={<TuneIcon/>} onClick={()=>openBulk('price')}>Toplu Fiyat</Button>
    <Button size="small" startIcon={<TuneIcon/>} onClick={()=>openBulk('stock')}>Toplu Stok</Button>
+   {criticalOnly&&<Chip size="small" color="warning" icon={<WarningAmberOutlinedIcon/>} label={`Kritik / negatif stok (${visibleRows.length})`} onDelete={()=>setCriticalOnly(false)}/>}
   </Stack>
   </Paper>
 
   <ResponsiveTable
-   rows={rows}
+   rows={visibleRows}
    columns={cols}
    loading={loading}
    desktopRowHeight={70}

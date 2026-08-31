@@ -107,3 +107,13 @@ it('finans yetkisi olmayan kullanıcıdan hazine bileşenlerini gizler',async()=
  expect(screen.queryByText('Kasa / Banka')).toBeNull();
  expect(screen.queryByText('Merkez Kasa')).toBeNull();
 });
+
+it('acil aksiyon kartları hedef ekranları hazır filtreyle açar',async()=>{
+ mount();
+ await screen.findByText('Acil Aksiyonlar');
+ // Ayni basliklar asagidaki detay bloklarinda da geciyor; ilk esleme Acil Aksiyonlar kartidir.
+ fireEvent.click(screen.getAllByText('Kritik / Negatif Stok')[0]);
+ expect(navigate).toHaveBeenCalledWith('/urunler?critical=1');
+ fireEvent.click(screen.getAllByText('Vadesi Geçen Alacak')[0]);
+ expect(navigate).toHaveBeenCalledWith('/satislar?status=overdue');
+});

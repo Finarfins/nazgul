@@ -1,5 +1,7 @@
 import {test as base, expect, request as apiRequest, type APIRequestContext, type Page} from '@playwright/test';
 
+import {ziyaretKaydiniKur} from './rota-ziyaret-kaydi';
+
 // Tohum belleği ayrı bir modülde: gerekçe, ölçüm ve tek-üretici güvencesi
 // için bkz. `tohum-bellegi.ts`. Buradan yeniden dışa aktarılıyor ki spec'lerin
 // içe aktarma yüzeyi değişmesin.
@@ -26,6 +28,21 @@ export const SEED = {
  * sınıftır — sayfa render olmaya devam etse bile test kırmızı yanar.
  */
 export const test = base.extend({
+  // ROTA ZİYARET KAYDI — `spec` tasnifinin çalışma zamanı kanıtı.
+  //
+  // BAĞLAM SEVİYESİNDE, SAYFA SEVİYESİNDE DEĞİL: bir spec ikinci bir sekme
+  // açabilir (`/saha` ölçümü tam olarak bunu yapar) ve o sekmedeki gezinti de
+  // gerçek bir ziyarettir. Bildirim ile başlangıç betiği bağlama kurulunca
+  // bağlamda AÇILAN HER sayfa kayda girer; `page` fixture'ı zaten bu bağlamdan
+  // türer, dolayısıyla kurulum sayfa yaratılmadan ÖNCE tamamlanır.
+  //
+  // Gerekçesi ve "olumsuz yönlendirme kanıt sayılmaz" kuralı için bkz.
+  // `rota-ziyaret-kaydi.ts`.
+  context: async ({context}, use, testInfo) => {
+    const kaydiIlistir = await ziyaretKaydiniKur(context, testInfo);
+    await use(context);
+    await kaydiIlistir();
+  },
   page: async ({page}, use) => {
     const errors: string[] = [];
     page.on('console', (message) => {
@@ -217,6 +234,43 @@ export async function provisionUser(
     await userApi.dispose();
   }
   return {username: opts.username, password: PROVISIONED_PASSWORD, userId};
+}
+
+// Verilen firmada bir tedarikçi oluşturur ve id'sini döndürür. Ad, UI'daki
+// sayfa işareti olarak kullanılır; çağıran tarafça benzersiz verilmeli.
+// `POST /api/suppliers` (finance.py) payload'ı `{id, ...payload}` olarak yansıtır.
+export async function createSupplier(
+  admin: AdminApi,
+  name: string,
+  companyId?: string,
+): Promise<number> {
+  const res = await admin.api.post('/api/suppliers', {
+    headers: await admin.headers(companyId),
+    data: {name},
+  });
+  if (!res.ok()) {
+    throw new Error(`createSupplier başarısız (${res.status()}): ${await res.text()}`);
+  }
+  return (await res.json()).id as number;
+}
+
+// Verilen firmada bir depo oluşturur ve id'sini döndürür. Depo detay ekranı adı
+// `GET /warehouses/{id}` üzerinden okur; create yanıtı yalnız id döner
+// (warehouses.py:92).
+export async function createWarehouse(
+  admin: AdminApi,
+  name: string,
+  code: string,
+  companyId?: string,
+): Promise<number> {
+  const res = await admin.api.post('/api/warehouses', {
+    headers: await admin.headers(companyId),
+    data: {name, code},
+  });
+  if (!res.ok()) {
+    throw new Error(`createWarehouse başarısız (${res.status()}): ${await res.text()}`);
+  }
+  return (await res.json()).id as number;
 }
 
 // Belirtilen kullanıcıyla UI'dan giriş yapar. Panele varışı doğrulamaz (rol

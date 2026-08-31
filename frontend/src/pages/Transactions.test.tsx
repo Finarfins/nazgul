@@ -8,7 +8,8 @@ import Transactions from './Transactions';
 const get=vi.fn();
 vi.mock('../api',()=>({api:{get:(...args:any[])=>get(...args),delete:vi.fn(),post:vi.fn()},money:(v:any)=>String(v),openAuthenticated:vi.fn(),policyOverrideHeaders:(reason:string)=>({'X-Policy-Override':'true','X-Policy-Override-Reason':reason}),policyOverrideRequired:()=>false}));
 vi.mock('../AuthContext',()=>({useAuth:()=>({user:{role:'admin'}})}));
-vi.mock('../components/TransactionDialog',()=>({default:()=>null}));
+const dialogProps=vi.fn();
+vi.mock('../components/TransactionDialog',()=>({default:(props:any)=>{dialogProps(props);return null}}));
 const tableProps=vi.fn();
 vi.mock('../components/ResponsiveTable',()=>({default:(props:any)=>{tableProps(props);return null}}));
 
@@ -61,4 +62,53 @@ it('API ISO vade tarihini detayda GG.AA.YYYY biçiminde gösterir',async()=>{
  });
  render(<ThemeProvider theme={createTheme()}><MemoryRouter initialEntries={[{pathname:'/satislar',state:{openId:43}}]}><Routes><Route path="/satislar" element={<Transactions kind="sale"/>}/></Routes></MemoryRouter></ThemeProvider>);
  expect(await screen.findByText(/Vade: 31\.12\.2026/)).toBeInTheDocument();
+});
+
+it('komut paleti / dashboard ?new=1 parametresiyle satış formunu doğrudan açar',async()=>{
+ dialogProps.mockReset();
+ get.mockImplementation(()=>Promise.resolve({data:[]}));
+ render(<ThemeProvider theme={createTheme()}><MemoryRouter initialEntries={['/satislar?new=1']}><Transactions kind="sale"/></MemoryRouter></ThemeProvider>);
+ await waitFor(()=>{
+  const props=dialogProps.mock.calls[dialogProps.mock.calls.length-1][0];
+  expect(props.open).toBe(true);
+  expect(props.kind).toBe('sale');
+  expect(props.id).toBeNull();
+ });
+});
+
+it('alış ekranında da ?new=1 parametresini karşılar',async()=>{
+ dialogProps.mockReset();
+ get.mockImplementation(()=>Promise.resolve({data:[]}));
+ render(<ThemeProvider theme={createTheme()}><MemoryRouter initialEntries={['/alislar?new=1']}><Transactions kind="purchase"/></MemoryRouter></ThemeProvider>);
+ await waitFor(()=>{
+  const props=dialogProps.mock.calls[dialogProps.mock.calls.length-1][0];
+  expect(props.open).toBe(true);
+  expect(props.kind).toBe('purchase');
+ });
+});
+
+it('parametresiz açılışta belge formunu kendiliğinden açmaz',async()=>{
+ dialogProps.mockReset();
+ get.mockImplementation(()=>Promise.resolve({data:[]}));
+ render(<ThemeProvider theme={createTheme()}><MemoryRouter initialEntries={['/satislar']}><Transactions kind="sale"/></MemoryRouter></ThemeProvider>);
+ await waitFor(()=>expect(dialogProps).toHaveBeenCalled());
+ const props=dialogProps.mock.calls[dialogProps.mock.calls.length-1][0];
+ expect(props.open).toBe(false);
+});
+
+it('dashboard ?status=overdue kısayolunu açık bakiyeli belge filtresine çevirir',async()=>{
+ tableProps.mockReset();
+ const rows=[
+  {id:1,document_no:'S-1',customer_name:'Açık Bakiye',transaction_date:'2026-07-11',status:'completed',final_total:100,remaining_amount:40},
+  {id:2,document_no:'S-2',customer_name:'Kapalı Belge',transaction_date:'2026-07-11',status:'completed',final_total:100,remaining_amount:0},
+  {id:3,document_no:'S-3',customer_name:'İptal Belge',transaction_date:'2026-07-11',status:'cancelled',final_total:100,remaining_amount:90},
+ ];
+ get.mockImplementation((url:string)=>Promise.resolve({data:url==='/orders'?rows:[]}));
+ render(<ThemeProvider theme={createTheme()}><MemoryRouter initialEntries={['/satislar?status=overdue']}><Transactions kind="sale"/></MemoryRouter></ThemeProvider>);
+ // Overdue sunucu tarafinda bir durum degeri degildir; status parametresi API'ye gonderilmez.
+ await waitFor(()=>expect(get).toHaveBeenCalledWith('/orders',{params:{q:'',status:undefined,date_from:undefined,date_to:undefined,sort:'date_desc'}}));
+ await waitFor(()=>{
+  const props=tableProps.mock.calls[tableProps.mock.calls.length-1][0];
+  expect(props.rows.map((row:any)=>row.id)).toEqual([1]);
+ });
 });
