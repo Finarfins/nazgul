@@ -1,6 +1,6 @@
 import React from 'react';
 import {useEffect,useMemo,useRef,useState} from 'react';
-import {useNavigate} from 'react-router-dom';
+import {useNavigate,useSearchParams} from 'react-router-dom';
 import {Alert,Button,Chip,MenuItem,Paper,Stack,TextField} from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import {GridColDef} from '@mui/x-data-grid';
@@ -13,11 +13,19 @@ import ServiceWorkspaceHeader from '../components/ServiceWorkspaceHeader';
 
 export default function WorkOrders(){
  const nav=useNavigate();const {can}=useAuth();const canWrite=can('sales');
+ const [searchParams,setSearchParams]=useSearchParams();
  const [rows,setRows]=useState<any[]>([]);const [q,setQ]=useState('');const [status,setStatus]=useState('');const [priority,setPriority]=useState('');const [dateFrom,setDateFrom]=useState('');const [dateTo,setDateTo]=useState('');
  const [loading,setLoading]=useState(false);const [error,setError]=useState('');const [open,setOpen]=useState(false);const [editId,setEditId]=useState<number|null>(null);const requestSeq=useRef(0);
+ const quickStart=searchParams.get('new')==='1';
  const load=()=>{const seq=++requestSeq.current;setLoading(true);setError('');const params:any={q,page_size:200};if(status)params.status=status;if(dateFrom)params.date_from=dateFrom;if(dateTo)params.date_to=dateTo;
   api.get('/work-orders',{params}).then(r=>{if(seq!==requestSeq.current)return;let items=r.data?.items||[];if(priority)items=items.filter((w:any)=>w.priority===priority);setRows(items)}).catch(e=>{if(seq===requestSeq.current)setError(e.response?.data?.detail||'İş emri listesi yüklenemedi.')}).finally(()=>{if(seq===requestSeq.current)setLoading(false)})};
  useEffect(()=>{const timer=setTimeout(load,250);return()=>clearTimeout(timer)},[q,status,priority,dateFrom,dateTo]);
+ useEffect(()=>{
+  if(!quickStart)return;
+  setEditId(null);setOpen(true);
+  const next=new URLSearchParams(searchParams);next.delete('new');
+  setSearchParams(next,{replace:true});
+ },[quickStart,searchParams,setSearchParams]);
  const columns=useMemo<GridColDef[]>(()=>[
   {field:'work_order_no',headerName:'İş Emri No',width:150,renderCell:p=><Chip label={p.value} size="small" sx={{bgcolor:'#0b3567',color:'white',fontWeight:800,borderRadius:1}}/>},
   {field:'machine',headerName:'Makine',flex:1,minWidth:170,valueGetter:(_v,row)=>`${row.machine_brand||''} ${row.machine_model||''}`.trim()||'-'},

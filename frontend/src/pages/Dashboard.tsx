@@ -266,13 +266,13 @@ export default function Dashboard() {
                 </Box>
                 <Chip label={data.critical_stock_count+data.overdue_count} color={data.critical_stock_count+data.overdue_count?'warning':'success'} />
               </Stack>
-              <CardActionArea onClick={()=>nav('/urunler')} sx={{mt:2,p:1.5,borderRadius:2,bgcolor:'warningTint'}}>
+              <CardActionArea onClick={()=>nav('/urunler?critical=1')} sx={{mt:2,p:1.5,borderRadius:2,bgcolor:'warningTint'}}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Box><Typography fontWeight={800}>Kritik / Negatif Stok</Typography><Typography variant="body2" color="text.secondary">Parça ve ürün kontrolü</Typography></Box>
                   <Typography fontSize={22} fontWeight={900} color="warning.main">{data.critical_stock_count}</Typography>
                 </Stack>
               </CardActionArea>
-              <CardActionArea onClick={()=>nav('/musteriler')} sx={{mt:1,p:1.5,borderRadius:2,bgcolor:'dangerTint'}}>
+              <CardActionArea onClick={()=>nav('/satislar?status=overdue')} sx={{mt:1,p:1.5,borderRadius:2,bgcolor:'dangerTint'}}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Box><Typography fontWeight={800}>Vadesi Geçen Alacak</Typography><Typography variant="body2" color="text.secondary">{money(data.overdue_total)}</Typography></Box>
                   <Typography fontSize={22} fontWeight={900} color="error.main">{data.overdue_count}</Typography>

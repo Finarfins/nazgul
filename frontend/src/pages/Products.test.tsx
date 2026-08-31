@@ -42,3 +42,35 @@ it('ürün sorgusunu akıllı parça arama ucuna gönderir',async()=>{
  expect(screen.getByText('Benzer / OCR eşleşmesi')).toBeInTheDocument();
  await waitFor(()=>expect(get).toHaveBeenCalledWith('/search/parts',{params:{q:'845I-2763',sort:'name_asc',limit:300}}));
 });
+
+it('dashboard kritik stok kısayolunu listede filtreye çevirir',async()=>{
+ get.mockReset();
+ get.mockImplementation((url:string)=>{
+  if(url==='/warehouses')return Promise.resolve({data:[{id:1,name:'Merkez'}]});
+  if(url==='/products')return Promise.resolve({data:[
+   {id:1,name:'Kritik Parça',stock:2,critical_stock:0,unit:'adet'},
+   {id:2,name:'Negatif Parça',stock:-3,critical_stock:0,unit:'adet'},
+   {id:3,name:'Bol Stoklu Parça',stock:90,critical_stock:0,unit:'adet'},
+  ]});
+  return Promise.resolve({data:[]});
+ });
+ render(<ThemeProvider theme={createTheme()}><MemoryRouter initialEntries={['/urunler?critical=1']}><Products/></MemoryRouter></ThemeProvider>);
+ expect(await screen.findByText('Kritik Parça')).toBeInTheDocument();
+ expect(screen.getByText('Negatif Parça')).toBeInTheDocument();
+ // Esik ustundeki urun filtre acikken listelenmez.
+ await waitFor(()=>expect(screen.queryByText('Bol Stoklu Parça')).toBeNull());
+ // Filtre rozeti temizlenince tum kayitlar geri gelir.
+ fireEvent.click(screen.getByTestId('CancelIcon'));
+ expect(await screen.findByText('Bol Stoklu Parça')).toBeInTheDocument();
+});
+
+it('kritik parametresi olmadan tüm ürünleri listeler',async()=>{
+ get.mockReset();
+ get.mockImplementation((url:string)=>{
+  if(url==='/warehouses')return Promise.resolve({data:[{id:1,name:'Merkez'}]});
+  if(url==='/products')return Promise.resolve({data:[{id:3,name:'Bol Stoklu Parça',stock:90,critical_stock:0,unit:'adet'}]});
+  return Promise.resolve({data:[]});
+ });
+ render(<ThemeProvider theme={createTheme()}><MemoryRouter initialEntries={['/urunler']}><Products/></MemoryRouter></ThemeProvider>);
+ expect(await screen.findByText('Bol Stoklu Parça')).toBeInTheDocument();
+});
