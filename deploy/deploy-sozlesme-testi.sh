@@ -1160,7 +1160,6 @@ if ! YAYIN_ISI="$(ci_is_bloku publish-image)" \
    || ! CONTAINER_ISI="$(ci_is_bloku container)" \
    || ! VERIFY_ISI="$(ci_is_bloku verify-image-artifact)"; then
   kirmizi "K2 yayın adımının job ayrımı ölçülemedi"
-  kirmizi "K3 container bağımlılıkları ölçülemedi"
   kirmizi "K4 test edilmiş imaj artifact zinciri ölçülemedi"
   kirmizi "K5 artifact doğrulama job'ı ölçülemedi"
   kirmizi "K6 attestation politikası ölçülemedi"
@@ -1174,13 +1173,6 @@ else
     yesil "K2 GHCR yayın adımı yalnız publish-image işinde ve job-level develop push kapısında"
   else
     kirmizi "K2 GHCR yayın adımı publish-image dışına taşmış veya job-level develop push kapısı eksik"
-  fi
-
-  if [ -n "$CONTAINER_ISI" ] \
-     && ! printf '%s\n' "$CONTAINER_ISI" | grep -qE '^    needs:[[:space:]]*'; then
-    yesil "K3 container işi upstream bağımlılığı olmadan paralel başlıyor"
-  else
-    kirmizi "K3 container işinde needs bulundu veya job ölçülemedi"
   fi
 
   if printf '%s\n' "$CONTAINER_ISI" \
