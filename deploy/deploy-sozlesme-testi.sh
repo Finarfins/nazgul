@@ -19,6 +19,7 @@
 set -uo pipefail
 
 KOK_DIZIN="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 CALISMA="$(mktemp -d)"
 GECTI=0; KALDI=0
 
@@ -975,7 +976,7 @@ akis_senaryo "etiket-kapisi"  "iyi"       ""                   "sha256:aaaa" "$S
 baslik "J) Deploy hijyeni — çalıştırılabilir betikler ve geri dönüş runbook'u"
 
 REPO_KOKU="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BEKLENEN_DEPLOY_SH=4
+BEKLENEN_DEPLOY_SH=5
 DEPLOY_INDEXI=""
 if ! DEPLOY_INDEXI="$(git -C "$REPO_KOKU" ls-files -s -- deploy 2>/dev/null)"; then
   kirmizi "J1 git indexi okunamadı; deploy betik modları ölçülemedi"
@@ -1200,26 +1201,30 @@ else
     kirmizi "K4 test edilen imajın save/upload/download/load zinciri eksik veya publish-image yeniden build ediyor"
   fi
 
-  if printf '%s\n' "$VERIFY_ISI" \
-       | grep -qE '^    needs:[[:space:]]*\[container\][[:space:]]*$' \
-     && printf '%s\n' "$VERIFY_ISI" \
-       | grep -qE '^[[:space:]]+uses: actions/download-artifact@v4[[:space:]]*$' \
-     && printf '%s\n' "$VERIFY_ISI" \
-       | grep -qF '        run: gzip -dc "$RUNNER_TEMP/tested-production-image/tested-production-image.tar.gz" | docker load' \
-     && printf '%s\n' "$VERIFY_ISI" \
-       | grep -qE '^[[:space:]]*- name: Verify loaded image identity and OCI revision[[:space:]]*$' \
-     && printf '%s\n' "$VERIFY_ISI" | grep -qF 'artifact_image_id=%s' \
-     && printf '%s\n' "$VERIFY_ISI" | grep -qF 'artifact_oci_revision=%s' \
-     && printf '%s\n' "$CONTAINER_ISI" \
-       | grep -qF '      tested_image_id: ${{ steps.paketle.outputs.tested_image_id }}' \
-     && printf '%s\n' "$VERIFY_ISI" \
-       | grep -qF '          expected_image_id="${{ needs.container.outputs.tested_image_id }}"' \
-     && printf '%s\n' "$VERIFY_ISI" \
-       | grep -qF '[ "$image_id" = "$expected_image_id" ]' \
-     && ! printf '%s\n' "$VERIFY_ISI" | grep -qE '^[[:space:]]+packages:[[:space:]]+write[[:space:]]*$'; then
-    yesil "K5 artifact doğrulama job'ı yüklenen imajı container'ın bildirdiği kimliğe EŞİTLİYOR, OCI revision ölçüyor ve packages:write taşımıyor"
+  # ---------------------------------------------------------------------
+  # K5 — ÇAĞRI YERİ.
+  #
+  # Metin grep'i akış denetimini kanıtlayamadı (adım-seviyesi `if: false`,
+  # yinelenen `run:`, fazladan `BASH_ENV`/`PATH` atlatıyordu). Çağrı yeri
+  # artık `deploy/ci-verify-cagri-kapisi.py` ile PARSE edilir: iş anahtar
+  # kümesi kapalıdır, doğrulama adımının `run`/`env`/`if` değerleri parse
+  # edilmiş nesnedendir, yinelenen YAML anahtarı kırmızıdır.
+  # ---------------------------------------------------------------------
+  # Beklenti, `docker save`in girdisiyle AYNI nesneden okunmalı. K4 save
+  # hedefini zaten çiviliyor; burada kimliğin O hedeften okunduğu çivilenir.
+  # Başka bir nesneden (ör. tarball'ın kendisinden) okunan bir kimlik,
+  # kapıyı yine kendi kopyasına baktırırdı.
+  K5_KIMLIK_KAYNAGI='          tested_image_id="$(docker image inspect yerel-hesap-pro:${{ github.sha }} --format '"'"'{{.Id}}'"'"')"'
+  K5_CAGRI=""
+  if ! K5_CAGRI="$(python3 "$REPO_KOKU/deploy/ci-verify-cagri-kapisi.py" "$CI_WORKFLOW" 2>&1)"; then
+    kirmizi "$K5_CAGRI"
+  elif printf '%s\n' "$CONTAINER_ISI" \
+         | grep -qF '      tested_image_id: ${{ steps.paketle.outputs.tested_image_id }}' \
+       && printf '%s\n' "$CONTAINER_ISI" \
+         | grep -qF "$K5_KIMLIK_KAYNAGI"; then
+    yesil "$K5_CAGRI; beklenti container'ın SAVE ettiği nesneden geliyor"
   else
-    kirmizi "K5 artifact doğrulama job'ı eksik, kimliği bir BEKLENTİYE eşitlemiyor (yalnız boşluk kontrolü kapı DEĞİLDİR), revision ölçmüyor veya packages:write içeriyor"
+    kirmizi "K5 çağrı yeri YAML olarak duruyor ama beklenti container çıktısına / docker save girdisine bağlı değil"
   fi
 
   K6_BUILD_SAYISI=""
