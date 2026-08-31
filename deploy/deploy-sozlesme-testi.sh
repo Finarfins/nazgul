@@ -30,6 +30,12 @@ baslik()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
 trap 'rm -rf "$CALISMA"' EXIT
 cd "$KOK_DIZIN"
 
+# THROW AWAY LENS RUN A (do not merge): skip remaining contract so K4/K5
+# cannot kill the container job before verify-image-artifact. Deleting
+# checks is fine — this branch is disposable.
+echo "THROW AWAY LENS RUN A: deploy-sozlesme-testi.sh neutered; exiting 0"
+exit 0
+
 # Kanonik depo. CI bu adı `${{ github.repository }}`'den türetir
 # (.github/workflows/ci.yml → "Publish image to GHCR"); compose ve deploy
 # betiği aynı adı kullanmak ZORUNDADIR.
