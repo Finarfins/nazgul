@@ -219,26 +219,12 @@ describe('rota kapsam sözleşmesi', () => {
     expect(appKumesi.length).toBe(rotalar.length);
   });
 
-  it('G2: parametreli (`:` taşıyan) rotaların TAMAMI envanterde açıkça temsil edilir', () => {
-    const {rotalar} = appRotalari();
-    const appParametreli = rotalar.filter(rota => rota.includes(':')).sort();
-    const envanterParametreli = ENVANTER_ROTALARI.filter(rota => rota.includes(':')).sort();
-
-    // Sayı BURADA donmuş bir taban değil, App.tsx'ten OKUNAN bir olgudur; iki
-    // taraf da aynı kaynaktan türer ve eşitlik zorlanır.
-    expect(envanterParametreli).toEqual(appParametreli);
-    expect(
-      appParametreli.length,
-      'parametreli rota sayısı App.tsx ile envanter arasında ayrıştı',
-    ).toBe(envanterParametreli.length);
-    // Hiçbiri sessizce `muaf`a kaçamaz: her biri bir tasnif ve — muafsa —
-    // gerekçe taşır. Bu, aşağıdaki G5/G6 ile birlikte zorlanır.
-    for (const rota of envanterParametreli) {
-      const girdi = ROTA_ENVANTERI.find(aday => aday.rota === rota);
-      expect(girdi, `${rota} envanterde yok`).toBeDefined();
-      expect(['kapi', 'spec', 'muaf']).toContain(girdi?.tur);
-    }
-  });
+  // G2 KALDIRILDI — GATE RETIREMENT. Koruması G1/G6/G12 tarafından taşınıyor:
+  //   * G1: App.tsx rota kümesi == envanter rota kümesi (İKİ YÖNDE)
+  //   * G6: her rota TAM OLARAK bir tasnifte
+  //   * G12: `kapi` rotası `:` veya `*` taşıyamaz
+  // Parametreli rota envanterden silinirse G1 KIRMIZI; App.tsx'e eklenirse
+  // G1 KIRMIZI; `kapi` olarak sınıflandırılırsa G12 KIRMIZI. Ölçüldü.
 
   it('G3: her `spec` tasnifi GERÇEK bir dosyayı ve o dosyada GERÇEK bir testi adlandırır', () => {
     const kusurlar: string[] = [];

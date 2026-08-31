@@ -1168,11 +1168,13 @@ else
        | grep -qE '^[[:space:]]*- name: Publish image to GHCR[[:space:]]*$' \
      && printf '%s\n' "$YAYIN_ISI" \
        | grep -qE "^    if: github\\.event_name == 'push' && github\\.ref == 'refs/heads/develop'[[:space:]]*$" \
+     && printf '%s\n' "$YAYIN_ISI" \
+       | grep -qE "^        if: github\\.event_name == 'push' && github\\.ref == 'refs/heads/develop'[[:space:]]*$" \
      && ! printf '%s\n' "$CONTAINER_ISI" \
        | grep -qE '^[[:space:]]*- name: Publish image to GHCR[[:space:]]*$'; then
-    yesil "K2 GHCR yayın adımı yalnız publish-image işinde ve job-level develop push kapısında"
+    yesil "K2 GHCR yayın adımı yalnız publish-image işinde; job-level ve step-level develop push kapısı pinli"
   else
-    kirmizi "K2 GHCR yayın adımı publish-image dışına taşmış veya job-level develop push kapısı eksik"
+    kirmizi "K2 GHCR yayın adımı publish-image dışına taşmış, job-level veya step-level develop push kapısı eksik"
   fi
 
   if printf '%s\n' "$CONTAINER_ISI" \
