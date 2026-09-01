@@ -58,6 +58,11 @@ def test_early_harvest_schema_has_no_allow_level() -> None:
     assert hasat == {"warn", "require_reason", "block"}, hasat
     assert "allow" not in hasat, "erken hasat kuralı KAPATILABİLİR hâle gelmiş!"
 
+    assert seviyeler("farm_monoculture_policy") == {"warn", "require_reason", "block"}
+    assert "allow" not in seviyeler("farm_monoculture_policy")
+    assert seviyeler("farm_reentry_policy") == {"warn", "require_reason", "block"}
+    assert "allow" not in seviyeler("farm_reentry_policy")
+
     # Alan aşımı bir ölçüm tutarsızlığı, güvenlik değil: orada `allow` var.
     assert seviyeler("farm_area_override_policy") == {"allow", "require_reason", "block"}
 
@@ -116,6 +121,8 @@ with TestClient(app) as client:
     assert a['farm_area_override_policy'] == 'require_reason', a
     assert a['farm_early_harvest_policy'] == 'require_reason', a
     assert a['farm_spraying_dose_required'] is True, a
+    assert a['farm_monoculture_policy'] == 'require_reason', a
+    assert a['farm_reentry_policy'] == 'require_reason', a
 
     ciftlik = client.post('/api/farms', headers=h, json={'code':'k1','name':'Kural Çiftlik'}).json()
     parsel = client.post('/api/farm-parcels', headers=h,

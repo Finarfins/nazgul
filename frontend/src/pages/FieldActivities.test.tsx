@@ -67,6 +67,8 @@ let POLICIES = {
   farm_area_override_policy: 'require_reason',
   farm_early_harvest_policy: 'require_reason',
   farm_spraying_dose_required: true,
+  farm_monoculture_policy: 'require_reason',
+  farm_reentry_policy: 'require_reason',
 };
 
 function cevapla(inputs: Array<Record<string, unknown>> = []) {
@@ -123,6 +125,8 @@ beforeEach(() => {
     farm_area_override_policy: 'require_reason',
     farm_early_harvest_policy: 'require_reason',
     farm_spraying_dose_required: true,
+    farm_monoculture_policy: 'require_reason',
+    farm_reentry_policy: 'require_reason',
   };
   cevapla();
   post.mockResolvedValue({data: {id: 1}});

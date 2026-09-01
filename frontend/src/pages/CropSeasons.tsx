@@ -32,13 +32,14 @@ type ProductRow = {id: number; name: string; product_code?: string | null};
 type Form = {
   parcel_id: string; season_year: string; crop: string; product_id: string; variety: string;
   started_on: string; ended_on: string; planted_area_decare: string;
-  status: string; notes: string;
+  status: string; notes: string; monoculture_override_reason: string;
 };
 
 const bosForm = (): Form => ({
   parcel_id: '', season_year: String(new Date().getFullYear()), crop: '', product_id: '',
   variety: '',
   started_on: '', ended_on: '', planted_area_decare: '', status: 'PLANNED', notes: '',
+  monoculture_override_reason: '',
 });
 
 const bosNull = (v: string) => (v.trim() === '' ? null : v.trim());
@@ -135,6 +136,7 @@ export default function CropSeasons() {
       ended_on: bosNull(form.ended_on),
       planted_area_decare: form.planted_area_decare.trim() === '' ? null : form.planted_area_decare.trim().replace(',', '.'),
       notes: bosNull(form.notes),
+      monoculture_override_reason: bosNull(form.monoculture_override_reason),
     };
     try {
       if (row) {
@@ -166,6 +168,7 @@ export default function CropSeasons() {
         started_on: row.started_on?.slice(0, 10) || '', ended_on: row.ended_on?.slice(0, 10) || '',
         planted_area_decare: row.planted_area_decare === null ? '' : String(row.planted_area_decare),
         status: row.status, notes: row.notes || '',
+        monoculture_override_reason: row.monoculture_override_reason || '',
       },
     });
   };
@@ -315,6 +318,9 @@ export default function CropSeasons() {
             )}
             <TextField label="Not" multiline minRows={2} value={dialog.form.notes}
               onChange={e => setDialog(d => ({...d, form: {...d.form, notes: e.target.value}}))} />
+            <TextField label="ÇKS tek ürün gerekçesi" value={dialog.form.monoculture_override_reason}
+              helperText="Aynı parsele üçüncü yıl aynı ürünse sunucu gerekçe ister. Boş bırakılabilir."
+              onChange={e => setDialog(d => ({...d, form: {...d.form, monoculture_override_reason: e.target.value}}))} />
           </Stack>
         </DialogContent>
         <DialogActions>
