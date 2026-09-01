@@ -100,8 +100,11 @@ from app.main import PUBLIC_API, app  # noqa: E402
 #: geldiği gün kendi YAZMA iznini gerektirir — `farm.view` ona yetmez.
 #: Maruziyet: olayın kimliği, kaynak tipi/kimliği, durumu, deneme sayısı,
 #: gerekçe metni ve zaman damgaları. `idempotency_key` DÖNDÜRÜLMÜYOR.
-EXPECTED_AUTHENTICATED = 334
-EXPECTED_READ = 91
+# 334 -> 336 ve 91 -> 93: Uygulama Kayıt Çizelgesinin iki okuma ucu.
+# UNDENIABLE 99'da SABİT: ikisi de handler'da `farm.view` istiyor, yani ROL
+# ile reddedilebilir; KORUMALI read'e düşerler, ÇIPLAK read'e değil.
+EXPECTED_AUTHENTICATED = 336
+EXPECTED_READ = 93
 EXPECTED_UNDENIABLE = 99
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
@@ -111,6 +114,8 @@ GUARDED_READ_OPERATIONS = {
     ("GET", "/api/customers/{customer_id}/statement.pdf"),
     ("GET", "/api/documents/{kind}/{document_id}/pdf"),
     ("GET", "/api/documents/{kind}/{document_id}/xlsx"),
+    ("GET", "/api/exports/producer-logbook"),
+    ("GET", "/api/exports/producer-logbook.xlsx"),
     ("GET", "/api/exports/products.xlsx"),
     ("GET", "/api/exports/warehouse-count-variance.xlsx"),
     ("GET", "/api/notifications/consents"),
@@ -361,7 +366,11 @@ def test_guarded_read_membership_not_just_magnitude() -> None:
     """Türetilen küme, elle yazılan çapaya ÜYE ÜYE eşit olmalı."""
     _, _, guarded, _ = _populations()
     assert guarded == GUARDED_READ_OPERATIONS
-    assert len(guarded) == 24
+    # 24 -> 26: Uygulama Kayıt Çizelgesinin iki okuma ucu. İkisi de
+    # middleware'de `read`, handler'da `farm.view` istiyor — yani ROL ile
+    # reddedilebilir; bu yüzden ÇIPLAK read'e değil KORUMALI read'e düşerler
+    # ve `EXPECTED_UNDENIABLE` (97) KIPIRDAMAZ (ölçüldü).
+    assert len(guarded) == 26
 
 
 def test_farm_and_herd_view_membership_not_just_magnitude() -> None:

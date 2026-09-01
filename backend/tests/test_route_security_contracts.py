@@ -123,6 +123,14 @@ ROUTE_REASON_GROUPS = (
             ("GET", "/api/customers/{customer_id}/statement.pdf"),
             ("GET", "/api/suppliers/{supplier_id}/statement.pdf"),
             ("GET", "/api/exports/warehouse-count-variance.xlsx"),
+            # 20260901 Uygulama Kayıt Çizelgesi: tarla uygulama ve hasat
+            # kayıtlarının denetime gösterilebilir çıktısı. Middleware `read`
+            # çözer, handler `farm.view` ister (`_require_permission`); yol
+            # BİLEREK `/api/exports/` altında, `/api/field-…` altında DEĞİL —
+            # oradaki önek listesinde olmayan yollar sessizce `field_service`e
+            # düşüyor. Kaynak sorguların hepsi `company_id` bağlı.
+            ("GET", "/api/exports/producer-logbook"),
+            ("GET", "/api/exports/producer-logbook.xlsx"),
         },
     ),
     (
@@ -229,8 +237,8 @@ DYNAMIC_PERMISSION_CASES = {
     },
 }
 
-EXPECTED_OPERATION_COUNT = 344
-EXPECTED_PATH_COUNT = 265
+EXPECTED_OPERATION_COUNT = 346
+EXPECTED_PATH_COUNT = 267
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -299,12 +307,16 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # kaydıdır. İzin `_FARM_PATH_PREFIXES`'e eklenen önekten geliyor: okuma
     # `farm.view`, yazma `farm.manage`. ÖNEK LİSTESİNE EKLENMESEYDİ uçlar
     # genel `read` iznine düşerdi ve okuma yetkisi olan HERKES yasal bekleme
-    # sürelerini değiştirebilirdi — 340->344 sayı artışı bunu gizlemez, ama
-    # izni de doğrulamaz; o yüzden sıra yine korundu: önce önek eklendi,
-    # `required_permission` ile ÖLÇÜLDÜ, sonra parmak izi alındı.
-    # Kapsam firma: dört ucun dördü de kendi `company_id=:cid` yüklemini
-    # taşıyor ve tekil okumalar `_satir` üzerinden geçiyor.
-    "ebf0189b653b9e9f817a1cf207102fab8e51124446895efea2d2fe2afed78f2d"
+    # sürelerini değiştirebilirdi.
+    # 20260901 UYGULAMA KAYIT ÇİZELGESİ: 2 operasyon, 2 yol daha —
+    #   GET /api/exports/producer-logbook       (JSON önizleme)
+    #   GET /api/exports/producer-logbook.xlsx  (iki sayfalı çizelge)
+    # Bu kez AYNI TUZAK KURULMADI: yol `/api/field-…` DEĞİL, `/api/exports/`
+    # seçildi; `required_permission` ile `read` ÖLÇÜLDÜ, asıl yetki kapısı
+    # handler'da (`_require_permission(request, "farm.view")`), SONRA parmak
+    # izi alındı. Uçlar SALT OKUR ve PARA SÜTUNU SEÇMEZ.
+    # Toplam: 340 -> 346 işlem, 263 -> 267 yol (iki dalın birleşimi).
+    "7075aca52438f3c34747e779c6e981c0d13219aa1645652314b083dc22ec799e"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 
