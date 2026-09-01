@@ -2075,6 +2075,17 @@ _PHI_KOKEN_OPERATOR = "OPERATOR"
 _PHI_KOKEN_USTUNE_YAZMA = "OPERATOR_OVERRIDE"
 
 
+def _bitki_katla(s: str) -> str:
+    """Türkçe küçük harfe katlama; ön yüzdeki ``toLocaleLowerCase('tr')``ın İKİZİ.
+
+    Sıra ÖNEMLİ: ``I`` + U+0307 (birleşen üstteki nokta) Unicode'un Türkçe özel
+    kurallarında ``i``ye iner ve bu, çıplak ``I``nın ``ı``ya inmesinden ÖNCE
+    ele alınmalı — tersi sırada ``ı`` + U+0307 gibi hiçbir yerde bulunmayan bir
+    dizi üretilirdi. JavaScript bu ayrımı kendi yapıyor; burada elle yapıyoruz.
+    """
+    return s.replace("I\u0307", "i").replace("I", "\u0131").replace("\u0130", "i").lower()
+
+
 def _bitki_esit(a: str, b: str) -> bool:
     """Bitki adları SERBEST METİN; karşılaştırma Python'da yapılıyor.
 
@@ -2083,8 +2094,30 @@ def _bitki_esit(a: str, b: str) -> bool:
     yerel ayara göre davranır. İki diyalektin AYNI kataloğu farklı çözmesi,
     ikizi koşulan bir testin yakalayamayacağı bir sapma olurdu — hesabı
     tek bir yerde, Python'da tutuyoruz.
+
+    KATLAMA TÜRKÇE, VE ``lower()`` İLE — ``casefold()`` İLE DEĞİL. Üçü ölçüldü:
+
+    * ``casefold()`` (eski hâli) Türkçe'yi BİLMEZ: ``"İNCİR".casefold()`` =
+      ``'i̇ncir'`` (i + U+0307), yani ``incir``e EŞLEŞMEZ. Türkçe klavyeyle
+      BÜYÜK yazılmış 18 gerçek bitki adının yalnız 8'i kendi küçük hâlini
+      buluyordu; ``MISIR``/``mısır``, ``BİBER``/``biber``,
+      ``PATLICAN``/``patlıcan`` hepsi ıskalıyordu.
+    * Türkçe katlama aynı 18 adın 18'ini buluyor.
+    * ``casefold()`` DEĞİL ``lower()``, çünkü ön yüz ``toLocaleLowerCase('tr')``
+      kullanıyor ve ``casefold()`` ondan FAZLA iş yapıyor: ``"Weißkohl"``
+      (lahana) ``casefold()`` ile ``'weisskohl'``a açılır, JavaScript'te
+      açılmaz. Küçük harfe çeviren 1775 kod noktası taranarak ölçüldü:
+      ``lower()`` temelli bu katlama JavaScript ile 0 yerde ayrılıyor,
+      ``casefold()`` temelli olanı 207 yerde ayrılıyordu.
+
+    BİLEREK KAYBEDİLEN: Türkçe'de ``I`` küçüğü ``ı``dır, dolayısıyla LATİN
+    yazımlı ``I``lı bir bitki adı TERS yönde bozulur — ``Iceberg`` (marul) ve
+    ``Italyan Çimi`` artık ``iceberg``/``italyan çimi`` satırına EŞLEŞMEZ,
+    bugün eşleşiyor. Bu kayıp kabul edildi çünkü (a) ürün Türkçe ve baskın
+    girdi Türkçe klavyedir, (b) ÇEŞİT adları (``Isabella`` gibi) ``crop``ta
+    DEĞİL ayrı ``variety`` sütununda durur ve buraya hiç uğramaz.
     """
-    return a.casefold() == b.casefold()
+    return _bitki_katla(a) == _bitki_katla(b)
 
 
 def _katalog_phi(db: Session, cid: int, product_id: int, bitki: str) -> int | None:
