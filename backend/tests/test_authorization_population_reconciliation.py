@@ -100,9 +100,9 @@ from app.main import PUBLIC_API, app  # noqa: E402
 #: geldiği gün kendi YAZMA iznini gerektirir — `farm.view` ona yetmez.
 #: Maruziyet: olayın kimliği, kaynak tipi/kimliği, durumu, deneme sayısı,
 #: gerekçe metni ve zaman damgaları. `idempotency_key` DÖNDÜRÜLMÜYOR.
-EXPECTED_AUTHENTICATED = 330
+EXPECTED_AUTHENTICATED = 334
 EXPECTED_READ = 91
-EXPECTED_UNDENIABLE = 97
+EXPECTED_UNDENIABLE = 99
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
 #: sonra kendi kapılarına takılırlar. 89'a dahil, 94'e DEĞİL.
@@ -166,6 +166,14 @@ FARM_HERD_VIEW_OPERATIONS = {
     ("GET", "/api/field-integration-events/summary"),
     ("GET", "/api/field-safety"),
     ("GET", "/api/field-tasks"),
+    # BKÜ kataloğu (göç 20260901_0063). Okuma yüzeyi parsel/sezon/hasat
+    # listeleriyle AYNI role bağlı: katalog, o listelerin yanında duran ve
+    # aynı tarla verisini besleyen bir tanım tablosudur. Maruziyet: ürün
+    # kimliği ve adı, bitki, ruhsat no, iki bekleme süresi, not ve durum.
+    # YAZMA `farm.manage` ister ve bu kümede DEĞİLDİR — `farm.view` yasal
+    # bekleme sürelerini değiştirmeye yetmez.
+    ("GET", "/api/plant-protection-products"),
+    ("GET", "/api/plant-protection-products/{ppp_id}"),
     ("GET", "/api/herd-dashboard"),
     ("GET", "/api/herd-fertility"),
     ("GET", "/api/milk-yields"),
@@ -360,7 +368,9 @@ def test_farm_and_herd_view_membership_not_just_magnitude() -> None:
     _, _, _, farm_herd = _populations()
     assert farm_herd == FARM_HERD_VIEW_OPERATIONS
     # 28 -> 30: outbox okuma yüzeyinin iki ucu (bkz. SAYAÇ HAREKETİ notu).
-    assert len(farm_herd) == 30
+    # 30 -> 32: BKÜ kataloğunun iki OKUMA ucu (göç 20260901_0063). Yazma
+    # uçları (POST/PUT) bu kümede DEĞİL — onlar `farm.manage` istiyor.
+    assert len(farm_herd) == 32
 
 
 def test_eightynine_partitions_into_sixtysix_and_twentythree() -> None:
