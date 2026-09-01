@@ -100,7 +100,7 @@ from app.main import PUBLIC_API, app  # noqa: E402
 #: geldiği gün kendi YAZMA iznini gerektirir — `farm.view` ona yetmez.
 #: Maruziyet: olayın kimliği, kaynak tipi/kimliği, durumu, deneme sayısı,
 #: gerekçe metni ve zaman damgaları. `idempotency_key` DÖNDÜRÜLMÜYOR.
-EXPECTED_AUTHENTICATED = 334
+EXPECTED_AUTHENTICATED = 335
 EXPECTED_READ = 91
 EXPECTED_UNDENIABLE = 99
 

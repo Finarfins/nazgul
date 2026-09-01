@@ -20,8 +20,15 @@ CALL_SITE_GATE = REPO_ROOT / "deploy" / "ci-verify-cagri-kapisi.py"
 BACKEND = REPO_ROOT / "backend"
 
 
-def test_pg_test_population_exact_95() -> None:
-    """PostgreSQL test population must be exactly 95 files.
+def test_pg_test_population_exact_96() -> None:
+    """PostgreSQL test population must be exactly 96 files.
+
+    95 -> 96: BKÜ içe aktarma ikizi (`test_farm_bku_ice_aktarma_postgresql.py`,
+    göç 20260901_0064). İKİZ ZORUNLU ve gerekçesi kardeşininkinden GÜÇLÜ:
+    "bir bozuk satır dosyayı düşürmez" kuralını ayakta tutan şey SAVEPOINT ve
+    savepoint YOKKEN SQLite koşusu YEŞİL KALIR — PostgreSQL'de başarısız bir
+    deyim işlemi ABORTED yapar, SQLite'ta yapmaz. Yani bu dilimin ana
+    iddiasının kırılması YALNIZ üretim diyalektinde görünür.
 
     94 -> 95: BKÜ kataloğu ikizi (`test_farm_bku_katalogu_postgresql.py`,
     göç 20260901_0063). İkiz ZORUNLU: katalogdan çözülen PHI, `crop` BOŞ
@@ -37,15 +44,15 @@ def test_pg_test_population_exact_95() -> None:
         BACKEND / "tests" / "test_ci_playwright_hazirlik.py",
     ]
     all_files = pg_glob + [p for p in named if p.exists()]
-    assert len(all_files) == 95, (
-        f"PostgreSQL test population changed: expected 95, got {len(all_files)}"
+    assert len(all_files) == 96, (
+        f"PostgreSQL test population changed: expected 96, got {len(all_files)}"
     )
 
 
 def test_ci_workflow_has_frozen_pg_population_constant() -> None:
-    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=95 and strict equality."""
+    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=96 and strict equality."""
     content = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BEKLENEN_PG_DOSYA_SAYISI=95" in content
+    assert "BEKLENEN_PG_DOSYA_SAYISI=96" in content
     assert '[ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]' in content
 
 

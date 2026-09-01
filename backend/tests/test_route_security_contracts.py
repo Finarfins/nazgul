@@ -229,8 +229,8 @@ DYNAMIC_PERMISSION_CASES = {
     },
 }
 
-EXPECTED_OPERATION_COUNT = 344
-EXPECTED_PATH_COUNT = 265
+EXPECTED_OPERATION_COUNT = 345
+EXPECTED_PATH_COUNT = 266
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -304,7 +304,20 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # `required_permission` ile ÖLÇÜLDÜ, sonra parmak izi alındı.
     # Kapsam firma: dört ucun dördü de kendi `company_id=:cid` yüklemini
     # taşıyor ve tekil okumalar `_satir` üzerinden geçiyor.
-    "ebf0189b653b9e9f817a1cf207102fab8e51124446895efea2d2fe2afed78f2d"
+    # 20260901 BKÜ İÇE AKTARMA (göç 20260901_0064): 1 operasyon, 1 yol eklendi —
+    #   POST /api/plant-protection-products/import
+    # Katalog 0063'te açıldı ama TEK TEK FORM ile dolduruluyordu; bu uç aynı
+    # kataloğu firmanın KENDİ dosyasından doldurur. İzin YENİ DEĞİL: uç zaten
+    # `_FARM_PATH_PREFIXES`teki `/api/plant-protection-products` önekinin
+    # ALTINDA ve güvenli olmayan yöntem olduğu için `farm.manage` istiyor —
+    # `required_permission` ile ÖLÇÜLDÜ, varsayılmadı.
+    # UCUN `imports` YÖNLENDİRİCİSİNE KONMAMASI BİLİNÇLİ: `/api/imports` bu
+    # önek listesinde DEĞİL, dolayısıyla uç orada olsaydı yasal bekleme
+    # sürelerini içe aktarma yetkisi olan HERKES yazabilirdi. Okuyucu
+    # (`_read_tabular_upload`) paylaşılıyor, YETKİ paylaşılmıyor.
+    # Kapsam firma: eklenen sorguların hepsi kendi `company_id=:cid` yüklemini
+    # taşıyor ve hiçbiri istekten gelen bir metni SQL'e koymuyor.
+    "1ad1793c9536bdf5cd4ab71e4ce4dfbdef984a14a84a0cc81aa220550c382943"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

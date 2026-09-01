@@ -29,6 +29,7 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import type {GridColDef} from '@mui/x-data-grid';
 
 import {api} from '../api';
@@ -38,6 +39,7 @@ import {
   PPP_PATH, farmErrorText, saveFarmRecord,
   type Page, type PlantProtectionProduct,
 } from '../farm/farmApi';
+import PlantProtectionImportDialog from './PlantProtectionImportDialog';
 
 type Urun = {id: number; name: string};
 
@@ -74,6 +76,7 @@ export default function PlantProtectionProducts() {
   >({open: false, row: null, form: BOS});
   const [saving, setSaving] = useState(false);
   const [dialogError, setDialogError] = useState('');
+  const [importOpen, setImportOpen] = useState(false);
 
   const yukle = useCallback(async () => {
     setLoading(true);
@@ -188,6 +191,19 @@ export default function PlantProtectionProducts() {
     {field: 'registration_no', headerName: 'Ruhsat no', width: 150,
       valueGetter: (_v, row) => row.registration_no ?? '—'},
     {field: 'status', headerName: 'Durum', width: 110},
+    {
+      // KÖKEN LİSTEDE GÖRÜNÜR (göç 20260901_0064). Denetimde sorulan soru
+      // "bu 21 nereden geldi"dir ve cevabın kayıtta durup ekranda
+      // görünmemesi, cevabı olmamasından yalnız bir adım iyidir.
+      field: 'origin', headerName: 'Köken', width: 190,
+      renderCell: params => params.row.origin === 'IMPORT'
+        ? (
+          <Chip size="small" variant="outlined"
+                label={params.row.origin_reference ?? 'Dosyadan'}
+                title={params.row.origin_reference ?? undefined} />
+        )
+        : <span>Elle girildi</span>,
+    },
   ];
 
   return (
@@ -195,9 +211,17 @@ export default function PlantProtectionProducts() {
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
         <Typography variant="h5">BKÜ Kataloğu</Typography>
         {yazabilir && (
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => ac(null)}>
-            Yeni kayıt
-          </Button>
+          <Stack direction="row" spacing={1} flexWrap="wrap" gap={1}>
+            {/* Dosyadan doldurma da `farm.manage` istiyor: sunucu zaten
+                reddediyor, buradaki gizleme 403 duvarını önlemek için. */}
+            <Button variant="outlined" startIcon={<UploadFileIcon />}
+                    onClick={() => setImportOpen(true)}>
+              Dosyadan yükle
+            </Button>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => ac(null)}>
+              Yeni kayıt
+            </Button>
+          </Stack>
         )}
       </Stack>
 
@@ -226,6 +250,10 @@ export default function PlantProtectionProducts() {
               row.reentry_interval_days === null ? '—' : `${row.reentry_interval_days} gün`},
             {label: 'Ruhsat no', value: row => row.registration_no ?? '—'},
             {label: 'Durum', value: row => row.status},
+            {label: 'Köken', value: row =>
+              row.origin === 'IMPORT'
+                ? (row.origin_reference ?? 'Dosyadan')
+                : 'Elle girildi'},
           ]}
           cardActions={yazabilir
             ? [{label: 'Düzenle', icon: <EditIcon />, onClick: row => ac(row)}]
@@ -234,6 +262,12 @@ export default function PlantProtectionProducts() {
           onRowClick={row => yazabilir && ac(row)}
         />
       </Box>
+
+      <PlantProtectionImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={() => void yukle()}
+      />
 
       <Dialog open={dialog.open} onClose={() => !saving && setDialog(d => ({...d, open: false}))}
               fullWidth maxWidth="sm">
