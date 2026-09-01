@@ -30,7 +30,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import bindparam, text
+from sqlalchemy import Integer, bindparam, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -1443,6 +1443,10 @@ def _monokultur_dogrula(
     )
 
 
+# PostgreSQL, `GET /field-safety` gibi pid=None çağrısında `$2 IS NULL`
+# karşılaştırması için parametre tipini çıkaramaz (AmbiguousParameter).
+# SQLite NULL'u yutar; üretim diyalekti yutmaz. `cid` integer sütunla
+# karşılaştırıldığı için tipi oradan gelir; `pid` gelmez.
 _GIRIS_SORGU = text(
     """SELECT a.id,a.activity_type,a.performed_at,a.reentry_interval_days,
     p.id parcel_id,p.name parcel_name
@@ -1452,6 +1456,8 @@ _GIRIS_SORGU = text(
     WHERE a.company_id=:cid AND a.reentry_interval_days IS NOT NULL
       AND a.status='RECORDED'
       AND (:pid IS NULL OR p.id=:pid)"""
+).bindparams(
+    bindparam("pid", type_=Integer),
 )
 
 

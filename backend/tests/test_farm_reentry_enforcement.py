@@ -46,6 +46,8 @@ def test_reentry_query_is_parcel_scoped_and_tenant_bound() -> None:
     assert "company_id=:cid" in govde
     assert "reentry_interval_days IS NOT NULL" in govde
     assert ":pid" in govde
+    # pid=None (field-safety) PostgreSQL'de tipi belirsiz kalmasın.
+    assert 'bindparam("pid", type_=Integer)' in govde
 
 
 def run_reentry_smoke(database_url: str) -> None:
