@@ -52,6 +52,14 @@ export type CropSeason = {
   monoculture_warning?: string | null;
 };
 
+/**
+ * PHI değerinin KÖKENİ (göç 20260901_0063).
+ *
+ * `null` iki farklı şeyi birden söyler ve ikisi de "kilit yok" demektir:
+ * ya süre hiç girilmedi ya da satır katalog çağından önce yazıldı.
+ */
+export type PreharvestSource = 'CATALOGUE' | 'OPERATOR' | 'OPERATOR_OVERRIDE';
+
 export type FieldActivity = {
   id: number; season_id: number; activity_type: string; performed_at: string;
   applied_area_decare: Numeric | null; area_override_reason: string | null;
@@ -59,8 +67,56 @@ export type FieldActivity = {
   reentry_interval_days: number | null; preharvest_interval_days: number | null;
   reentry_override_reason?: string | null;
   reentry_warning?: string | null;
+  // Katalogun DEDİĞİ, operatörün yazdığından AYRI durur: üstüne yazma
+  // denetimde görünür olsun diye (sunucu tarafında aynı gerekçe, göç 0048).
+  preharvest_source: PreharvestSource | null;
+  catalogue_preharvest_days: number | null;
   notes: string | null; crop?: string | null; parcel_name?: string | null;
 };
+
+/** BKÜ katalog satırı — bir stok ürününün etiketten gelen bekleme süreleri. */
+export type PlantProtectionProduct = {
+  id: number; product_id: number;
+  /** Listede birleştirilerek geliyor; ham id kullanıcıya bir şey söylemez. */
+  product_name?: string;
+  /** BOŞ DİZE = bütün bitkiler. Bitkiye özel satır bunu yener. */
+  crop: string;
+  registration_no: string | null;
+  preharvest_interval_days: number;
+  reentry_interval_days: number | null;
+  notes: string | null; status: string; updated_at: string;
+};
+
+export const PPP_PATH = '/plant-protection-products';
+
+export async function fetchPlantProtectionProducts(
+  params: {limit?: number; offset?: number; product_id?: number; status?: string} = {},
+): Promise<Page<PlantProtectionProduct>> {
+  const response = await api.get(PPP_PATH, {params});
+  return response.data as Page<PlantProtectionProduct>;
+}
+
+/**
+ * Bir ürün+bitki için katalogdaki satır; yoksa `null`.
+ *
+ * SUNUCUDAKİ ÇÖZÜMÜN AYNISI DEĞİL, ÖNİZLEMESİ. Etkin değeri sunucu belirliyor
+ * (`_phi_coz`); buradaki hesap yalnız formu DOLDURMAK için. İkisinin ayrı
+ * durması bilinçli: istemci hesabı otorite olsaydı, eski bir sekme yeni bir
+ * katalog satırını görmeden yazar ve kullanıcı yanlış süreyi onaylardı.
+ *
+ * Bitkiye ÖZEL satır, bitkiden bağımsız satırı (`crop === ''`) yener — sunucu
+ * tarafındaki `_katalog_phi` ile aynı sıra.
+ */
+export function catalogueMatch(
+  rows: PlantProtectionProduct[], crop: string,
+): PlantProtectionProduct | null {
+  const aktif = rows.filter(r => r.status === 'ACTIVE');
+  const hedef = crop.trim().toLocaleLowerCase('tr');
+  const ozel = aktif.find(
+    r => r.crop.trim() !== '' && r.crop.trim().toLocaleLowerCase('tr') === hedef,
+  );
+  return ozel ?? aktif.find(r => r.crop.trim() === '') ?? null;
+}
 
 export type ActivityInput = {
   id: number; activity_id: number; product_id: number | null;

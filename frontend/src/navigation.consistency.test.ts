@@ -77,6 +77,7 @@ const BOOKMARKED_MENU_URLS=[
  '/tarla/ciftlikler',
  '/tarla/sezonlar',
  '/tarla/faaliyetler',
+ '/tarla/bku-katalogu',
  '/tarla/gorevler',
  '/tarla/hasat',
  '/tarla/hizli-giris',
@@ -172,15 +173,18 @@ describe('navigasyon izin tutarlılığı',()=>{
   // grup sayısı DEĞİŞMEDİ.
   // 49 → 50: Olay Kuyruğu (FIELD_STOK_OUTBOX açılış koşulu 2) — Tarla
   // grubuna eklendi, grup sayısı yine DEĞİŞMEDİ ve hiçbir madde çıkmadı.
-  expect(ALL_NAV_ITEMS.length).toBe(50);
+  // 50 → 51: BKÜ Kataloğu (göç 20260901_0063) — PHI gün sayısının firma
+  // tarafından doldurulan kaydı. Yine Tarla grubunda; grup sayısı DEĞİŞMEDİ
+  // ve hiçbir madde çıkmadı.
+  expect(ALL_NAV_ITEMS.length).toBe(51);
   expect(PINNED_ITEMS.length).toBe(2);
   expect(NAV_GROUPS.length).toBe(9);
  });
 
  it('menü URL sözleşmesi korunur: elle yazılmış adreslerle küme eşitliği',()=>{
   // Bağımsız sözleşme listesiyle karşılaştırma (bkz. BOOKMARKED_MENU_URLS).
-  expect(BOOKMARKED_MENU_URLS).toHaveLength(50);
-  expect(new Set(BOOKMARKED_MENU_URLS).size).toBe(50);
+  expect(BOOKMARKED_MENU_URLS).toHaveLength(51);
+  expect(new Set(BOOKMARKED_MENU_URLS).size).toBe(51);
   const actual=ALL_NAV_ITEMS.map(item=>item.path);
   // Küme eşitliği: sıra önemli değil, içerik birebir olmalı.
   expect([...actual].sort()).toEqual([...BOOKMARKED_MENU_URLS].sort());

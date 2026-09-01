@@ -353,3 +353,57 @@ class TaskUpdate(TaskWrite, _SurumlüGuncelleme):
         if v not in TASK_STATUSES:
             raise ValueError("Geçersiz görev durumu")
         return v
+
+
+# ---------------------------------------------------------------------------
+# BKÜ KATALOĞU (göç 20260901_0063)
+# ---------------------------------------------------------------------------
+
+
+class PlantProtectionProductWrite(_Taban):
+    """Bir stok ürününün BKÜ etiketinden gelen bekleme süreleri.
+
+    ``product_id`` ZORUNLU: ürüne bağlı olmayan bir katalog satırı hiçbir
+    faaliyeti çözemez, yani doldurulup hiç kullanılmayan bir alan olurdu.
+
+    ``crop`` BOŞ BIRAKILABİLİR ve boş bırakmak "bütün bitkiler" demektir.
+    Sezonun bitkisiyle eşleşen satır varsa o, yoksa bu kullanılır — böylece
+    firma tek satırla başlayıp gerektiğinde bitkiye özelleştirebiliyor.
+    """
+
+    product_id: int = Field(gt=0)
+    crop: str = Field(default="", max_length=120)
+    registration_no: str | None = Field(default=None, max_length=60)
+    # Kataloğun VAR OLMA SEBEBİ; boş geçilemez. Üst sınır faaliyet şemasıyla
+    # AYNI (3650) — iki yer farklı sınır koysaydı katalogdan çözülen bir değer
+    # faaliyete yazılamaz ve hata kullanıcıya anlamsız görünürdü.
+    preharvest_interval_days: int = Field(ge=0, le=3650)
+    reentry_interval_days: int | None = Field(default=None, ge=0, le=3650)
+    notes: str | None = None
+
+    @field_validator("crop")
+    @classmethod
+    def bitki(cls, value: str) -> str:
+        # Boş dize GEÇERLİ (bütün bitkiler); `_metin` boşu reddettiği için
+        # burada yalnız boşluk sadeleştirmesi yapılıyor.
+        return " ".join(value.split())
+
+    @field_validator("registration_no")
+    @classmethod
+    def ruhsat(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        temiz = " ".join(value.split())
+        return temiz or None
+
+
+class PlantProtectionProductUpdate(PlantProtectionProductWrite, _SurumlüGuncelleme):
+    status: str = "ACTIVE"
+
+    @field_validator("status")
+    @classmethod
+    def durum(cls, value: str) -> str:
+        v = _metin(value).upper()
+        if v not in LIFECYCLE_STATUSES:
+            raise ValueError("Geçersiz durum")
+        return v

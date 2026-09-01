@@ -3033,6 +3033,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/plant-protection-products": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Ppp */
+        get: operations["list_ppp_api_plant_protection_products_get"];
+        put?: never;
+        /** Create Ppp */
+        post: operations["create_ppp_api_plant_protection_products_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plant-protection-products/{ppp_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Ppp */
+        get: operations["get_ppp_api_plant_protection_products__ppp_id__get"];
+        /** Update Ppp */
+        put: operations["update_ppp_api_plant_protection_products__ppp_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/platform/audit": {
         parameters: {
             query?: never;
@@ -7272,6 +7308,62 @@ export interface components {
             reference_id?: number | null;
             /** Reference Type */
             reference_type?: string | null;
+        };
+        /** PlantProtectionProductUpdate */
+        PlantProtectionProductUpdate: {
+            /**
+             * Crop
+             * @default
+             */
+            crop: string;
+            /**
+             * Expected Updated At
+             * Format: date-time
+             */
+            expected_updated_at: string;
+            /** Notes */
+            notes?: string | null;
+            /** Preharvest Interval Days */
+            preharvest_interval_days: number;
+            /** Product Id */
+            product_id: number;
+            /** Reentry Interval Days */
+            reentry_interval_days?: number | null;
+            /** Registration No */
+            registration_no?: string | null;
+            /**
+             * Status
+             * @default ACTIVE
+             */
+            status: string;
+        };
+        /**
+         * PlantProtectionProductWrite
+         * @description Bir stok ürününün BKÜ etiketinden gelen bekleme süreleri.
+         *
+         *     ``product_id`` ZORUNLU: ürüne bağlı olmayan bir katalog satırı hiçbir
+         *     faaliyeti çözemez, yani doldurulup hiç kullanılmayan bir alan olurdu.
+         *
+         *     ``crop`` BOŞ BIRAKILABİLİR ve boş bırakmak "bütün bitkiler" demektir.
+         *     Sezonun bitkisiyle eşleşen satır varsa o, yoksa bu kullanılır — böylece
+         *     firma tek satırla başlayıp gerektiğinde bitkiye özelleştirebiliyor.
+         */
+        PlantProtectionProductWrite: {
+            /**
+             * Crop
+             * @default
+             */
+            crop: string;
+            /** Notes */
+            notes?: string | null;
+            /** Preharvest Interval Days */
+            preharvest_interval_days: number;
+            /** Product Id */
+            product_id: number;
+            /** Reentry Interval Days */
+            reentry_interval_days?: number | null;
+            /** Registration No */
+            registration_no?: string | null;
         };
         /** PosLookupProduct */
         PosLookupProduct: {
@@ -15219,6 +15311,139 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_ppp_api_plant_protection_products_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                product_id?: number | null;
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_ppp_api_plant_protection_products_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlantProtectionProductWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ppp_api_plant_protection_products__ppp_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ppp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_ppp_api_plant_protection_products__ppp_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ppp_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlantProtectionProductUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
             };
             /** @description Validation Error */
             422: {

@@ -724,6 +724,12 @@ def csrf_is_valid(request: Request) -> bool:
 _FARM_PATH_PREFIXES = (
     "/api/farms",
     "/api/farm-parcels",
+    # BKÜ kataloğu (göç 20260901_0063). PHI gün sayısının kaydı tarla
+    # verisidir; okuması `farm.view`, yazması `farm.manage`. `/api/field` ile
+    # BAŞLAMIYOR, yani aşağıdaki saha servis kuralına düşmezdi — ama listede
+    # olmasaydı genel `read` iznine düşerdi ve bekleme sürelerini okuma yetkisi
+    # olan herkes değiştirebilirdi.
+    "/api/plant-protection-products",
     "/api/crop-seasons",
     "/api/field-activities",
     "/api/field-harvest-decision",

@@ -229,8 +229,8 @@ DYNAMIC_PERMISSION_CASES = {
     },
 }
 
-EXPECTED_OPERATION_COUNT = 340
-EXPECTED_PATH_COUNT = 263
+EXPECTED_OPERATION_COUNT = 344
+EXPECTED_PATH_COUNT = 265
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -292,7 +292,19 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # ile `farm.view` ÖLÇÜLDÜ, SONRA parmak izi alındı.
     # Uçlar SALT OKUR; tüketici davranışı ve `FIELD_STOCK_OUTBOX_ENABLED`
     # varsayılanı DEĞİŞMEDİ.
-    "c7a3c174419f7f1d6bd62ac36f7ffc476a84377b010d526925096b54aaf380a6"
+    # 20260901 BKÜ KATALOĞU (göç 20260901_0063): 4 operasyon, 2 yol eklendi —
+    #   GET/POST /api/plant-protection-products
+    #   GET/PUT  /api/plant-protection-products/{ppp_id}
+    # Katalog PHI (hasat bekleme) gün sayısının firma tarafından doldurulan
+    # kaydıdır. İzin `_FARM_PATH_PREFIXES`'e eklenen önekten geliyor: okuma
+    # `farm.view`, yazma `farm.manage`. ÖNEK LİSTESİNE EKLENMESEYDİ uçlar
+    # genel `read` iznine düşerdi ve okuma yetkisi olan HERKES yasal bekleme
+    # sürelerini değiştirebilirdi — 340->344 sayı artışı bunu gizlemez, ama
+    # izni de doğrulamaz; o yüzden sıra yine korundu: önce önek eklendi,
+    # `required_permission` ile ÖLÇÜLDÜ, sonra parmak izi alındı.
+    # Kapsam firma: dört ucun dördü de kendi `company_id=:cid` yüklemini
+    # taşıyor ve tekil okumalar `_satir` üzerinden geçiyor.
+    "ebf0189b653b9e9f817a1cf207102fab8e51124446895efea2d2fe2afed78f2d"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

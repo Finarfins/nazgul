@@ -78,6 +78,12 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     # eklenmeseydi `field_service` iznine düşerdi — bu tuzak iki kez yaşandı.
     ("GET", "/api/field-safety"): "farm.view",
     ("GET", "/api/field-tasks"): "farm.view",
+    # BKÜ kataloğu (göç 20260901_0063). `/api/field` önekiyle BAŞLAMIYOR, yani
+    # saha servis tuzağına düşmezdi — ama önek listesinde olmasaydı genel
+    # `read` iznine düşerdi ve yasal bekleme sürelerini okuma yetkisi olan
+    # herkes değiştirebilirdi. Okuma tarafı diğer tarla listeleriyle AYNI rol.
+    ("GET", "/api/plant-protection-products"): "farm.view",
+    ("GET", "/api/plant-protection-products/{ppp_id}"): "farm.view",
 
     # --- field_service — `/api/field` önekinden; saha çevrimdışı anlık görüntüsü.
     ("GET", "/api/field/snapshot"): "field_service",
@@ -268,9 +274,9 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # 160 -> 162: outbox okuma yüzeyinin İKİ GET ucu (liste + özet). Başka
 # hiçbir ucun izni değişmedi; drift raporu `changed` ve `stale` listelerini
 # BOŞ ölçtü, yani bu artış YALNIZ ekleme.
-GET_INVENTORY_COUNT = 162
+GET_INVENTORY_COUNT = 164
 GET_INVENTORY_FINGERPRINT = (
-    "9ee2e037105c6c9320cb5b6be0576165d6455b633a5db00d7d856e556af75895"
+    "3aa237d4ef49c4bf4508d633d0af1c9e91d23971080718218181affc1391d3b9"
 )
 
 

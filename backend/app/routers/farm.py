@@ -43,6 +43,8 @@ from ..farm_schemas import (
     HarvestWrite,
     ParcelUpdate,
     ParcelWrite,
+    PlantProtectionProductUpdate,
+    PlantProtectionProductWrite,
     SeasonUpdate,
     SeasonWrite,
     TaskUpdate,
@@ -92,6 +94,7 @@ def _satir(db: Session, cid: int, tablo: str, kayit_id: int) -> dict[str, Any]:
 _TABLOLAR = frozenset({
     "farms", "farm_parcels", "crop_seasons", "field_activities",
     "field_activity_inputs", "field_harvests", "field_tasks",
+    "plant_protection_products",
 })
 
 
@@ -1002,6 +1005,7 @@ def list_activities(
         text(
             f"""SELECT id,season_id,activity_type,performed_at,applied_area_decare,
             operator_user_id,machine_id,reentry_interval_days,preharvest_interval_days,
+            preharvest_source,catalogue_preharvest_days,
             notes,area_override_reason,reentry_override_reason,reentry_warning,status,
             labor_hours,labor_hourly_rate,machine_hours,machine_hourly_rate,
             updated_at
@@ -1113,16 +1117,22 @@ def create_activity(payload: ActivityWrite, request: Request, db: Session = Depe
         db, cid, "MACHINE", payload.machine_id,
         payload.machine_hourly_rate, payload.machine_hours,
     )
+    # PHI KÖKENİ BURADA ÇÖZÜLÜYOR — girdiler yazılmadan ÖNCE. Süre faaliyet
+    # BAŞLIĞINDA duruyor, girdiler ise satırlarda; başlığı yazdıktan sonra
+    # çözmek ikinci bir UPDATE gerektirir ve arada kesilme, kökeni boş ama
+    # süresi dolu bir satır bırakırdı.
+    katalog_gun, etkin_gun, koken = _phi_coz(db, cid, payload, sezon)
     yeni = db.execute(
         text(
             """INSERT INTO field_activities(company_id,season_id,activity_type,performed_at,
             applied_area_decare,operator_user_id,machine_id,reentry_interval_days,
-            preharvest_interval_days,notes,area_override_reason,
-            reentry_override_reason,reentry_warning,status,
+            preharvest_interval_days,preharvest_source,catalogue_preharvest_days,
+            notes,area_override_reason,reentry_override_reason,reentry_warning,status,
             labor_hours,labor_hourly_rate,machine_hours,machine_hourly_rate,
             created_at,updated_at)
             VALUES(:cid,:season_id,:activity_type,:performed_at,:applied_area_decare,
             :operator_user_id,:machine_id,:reentry_interval_days,:preharvest_interval_days,
+            :preharvest_source,:catalogue_preharvest_days,
             :notes,:area_override_reason,:reentry_override_reason,:reentry_warning,'RECORDED',
             :labor_hours,:labor_hourly_rate,:machine_hours,:machine_hourly_rate,
             :now,:now) RETURNING id"""
@@ -1130,6 +1140,10 @@ def create_activity(payload: ActivityWrite, request: Request, db: Session = Depe
         {
             "cid": cid, "now": now, "reentry_warning": giris_uyari,
             **payload.model_dump(exclude={"inputs"}),
+            # Şemadan gelen ham süreyi DEĞİL, çözülmüş etkin değeri yazıyoruz.
+            "preharvest_interval_days": etkin_gun,
+            "preharvest_source": koken,
+            "catalogue_preharvest_days": katalog_gun,
             # Saatler de normalize ediliyor: istemci "2" de "2.0000" da
             # gönderebilir, sütun 18,4 ve iki diyalekt aynı değeri saklamalı.
             "labor_hours": (
@@ -2236,3 +2250,213 @@ def field_dashboard(request: Request, db: Session = Depends(get_db)):
         },
         "seasons": sezon_ozet,
     }
+
+
+# ---------------------------------------------------------------------------
+# BKÜ KATALOĞU VE PHI KÖKENİ (göç 20260901_0063)
+# ---------------------------------------------------------------------------
+#
+# PHI kilidi 0046/0048'den beri çalışıyor ama beslendiği sayı ELLE giriliyordu:
+# operatör yazmayı unuttuğunda kilit sessizce hiçbir şey yapmıyordu. Katalog o
+# sayının ETİKETTEN gelen kaydı.
+#
+# ÜÇ KURAL, ÜÇÜ DE BİLİNÇLİ:
+#
+# 1. KATALOG ÖNERİR, OPERATÖR KARAR VERİR. Operatörün girdiği değer HER ZAMAN
+#    kazanır. Katalog sahayı ezseydi, etiketi elinde tutan kişi sistemi
+#    düzeltemez hâle gelirdi.
+# 2. KÖKEN KAYIT ALTINDA. Üstüne yazma SESSİZ OLAMAZ; hangi değerin nereden
+#    geldiği ayrı sütunlarda duruyor (0048'in kurduğu desen).
+# 3. BOŞUN ANLAMI DEĞİŞMEDİ. Katalog da bir şey bulamazsa süre BOŞ kalır ve boş
+#    hâlâ ihlal DEĞİLDİR (`_bekleme_ihlalleri`). Bu göç boşun anlamını değil,
+#    boş kalma SIKLIĞINI düşürüyor.
+
+_PHI_KOKEN_KATALOG = "CATALOGUE"
+_PHI_KOKEN_OPERATOR = "OPERATOR"
+_PHI_KOKEN_USTUNE_YAZMA = "OPERATOR_OVERRIDE"
+
+
+def _bitki_esit(a: str, b: str) -> bool:
+    """Bitki adları SERBEST METİN; karşılaştırma Python'da yapılıyor.
+
+    SQL'de ``LOWER()`` ile karşılaştırmak cazipti ama Türkçe'de İ/ı eşlemesi
+    DİYALEKTE BAĞLI: SQLite'ın ``LOWER``ı ASCII dışına dokunmaz, PostgreSQL'inki
+    yerel ayara göre davranır. İki diyalektin AYNI kataloğu farklı çözmesi,
+    ikizi koşulan bir testin yakalayamayacağı bir sapma olurdu — hesabı
+    tek bir yerde, Python'da tutuyoruz.
+    """
+    return a.casefold() == b.casefold()
+
+
+def _katalog_phi(db: Session, cid: int, product_id: int, bitki: str) -> int | None:
+    """Ürün için katalogdaki PHI; bitkiye ÖZEL satır varsa onu tercih eder.
+
+    Bitkiden bağımsız satır (``crop=''``) yedek: firma tek satırla başlayıp
+    gerektiğinde bitkiye özelleştirebilsin diye.
+    """
+    satirlar = db.execute(
+        text(
+            """SELECT crop,preharvest_interval_days
+            FROM plant_protection_products
+            WHERE company_id=:cid AND product_id=:pid AND status='ACTIVE'"""
+        ),
+        {"cid": cid, "pid": int(product_id)},
+    ).mappings().all()
+
+    genel: int | None = None
+    for r in satirlar:
+        katalog_bitki = (r["crop"] or "").strip()
+        if katalog_bitki and _bitki_esit(katalog_bitki, bitki):
+            # Bitkiye ÖZEL satır bulundu; yedeğe bakmaya gerek yok.
+            return int(r["preharvest_interval_days"])
+        if not katalog_bitki:
+            genel = int(r["preharvest_interval_days"])
+    return genel
+
+
+def _phi_coz(
+    db: Session, cid: int, payload: ActivityWrite, sezon: dict[str, Any],
+) -> tuple[int | None, int | None, str | None]:
+    """``(katalogun_dediği, etkin_değer, köken)``.
+
+    Birden çok girdi varsa EN UZUN bekleme kazanır: iki ilaç atıldığında
+    kısa olanı seçmek, uzun olanın süresi dolmadan hasada izin verirdi.
+    """
+    bitki = str(sezon.get("crop") or "").strip()
+    katalog: int | None = None
+    for girdi in payload.inputs or []:
+        if girdi.product_id is None:
+            # Serbest metin girdi (kendi ürettiği gübre) — etiketi yok, çözülmez.
+            continue
+        gun = _katalog_phi(db, cid, girdi.product_id, bitki)
+        if gun is not None and (katalog is None or gun > katalog):
+            katalog = gun
+
+    operator = payload.preharvest_interval_days
+    if operator is None:
+        if katalog is None:
+            # Ne operatör ne katalog: süre BOŞ kalır ve boş ihlal değildir.
+            return None, None, None
+        return katalog, katalog, _PHI_KOKEN_KATALOG
+    if katalog is None:
+        return None, operator, _PHI_KOKEN_OPERATOR
+    # Katalog da konuştu, operatör de. Operatör kazanır — ama aynı şeyi
+    # söylüyorlarsa bu bir ÜSTÜNE YAZMA DEĞİLDİR; her uyuşmazlığı üstüne yazma
+    # saymak denetimde gerçek üstüne yazmaları görünmez kılardı.
+    if operator == katalog:
+        return katalog, operator, _PHI_KOKEN_OPERATOR
+    return katalog, operator, _PHI_KOKEN_USTUNE_YAZMA
+
+
+@router.get("/plant-protection-products")
+def list_ppp(
+    request: Request,
+    limit: int = _SAYFA,
+    offset: int = _ATLA,
+    product_id: int | None = None,
+    status: str | None = None,
+    db: Session = Depends(get_db),
+):
+    cid = company_id(request)
+    kosul = ""
+    params: dict[str, Any] = {"cid": cid, "limit": limit, "offset": offset}
+    if product_id:
+        kosul += " AND k.product_id=:product_id"
+        params["product_id"] = product_id
+    if status:
+        kosul += " AND k.status=:status"
+        params["status"] = status.strip().upper()
+    toplam = db.execute(
+        text(
+            f"SELECT COUNT(*) FROM plant_protection_products k "
+            f"WHERE k.company_id=:cid{kosul}"
+        ),
+        params,
+    ).scalar()
+    # ÜRÜN ADI BİRLEŞTİRİLEREK GELİYOR: ekran ham `product_id` gösterseydi
+    # kullanıcı hangi ilacın kaydını düzenlediğini bilemezdi. Birleştirme
+    # KİRACI İÇİNDE: `u.company_id=k.company_id` olmadan başka firmanın ürün
+    # adı bu listeye düşebilirdi.
+    rows = db.execute(
+        text(
+            f"""SELECT k.id,k.product_id,u.name AS product_name,k.crop,
+            k.registration_no,k.preharvest_interval_days,
+            k.reentry_interval_days,k.notes,k.status,k.updated_at
+            FROM plant_protection_products k
+            JOIN products u ON u.id=k.product_id AND u.company_id=k.company_id
+            WHERE k.company_id=:cid{kosul}
+            ORDER BY u.name,k.crop LIMIT :limit OFFSET :offset"""
+        ),
+        params,
+    ).mappings().all()
+    return {"items": [dict(r) for r in rows], "total": int(toplam or 0),
+            "limit": limit, "offset": offset}
+
+
+@router.post("/plant-protection-products", status_code=201)
+def create_ppp(
+    payload: PlantProtectionProductWrite, request: Request,
+    db: Session = Depends(get_db),
+):
+    cid = company_id(request)
+    # Ürün AYNI firmaya ait olmalı. Veritabanındaki bileşik yabancı anahtar da
+    # bunu zorluyor; buradaki kontrol kullanıcıya 404 veriyor, 500 değil.
+    _urun_dogrula(db, cid, payload.product_id)
+    now = _simdi()
+    try:
+        yeni = db.execute(
+            text(
+                """INSERT INTO plant_protection_products(company_id,product_id,crop,
+                registration_no,preharvest_interval_days,reentry_interval_days,
+                notes,status,created_at,updated_at)
+                VALUES(:cid,:product_id,:crop,:registration_no,
+                :preharvest_interval_days,:reentry_interval_days,:notes,'ACTIVE',
+                :now,:now) RETURNING id"""
+            ),
+            {"cid": cid, "now": now, **payload.model_dump()},
+        ).scalar_one()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            409, "Bu ürün ve bitki için katalog kaydı zaten var"
+        ) from exc
+    db.commit()
+    return _satir(db, cid, "plant_protection_products", int(yeni))
+
+
+@router.get("/plant-protection-products/{ppp_id}")
+def get_ppp(ppp_id: int, request: Request, db: Session = Depends(get_db)):
+    return _satir(db, company_id(request), "plant_protection_products", ppp_id)
+
+
+@router.put("/plant-protection-products/{ppp_id}")
+def update_ppp(
+    ppp_id: int, payload: PlantProtectionProductUpdate, request: Request,
+    db: Session = Depends(get_db),
+):
+    cid = company_id(request)
+    mevcut = _satir(db, cid, "plant_protection_products", ppp_id)
+    beklenen_surum = _surum_dogrula(mevcut, payload.expected_updated_at)
+    _urun_dogrula(db, cid, payload.product_id)
+    veri = payload.model_dump(exclude={"expected_updated_at"})
+    try:
+        sonuc = db.execute(
+            text(
+                """UPDATE plant_protection_products SET product_id=:product_id,
+                crop=:crop,registration_no=:registration_no,
+                preharvest_interval_days=:preharvest_interval_days,
+                reentry_interval_days=:reentry_interval_days,notes=:notes,
+                status=:status,updated_at=:now
+                WHERE id=:id AND company_id=:cid AND updated_at=:expected_updated_at"""
+            ),
+            {"id": ppp_id, "cid": cid, "now": _simdi(),
+             "expected_updated_at": beklenen_surum, **veri},
+        )
+        _cas_sonuc_dogrula(db, sonuc)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            409, "Bu ürün ve bitki için katalog kaydı zaten var"
+        ) from exc
+    db.commit()
+    return _satir(db, cid, "plant_protection_products", ppp_id)

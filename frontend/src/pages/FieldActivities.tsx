@@ -30,10 +30,10 @@ import {api} from '../api';
 import {useAuth} from '../AuthContext';
 import ResponsiveTable from '../components/ResponsiveTable';
 import {
-  activityTypeLabel, ACTIVITY_TYPES, DEFAULT_FARM_POLICIES, farmErrorText,
-  isoDateTime, money, qty, todayIso,
+  activityTypeLabel, ACTIVITY_TYPES, catalogueMatch, DEFAULT_FARM_POLICIES,
+  farmErrorText, fetchPlantProtectionProducts, isoDateTime, money, qty, todayIso,
   type ActivityInput, type CropSeason, type FarmPolicySettings,
-  type FieldActivity, type Page,
+  type FieldActivity, type Page, type PlantProtectionProduct,
 } from '../farm/farmApi';
 import {flushFarmOutbox, readFarmOutbox, saveOrQueueFarmCreate} from '../farm/farmOutbox';
 import {decimal, moneyDecimal} from '../utils/documentMoney';
@@ -61,6 +61,15 @@ type ActivityForm = {
   applied_area_decare: string; area_override_reason: string;
   reentry_interval_days: string; preharvest_interval_days: string;
   reentry_override_reason: string; notes: string;
+  // BKÜ kataloğundan seçilen ürün ve ona bağlı girdi satırı. Ürün seçilince
+  // bekleme süreleri ÖNERİ olarak dolar; kullanıcı üstüne yazabilir.
+  //
+  // Girdi satırı BİRLİKTE gidiyor ve bu bilinçli: yalnız süreyi doldurup ürünü
+  // göndermeseydik sunucu değeri OPERATOR kökenli sayardı ve ekranda
+  // "katalogdan geldi" yazarken kayıtta "operatör yazdı" görünürdü.
+  ppp_product_id: string;
+  input_name: string; input_quantity: string; input_unit: string;
+  input_dose: string; input_dose_unit: string;
 };
 
 const activityInputTotal = (inputs: ActivityInput[]) => {
@@ -75,6 +84,8 @@ const bosFaaliyet = (): ActivityForm => ({
   season_id: '', activity_type: 'SPRAYING', performed_at: `${todayIso()}T08:00`,
   applied_area_decare: '', area_override_reason: '',
   reentry_interval_days: '', preharvest_interval_days: '', reentry_override_reason: '', notes: '',
+  ppp_product_id: '', input_name: '', input_quantity: '', input_unit: '',
+  input_dose: '', input_dose_unit: '',
 });
 const BOS_GIRDI: InputForm = {input_name: '', quantity: '', unit: '', unit_cost: '', dose: '', dose_unit: ''};
 
@@ -91,6 +102,7 @@ export default function FieldActivities() {
   const [activities, setActivities] = useState<FieldActivity[]>([]);
   const [seasons, setSeasons] = useState<CropSeason[]>([]);
   const [policies, setPolicies] = useState<FarmPolicySettings>(DEFAULT_FARM_POLICIES);
+  const [katalog, setKatalog] = useState<PlantProtectionProduct[]>([]);
   const [turFiltre, setTurFiltre] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -112,14 +124,18 @@ export default function FieldActivities() {
     try {
       const params: Record<string, unknown> = {limit: 200};
       if (turFiltre) params.activity_type = turFiltre;
-      const [a, s, p] = await Promise.all([
+      const [a, s, p, k] = await Promise.all([
         api.get<Page<FieldActivity>>('/field-activities', {params}),
         api.get<Page<CropSeason>>('/crop-seasons', {params: {limit: 200}}),
         api.get<FarmPolicySettings>('/company-settings'),
+        // Katalog BOŞ GELEBİLİR ve bu normal: firma henüz doldurmamıştır.
+        // Boş katalog seçiciyi gizler, ekranı bozmaz.
+        fetchPlantProtectionProducts({limit: 200, status: 'ACTIVE'}),
       ]);
       setActivities(a.data.items);
       setSeasons(s.data.items);
       setPolicies({...DEFAULT_FARM_POLICIES, ...p.data});
+      setKatalog(k.items);
     } catch (err) {
       setError(farmErrorText(err, 'Faaliyetler yüklenemedi.'));
     } finally {
@@ -185,6 +201,17 @@ export default function FieldActivities() {
         preharvest_interval_days: sayiNull(f.preharvest_interval_days),
         reentry_override_reason: bosNull(f.reentry_override_reason),
         notes: bosNull(f.notes),
+        // Ürün seçildiyse girdi satırı AYNI istekte gidiyor; sunucu kökeni
+        // ondan çözüyor. Seçilmediyse alan hiç gönderilmiyor — boş bir
+        // `inputs` dizisi göndermek "girdisiz faaliyet" demekle aynı değil.
+        ...(f.ppp_product_id === '' ? {} : {inputs: [{
+          product_id: Number(f.ppp_product_id),
+          input_name: f.input_name.trim(),
+          quantity: ondalik(f.input_quantity),
+          unit: f.input_unit.trim(),
+          dose: f.input_dose.trim() === '' ? null : ondalik(f.input_dose),
+          dose_unit: bosNull(f.input_dose_unit),
+        }]}),
       });
       setDialog({open: false, form: bosFaaliyet()});
       if (sonuc.durum === 'queued') {
@@ -258,12 +285,70 @@ export default function FieldActivities() {
   const ilaclama = dialog.form.activity_type === 'SPRAYING';
   const alanEksik = ilaclama && dialog.form.applied_area_decare.trim() === '';
 
+  /** Katalogda satırı olan ürünler, ürün başına tek kere. */
+  const katalogUrunleri = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const k of katalog) {
+      if (!map.has(k.product_id)) map.set(k.product_id, k.product_name ?? `#${k.product_id}`);
+    }
+    return [...map.entries()].map(([id, ad]) => ({id, ad}));
+  }, [katalog]);
+
+  /**
+   * Ürün (ya da sezon) değişince bekleme sürelerini ÖNERİ olarak doldurur.
+   *
+   * SADECE BU OLAYDA doluyor. Bir efekt her render'da eşitleseydi, kullanıcının
+   * ELLE SİLDİĞİ değer bir sonraki render'da geri gelir ve alan silinemez
+   * görünürdü — testin "temizleyince sessizce geri dolmaz" iddiası tam olarak
+   * bunu çiviliyor.
+   */
+  const katalogUygula = (urunId: string, sezonId: string) => {
+    setDialog(d => {
+      const temel = {...d.form, ppp_product_id: urunId, season_id: sezonId};
+      if (urunId === '') {
+        // Ürün seçimi KALDIRILDI: girdi alanları temizleniyor ama bekleme
+        // süreleri OLDUĞU GİBİ kalıyor — kullanıcı onları elle düzenlemiş
+        // olabilir ve sessizce silmek onun işini geri alırdı.
+        return {...d, form: {...temel, input_name: '', input_quantity: '',
+                             input_unit: '', input_dose: '', input_dose_unit: ''}};
+      }
+      const bitki = sezonBilgi.get(Number(sezonId))?.crop ?? '';
+      const satirlar = katalog.filter(k => k.product_id === Number(urunId));
+      const eslesen = catalogueMatch(satirlar, bitki);
+      const ad = katalogUrunleri.find(u => u.id === Number(urunId))?.ad ?? '';
+      return {...d, form: {
+        ...temel,
+        input_name: ad,
+        preharvest_interval_days: eslesen
+          ? String(eslesen.preharvest_interval_days)
+          : temel.preharvest_interval_days,
+        reentry_interval_days: eslesen && eslesen.reentry_interval_days !== null
+          ? String(eslesen.reentry_interval_days)
+          : temel.reentry_interval_days,
+      }};
+    });
+  };
+
+  const seciliKatalog = dialog.form.ppp_product_id === '' ? null : catalogueMatch(
+    katalog.filter(k => k.product_id === Number(dialog.form.ppp_product_id)),
+    seciliSezon?.crop ?? '',
+  );
+  const urunSecildi = dialog.form.ppp_product_id !== '';
+  const girdiDozZorunlu = urunSecildi && ilaclama && policies.farm_spraying_dose_required;
+
   const faaliyetGecerli =
     dialog.form.season_id !== '' &&
     dialog.form.performed_at !== '' &&
     !alanEksik &&
     !alanBloklu &&
-    (!alanGerekceIstiyor || dialog.form.area_override_reason.trim() !== '');
+    (!alanGerekceIstiyor || dialog.form.area_override_reason.trim() !== '') &&
+    (!urunSecildi || (
+      dialog.form.input_name.trim() !== '' &&
+      dialog.form.input_quantity.trim() !== '' &&
+      dialog.form.input_unit.trim() !== '' &&
+      (!girdiDozZorunlu ||
+        (dialog.form.input_dose.trim() !== '' && dialog.form.input_dose_unit.trim() !== ''))
+    ));
 
   /** İlaçlama faaliyetine bağlanan girdide doz ve doz birimi ZORUNLU.
    *  Miktar tek başına dekar başına kullanımı vermez. */
@@ -354,7 +439,7 @@ export default function FieldActivities() {
           <Stack spacing={2} mt={0.5}>
             {dialogError && <Alert severity="error">{dialogError}</Alert>}
             <TextField select label="Sezon" required value={dialog.form.season_id}
-              onChange={e => setDialog(d => ({...d, form: {...d.form, season_id: e.target.value}}))}>
+              onChange={e => katalogUygula(dialog.form.ppp_product_id, e.target.value)}>
               {seasons.map(s => (
                 <MenuItem key={s.id} value={String(s.id)}>{s.crop} · {s.season_year}</MenuItem>
               ))}
@@ -394,10 +479,58 @@ export default function FieldActivities() {
                 )}
               </>
             )}
+            {katalogUrunleri.length > 0 && (
+              <>
+                <TextField select label="BKÜ ürünü (kataloğdan)" value={dialog.form.ppp_product_id}
+                  helperText="Seçerseniz bekleme süreleri kataloğdan önerilir; üstüne yazabilirsiniz."
+                  onChange={e => katalogUygula(e.target.value, dialog.form.season_id)}>
+                  <MenuItem value="">Seçilmedi</MenuItem>
+                  {katalogUrunleri.map(u => (
+                    <MenuItem key={u.id} value={String(u.id)}>{u.ad}</MenuItem>
+                  ))}
+                </TextField>
+                {urunSecildi && (
+                  <>
+                    {seciliKatalog ? (
+                      <Alert severity="info">
+                        Katalog {seciliKatalog.crop.trim() === ''
+                          ? 'bütün bitkiler için'
+                          : `"${seciliKatalog.crop}" için`} {seciliKatalog.preharvest_interval_days} gün
+                        hasat bekleme söylüyor. Aşağıdaki alanı değiştirirseniz sizin
+                        değeriniz geçerli olur ve bu değişiklik kayda geçer.
+                      </Alert>
+                    ) : (
+                      <Alert severity="warning">
+                        Bu ürünün bu bitki için kataloğda kaydı yok; bekleme süresini
+                        elle girin.
+                      </Alert>
+                    )}
+                    <Stack direction={{xs: 'column', sm: 'row'}} spacing={2}>
+                      <TextField label="Miktar" required inputMode="decimal" fullWidth
+                        value={dialog.form.input_quantity}
+                        onChange={e => setDialog(d => ({...d, form: {...d.form, input_quantity: e.target.value}}))} />
+                      <TextField label="Birim" required fullWidth value={dialog.form.input_unit}
+                        onChange={e => setDialog(d => ({...d, form: {...d.form, input_unit: e.target.value}}))} />
+                    </Stack>
+                    {girdiDozZorunlu && (
+                      <Stack direction={{xs: 'column', sm: 'row'}} spacing={2}>
+                        <TextField label="Doz" required inputMode="decimal" fullWidth
+                          value={dialog.form.input_dose}
+                          onChange={e => setDialog(d => ({...d, form: {...d.form, input_dose: e.target.value}}))} />
+                        <TextField label="Doz birimi" required fullWidth
+                          value={dialog.form.input_dose_unit}
+                          onChange={e => setDialog(d => ({...d, form: {...d.form, input_dose_unit: e.target.value}}))} />
+                      </Stack>
+                    )}
+                  </>
+                )}
+              </>
+            )}
             <Stack direction={{xs: 'column', sm: 'row'}} spacing={2}>
               <TextField label="Tarlaya giriş yasağı (gün)" type="number" fullWidth value={dialog.form.reentry_interval_days}
                 onChange={e => setDialog(d => ({...d, form: {...d.form, reentry_interval_days: e.target.value}}))} />
               <TextField label="Hasat bekleme (gün)" type="number" fullWidth value={dialog.form.preharvest_interval_days}
+                inputProps={{'aria-label': 'Hasat bekleme (gün)'}}
                 onChange={e => setDialog(d => ({...d, form: {...d.form, preharvest_interval_days: e.target.value}}))} />
             </Stack>
             <TextField label="Giriş yasağı gerekçesi" value={dialog.form.reentry_override_reason}
