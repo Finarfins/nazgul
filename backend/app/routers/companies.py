@@ -47,6 +47,12 @@ class CompanyPolicyUpdate(BaseModel):
     farm_monoculture_policy: Literal["warn", "require_reason", "block"] | None = None
     farm_reentry_policy: Literal["warn", "require_reason", "block"] | None = None
 
+    # Hayvan ilaç bekleme süresi süt kilidi (PR-1). `allow` yok — en gevşek
+    # seviye `warn`; kontrolü tamamen kapatabilen bir ayar sessiz bir
+    # güvenlik kapatma düğmesi olurdu. PR-2 `herd_withdrawal_meat_policy`yi
+    # ayrı bir sütun olarak ekleyecek.
+    herd_withdrawal_milk_policy: Literal["warn", "require_reason", "block"] | None = None
+
     @field_validator("tax_number")
     @classmethod
     def validate_vkn(cls, value: str | None) -> str | None:
@@ -114,6 +120,8 @@ def get_company_settings(request: Request, db: Session = Depends(get_db)):
             companies.c.farm_spraying_dose_required,
             companies.c.farm_monoculture_policy,
             companies.c.farm_reentry_policy,
+
+            companies.c.herd_withdrawal_milk_policy,
         ).where(companies.c.id == cid)
     ).mappings().first()
     if not row:
@@ -142,6 +150,8 @@ def update_company_settings(
         "farm_spraying_dose_required",
         "farm_monoculture_policy",
         "farm_reentry_policy",
+
+        "herd_withdrawal_milk_policy",
     ):
         if alan in payload.model_fields_set:
             values[alan] = getattr(payload, alan)
@@ -165,6 +175,8 @@ def update_company_settings(
         "farm_spraying_dose_required": values.get("farm_spraying_dose_required"),
         "farm_monoculture_policy": values.get("farm_monoculture_policy"),
         "farm_reentry_policy": values.get("farm_reentry_policy"),
+
+        "herd_withdrawal_milk_policy": values.get("herd_withdrawal_milk_policy"),
         "tax_number": values.get("tax_number"),
         "warning": warning,
     }

@@ -756,6 +756,8 @@ _FARM_PATH_PREFIXES = (
 _HERD_PATH_PREFIXES = (
     "/api/animals",
     "/api/animal-groups",
+    "/api/animal-drug-treatments",
+    "/api/animal-drug-catalogue",
     "/api/animal-vaccinations",
     "/api/animal-breedings",
     "/api/animal-births",

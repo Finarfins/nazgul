@@ -105,6 +105,10 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 
     # --- herd.view — `_HERD_PATH_PREFIXES` önek kuralından devralınıyor.
     ("GET", "/api/animal-births"): "herd.view",
+    ("GET", "/api/animal-drug-catalogue"): "herd.view",
+    ("GET", "/api/animal-drug-catalogue/{catalogue_id}"): "herd.view",
+    ("GET", "/api/animal-drug-treatments"): "herd.view",
+    ("GET", "/api/animal-drug-treatments/{treatment_id}"): "herd.view",
     ("GET", "/api/animal-breedings"): "herd.view",
     ("GET", "/api/animal-breedings/{breeding_id}"): "herd.view",
     ("GET", "/api/animal-groups"): "herd.view",
@@ -274,9 +278,9 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # 160 -> 162: outbox okuma yüzeyinin İKİ GET ucu (liste + özet). Başka
 # hiçbir ucun izni değişmedi; drift raporu `changed` ve `stale` listelerini
 # BOŞ ölçtü, yani bu artış YALNIZ ekleme.
-GET_INVENTORY_COUNT = 164
+GET_INVENTORY_COUNT = 168
 GET_INVENTORY_FINGERPRINT = (
-    "3aa237d4ef49c4bf4508d633d0af1c9e91d23971080718218181affc1391d3b9"
+    "a5f703deea148cf4165783a79e43d8800f2eeb059c8c45a0c2fc5fa2f6b4cbf0"
 )
 
 

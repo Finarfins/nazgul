@@ -34,6 +34,10 @@ from ..business_time import business_today
 from ..db import get_db
 from ..herd_schemas import (
     MOVEMENT_TO_STATUS,
+    AnimalDrugCatalogueUpdate,
+    AnimalDrugCatalogueWrite,
+    AnimalDrugTreatmentUpdate,
+    AnimalDrugTreatmentWrite,
     AnimalUpdate,
     AnimalWrite,
     BirthWrite,
@@ -67,6 +71,10 @@ from ..herd_vaccine_schedule import (
     DUE,
     hayvan_durumlari,
 )
+from ..herd_withdrawal import (
+    BeklemeIhlali,
+    sut_bekleme_ihlalleri,
+)
 from ..tenancy import company_id
 
 router = APIRouter(tags=["herd"])
@@ -77,6 +85,7 @@ _ATLA = Query(default=0, ge=0, le=100_000)
 _TABLOLAR = frozenset({
     "animals", "animal_groups", "animal_vaccinations", "animal_breedings",
     "animal_births", "animal_weights", "milk_yields", "animal_movements",
+    "animal_drug_treatments", "animal_drug_catalogue",
 })
 
 
@@ -815,6 +824,197 @@ def create_weight(payload: WeightWrite, request: Request, db: Session = Depends(
 
 # ---------------------------------------------------------------------- süt ---
 
+_HERD_VARSAYILAN_KURALLAR = {
+    "herd_withdrawal_milk_policy": "require_reason",
+}
+
+def _firma_herd_kurallari(db: Session, cid: int) -> dict[str, Any]:
+    """Firmanın hayvancılık kural ayarları; satır okunamazsa VARSAYILAN (sıkı).
+
+    ``_firma_kurallari`` (farm.py) ile aynı desen; fail-closed. Okunamayan bir
+    ayarda gevşek tarafa düşmek, bir veritabanı sorununu sessizce kural
+    gevşetmesine çevirirdi.
+    """
+    row = db.execute(
+        text(
+            """SELECT herd_withdrawal_milk_policy FROM companies WHERE id=:cid"""
+        ),
+        {"cid": cid},
+    ).mappings().first()
+    if not row:
+        return dict(_HERD_VARSAYILAN_KURALLAR)
+    return {
+        "herd_withdrawal_milk_policy": (
+            row["herd_withdrawal_milk_policy"] or "require_reason"
+        ),
+    }
+
+def _ilac_katalog_coz(
+    db: Session, cid: int, drug_name: str, species: str | None,
+) -> dict[str, Any] | None:
+    """İlaç + tür için katalog satırını çöz: tür özeli önce, joker yedek.
+
+    ``species=''`` joker ("bütün türler"); `MIXED` gerçek bir değerdir ve
+    joker ile karışmaz. Eşleşme Python'da yapılıyor: SQL ``LOWER()`` Türkçe
+    İ/ı diyalekte göre değişir (PR #18'in aynı gerekçesi).
+    """
+    satirlar = db.execute(
+        text(
+            """SELECT id,drug_name,species,milk_withdrawal_days,meat_withdrawal_days
+            FROM animal_drug_catalogue
+            WHERE company_id=:cid AND status='ACTIVE'"""
+        ),
+        {"cid": cid},
+    ).mappings().all()
+    aranan = drug_name.casefold().strip()
+    ozel: dict[str, Any] | None = None
+    joker: dict[str, Any] | None = None
+    for r in satirlar:
+        if str(r["drug_name"]).casefold().strip() != aranan:
+            continue
+        katalog_tur = str(r["species"] or "").strip()
+        if katalog_tur and species and katalog_tur == species.strip().upper():
+            ozel = dict(r)
+            break
+        if not katalog_tur:
+            joker = dict(r)
+    return ozel or joker
+
+def _ilac_sureleri_coz(
+    db: Session, cid: int, payload: AnimalDrugTreatmentWrite,
+    hayvan: dict[str, Any],
+) -> tuple[int | None, int | None, str | None, str | None,
+           int | None, int | None]:
+    """``(milk_gun, meat_gun, milk_koken, meat_koken, katalog_milk, katalog_meat)``.
+
+    Katalog varsa her süre için ayrı karar: operatör girdiyse kazanır
+    (uyuşuyorsa `OPERATOR`, uyuşmuyorsa `OPERATOR_OVERRIDE`); girmediyse
+    katalog değerini alır (`CATALOGUE`); katalog da yoksa NULL kalır.
+    """
+    katalog = (
+        _ilac_katalog_coz(
+            db, cid, payload.drug_name, hayvan.get("species"),
+        )
+    )
+    katalog_milk = int(katalog["milk_withdrawal_days"]) if katalog else None
+    katalog_meat = int(katalog["meat_withdrawal_days"]) if katalog else None
+
+    milk_koken: str | None = None
+    meat_koken: str | None = None
+    milk_gun = payload.milk_withdrawal_days
+    meat_gun = payload.meat_withdrawal_days
+
+    if milk_gun is None:
+        if katalog_milk is not None:
+            milk_gun, milk_koken = katalog_milk, "CATALOGUE"
+    elif katalog_milk is None:
+        milk_koken = "OPERATOR"
+    elif milk_gun == katalog_milk:
+        milk_koken = "OPERATOR"
+    else:
+        milk_koken = "OPERATOR_OVERRIDE"
+
+    if meat_gun is None:
+        if katalog_meat is not None:
+            meat_gun, meat_koken = katalog_meat, "CATALOGUE"
+    elif katalog_meat is None:
+        meat_koken = "OPERATOR"
+    elif meat_gun == katalog_meat:
+        meat_koken = "OPERATOR"
+    else:
+        meat_koken = "OPERATOR_OVERRIDE"
+
+    return milk_gun, meat_gun, milk_koken, meat_koken, katalog_milk, katalog_meat
+
+def _sut_bekleme_dogrula(
+    db: Session, cid: int, payload: MilkYieldWrite,
+    politika: str,
+) -> str | None:
+    """Süt bekleme süresi kontrolü — KİLİT NOKTASI (rapor değil).
+
+    Farm tarafındaki `_hasat_guvenlik_dogrula` ile aynı sözleşme:
+    `block` → 422; `warn` → kabul, metin `safety_warning`e yazılır;
+    `require_reason` → gerekçesiz 422, gerekçeyle kabul.
+
+    Grup sağımında sürüdeki bütün aktif hayvanlara bakılır; tek hayvanın
+    ihlali sürüyü kilitler (toplu sağım tek kapta karışır). 422 mesajında
+    hangi hayvanların bekleme süresinde olduğu KÜPE NUMARASIYLA söylenir,
+    10 satırda kesilir ve `+N daha` eklenir.
+    """
+    hedef_gun = payload.milked_on
+
+    if payload.animal_id is not None:
+        hedef_hayvanlar = [{"id": payload.animal_id, "ear_tag": None}]
+    else:
+        hedef_hayvanlar = db.execute(
+            text(
+                """SELECT id,ear_tag FROM animals
+                WHERE company_id=:cid AND group_id=:gid AND status='ACTIVE'"""
+            ),
+            {"cid": cid, "gid": payload.group_id},
+        ).mappings().all()
+
+    if not hedef_hayvanlar:
+        return None
+
+    hayvan_idleri = [int(h["id"]) for h in hedef_hayvanlar]
+    kupeler = {int(h["id"]): h.get("ear_tag") for h in hedef_hayvanlar}
+
+    ilac_satirlari = db.execute(
+        text(
+            """SELECT id,animal_id,drug_name,treated_on,milk_withdrawal_days
+            FROM animal_drug_treatments
+            WHERE company_id=:cid
+              AND animal_id IN :animal_ids
+              AND status='RECORDED'
+              AND milk_withdrawal_days IS NOT NULL
+              AND treated_on <= :hedef_gun"""
+        ).bindparams(bindparam("animal_ids", expanding=True)),
+        {"cid": cid, "animal_ids": hayvan_idleri, "hedef_gun": hedef_gun},
+    ).mappings().all()
+
+    ilaclar_hayvana_gore: dict[int, list[dict]] = {}
+    for satir in ilac_satirlari:
+        ilaclar_hayvana_gore.setdefault(int(satir["animal_id"]), []).append(dict(satir))
+
+    tum_ihlaller: list[tuple[int, BeklemeIhlali]] = []
+    for aid in hayvan_idleri:
+        ihlaller = sut_bekleme_ihlalleri(
+            sutirlar=ilaclar_hayvana_gore.get(aid, []),
+            hedef_gun=hedef_gun,
+        )
+        for ihlal in ihlaller:
+            tum_ihlaller.append((aid, ihlal))
+
+    if not tum_ihlaller:
+        return None
+
+    metinler = [
+        f"{kupeler.get(aid) or '#' + str(aid)}: {ihlal.basis}, güvenli tarih "
+        f"{ihlal.safe_from.isoformat()}"
+        for aid, ihlal in tum_ihlaller
+    ]
+    if len(metinler) > 10:
+        metin = "; ".join(metinler[:10]) + f"; +{len(metinler) - 10} daha"
+    else:
+        metin = "; ".join(metinler)
+
+    if politika == "block":
+        raise HTTPException(
+            422,
+            f"Süt bekleme süresi dolmadı: {metin}. "
+            "Firma ayarı bekleme süresi dolmadan sağıma izin vermiyor.",
+        )
+    if politika == "warn":
+        return metin
+    if payload.safety_override_reason:
+        return metin
+    raise HTTPException(
+        422,
+        f"Süt bekleme süresi dolmadı: {metin}. "
+        "Yine de kaydetmek için gerekçe girin.",
+    )
+
 @router.get("/milk-yields")
 def list_milk(
     request: Request, limit: int = _SAYFA, offset: int = _ATLA,
@@ -859,15 +1059,20 @@ def create_milk(payload: MilkYieldWrite, request: Request, db: Session = Depends
         _satir(db, cid, "animals", payload.animal_id)
     else:
         _satir(db, cid, "animal_groups", payload.group_id)
+    uyari = _sut_bekleme_dogrula(
+        db, cid, payload,
+        _firma_herd_kurallari(db, cid)["herd_withdrawal_milk_policy"],
+    )
     now = _simdi()
     yeni = db.execute(
         text(
             """INSERT INTO milk_yields(company_id,animal_id,group_id,milked_on,session,
-            quantity_liters,notes,created_at,updated_at)
+            quantity_liters,notes,safety_override_reason,safety_warning,
+            created_at,updated_at)
             VALUES(:cid,:animal_id,:group_id,:milked_on,:session,:quantity_liters,
-            :notes,:now,:now) RETURNING id"""
+            :notes,:safety_override_reason,:safety_warning,:now,:now) RETURNING id"""
         ),
-        {"cid": cid, "now": now, **payload.model_dump()},
+        {"cid": cid, "now": now, "safety_warning": uyari, **payload.model_dump()},
     ).scalar_one()
     db.commit()
     return _satir(db, cid, "milk_yields", int(yeni))
@@ -935,6 +1140,263 @@ def create_movement(payload: MovementWrite, request: Request, db: Session = Depe
         "movement_kind": payload.kind,
     }
 
+
+
+# --------------------------------------------------- ilaç bekleme süresi ---
+
+@router.get("/animal-drug-treatments")
+def list_treatments(
+    request: Request, limit: int = _SAYFA, offset: int = _ATLA,
+    animal_id: int | None = None, status: str | None = None,
+    db: Session = Depends(get_db),
+):
+    cid = company_id(request)
+    kosul = ""
+    params: dict[str, Any] = {"cid": cid, "limit": limit, "offset": offset}
+    if animal_id:
+        kosul += " AND animal_id=:animal_id"
+        params["animal_id"] = animal_id
+    if status:
+        kosul += " AND status=:status"
+        params["status"] = status.strip().upper()
+    toplam = db.execute(
+        text(f"SELECT COUNT(*) FROM animal_drug_treatments WHERE company_id=:cid{kosul}"),
+        params,
+    ).scalar()
+    rows = db.execute(
+        text(
+            f"""SELECT id,animal_id,catalogue_id,drug_name,treated_on,
+            milk_withdrawal_days,meat_withdrawal_days,milk_withdrawal_source,
+            meat_withdrawal_source,catalogue_milk_days,catalogue_meat_days,
+            batch_no,dose,dose_unit,veterinarian,notes,status,updated_at
+            FROM animal_drug_treatments WHERE company_id=:cid{kosul}
+            ORDER BY treated_on DESC,id DESC LIMIT :limit OFFSET :offset"""
+        ),
+        params,
+    ).mappings().all()
+    return _sayfa(rows, toplam, limit, offset)
+
+@router.post("/animal-drug-treatments", status_code=201)
+def create_treatment(
+    payload: AnimalDrugTreatmentWrite, request: Request,
+    db: Session = Depends(get_db),
+):
+    """İlaç kaydı — TEK hayvan ya da LİSTE. LİSTE all-or-nothing.
+
+    Katalog varsa süre katalogdan çözülür; operatör değeri kazanır ve
+    köken kayıt altına alınır. Grup kaydı grup üyeliğini TEK SEFERDE
+    çözüp her hayvana ayrı satır yazar: üyelik sonradan değişirse
+    kilitleme etkisi doğru kalır.
+    """
+    cid = company_id(request)
+    hedefler: list[int]
+    if payload.animal_ids is not None:
+        hedefler = list(dict.fromkeys(payload.animal_ids))
+    else:
+        hedefler = [payload.animal_id]
+
+    hayvanlar: dict[int, dict[str, Any]] = {}
+    for aid in hedefler:
+        hayvanlar[aid] = _satir(db, cid, "animals", aid)
+
+    ilk_hayvan = hayvanlar[hedefler[0]]
+    (
+        milk_gun, meat_gun, milk_koken, meat_koken,
+        katalog_milk, katalog_meat,
+    ) = _ilac_sureleri_coz(db, cid, payload, ilk_hayvan)
+
+    now = _simdi()
+    olusan: list[int] = []
+    for aid in hedefler:
+        yeni = db.execute(
+            text(
+                """INSERT INTO animal_drug_treatments(
+                company_id,animal_id,catalogue_id,drug_name,treated_on,
+                milk_withdrawal_days,meat_withdrawal_days,milk_withdrawal_source,
+                meat_withdrawal_source,catalogue_milk_days,catalogue_meat_days,
+                batch_no,dose,dose_unit,veterinarian,notes,status,
+                created_at,updated_at)
+                VALUES(:cid,:animal_id,:catalogue_id,:drug_name,:treated_on,
+                :milk_days,:meat_days,:milk_source,:meat_source,
+                :catalogue_milk,:catalogue_meat,:batch_no,:dose,:dose_unit,
+                :veterinarian,:notes,'RECORDED',:now,:now) RETURNING id"""
+            ),
+            {
+                "cid": cid, "animal_id": aid, "now": now,
+                "catalogue_id": payload.catalogue_id,
+                "milk_days": milk_gun, "meat_days": meat_gun,
+                "milk_source": milk_koken, "meat_source": meat_koken,
+                "catalogue_milk": katalog_milk, "catalogue_meat": katalog_meat,
+                "batch_no": payload.batch_no, "dose": payload.dose,
+                "dose_unit": payload.dose_unit,
+                "veterinarian": payload.veterinarian,
+                "notes": payload.notes,
+                "drug_name": payload.drug_name,
+                "treated_on": payload.treated_on,
+            },
+        ).scalar_one()
+        olusan.append(int(yeni))
+
+    db.commit()
+    return [_satir(db, cid, "animal_drug_treatments", tid) for tid in olusan]
+
+@router.get("/animal-drug-treatments/{treatment_id}")
+def get_treatment(treatment_id: int, request: Request, db: Session = Depends(get_db)):
+    return _satir(db, company_id(request), "animal_drug_treatments", treatment_id)
+
+@router.put("/animal-drug-treatments/{treatment_id}")
+def update_treatment(
+    treatment_id: int, payload: AnimalDrugTreatmentUpdate, request: Request,
+    db: Session = Depends(get_db),
+):
+    """İlaç kaydı güncelleme — CAS + VOIDED durumu.
+
+    VOIDED sadece kilit hesabını değiştirir; satır kalır. Farm tarafındaki
+    `safety_override_reason` gibi, kilidi geçen meşru kayıt silinmez.
+    """
+    cid = company_id(request)
+    mevcut = _satir(db, cid, "animal_drug_treatments", treatment_id)
+    hayvan = _satir(db, cid, "animals", payload.animal_id or mevcut["animal_id"])
+    (
+        milk_gun, meat_gun, milk_koken, meat_koken,
+        katalog_milk, katalog_meat,
+    ) = _ilac_sureleri_coz(db, cid, payload, hayvan)
+    sonuc = db.execute(
+        text(
+            """UPDATE animal_drug_treatments SET animal_id=:animal_id,
+            catalogue_id=:catalogue_id,drug_name=:drug_name,treated_on=:treated_on,
+            milk_withdrawal_days=:milk_days,meat_withdrawal_days=:meat_days,
+            milk_withdrawal_source=:milk_source,meat_withdrawal_source=:meat_source,
+            catalogue_milk_days=:catalogue_milk,catalogue_meat_days=:catalogue_meat,
+            batch_no=:batch_no,dose=:dose,dose_unit=:dose_unit,
+            veterinarian=:veterinarian,notes=:notes,status=:status,updated_at=:now
+            WHERE id=:id AND company_id=:cid AND updated_at=:expected_updated_at"""
+        ),
+        {
+            "id": treatment_id, "cid": cid, "now": _simdi(),
+            "animal_id": payload.animal_id or mevcut["animal_id"],
+            "expected_updated_at": _surum_param(payload.expected_updated_at),
+            "catalogue_id": payload.catalogue_id,
+            "milk_days": milk_gun, "meat_days": meat_gun,
+            "milk_source": milk_koken, "meat_source": meat_koken,
+            "catalogue_milk": katalog_milk, "catalogue_meat": katalog_meat,
+            "batch_no": payload.batch_no, "dose": payload.dose,
+            "dose_unit": payload.dose_unit,
+            "veterinarian": payload.veterinarian,
+            "notes": payload.notes, "status": payload.status,
+            "drug_name": payload.drug_name,
+            "treated_on": payload.treated_on,
+        },
+    )
+    if sonuc.rowcount != 1:
+        _surum_cakismasi(db)
+    db.commit()
+    return _satir(db, cid, "animal_drug_treatments", treatment_id)
+
+@router.get("/animal-drug-catalogue")
+def list_drug_catalogue(
+    request: Request, limit: int = _SAYFA, offset: int = _ATLA,
+    species: str | None = None, status: str | None = None,
+    db: Session = Depends(get_db),
+):
+    cid = company_id(request)
+    kosul = ""
+    params: dict[str, Any] = {"cid": cid, "limit": limit, "offset": offset}
+    if species is not None:
+        kosul += " AND species=:species"
+        params["species"] = species.strip().upper()
+    if status:
+        kosul += " AND status=:status"
+        params["status"] = status.strip().upper()
+    toplam = db.execute(
+        text(f"SELECT COUNT(*) FROM animal_drug_catalogue WHERE company_id=:cid{kosul}"),
+        params,
+    ).scalar()
+    rows = db.execute(
+        text(
+            f"""SELECT id,drug_name,species,registration_no,milk_withdrawal_days,
+            meat_withdrawal_days,notes,status,updated_at
+            FROM animal_drug_catalogue WHERE company_id=:cid{kosul}
+            ORDER BY drug_name,species LIMIT :limit OFFSET :offset"""
+        ),
+        params,
+    ).mappings().all()
+    return _sayfa(rows, toplam, limit, offset)
+
+@router.post("/animal-drug-catalogue", status_code=201)
+def create_drug_catalogue(
+    payload: AnimalDrugCatalogueWrite, request: Request,
+    db: Session = Depends(get_db),
+):
+    cid = company_id(request)
+    now = _simdi()
+    try:
+        yeni = db.execute(
+            text(
+                """INSERT INTO animal_drug_catalogue(
+                company_id,drug_name,species,registration_no,milk_withdrawal_days,
+                meat_withdrawal_days,notes,status,created_at,updated_at)
+                VALUES(:cid,:drug_name,:species,:registration_no,:milk_days,
+                :meat_days,:notes,'ACTIVE',:now,:now) RETURNING id"""
+            ),
+            {
+                "cid": cid, "now": now,
+                "milk_days": payload.milk_withdrawal_days,
+                "meat_days": payload.meat_withdrawal_days,
+                "drug_name": payload.drug_name,
+                "species": payload.species,
+                "registration_no": payload.registration_no,
+                "notes": payload.notes,
+            },
+        ).scalar_one()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            409, "Bu ilaç ve tür için katalog kaydı zaten var"
+        )
+    db.commit()
+    return _satir(db, cid, "animal_drug_catalogue", int(yeni))
+
+@router.get("/animal-drug-catalogue/{catalogue_id}")
+def get_drug_catalogue(catalogue_id: int, request: Request, db: Session = Depends(get_db)):
+    return _satir(db, company_id(request), "animal_drug_catalogue", catalogue_id)
+
+@router.put("/animal-drug-catalogue/{catalogue_id}")
+def update_drug_catalogue(
+    catalogue_id: int, payload: AnimalDrugCatalogueUpdate, request: Request,
+    db: Session = Depends(get_db),
+):
+    cid = company_id(request)
+    _satir(db, cid, "animal_drug_catalogue", catalogue_id)
+    try:
+        sonuc = db.execute(
+            text(
+                """UPDATE animal_drug_catalogue SET drug_name=:drug_name,
+                species=:species,registration_no=:registration_no,
+                milk_withdrawal_days=:milk_days,meat_withdrawal_days=:meat_days,
+                notes=:notes,status=:status,updated_at=:now
+                WHERE id=:id AND company_id=:cid AND updated_at=:expected_updated_at"""
+            ),
+            {
+                "id": catalogue_id, "cid": cid, "now": _simdi(),
+                "milk_days": payload.milk_withdrawal_days,
+                "meat_days": payload.meat_withdrawal_days,
+                "expected_updated_at": _surum_param(payload.expected_updated_at),
+                "drug_name": payload.drug_name,
+                "species": payload.species,
+                "registration_no": payload.registration_no,
+                "notes": payload.notes, "status": payload.status,
+            },
+        )
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            409, "Bu ilaç ve tür için katalog kaydı zaten var"
+        )
+    if sonuc.rowcount != 1:
+        _surum_cakismasi(db)
+    db.commit()
+    return _satir(db, cid, "animal_drug_catalogue", catalogue_id)
 
 @router.get("/herd-fertility", response_model=HerdFertilityResponse)
 def herd_fertility(request: Request, db: Session = Depends(get_db)):

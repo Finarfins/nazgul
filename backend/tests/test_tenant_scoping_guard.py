@@ -48,6 +48,7 @@ TENANT_TABLES = frozenset({
     # Hayvancılık V1 (mobil-erp#17). Hepsi company_id taşır; kendi
     # aralarındaki ilişkiler BİLEŞİK yabancı anahtarla bağlı.
     "animal_births", "animal_breedings", "animal_groups", "animal_movements",
+    "animal_drug_catalogue", "animal_drug_treatments",
     "animal_vaccinations", "animal_weights", "animals",
     "herd_integration_events", "milk_yields",
     "farm_operations", "farm_parcels", "farms",
@@ -243,7 +244,7 @@ DYNAMIC_SQL_FILE_ALLOWLIST: dict[str, tuple[int, str, str]] = {
     # gibi) ve _satir()'daki tablo adı — o da modül içi _TABLOLAR kümesinden
     # doğrulanıyor, istekten gelen bir değer oraya ulaşmıyor. Her gövde
     # `company_id=:cid` ile başlıyor.
-    "backend/app/routers/herd.py": (19, "f4799533127f092ca69833b724a72103757d15cba8698b2f2ef2d8f2cbf5631f", "closed filter fragments and module-internal table names; 1 of 18 interpolates a table name from the _TABLOLAR frozenset (guarded by a membership check, request data never reaches it), the other 17 append filter fragments built from literal tuples; every root binds company_id=:cid and every value goes through a bound parameter"),
+    "backend/app/routers/herd.py": (23, "d719940c8b2774f1f1b81793f05ce95caa8891252a1bcb0ee4e75641619c481a", "closed filter fragments and module-internal table names; 1 of 22 interpolates a table name from the _TABLOLAR frozenset (guarded by a membership check, request data never reaches it), the other 21 append filter fragments built from literal tuples; every root binds company_id=:cid and every value goes through a bound parameter"),
     "backend/app/routers/cost_rates.py": (3, "f3ecab60c99f0eef2eca1b5a1d233472341ffdfaf6a80ec849b6730d51abf153", "kapalı süzgeç parçaları; 3 çağrının üçü de sabit tuple'lardan kurulan filtre ekliyor (kind/status), tablo adı YOK ve istek verisi hiçbir zaman metne girmiyor; her kök company_id=:cid bağlıyor ve her değer bağlı parametre"),
     # Gerçek Maliyet FAZ 2 (mobil-erp#24) yeniden inceleme: eklenen üç oran
     # sorgusu (`_ORAN_MAKINE`/`_ORAN_KULLANICI`/`_ORAN_GENEL`) TAMAMEN SABİT
@@ -292,7 +293,7 @@ DYNAMIC_SQL_FILE_ALLOWLIST: dict[str, tuple[int, str, str]] = {
     "backend/app/routers/workflow.py": (16, "b418371785ff4cbfb227fc9279d256d8f2f6c60d465fa7d59e7d959f76f512d0", "closed workflow config; scoped parents gate item operations; line tenant predicate is UNCONDITIONAL (tenant_line scaffolding removed in slice 1)"),
     "backend/app/service_receivable_engine.py": (2, "4590a3a9db14aa3e5f4127a316f85fe1a9018f0f6a179958d60e0f30f34c0bfc", "canonical tenant predicates with closed lock suffix"),
     "backend/app/statement.py": (4, "c9a2d509dbeaff969d1c686e690e5eb35dd54dd12f7e58d294cc6d11c3946ead", "closed entity config; document and payment sources scoped"),
-    "backend/app/tenancy.py": (4, "b50d5fd5a9d35269380bfaa33b70fc95a241a72bd48e8157c56c72cf8df473a7", "hardcoded bootstrap DDL plus runtime-validated tenant_text. Parmak izi 2026-09-01de guncellendi: companies Table'ina farm_monoculture_policy ve farm_reentry_policy sutunlari eklendi (goc 20260901_0064). Dinamik text() sayisi 4te SABIT; tenant_text davranisi DEGISMEDI."),
+    "backend/app/tenancy.py": (4, "15e15504971db22023866071eb4f6ec6166ede0892a57c76a0ece9c0fe87f938", "hardcoded bootstrap DDL plus runtime-validated tenant_text. Parmak izi 2026-09-01de guncellendi: companies Table'ina farm_monoculture_policy ve farm_reentry_policy sutunlari eklendi (goc 20260901_0064). Dinamik text() sayisi 4te SABIT; tenant_text davranisi DEGISMEDI."),
     "backend/app/workflow.py": (2, "ee227773e34829776546ece8aa57d7df412d36fbb36899ec36b82cfdea0f44f7", "quoted hardcoded legacy schema DDL identifiers; line tables carry company_id and a composite parent key"),
 }
 
@@ -1063,7 +1064,10 @@ def test_every_dynamic_text_call_is_exactly_reviewed() -> None:
     # 248 -> 251: outbox okuma yuzeyi (`routers/entegrasyon_olaylari.py`)
     # UC dinamik cagri ekledi. Toplam burada da donuk: tek tek dosya girdileri
     # dogru olsa bile toplu bir kayma bu satirda gorunur.
-    assert sum(item[0] for item in DYNAMIC_SQL_FILE_ALLOWLIST.values()) == 253
+    # 251 -> 255: hayvan ilaç bekleme süresi (PR-1) — herd.py'ye 4 yeni
+    # dinamik text() çağrısı (katalog çözümü, ilaç kaydı INSERT, UPDATE
+    # ve süt kilidi SELECT); tenancy.py'deki sütun tanımı da güncellendi.
+    assert sum(item[0] for item in DYNAMIC_SQL_FILE_ALLOWLIST.values()) == 257
     assert not mismatched, (
         f"{ipucu}Dynamic SQL source changed and needs re-review: {mismatched}"
     )

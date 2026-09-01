@@ -100,9 +100,9 @@ from app.main import PUBLIC_API, app  # noqa: E402
 #: geldiği gün kendi YAZMA iznini gerektirir — `farm.view` ona yetmez.
 #: Maruziyet: olayın kimliği, kaynak tipi/kimliği, durumu, deneme sayısı,
 #: gerekçe metni ve zaman damgaları. `idempotency_key` DÖNDÜRÜLMÜYOR.
-EXPECTED_AUTHENTICATED = 334
+EXPECTED_AUTHENTICATED = 342
 EXPECTED_READ = 91
-EXPECTED_UNDENIABLE = 99
+EXPECTED_UNDENIABLE = 103
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
 #: sonra kendi kapılarına takılırlar. 89'a dahil, 94'e DEĞİL.
@@ -141,6 +141,10 @@ GUARDED_READ_OPERATIONS = {
 #: varsayılanının HİÇ vermediği uçlar. 94'e dahil, 89'a DEĞİL. ELLE YAZILDI.
 FARM_HERD_VIEW_OPERATIONS = {
     ("GET", "/api/animal-births"),
+    ("GET", "/api/animal-drug-catalogue"),
+    ("GET", "/api/animal-drug-catalogue/{catalogue_id}"),
+    ("GET", "/api/animal-drug-treatments"),
+    ("GET", "/api/animal-drug-treatments/{treatment_id}"),
     ("GET", "/api/animal-breedings"),
     ("GET", "/api/animal-breedings/{breeding_id}"),
     ("GET", "/api/animal-groups"),
@@ -368,9 +372,10 @@ def test_farm_and_herd_view_membership_not_just_magnitude() -> None:
     _, _, _, farm_herd = _populations()
     assert farm_herd == FARM_HERD_VIEW_OPERATIONS
     # 28 -> 30: outbox okuma yüzeyinin iki ucu (bkz. SAYAÇ HAREKETİ notu).
-    # 30 -> 32: BKÜ kataloğunun iki OKUMA ucu (göç 20260901_0063). Yazma
-    # uçları (POST/PUT) bu kümede DEĞİL — onlar `farm.manage` istiyor.
-    assert len(farm_herd) == 32
+    # 30 -> 34: hayvan ilaç bekleme süresi katalogu + ilaç kaydı (PR-1).
+    # Dört OKUMA ucu (liste + tekil her biri); yazma `herd.health` ister.
+    # 32 -> 36: hayvan ilaç bekleme süresi katalogu + ilaç kaydı (PR-1).
+    assert len(farm_herd) == 36
 
 
 def test_eightynine_partitions_into_sixtysix_and_twentythree() -> None:

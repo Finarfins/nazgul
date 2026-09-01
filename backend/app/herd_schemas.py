@@ -28,6 +28,7 @@ from pydantic import (
     PlainSerializer,
     WithJsonSchema,
     field_validator,
+    model_validator,
 )
 
 # Sahadaki `field.py` ve tarladaki `farm_schemas.py` ile AYNI biçim.
@@ -359,6 +360,10 @@ class MilkYieldWrite(_KuyrukKimligi):
     session: str | None = Field(default=None, max_length=20)
     quantity_liters: Decimal = Field(gt=0, le=MAX_MIKTAR)
     notes: str | None = None
+    # Süt bekleme süresi ihlalinde gerekçe — farm tarafındaki
+    # `safety_override_reason` ile AYRI desen: kullanıcının söylediği.
+    # İsteğe bağlı: mevcut istemciler göndermeyebilir.
+    safety_override_reason: str | None = Field(default=None, max_length=255)
 
 
 class MovementWrite(_KuyrukKimligi):
@@ -418,3 +423,116 @@ class HerdFertilityResponse(_Taban):
     thresholds: HerdFertilityThresholds
     summary: HerdFertilitySummary
     items: list[HerdFertilityItem]
+
+
+# ---------------------------------------------------------------------------
+# HAYVAN İLAÇ BEKLEME SÜRESİ (PR-1: süt kilidi; PR-2: et kilidi)
+# ---------------------------------------------------------------------------
+#
+# Katalog: firmanın kendi ilaç kaydı. Repository hiçbir mevzuat rakamı
+# iddia etmez; her değer o değerin sahibi firma tarafından girilir.
+#
+# `species=''` JOKER: bir türün gerçek adı boş dize olamaz, bu yüzden
+# "bütün türler" anlamı belirsizdir. `MIXED` ise gerçek bir değerdir
+# (karma sürü ilacı) ve joker ile KARIŞTIRILAMAZ — boş dize ile ayrılır.
+# PR #18'in `crop=''` kararıyla aynı gerekçe.
+CATALOGUE_SPECIES = GROUP_SPECIES | {""}
+CATALOGUE_WILDCARD = ""
+
+class AnimalDrugCatalogueWrite(_Taban):
+    drug_name: str = Field(min_length=1, max_length=120)
+    # BOŞ DİZE = bütün türler; kapalı liste değil.
+    species: str = Field(default="", max_length=20)
+    registration_no: str | None = Field(default=None, max_length=60)
+    # Kataloğun var olma sebebi. `0` = bekleme süresi yok (etiketten).
+    milk_withdrawal_days: int = Field(ge=0, le=3650)
+    meat_withdrawal_days: int = Field(ge=0, le=3650)
+    notes: str | None = None
+
+    @field_validator("drug_name")
+    @classmethod
+    def ilac(cls, value: str) -> str:
+        return _metin(value)
+
+    @field_validator("species")
+    @classmethod
+    def tur(cls, value: str) -> str:
+        # Boş dize joker olarak geçerli; `_metin` boşu reddettiği için
+        # burada yalnız boşluk sadeleştirilip büyük harfe çevriliyor.
+        v = " ".join(value.split()).upper()
+        if v not in CATALOGUE_SPECIES:
+            raise ValueError("Geçersiz tür")
+        return v
+
+    @field_validator("registration_no")
+    @classmethod
+    def ruhsat(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _metin(value) or None
+
+
+class AnimalDrugCatalogueUpdate(AnimalDrugCatalogueWrite, _SurumluGuncelleme):
+    status: str = "ACTIVE"
+
+    @field_validator("status")
+    @classmethod
+    def durum(cls, value: str) -> str:
+        v = _metin(value).upper()
+        if v not in LIFECYCLE:
+            raise ValueError("Geçersiz durum")
+        return v
+
+
+class AnimalDrugTreatmentWrite(_Taban):
+    """Bir hayvanın ilaç kaydı. Katalog varsa süre katalogdan çözülür.
+
+    Operatör bir değer girerse o kazanır ve köken kayıt altına alınır:
+    katalog da konuşuyorsa uyuşmazlık `OPERATOR_OVERRIDE` olur.
+    """
+
+    # TEK hayvan (tekil kayıt) ya da LİSTE (grup kaydı) — ikisinden biri.
+    # LİSTE `1..200` aralığındadır; koyun/keçi sürüsünde bir seferde 200+
+    # kayıt nadirdir ama sınır kolayca değiştirilebilir.
+    animal_id: int | None = Field(default=None, gt=0)
+    animal_ids: list[int] | None = Field(default=None, min_length=1, max_length=200)
+    drug_name: str = Field(min_length=1, max_length=120)
+    catalogue_id: int | None = Field(default=None, gt=0)
+    treated_on: date
+    milk_withdrawal_days: int | None = Field(default=None, ge=0, le=3650)
+    meat_withdrawal_days: int | None = Field(default=None, ge=0, le=3650)
+    batch_no: str | None = Field(default=None, max_length=60)
+    dose: Decimal | None = Field(default=None, gt=0, le=MAX_MIKTAR)
+    dose_unit: str | None = Field(default=None, max_length=32)
+    veterinarian: str | None = Field(default=None, max_length=180)
+    notes: str | None = None
+
+    @field_validator("drug_name")
+    @classmethod
+    def ilac(cls, value: str) -> str:
+        return _metin(value)
+
+    @model_validator(mode="after")
+    def hedef_kontrol(self) -> "AnimalDrugTreatmentWrite":
+        """Ya `animal_id` ya `animal_ids`; ikisi birden ya hiçbiri değil.
+
+        Tekil kayıt için `animal_id`, grup kaydı için `animal_ids`.
+        Grup üyeliği çözüldükten sonra her hayvana TEK satır yazılır.
+        """
+        if self.animal_id is None and self.animal_ids is None:
+            raise ValueError("Ya animal_id ya animal_ids gerekli")
+        if self.animal_id is not None and self.animal_ids is not None:
+            raise ValueError("animal_id ve animal_ids birlikte verilemez")
+        return self
+
+
+class AnimalDrugTreatmentUpdate(AnimalDrugTreatmentWrite, _SurumluGuncelleme):
+    status: str = "RECORDED"
+
+    @field_validator("status")
+    @classmethod
+    def durum(cls, value: str) -> str:
+        v = _metin(value).upper()
+        if v not in {"RECORDED", "VOIDED"}:
+            raise ValueError("Geçersiz durum")
+        return v

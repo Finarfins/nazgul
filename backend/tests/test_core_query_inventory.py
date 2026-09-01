@@ -776,7 +776,7 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "ca4c2613620c6dd23ed462cfc2ff973af225e9e95573ae0621bea2d5db14953e"): (1, "users", "arg0"),  # satır [661]
     # --- app/routers/companies.py
     ("app/routers/companies.py", "get_company_settings", "select",
-     "165d58888daa6cae9e70ce3738dc2826b0c87a0e13f37cbcfb1ae6f8acc27155"): (1, "companies", "arg0"),  # satır [102]
+     "fa22e341bc773d7be30dacb1be133b917a5fb440c354629579982ec7da830554"): (1, "companies", "arg0"),  # satır [102]
     ("app/routers/companies.py", "list_branches", "select",
      "a1e5782db98e816f1960a283e2827acf34c2f7f89add2c976e5c8d680863b69b"): (1, "branches", "arg0"),  # satır [183]
     ("app/routers/companies.py", "list_policy_overrides", "select",
@@ -874,7 +874,7 @@ EXPECTED_OP_COUNTS = {"select": 89, "update": 41, "delete": 7}
 # 20260812: +1 select — app/routers/platform_audit.py::list_untenanted_audit.
 # Firmasız güvenlik denetim satırlarının okuma yolu; company_id ile SÜZMEZ,
 # company_id IS NULL arar (bkz. göç 20260812_0059).
-INVENTORY_FINGERPRINT = "099ecb9dad92587af6207f109312235c67977fcd80be422852cb8e7acf6c3f11"
+INVENTORY_FINGERPRINT = "a176044baf4013d92763cbd52c7dbaf32ee7888fac08d331dcf723cdeecb511a"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet. Bugün boş.
 UNRESOLVED_ALLOWLIST: dict[Kimlik, str] = {}

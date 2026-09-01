@@ -20,32 +20,23 @@ CALL_SITE_GATE = REPO_ROOT / "deploy" / "ci-verify-cagri-kapisi.py"
 BACKEND = REPO_ROOT / "backend"
 
 
-def test_pg_test_population_exact_97() -> None:
-    """PostgreSQL test population must be exactly 97 files.
-
-    95 -> 97: tarla yazma kilitleri ikizleri (`test_farm_monoculture_postgresql.py`,
-    `test_farm_reentry_enforcement_postgresql.py`, göç 20260901_0064). İkizler
-    ZORUNLU: ÇKS tek ürün ve giriş yasağı yazma yolları üretim diyalektinde
-    SQLite'tan farklı davranıyor. 94 -> 95 BKÜ kataloğu ikizi (göç
-    20260901_0063) develop'ta zaten inmişti. Bu sayaç ile `ci.yml`deki eşi
-    birlikte artmak ZORUNDA — ikisi aynı popülasyonu sayıyor ve biri
-    güncellenip diğeri unutulursa kapı kendi kendisiyle çelişir.
-    """
+def test_pg_test_population_exact_96() -> None:
+    """PostgreSQL test population must be exactly 97 files (95 + 2 ilaç bekleme)."""
     pg_glob = sorted(BACKEND.glob("test_*postgresql*.py"))
     named = [
         BACKEND / "tests" / "test_company_id_default_contract.py",
         BACKEND / "tests" / "test_ci_playwright_hazirlik.py",
     ]
     all_files = pg_glob + [p for p in named if p.exists()]
-    assert len(all_files) == 97, (
+    assert len(all_files) == 99, (
         f"PostgreSQL test population changed: expected 97, got {len(all_files)}"
     )
 
 
 def test_ci_workflow_has_frozen_pg_population_constant() -> None:
-    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=97 and strict equality."""
+    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=98 and strict equality."""
     content = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BEKLENEN_PG_DOSYA_SAYISI=97" in content
+    assert "BEKLENEN_PG_DOSYA_SAYISI=99" in content
     assert '[ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]' in content
 
 
