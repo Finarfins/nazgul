@@ -40,6 +40,12 @@ class CompanyPolicyUpdate(BaseModel):
     farm_area_override_policy: Literal["allow", "require_reason", "block"] | None = None
     farm_early_harvest_policy: Literal["warn", "require_reason", "block"] | None = None
     farm_spraying_dose_required: bool | None = None
+    # ÇKS tek ürün ve tarlaya giriş yasağı: `allow` YOK. Kalıntı/uyum
+    # kontrolünü tamamen kapatabilen bir ayar sessiz bir güvenlik kapatma
+    # düğmesi olurdu. En gevşek seviye `warn` — kayıt oluşur, ihlal satıra
+    # yazılır.
+    farm_monoculture_policy: Literal["warn", "require_reason", "block"] | None = None
+    farm_reentry_policy: Literal["warn", "require_reason", "block"] | None = None
 
     @field_validator("tax_number")
     @classmethod
@@ -106,6 +112,8 @@ def get_company_settings(request: Request, db: Session = Depends(get_db)):
             companies.c.farm_area_override_policy,
             companies.c.farm_early_harvest_policy,
             companies.c.farm_spraying_dose_required,
+            companies.c.farm_monoculture_policy,
+            companies.c.farm_reentry_policy,
         ).where(companies.c.id == cid)
     ).mappings().first()
     if not row:
@@ -132,6 +140,8 @@ def update_company_settings(
         "farm_area_override_policy",
         "farm_early_harvest_policy",
         "farm_spraying_dose_required",
+        "farm_monoculture_policy",
+        "farm_reentry_policy",
     ):
         if alan in payload.model_fields_set:
             values[alan] = getattr(payload, alan)
@@ -153,6 +163,8 @@ def update_company_settings(
         "farm_area_override_policy": values.get("farm_area_override_policy"),
         "farm_early_harvest_policy": values.get("farm_early_harvest_policy"),
         "farm_spraying_dose_required": values.get("farm_spraying_dose_required"),
+        "farm_monoculture_policy": values.get("farm_monoculture_policy"),
+        "farm_reentry_policy": values.get("farm_reentry_policy"),
         "tax_number": values.get("tax_number"),
         "warning": warning,
     }

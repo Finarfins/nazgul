@@ -20,21 +20,22 @@ CALL_SITE_GATE = REPO_ROOT / "deploy" / "ci-verify-cagri-kapisi.py"
 BACKEND = REPO_ROOT / "backend"
 
 
-def test_pg_test_population_exact_96() -> None:
-    """PostgreSQL test population must be exactly 96 files.
+def test_pg_test_population_exact_98() -> None:
+    """PostgreSQL test population must be exactly 98 files.
 
-    94 -> 96: İKİ yeni ikiz, İKİ ayrı dalda eklendi ve birleşmede TOPLANDI —
-    bu yüzden sayaç 95 değil 96. (1) `test_farm_bku_katalogu_postgresql.py`
-    (göç 20260901_0063): katalogdan çözülen PHI, `crop` BOŞ DİZE yedeği ve
-    `(company_id, product_id)` bileşik yabancı anahtarı üretim diyalektinde
-    SQLite'tan farklı davranıyor. (2) `test_uretici_kayit_defteri_postgresql.py`
-    (Uygulama Kayıt Çizelgesi): genişleyen bind, NUMERIC ölçeği, TIMESTAMPTZ ve
-    çapraz kiracı GERÇEK PostgreSQL üzerinde ölçülüyor.
+    95 -> 97: tarla yazma kilitleri ikizleri (`test_farm_monoculture_postgresql.py`,
+    `test_farm_reentry_enforcement_postgresql.py`, göç 20260901_0064). İkizler
+    ZORUNLU: ÇKS tek ürün ve giriş yasağı yazma yolları üretim diyalektinde
+    SQLite'tan farklı davranıyor. 94 -> 95 BKÜ kataloğu ikizi (göç
+    20260901_0063) develop'ta zaten inmişti.
+
+    97 -> 98: `test_uretici_kayit_defteri_postgresql.py` (Uygulama Kayıt
+    Çizelgesi): genişleyen bind, NUMERIC ölçeği, TIMESTAMPTZ ve çapraz kiracı
+    GERÇEK PostgreSQL üzerinde ölçülüyor.
 
     Bu sayaç ile `ci.yml`deki eşi birlikte artmak ZORUNDA — ikisi aynı
     popülasyonu sayıyor ve biri güncellenip diğeri unutulursa kapı kendi
-    kendisiyle çelişir. Her iki dal da 94 -> 95 yazmıştı; birleşme sonucunu
-    ÖLÇMEDEN devralmak tam da bu kapının yakaladığı hatadır.
+    kendisiyle çelişir.
     """
     pg_glob = sorted(BACKEND.glob("test_*postgresql*.py"))
     named = [
@@ -42,15 +43,15 @@ def test_pg_test_population_exact_96() -> None:
         BACKEND / "tests" / "test_ci_playwright_hazirlik.py",
     ]
     all_files = pg_glob + [p for p in named if p.exists()]
-    assert len(all_files) == 96, (
-        f"PostgreSQL test population changed: expected 96, got {len(all_files)}"
+    assert len(all_files) == 98, (
+        f"PostgreSQL test population changed: expected 98, got {len(all_files)}"
     )
 
 
 def test_ci_workflow_has_frozen_pg_population_constant() -> None:
-    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=96 and strict equality."""
+    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=98 and strict equality."""
     content = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BEKLENEN_PG_DOSYA_SAYISI=96" in content
+    assert "BEKLENEN_PG_DOSYA_SAYISI=98" in content
     assert '[ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]' in content
 
 
