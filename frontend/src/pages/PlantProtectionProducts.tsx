@@ -213,6 +213,15 @@ export default function PlantProtectionProducts() {
           cardTitle={row => row.product_name ?? urunAdi(row.product_id)}
           cardSubtitle={row =>
             `${row.crop.trim() === '' ? 'Bütün bitkiler' : row.crop} · ${row.preharvest_interval_days} gün`}
+          cardFields={[
+            {label: 'Bitki', value: row =>
+              row.crop.trim() === '' ? 'Bütün bitkiler' : row.crop},
+            {label: 'Hasat bekleme', value: row => `${row.preharvest_interval_days} gün`},
+            {label: 'Giriş yasağı', value: row =>
+              row.reentry_interval_days === null ? '—' : `${row.reentry_interval_days} gün`},
+            {label: 'Ruhsat no', value: row => row.registration_no ?? '—'},
+            {label: 'Durum', value: row => row.status},
+          ]}
           cardActions={yazabilir
             ? [{label: 'Düzenle', icon: <EditIcon />, onClick: row => ac(row)}]
             : []}
