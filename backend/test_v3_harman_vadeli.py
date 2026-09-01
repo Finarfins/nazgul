@@ -135,8 +135,12 @@ with TestClient(app) as client:
     fifo_customer = client.post(
         '/api/customers', headers=headers, json={'name':'FIFO Çiftçisi'}
     ).json()['id']
-    first = sale('HARMAN_VADELI', due='2026-08-01', tx='2026-01-01')
-    second = sale('HARMAN_VADELI', due='2026-09-01', tx='2026-01-01')
+    # FIFO still oldest-due first, but both dues stay after Istanbul
+    # business_today. Calendar 2026-08-01 / 2026-09-01 became VADESI_GECTI
+    # once 2026-09-02 rolled in (21:00 UTC), so status=VADESI_GECTI was no
+    # longer uniquely the 2019 overdue row.
+    first = sale('HARMAN_VADELI', due='2099-01-01', tx='2026-01-01')
+    second = sale('HARMAN_VADELI', due='2099-06-01', tx='2026-01-01')
     # Reassign the helper-created documents to the dedicated FIFO customer.
     from app.db import SessionLocal
     from sqlalchemy import text

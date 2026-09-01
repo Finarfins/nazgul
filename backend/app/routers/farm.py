@@ -29,8 +29,10 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
-from sqlalchemy import bindparam, text
+from fastapi import (
+    APIRouter, Depends, File, HTTPException, Query, Request, UploadFile,
+)
+from sqlalchemy import Integer, bindparam, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -866,7 +868,8 @@ def list_seasons(
         text(
             f"""SELECT id,parcel_id,season_year,crop,product_id,variety,
             started_on,ended_on,
-            status,planted_area_decare,notes,updated_at
+            status,planted_area_decare,notes,
+            monoculture_override_reason,monoculture_warning,updated_at
             FROM crop_seasons WHERE company_id=:cid{kosul}
             ORDER BY season_year DESC,id DESC LIMIT :limit OFFSET :offset"""
         ),
@@ -882,17 +885,24 @@ def create_season(payload: SeasonWrite, request: Request, db: Session = Depends(
     parsel = _satir(db, cid, "farm_parcels", payload.parcel_id)
     _ekim_alani_dogrula(payload.planted_area_decare, parsel)
     _sezon_urunu_dogrula(db, cid, payload.product_id)
+    kurallar = _firma_kurallari(db, cid)
+    uyari = _monokultur_dogrula(
+        db, cid, payload.parcel_id, payload.season_year, payload.crop,
+        kurallar["farm_monoculture_policy"], payload.monoculture_override_reason,
+    )
     now = _simdi()
     yeni = db.execute(
         text(
             """INSERT INTO crop_seasons(company_id,parcel_id,season_year,crop,product_id,
             variety,
-            started_on,ended_on,status,planted_area_decare,notes,created_at,updated_at)
+            started_on,ended_on,status,planted_area_decare,notes,
+            monoculture_override_reason,monoculture_warning,created_at,updated_at)
             VALUES(:cid,:parcel_id,:season_year,:crop,:product_id,:variety,
             :started_on,:ended_on,
-            'PLANNED',:planted_area_decare,:notes,:now,:now) RETURNING id"""
+            'PLANNED',:planted_area_decare,:notes,
+            :monoculture_override_reason,:monoculture_warning,:now,:now) RETURNING id"""
         ),
-        {"cid": cid, "now": now, **payload.model_dump()},
+        {"cid": cid, "now": now, "monoculture_warning": uyari, **payload.model_dump()},
     ).scalar_one()
     db.commit()
     return _satir(db, cid, "crop_seasons", int(yeni))
@@ -945,12 +955,28 @@ def update_season(season_id: int, payload: SeasonUpdate, request: Request, db: S
     _ekim_alani_dogrula(payload.planted_area_decare, parsel)
     _sezon_urunu_dogrula(db, cid, payload.product_id)
     veri = payload.model_dump(exclude={"expected_updated_at"})
+    kirilim_degisti = (
+        int(mevcut["parcel_id"]) != payload.parcel_id
+        or int(mevcut["season_year"]) != payload.season_year
+        or not _urun_esit(str(mevcut["crop"]), payload.crop)
+    )
+    if kirilim_degisti:
+        kurallar = _firma_kurallari(db, cid)
+        veri["monoculture_warning"] = _monokultur_dogrula(
+            db, cid, payload.parcel_id, payload.season_year, payload.crop,
+            kurallar["farm_monoculture_policy"], payload.monoculture_override_reason,
+        )
+    else:
+        veri["monoculture_override_reason"] = mevcut.get("monoculture_override_reason")
+        veri["monoculture_warning"] = mevcut.get("monoculture_warning")
     sonuc = db.execute(
         text(
             """UPDATE crop_seasons SET parcel_id=:parcel_id,season_year=:season_year,
             crop=:crop,product_id=:product_id,
             variety=:variety,started_on=:started_on,ended_on=:ended_on,
             status=:status,planted_area_decare=:planted_area_decare,notes=:notes,
+            monoculture_override_reason=:monoculture_override_reason,
+            monoculture_warning=:monoculture_warning,
             updated_at=:now WHERE id=:id AND company_id=:cid
             AND updated_at=:expected_updated_at"""
         ),
@@ -990,7 +1016,7 @@ def list_activities(
             f"""SELECT id,season_id,activity_type,performed_at,applied_area_decare,
             operator_user_id,machine_id,reentry_interval_days,preharvest_interval_days,
             preharvest_source,catalogue_preharvest_days,
-            notes,area_override_reason,status,
+            notes,area_override_reason,reentry_override_reason,reentry_warning,status,
             labor_hours,labor_hourly_rate,machine_hours,machine_hourly_rate,
             updated_at
             FROM field_activities WHERE company_id=:cid{kosul}
@@ -1087,6 +1113,9 @@ def create_activity(payload: ActivityWrite, request: Request, db: Session = Depe
         )
     if payload.machine_id is not None:
         _makine_dogrula(db, cid, payload.machine_id)
+    giris_uyari = _giris_guvenlik_dogrula(
+        db, cid, int(parsel["id"]), payload, kurallar["farm_reentry_policy"]
+    )
     now = _simdi()
     # ORAN BURADA DONUYOR. Bundan sonra `cost_rates`te ne olursa olsun bu satırın
     # maliyeti değişmez (bkz. `_oran_kopyala` başlığı ve migration 0053).
@@ -1108,18 +1137,18 @@ def create_activity(payload: ActivityWrite, request: Request, db: Session = Depe
             """INSERT INTO field_activities(company_id,season_id,activity_type,performed_at,
             applied_area_decare,operator_user_id,machine_id,reentry_interval_days,
             preharvest_interval_days,preharvest_source,catalogue_preharvest_days,
-            notes,area_override_reason,status,
+            notes,area_override_reason,reentry_override_reason,reentry_warning,status,
             labor_hours,labor_hourly_rate,machine_hours,machine_hourly_rate,
             created_at,updated_at)
             VALUES(:cid,:season_id,:activity_type,:performed_at,:applied_area_decare,
             :operator_user_id,:machine_id,:reentry_interval_days,:preharvest_interval_days,
             :preharvest_source,:catalogue_preharvest_days,
-            :notes,:area_override_reason,'RECORDED',
+            :notes,:area_override_reason,:reentry_override_reason,:reentry_warning,'RECORDED',
             :labor_hours,:labor_hourly_rate,:machine_hours,:machine_hourly_rate,
             :now,:now) RETURNING id"""
         ),
         {
-            "cid": cid, "now": now,
+            "cid": cid, "now": now, "reentry_warning": giris_uyari,
             **payload.model_dump(exclude={"inputs"}),
             # Şemadan gelen ham süreyi DEĞİL, çözülmüş etkin değeri yazıyoruz.
             "preharvest_interval_days": etkin_gun,
@@ -1219,9 +1248,13 @@ def _faaliyet_alani_dogrula(
 # ---------------------------------------------------------------------------
 #
 # `preharvest_interval_days` (hasat bekleme) ve `reentry_interval_days`
-# (tarlaya giriş yasağı) V1'de toplanıyor ama HİÇ KULLANILMIYORDU. Toplanıp
-# kullanılmayan bir güvenlik verisi, hiç toplanmamasından KÖTÜDÜR: kullanıcı
-# sistemin kontrol ettiğini sanır.
+# (tarlaya giriş yasağı) V1'de toplanıyordu ama HİÇ KULLANILMIYORDU
+# (geliştirme okumasında farm.py:1199-1201). Toplanıp kullanılmayan bir
+# güvenlik verisi, hiç toplanmamasından KÖTÜDÜR: kullanıcı sistemin kontrol
+# ettiğini sanır. PHI kilidi hasat yazma yoluna indi
+# (`_hasat_guvenlik_dogrula`); giriş yasağı aynı asimetriyle yazma yolunda
+# yoktu. `_giris_guvenlik_dogrula` o boşluğu kapatır — tasarım değil,
+# kapanan bir boşluk.
 #
 # Tarih hesabı İŞ SAATİ DİLİMİNDE yapılıyor. `performed_at` UTC saklanıyor;
 # UTC gününe göre hesaplasaydık akşam 22:00'de (yerel) yapılan bir ilaçlama
@@ -1322,6 +1355,204 @@ def _hasat_ihlal_metni(ihlaller: list[dict[str, Any]]) -> str:
     )
 
 
+def _urun_esit(sol: str, sag: str) -> bool:
+    """Ürün adı karşılaştırması — büyük/küçük harf yutulsun, anlam kalsın.
+
+    SQL LOWER() kullanılmıyor: SQLite ve PostgreSQL İstanbul/istanbul'da
+    ayrışır. Karar Python'da, `casefold` ile.
+    """
+    return (sol or "").casefold() == (sag or "").casefold()
+
+
+def _monokultur_gecmisi(
+    db: Session, cid: int, parcel_id: int, season_year: int,
+) -> dict[int, list[str]]:
+    """Y-1 ve Y-2 sezonlarını yıl → ürün listesi olarak döndürür.
+
+    İki yılı AÇIK bağlarız (`:y1`, `:y2`); `LIMIT 2` + sırasız okuma bir yıl
+    boşluğunu yutardı. CANCELLED sayılmaz — iptal edilmiş ekim seriye girmez.
+    """
+    satirlar = db.execute(
+        text(
+            """SELECT season_year, crop FROM crop_seasons
+            WHERE company_id=:cid AND parcel_id=:pid
+              AND season_year IN (:y1, :y2)
+              AND status != 'CANCELLED'"""
+        ),
+        {
+            "cid": cid, "pid": parcel_id,
+            "y1": season_year - 1, "y2": season_year - 2,
+        },
+    ).mappings().all()
+    gecmis: dict[int, list[str]] = {}
+    for r in satirlar:
+        gecmis.setdefault(int(r["season_year"]), []).append(str(r["crop"]))
+    return gecmis
+
+
+def _monokultur_ihlal_mi(
+    gecmis: dict[int, list[str]], season_year: int, crop: str,
+) -> bool:
+    """Üçüncü yıl aynı ürün: Y-1 VE Y-2 var, ikisi de incoming ürünle eşleşir.
+
+    Yıl boşluğu seriyi kırar. Bir yılda karışık ürün de kırar — tek ürün
+    iddiası o yılda kurulamaz.
+    """
+    def yilin_urunu(yil: int) -> str | None:
+        urunler = gecmis.get(yil)
+        if not urunler:
+            return None
+        ilk = urunler[0]
+        if not all(_urun_esit(u, ilk) for u in urunler):
+            return None
+        return ilk
+
+    onceki = yilin_urunu(season_year - 1)
+    iki_once = yilin_urunu(season_year - 2)
+    if onceki is None or iki_once is None:
+        return False
+    return _urun_esit(onceki, crop) and _urun_esit(iki_once, crop)
+
+
+def _monokultur_dogrula(
+    db: Session,
+    cid: int,
+    parcel_id: int,
+    season_year: int,
+    crop: str,
+    politika: str = "require_reason",
+    gerekce: str | None = None,
+) -> str | None:
+    """Aynı parsele üçüncü yıl aynı ürün: gerekçesiz GEÇMEZ.
+
+    Sert ret DEĞİL — gerekçe isteniyor. ÇKS tek ürün kuralı denetimde
+    "neden" sorusunun cevabını kayıtta ister; yanlış ürün adı yüzünden
+    doğru ekimi bloke etmek değil, kararı KAYIT ALTINA almak.
+    """
+    gecmis = _monokultur_gecmisi(db, cid, parcel_id, season_year)
+    if not _monokultur_ihlal_mi(gecmis, season_year, crop):
+        return None
+    metin = (
+        f"{season_year - 2}, {season_year - 1} ve {season_year} yıllarında "
+        f"aynı ürün ({crop})"
+    )
+    if politika == "block":
+        raise HTTPException(
+            422,
+            f"ÇKS tek ürün sınırı: {metin}. "
+            "Firma ayarı üçüncü yıl aynı ürüne izin vermiyor.",
+        )
+    if politika == "warn":
+        return metin
+    if gerekce:
+        return metin
+    raise HTTPException(
+        422,
+        f"ÇKS tek ürün sınırı: {metin}. "
+        "Yine de kaydetmek için gerekçe girin.",
+    )
+
+
+# PostgreSQL, `GET /field-safety` gibi pid=None çağrısında `$2 IS NULL`
+# karşılaştırması için parametre tipini çıkaramaz (AmbiguousParameter).
+# SQLite NULL'u yutar; üretim diyalekti yutmaz. `cid` integer sütunla
+# karşılaştırıldığı için tipi oradan gelir; `pid` gelmez.
+_GIRIS_SORGU = text(
+    """SELECT a.id,a.activity_type,a.performed_at,a.reentry_interval_days,
+    p.id parcel_id,p.name parcel_name
+    FROM field_activities a
+    JOIN crop_seasons s ON s.id=a.season_id AND s.company_id=a.company_id
+    JOIN farm_parcels p ON p.id=s.parcel_id AND p.company_id=s.company_id
+    WHERE a.company_id=:cid AND a.reentry_interval_days IS NOT NULL
+      AND a.status='RECORDED'
+      AND (:pid IS NULL OR p.id=:pid)"""
+).bindparams(
+    bindparam("pid", type_=Integer),
+)
+
+
+def _giris_ihlalleri(
+    db: Session, cid: int, hedef_gun: date, parcel_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """`hedef_gun`de tarlaya girilirse ihlal edilecek giriş yasaklarını döndürür.
+
+    Parsel çapraz-sezon: 2025 ilaçlaması 2026 faaliyetini de keser. Süresi
+    girilmemiş faaliyet ihlal sayılmıyor — bilinmeyeni ihlal saymak
+    `_bekleme_ihlalleri` ile aynı gerekçe.
+    """
+    satirlar = db.execute(
+        _GIRIS_SORGU, {"cid": cid, "pid": parcel_id},
+    ).mappings().all()
+    ihlaller: list[dict[str, Any]] = []
+    for r in satirlar:
+        gun = int(r["reentry_interval_days"])
+        yapildigi = _yerel_gun(r["performed_at"])
+        guvenli = yapildigi + timedelta(days=gun)
+        # Pencere [yapıldığı gün, güvenli) — ilaçlamadan ÖNCEki bir tarih
+        # ihlal değil. `hedef < guvenli` tek başına, 2026 ilaçlamasının
+        # 2025 faaliyetini kesmesine yol açardı.
+        if yapildigi <= hedef_gun < guvenli:
+            ihlaller.append({
+                "parcel_id": int(r["parcel_id"]),
+                "parcel_name": r["parcel_name"],
+                "activity_id": int(r["id"]),
+                "activity_type": r["activity_type"],
+                "performed_on": _yerel_gun(r["performed_at"]).isoformat(),
+                "interval_days": gun,
+                "safe_from": guvenli.isoformat(),
+            })
+    ihlaller.sort(key=lambda x: x["safe_from"], reverse=True)
+    return ihlaller
+
+
+def _giris_ihlal_metni(ihlaller: list[dict[str, Any]]) -> str:
+    ilk = ihlaller[0]
+    return (
+        f"{ilk['performed_on']} tarihli işlem {ilk['interval_days']} gün giriş "
+        f"yasağı gerektiriyor, güvenli tarih {ilk['safe_from']}"
+    )
+
+
+def _giris_guvenlik_dogrula(
+    db: Session, cid: int, parcel_id: int, payload: ActivityWrite,
+    politika: str = "require_reason",
+) -> str | None:
+    """Tarlaya giriş yasağı dolmadan faaliyet: gerekçesiz GEÇMEZ.
+
+    Sert ret DEĞİL — gerekçe isteniyor. Şekil `_hasat_guvenlik_dogrula` ile
+    birebir: iki raise (block, require_reason) ve iki dönüş (warn, gerekçe
+    verilmiş). Dönen metin `reentry_warning` sütununa yazılır.
+
+    farm.py:1199-1201: re-entry verisi "V1'de toplanıyor ama HİÇ
+    KULLANILMIYORDU". PHI kilidi hasat tarafına indi; bu boşluk tasarım
+    değil, asimetri istemsizdir.
+    """
+    ihlaller = _giris_ihlalleri(
+        db, cid, _yerel_gun(payload.performed_at), parcel_id,
+    )
+    if not ihlaller:
+        return None
+    metin = _giris_ihlal_metni(ihlaller)
+
+    if politika == "block":
+        raise HTTPException(
+            422,
+            f"Tarlaya giriş yasağı sürüyor: {metin}. "
+            "Firma ayarı yasağı dolmadan faaliyete izin vermiyor.",
+        )
+
+    if politika == "warn":
+        return metin
+
+    if payload.reentry_override_reason:
+        return metin
+    raise HTTPException(
+        422,
+        f"Tarlaya giriş yasağı sürüyor: {metin}. "
+        "Yine de kaydetmek için gerekçe girin.",
+    )
+
+
 # ---------------------------------------------------------------------------
 # İLAÇLAMA DEĞİŞMEZLERİ (konu #2, "Değişmezler" başlığı)
 # ---------------------------------------------------------------------------
@@ -1364,6 +1595,8 @@ _VARSAYILAN_KURALLAR = {
     "farm_area_override_policy": "require_reason",
     "farm_early_harvest_policy": "require_reason",
     "farm_spraying_dose_required": True,
+    "farm_monoculture_policy": "require_reason",
+    "farm_reentry_policy": "require_reason",
 }
 
 
@@ -1376,7 +1609,8 @@ def _firma_kurallari(db: Session, cid: int) -> dict[str, Any]:
     row = db.execute(
         text(
             """SELECT farm_area_override_policy,farm_early_harvest_policy,
-            farm_spraying_dose_required FROM companies WHERE id=:cid"""
+            farm_spraying_dose_required,farm_monoculture_policy,farm_reentry_policy
+            FROM companies WHERE id=:cid"""
         ),
         {"cid": cid},
     ).mappings().first()
@@ -1387,6 +1621,8 @@ def _firma_kurallari(db: Session, cid: int) -> dict[str, Any]:
         "farm_early_harvest_policy": row["farm_early_harvest_policy"] or "require_reason",
         # SQLite boolean'ı 0/1 döndürüyor; bool() ikisini de doğru okur.
         "farm_spraying_dose_required": bool(row["farm_spraying_dose_required"]),
+        "farm_monoculture_policy": row["farm_monoculture_policy"] or "require_reason",
+        "farm_reentry_policy": row["farm_reentry_policy"] or "require_reason",
     }
 
 
@@ -1883,34 +2119,7 @@ def field_safety(request: Request, db: Session = Depends(get_db)):
                 "blocking": ihlaller,
             })
 
-    giris_satirlari = db.execute(
-        text(
-            """SELECT a.id,a.activity_type,a.performed_at,a.reentry_interval_days,
-            p.id parcel_id,p.name parcel_name
-            FROM field_activities a
-            JOIN crop_seasons s ON s.id=a.season_id AND s.company_id=a.company_id
-            JOIN farm_parcels p ON p.id=s.parcel_id AND p.company_id=s.company_id
-            WHERE a.company_id=:cid AND a.reentry_interval_days IS NOT NULL
-              AND a.status='RECORDED'"""
-        ),
-        {"cid": cid},
-    ).mappings().all()
-
-    giris_kisitlari = []
-    for r in giris_satirlari:
-        gun = int(r["reentry_interval_days"])
-        guvenli = _yerel_gun(r["performed_at"]) + timedelta(days=gun)
-        if bugun < guvenli:
-            giris_kisitlari.append({
-                "parcel_id": int(r["parcel_id"]),
-                "parcel_name": r["parcel_name"],
-                "activity_id": int(r["id"]),
-                "activity_type": r["activity_type"],
-                "performed_on": _yerel_gun(r["performed_at"]).isoformat(),
-                "interval_days": gun,
-                "safe_from": guvenli.isoformat(),
-            })
-    giris_kisitlari.sort(key=lambda x: x["safe_from"], reverse=True)
+    giris_kisitlari = _giris_ihlalleri(db, cid, bugun)
 
     return {
         "as_of": bugun.isoformat(),

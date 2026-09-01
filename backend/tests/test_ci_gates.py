@@ -20,23 +20,27 @@ CALL_SITE_GATE = REPO_ROOT / "deploy" / "ci-verify-cagri-kapisi.py"
 BACKEND = REPO_ROOT / "backend"
 
 
-def test_pg_test_population_exact_96() -> None:
-    """PostgreSQL test population must be exactly 96 files.
+def test_pg_test_population_exact_98() -> None:
+    """PostgreSQL test population must be exactly 98 files.
 
-    95 -> 96: BKÜ içe aktarma ikizi (`test_farm_bku_ice_aktarma_postgresql.py`,
-    göç 20260901_0064). İKİZ ZORUNLU ve gerekçesi kardeşininkinden GÜÇLÜ:
-    "bir bozuk satır dosyayı düşürmez" kuralını ayakta tutan şey SAVEPOINT ve
-    savepoint YOKKEN SQLite koşusu YEŞİL KALIR — PostgreSQL'de başarısız bir
-    deyim işlemi ABORTED yapar, SQLite'ta yapmaz. Yani bu dilimin ana
-    iddiasının kırılması YALNIZ üretim diyalektinde görünür.
+    97 -> 98: BKU ice aktarma ikizi (`test_farm_bku_ice_aktarma_postgresql.py`,
+    goc 20260902_0065). Taban DEVELOP'un 97'sidir ve delta OLCULEREK bulundu,
+    eski oluctumun (95 -> 96) uzerine aritmetik yapilarak DEGIL: o olcum, tabani
+    degistigi anda gecersiz oldu.
 
-    94 -> 95: BKÜ kataloğu ikizi (`test_farm_bku_katalogu_postgresql.py`,
-    göç 20260901_0063). İkiz ZORUNLU: katalogdan çözülen PHI, `crop` BOŞ
-    DİZE yedeği ve `(company_id, product_id)` bileşik yabancı anahtarı
-    üretim diyalektinde SQLite'tan farklı davranıyor. Bu sayaç ile
-    `ci.yml`deki eşi birlikte artmak ZORUNDA — ikisi aynı popülasyonu
-    sayıyor ve biri güncellenip diğeri unutulursa kapı kendi kendisiyle
-    çelişir.
+    IKIZ ZORUNLU ve gerekcesi kardesininkinden GUCLU: "bir bozuk satir dosyayi
+    dusurmez" kuralini ayakta tutan sey SAVEPOINT ve savepoint YOKKEN SQLite
+    kosusu YESIL KALIR — PostgreSQL'de basarisiz bir deyim islemi ABORTED
+    yapar, SQLite'ta yapmaz. Yani bu dilimin ana iddiasinin kirilmasi YALNIZ
+    uretim diyalektinde gorunur.
+
+    95 -> 97: tarla yazma kilitleri ikizleri (`test_farm_monoculture_postgresql.py`,
+    `test_farm_reentry_enforcement_postgresql.py`, göç 20260901_0064). İkizler
+    ZORUNLU: ÇKS tek ürün ve giriş yasağı yazma yolları üretim diyalektinde
+    SQLite'tan farklı davranıyor. 94 -> 95 BKÜ kataloğu ikizi (göç
+    20260901_0063) develop'ta zaten inmişti. Bu sayaç ile `ci.yml`deki eşi
+    birlikte artmak ZORUNDA — ikisi aynı popülasyonu sayıyor ve biri
+    güncellenip diğeri unutulursa kapı kendi kendisiyle çelişir.
     """
     pg_glob = sorted(BACKEND.glob("test_*postgresql*.py"))
     named = [
@@ -44,15 +48,15 @@ def test_pg_test_population_exact_96() -> None:
         BACKEND / "tests" / "test_ci_playwright_hazirlik.py",
     ]
     all_files = pg_glob + [p for p in named if p.exists()]
-    assert len(all_files) == 96, (
-        f"PostgreSQL test population changed: expected 96, got {len(all_files)}"
+    assert len(all_files) == 98, (
+        f"PostgreSQL test population changed: expected 98, got {len(all_files)}"
     )
 
 
 def test_ci_workflow_has_frozen_pg_population_constant() -> None:
-    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=96 and strict equality."""
+    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=98 and strict equality."""
     content = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BEKLENEN_PG_DOSYA_SAYISI=96" in content
+    assert "BEKLENEN_PG_DOSYA_SAYISI=98" in content
     assert '[ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]' in content
 
 

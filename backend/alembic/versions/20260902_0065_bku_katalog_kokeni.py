@@ -1,7 +1,25 @@
 """BKÜ katalog satırının KÖKENİ: elle mi yazıldı, dosyadan mı geldi.
 
-Revision ID: 20260901_0064
-Revises: 20260901_0063
+Revision ID: 20260902_0065
+Revises: 20260901_0064
+
+--- BU GOC 0064 OLARAK YAZILDI, 0065 OLARAK YENIDEN NUMARALANDI --------------
+
+Ilk yazildiginda tabani PR #18'in basiydi ve oradaki en buyuk sira 0063'tu,
+yani 0064 dogru secimdi. Develop'a birlesirken PR #19'un (`tarla_kilitleri`)
+AYNI numarayi, AYNI atadan (`20260901_0063`) tureterek aldigi gorildu.
+
+BUNU GIT YAKALAYAMAZDI ve neden yakalayamadigi kayda deger: iki dal da
+`test_goc_zinciri.py`deki bas pinini AYNI metne ("20260901_0064") cevirdigi
+icin o dosya CAKISMASIZ birlesti. Cakisma yalnizca alembic'in
+"Revision 20260901_0064 is present more than once" uyarisinda ve zincir
+kapisinin COKLU BAS hatasinda gorundu — ci.yml'nin basindaki #56 + #60
+notunun tarif ettigi olayin aynisi.
+
+Cozum sira numarasini buyutmek: bu goc artik develop'un 0064'unun
+ARDINDAN gelir (`down_revision = "20260901_0064"`), yani zincir tek basli
+kalir. Govdedeki 0063 atiflari DEGISMEDI ve dogrudur: katalog tablosunu acan
+goc hala 0063'tur, bu goc yalnizca ona sutun ekler.
 
 --- NEDEN ------------------------------------------------------------------
 
@@ -62,8 +80,8 @@ SAKLARDI: satırın bir listeden geldiği gerçeği ilk düzeltmede silinirdi.
 from alembic import op
 import sqlalchemy as sa
 
-revision = "20260901_0064"
-down_revision = "20260901_0063"
+revision = "20260902_0065"
+down_revision = "20260901_0064"
 branch_labels = None
 depends_on = None
 
