@@ -81,10 +81,15 @@ export default function PlantProtectionProducts() {
     try {
       const [k, u] = await Promise.all([
         api.get<Page<PlantProtectionProduct>>(PPP_PATH, {params: {limit: 200}}),
-        api.get<Page<Urun>>('/products', {params: {limit: 500}}),
+        // `/products` İKİ BİÇİM DÖNDÜRÜR: `include_meta` verilmedikçe ÇIPLAK
+        // DİZİ, verilirse `{items, has_more}` (bkz. routers/products.py). İlk
+        // sürüm burada `.items` varsaydı, dizi geldiği için `undefined` oldu ve
+        // aşağıdaki `for...of` "is not iterable" ile ekranı çökertti — e2e
+        // konsol-temizlik kapısı yakaladı. İkisini de kabul ediyoruz.
+        api.get<Urun[] | Page<Urun>>('/products', {params: {limit: 500}}),
       ]);
       setRows(k.data.items);
-      setUrunler(u.data.items);
+      setUrunler(Array.isArray(u.data) ? u.data : u.data?.items ?? []);
     } catch (err) {
       setError(farmErrorText(err, 'BKÜ kataloğu yüklenemedi.'));
     } finally {
