@@ -19,6 +19,7 @@ _spec = importlib.util.spec_from_file_location(
 _contract = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_contract)
 run_reentry_smoke = _contract.run_reentry_smoke
+run_unfiltered_field_safety_smoke = _contract.run_unfiltered_field_safety_smoke
 
 
 def _pg_url() -> str:
@@ -33,3 +34,8 @@ def _pg_url() -> str:
 @pytest.mark.postgresql
 def test_reentry_enforcement_postgresql() -> None:
     run_reentry_smoke(_pg_url())
+
+
+@pytest.mark.postgresql
+def test_unfiltered_field_safety_postgresql() -> None:
+    run_unfiltered_field_safety_smoke(_pg_url())

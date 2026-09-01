@@ -46,6 +46,9 @@ def test_reentry_query_is_parcel_scoped_and_tenant_bound() -> None:
     assert "company_id=:cid" in govde
     assert "reentry_interval_days IS NOT NULL" in govde
     assert ":pid" in govde
+    # Optional pid must be typed in the constant SQL. Untyped `:pid IS NULL`
+    # 500s on PostgreSQL when GET /api/field-safety binds pid=None.
+    assert "CAST(:pid AS INTEGER)" in govde
 
 
 def run_reentry_smoke(database_url: str) -> None:
@@ -61,6 +64,23 @@ def run_reentry_smoke(database_url: str) -> None:
 
 def test_reentry_enforcement_sqlite(tmp_path: Path) -> None:
     run_reentry_smoke(f"sqlite:///{(tmp_path / 'farm-reentry.db').as_posix()}")
+
+
+def run_unfiltered_field_safety_smoke(database_url: str) -> None:
+    env = os.environ.copy()
+    env["DATABASE_URL"] = database_url
+    env["PYTHONPATH"] = str(BACKEND)
+    completed = subprocess.run(
+        [sys.executable, "-c", _UNFILTERED_SAFETY],
+        cwd=BACKEND, env=env, capture_output=True, text=True, timeout=300,
+    )
+    assert completed.returncode == 0, completed.stdout + "\n" + completed.stderr
+
+
+def test_unfiltered_field_safety_sqlite(tmp_path: Path) -> None:
+    run_unfiltered_field_safety_smoke(
+        f"sqlite:///{(tmp_path / 'field-safety-unfiltered.db').as_posix()}"
+    )
 
 
 _SMOKE = r'''
@@ -253,4 +273,71 @@ with TestClient(app) as client:
     assert r.status_code == 201, r.text  # A'nın yasağı B'yi kesmez
 
     print('TARLA GIRIS YASAGI KILIDI TAMAM')
+'''
+
+
+_UNFILTERED_SAFETY = r'''
+from datetime import datetime, timezone
+
+from fastapi.testclient import TestClient
+
+from app.main import app
+
+ADMIN_PW = 'FieldSafetyUnfiltered!123'
+
+
+def admin_headers(client):
+    login = client.post('/api/auth/login', json={'username':'admin','password':'admin123'})
+    assert login.status_code == 200, login.text
+    body = login.json()
+    h = {'Authorization':'Bearer '+body['access_token'],
+         'X-Company-ID':str(body['companies'][0]['id'])}
+    ch = client.post('/api/auth/change-password', headers=h,
+                     json={'current_password':'admin123','new_password':ADMIN_PW})
+    assert ch.status_code == 200, ch.text
+    h['Authorization'] = 'Bearer '+ch.json()['access_token']
+    return h
+
+
+with TestClient(app) as client:
+    h = admin_headers(client)
+
+    # Unfiltered GET — no parcel query param, pid=None in `_GIRIS_SORGU`.
+    # PostgreSQL 16 cannot type `$2 IS NULL` without CAST; SQLite swallows it.
+    empty = client.get('/api/field-safety', headers=h)
+    assert empty.status_code == 200, empty.text
+    bos = empty.json()
+    assert set(bos) == {'as_of', 'harvest_blocks', 'reentry_blocks'}, bos
+    assert isinstance(bos['harvest_blocks'], list), bos
+    assert isinstance(bos['reentry_blocks'], list), bos
+    assert bos['as_of'], bos
+
+    ciftlik = client.post('/api/farms', headers=h,
+                         json={'code':'fs1','name':'Güvenlik Çiftlik'}).json()
+    parsel = client.post('/api/farm-parcels', headers=h,
+                         json={'farm_id':ciftlik['id'],'code':'fsp','name':'Güvenlik Parsel',
+                               'area_decare':'12.0000'}).json()
+    sezon = client.post('/api/crop-seasons', headers=h,
+                        json={'parcel_id':parsel['id'],'season_year':2026,'crop':'Domates',
+                              'started_on':'2026-03-01'}).json()
+    simdi = datetime.now(timezone.utc).isoformat()
+    ilac = client.post('/api/field-activities', headers=h, json={
+        'season_id': sezon['id'], 'activity_type': 'SPRAYING',
+        'performed_at': simdi,
+        'applied_area_decare': '12.0000',
+        'reentry_interval_days': 3,
+    })
+    assert ilac.status_code == 201, ilac.text
+
+    dolu = client.get('/api/field-safety', headers=h)
+    assert dolu.status_code == 200, dolu.text
+    g = dolu.json()
+    assert set(g) == {'as_of', 'harvest_blocks', 'reentry_blocks'}, g
+    eslesen = [b for b in g['reentry_blocks'] if b.get('activity_id') == ilac.json()['id']]
+    assert len(eslesen) == 1, g['reentry_blocks']
+    assert eslesen[0]['parcel_id'] == parsel['id'], eslesen
+    assert eslesen[0]['interval_days'] == 3, eslesen
+    assert eslesen[0]['activity_type'] == 'SPRAYING', eslesen
+
+    print('FIELD_SAFETY_UNFILTERED_OK')
 '''

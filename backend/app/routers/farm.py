@@ -1443,6 +1443,18 @@ def _monokultur_dogrula(
     )
 
 
+# Optional parcel filter. farm.py / herd.py normally omit the clause
+# (`kosul += " AND parcel_id=:parcel_id"` only when the id is present) so a
+# NULL is never bound. This query is a module constant — building it
+# conditionally would make it dynamic SQL and move the farm.py fingerprint
+# plus the 253 total. The constant-SQL idiom for an optional bind is CAST,
+# same as transactions.py / workflow.py (`CAST(:current_id AS INTEGER)
+# IS NULL`). SQLite: CAST(NULL AS INTEGER) IS NULL is true. PostgreSQL 16:
+# without the CAST, `GET /api/field-safety` binds pid=None and 500s
+# (AmbiguousParameter on `$2 IS NULL`). `:cid` is typed by a.company_id;
+# `:pid` is the only optional bind in the two new lock queries that can
+# reach PostgreSQL as an untyped NULL (`_monokultur_gecmisi` always binds
+# int cid/pid/y1/y2 from create/update_season).
 _GIRIS_SORGU = text(
     """SELECT a.id,a.activity_type,a.performed_at,a.reentry_interval_days,
     p.id parcel_id,p.name parcel_name
@@ -1451,7 +1463,7 @@ _GIRIS_SORGU = text(
     JOIN farm_parcels p ON p.id=s.parcel_id AND p.company_id=s.company_id
     WHERE a.company_id=:cid AND a.reentry_interval_days IS NOT NULL
       AND a.status='RECORDED'
-      AND (:pid IS NULL OR p.id=:pid)"""
+      AND (CAST(:pid AS INTEGER) IS NULL OR p.id=CAST(:pid AS INTEGER))"""
 )
 
 

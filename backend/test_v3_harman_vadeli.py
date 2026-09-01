@@ -45,9 +45,11 @@ def test_harman_vadeli_flow(tmp_path: Path) -> None:
 # Shared, DB-agnostic scenario. test_harman_vadeli_postgresql.py runs the exact
 # same script against PostgreSQL 16 so SQLite/PG parity is proven, not assumed.
 _SMOKE = r'''
+from datetime import timedelta
 from decimal import Decimal
 from fastapi.testclient import TestClient
 from app.main import app
+from app.business_time import business_today
 
 
 def dec(value):
@@ -135,8 +137,15 @@ with TestClient(app) as client:
     fifo_customer = client.post(
         '/api/customers', headers=headers, json={'name':'FIFO Çiftçisi'}
     ).json()['id']
-    first = sale('HARMAN_VADELI', due='2026-08-01', tx='2026-01-01')
-    second = sale('HARMAN_VADELI', due='2026-09-01', tx='2026-01-01')
+    # FIFO dues must stay on/after Istanbul business_today. Hardcoded
+    # 2026-08-01 / 2026-09-01 became VADESI_GECTI once today rolled to
+    # 2026-09-02 (21:00 UTC). That is not a farm lock: this smoke never
+    # creates a season or activity. `_receivable_status` is due_date < today.
+    bugun = business_today()
+    fifo_ilk = (bugun + timedelta(days=30)).isoformat()
+    fifo_iki = (bugun + timedelta(days=60)).isoformat()
+    first = sale('HARMAN_VADELI', due=fifo_ilk, tx='2026-01-01')
+    second = sale('HARMAN_VADELI', due=fifo_iki, tx='2026-01-01')
     # Reassign the helper-created documents to the dedicated FIFO customer.
     from app.db import SessionLocal
     from sqlalchemy import text
@@ -156,6 +165,7 @@ with TestClient(app) as client:
     }
     assert fifo_rows[first.json()['id']]['status'] == 'ODENDI'
     assert dec(fifo_rows[first.json()['id']]['outstanding']) == Decimal('0')
+    assert fifo_rows[second.json()['id']]['status'] == 'ACIK'
     assert dec(fifo_rows[second.json()['id']]['outstanding']) == Decimal('800')
     assert dec(fifo_rows[second.json()['id']]['paid']) == Decimal('200')
 
