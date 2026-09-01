@@ -59,7 +59,8 @@ const TOUCH_TARGET_DIALOG_SX = {
 type ActivityForm = {
   season_id: string; activity_type: string; performed_at: string;
   applied_area_decare: string; area_override_reason: string;
-  reentry_interval_days: string; preharvest_interval_days: string; notes: string;
+  reentry_interval_days: string; preharvest_interval_days: string;
+  reentry_override_reason: string; notes: string;
 };
 
 const activityInputTotal = (inputs: ActivityInput[]) => {
@@ -73,7 +74,7 @@ type InputForm = {input_name: string; quantity: string; unit: string; unit_cost:
 const bosFaaliyet = (): ActivityForm => ({
   season_id: '', activity_type: 'SPRAYING', performed_at: `${todayIso()}T08:00`,
   applied_area_decare: '', area_override_reason: '',
-  reentry_interval_days: '', preharvest_interval_days: '', notes: '',
+  reentry_interval_days: '', preharvest_interval_days: '', reentry_override_reason: '', notes: '',
 });
 const BOS_GIRDI: InputForm = {input_name: '', quantity: '', unit: '', unit_cost: '', dose: '', dose_unit: ''};
 
@@ -182,6 +183,7 @@ export default function FieldActivities() {
         area_override_reason: bosNull(f.area_override_reason),
         reentry_interval_days: sayiNull(f.reentry_interval_days),
         preharvest_interval_days: sayiNull(f.preharvest_interval_days),
+        reentry_override_reason: bosNull(f.reentry_override_reason),
         notes: bosNull(f.notes),
       });
       setDialog({open: false, form: bosFaaliyet()});
@@ -398,6 +400,9 @@ export default function FieldActivities() {
               <TextField label="Hasat bekleme (gün)" type="number" fullWidth value={dialog.form.preharvest_interval_days}
                 onChange={e => setDialog(d => ({...d, form: {...d.form, preharvest_interval_days: e.target.value}}))} />
             </Stack>
+            <TextField label="Giriş yasağı gerekçesi" value={dialog.form.reentry_override_reason}
+              helperText="Yasak sürerken faaliyet gerekçesiz geçmez. Boş bırakılabilir."
+              onChange={e => setDialog(d => ({...d, form: {...d.form, reentry_override_reason: e.target.value}}))} />
             <TextField label="Not" multiline minRows={2} value={dialog.form.notes}
               onChange={e => setDialog(d => ({...d, form: {...d.form, notes: e.target.value}}))} />
           </Stack>

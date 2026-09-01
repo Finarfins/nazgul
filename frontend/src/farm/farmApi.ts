@@ -48,6 +48,8 @@ export type CropSeason = {
   product_id: number | null;
   started_on: string | null; ended_on: string | null;
   planted_area_decare: Numeric | null; notes: string | null; updated_at: string;
+  monoculture_override_reason?: string | null;
+  monoculture_warning?: string | null;
 };
 
 export type FieldActivity = {
@@ -55,6 +57,8 @@ export type FieldActivity = {
   applied_area_decare: Numeric | null; area_override_reason: string | null;
   operator_user_id: number | null; machine_id: number | null;
   reentry_interval_days: number | null; preharvest_interval_days: number | null;
+  reentry_override_reason?: string | null;
+  reentry_warning?: string | null;
   notes: string | null; crop?: string | null; parcel_name?: string | null;
 };
 
@@ -203,15 +207,20 @@ export type FieldSafety = {
 
 export type FarmAreaPolicy = 'allow' | 'require_reason' | 'block';
 export type FarmHarvestPolicy = 'warn' | 'require_reason' | 'block';
+export type FarmSafetyPolicy = 'warn' | 'require_reason' | 'block';
 export type FarmPolicySettings = {
   farm_area_override_policy: FarmAreaPolicy;
   farm_early_harvest_policy: FarmHarvestPolicy;
   farm_spraying_dose_required: boolean;
+  farm_monoculture_policy: FarmSafetyPolicy;
+  farm_reentry_policy: FarmSafetyPolicy;
 };
 export const DEFAULT_FARM_POLICIES: FarmPolicySettings = {
   farm_area_override_policy: 'require_reason',
   farm_early_harvest_policy: 'require_reason',
   farm_spraying_dose_required: true,
+  farm_monoculture_policy: 'require_reason',
+  farm_reentry_policy: 'require_reason',
 };
 
 export type HarvestDecision = {
