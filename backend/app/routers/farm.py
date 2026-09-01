@@ -2357,8 +2357,13 @@ def _ice_aktarma_tamsayi(ham: Any) -> int | None:
         return None
     if isinstance(ham, int):
         return ham
-    if isinstance(ham, float):
-        return int(ham) if ham.is_integer() else None
+    # KAYAR NOKTA DALI BİLEREK YOK ve geri EKLENMEMELİ. Elektronik tablodan
+    # gelen `21.0` bu satırda `str()` ile "21.0"a dönüyor ve aşağıdaki metin
+    # yolu onu zaten doğru çözüyor; `20.6` ise aynı yolda REDDEDİLİYOR. Yani
+    # ayrı bir dal hiçbir şey kazandırmıyordu — ama `test_v2_9_decimal_contract`
+    # kapısı çalışma anındaki `float` kullanımını yasaklıyor (CI bu dosyada
+    # yakaladı) ve deponun para/miktar hesabı Decimal üzerine kurulu. Tek
+    # istisna açmaktansa dalı kaldırmak hem kapıyı hem de kodu sadeleştiriyor.
     metin = str(ham).strip()
     if not metin:
         return None
