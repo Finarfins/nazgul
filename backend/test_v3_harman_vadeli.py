@@ -45,13 +45,46 @@ def test_harman_vadeli_flow(tmp_path: Path) -> None:
 # Shared, DB-agnostic scenario. test_harman_vadeli_postgresql.py runs the exact
 # same script against PostgreSQL 16 so SQLite/PG parity is proven, not assumed.
 _SMOKE = r'''
+from datetime import timedelta
 from decimal import Decimal
 from fastapi.testclient import TestClient
+from app.business_time import business_today
 from app.main import app
 
 
 def dec(value):
     return Decimal(str(value))
+
+
+# --- VADESİ AÇIK BELGENİN TARİHİ SABİT YAZILAMAZ ---------------------------
+#
+# `_receivable_status` (routers/transactions.py) kararı `due_date < today` ile
+# verir ve `today` `business_today()`ten, yani İSTANBUL takvim gününden gelir.
+# Bu yüzden "vadesi gelmemiş" anlamı bir SABİT tarihle ifade edilemez: sabit,
+# duvar saatinin ona yetiştiği gün sessizce anlamını değiştirir.
+#
+# ÖLÇÜLDÜ (2026-09-01, İstanbul 00:39, bu depo): burada eskiden `2026-09-01`
+# sabiti vardı. İstanbul 2026-09-02'ye döndüğü anda o belge `ACIK`tan
+# `VADESI_GECTI`ye geçti ve İKİ iddiayı birden düşürdü —
+# `status=VADESI_GECTI` süzgeci iki kimlik döndürdü (bir tane bekleniyordu) ve
+# ödeme sonrası `total_overdue` 0 yerine 800 çıktı. Kusur `origin/develop`
+# (aa3d577 ve cfe7362) ağacında da AYNEN üretildi; yani dalın değil deponun
+# kusuruydu ve o gece açılan HER PR'ı kırmızıya çevirecekti.
+#
+# ÇARE SUNUCUNUN KENDİ SAATİ. Vade aynı süreçteki `business_today()`ten
+# türetiliyor — testin okuduğu gün ile sunucunun karşılaştırdığı gün AYNI
+# fonksiyondan gelir, dolayısıyla ikisi ayrışamaz.
+#
+# 365 GÜN, 30 DEĞİL. Pay iki şeyi birden karşılıyor: (1) koşum İstanbul gece
+# yarısını geçerse test ile sunucu bir gün ayrışabilir, bu pay onu yutar;
+# (2) vade, aşağıdaki `2099-12-31` belgesinden ÖNCE kalmak zorunda (azalan
+# sıralama iddiası en büyüğün o olmasına dayanıyor) ve 2026-08-01 tarihli FIFO
+# belgesinden SONRA (FIFO en eski vadeye dağıtır). 365 gün ikisini de korur.
+#
+# GEÇMİŞTE KALAN SABİTLER (2019-06-30, 2026-08-01) BİLEREK DEĞİŞTİRİLMEDİ:
+# onların anlamı "vadesi geçmiş"tir ve zaman ilerledikçe daha da doğru olur —
+# atıl sabitlerdir, bomba değil.
+ACIK_VADE = (business_today() + timedelta(days=365)).isoformat()
 
 
 with TestClient(app) as client:
@@ -136,7 +169,7 @@ with TestClient(app) as client:
         '/api/customers', headers=headers, json={'name':'FIFO Çiftçisi'}
     ).json()['id']
     first = sale('HARMAN_VADELI', due='2026-08-01', tx='2026-01-01')
-    second = sale('HARMAN_VADELI', due='2026-09-01', tx='2026-01-01')
+    second = sale('HARMAN_VADELI', due=ACIK_VADE, tx='2026-01-01')
     # Reassign the helper-created documents to the dedicated FIFO customer.
     from app.db import SessionLocal
     from sqlalchemy import text
