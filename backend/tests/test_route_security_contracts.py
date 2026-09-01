@@ -229,8 +229,8 @@ DYNAMIC_PERMISSION_CASES = {
     },
 }
 
-EXPECTED_OPERATION_COUNT = 340
-EXPECTED_PATH_COUNT = 263
+EXPECTED_OPERATION_COUNT = 342
+EXPECTED_PATH_COUNT = 264
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -292,7 +292,16 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # ile `farm.view` ÖLÇÜLDÜ, SONRA parmak izi alındı.
     # Uçlar SALT OKUR; tüketici davranışı ve `FIELD_STOCK_OUTBOX_ENABLED`
     # varsayılanı DEĞİŞMEDİ.
-    "c7a3c174419f7f1d6bd62ac36f7ffc476a84377b010d526925096b54aaf380a6"
+    # 20260901 (kantar fişi, migration 0064): 2 işlem / 1 yol eklendi —
+    # GET ve POST /api/field-harvest-tickets. GET `farm.view`, POST
+    # `farm.manage`. TUZAK ÜÇÜNCÜ KEZ KURULDU: yol `/api/field-harvests` ile
+    # BAŞLAMIYOR (sondaki `s`) ve `/api/field` genel kuralına düşerdi;
+    # `_FARM_PATH_PREFIXES`'e eklendi, izinler `required_permission` ile
+    # ÖLÇÜLDÜ, SONRA parmak izi alındı — sıra yine korundu.
+    # Bu dilim DEFTERE YAZMAZ: outbox olayı üretilmiyor ve
+    # `field_stok_tuketici` değişmedi (ölçüm:
+    # `tests/test_kantar_fisi_defter.py`).
+    "7e0efcd9e53c29e96e6fe12f9b910dd5118b4fc92d20deaee9ebed6ac17e34bf"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

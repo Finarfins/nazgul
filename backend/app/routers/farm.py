@@ -40,6 +40,7 @@ from ..farm_schemas import (
     ActivityWrite,
     FarmUpdate,
     FarmWrite,
+    HarvestTicketWrite,
     HarvestWrite,
     ParcelUpdate,
     ParcelWrite,
@@ -50,7 +51,7 @@ from ..farm_schemas import (
 )
 from ..auth import has_permission, required_permission
 from ..business_time import ISTANBUL, business_today
-from ..money import money, quantity
+from ..money import money, percentage, quantity
 from ..tenancy import company_id
 
 router = APIRouter(tags=["farm"])
@@ -92,6 +93,9 @@ def _satir(db: Session, cid: int, tablo: str, kayit_id: int) -> dict[str, Any]:
 _TABLOLAR = frozenset({
     "farms", "farm_parcels", "crop_seasons", "field_activities",
     "field_activity_inputs", "field_harvests", "field_tasks",
+    # Kantar fişi (migration 0064). Kesinti satırları BU KÜMEDE YOK ve olmamalı:
+    # tek tek okunmuyorlar, yalnız fişin altında toplu okunuyorlar.
+    "field_harvest_tickets",
 })
 
 
@@ -132,6 +136,110 @@ def _hasat_yaniti(satir: dict[str, Any]) -> dict[str, Any]:
         "sold_quantity": None if sold is None else format(quantity(sold), "f"),
         "revenue_amount": None if revenue is None else format(money(revenue), "f"),
     }
+
+
+# ---------------------------------------------------------------------------
+# KANTAR FİŞİ — TÜRETİLEN HER ŞEY OKUMA ANINDA (migration 0064)
+# ---------------------------------------------------------------------------
+#
+# Türetilen dört değerin HİÇBİRİ saklanmıyor: `deduction_rate_total`,
+# `derived_net_quantity`, `net_mismatch`, `sold_exceeds_net`. Saklanan bir
+# türev, bileşim kuralı düzeltildiği gün ESKİ kuralla yazılmış satırlar bırakır
+# ve hangi satırın hangi kuralla hesaplandığı kayıttan okunamaz. Aynı posture:
+# `_tutar` (saat × donmuş oran) ve `gross_margin`.
+
+_YUZDE = Decimal("100")
+
+
+def _kesinti_orani_toplami(kesintiler: list[dict[str, Any]]) -> Decimal:
+    return sum(
+        (Decimal(str(k["rate_percent"])) for k in kesintiler), Decimal("0")
+    )
+
+
+def _turetilmis_net(brut: Decimal, kesintiler: list[dict[str, Any]]) -> Decimal:
+    """``net = brüt − Σ(brüt × oran/100)`` — TOPLAMSAL, SIRALI DEĞİL.
+
+    Owner kararı (bkz. migration 0064 başlığı): ikinci kesinti birinciden
+    ARTAN miktara değil, yine BRÜTE uygulanır. Bileşim SEÇİLDİ ama DOĞRU İLAN
+    EDİLMEDİ — kağıdın kendi neti `ticket_net_quantity` olarak saklanıyor ve
+    ayrışma `net_mismatch` ile GÖRÜNÜR oluyor.
+
+    YUVARLAMA TEK YERDE VE EN SONDA. Terim başına yuvarlamak, kesinti sayısı
+    arttıkça birikimli bir sapma üretirdi ve net "hangi sırayla girildiğine"
+    bağlı çıkardı.
+    """
+    dusum = sum(
+        (brut * Decimal(str(k["rate_percent"])) / _YUZDE for k in kesintiler),
+        Decimal("0"),
+    )
+    return quantity(brut - dusum)
+
+
+def _fis_gorunumu(
+    satir: dict[str, Any], kesintiler: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Bir kantar fişinin dış temsili; miktarlar SABİT ÖLÇEKLİ METİN.
+
+    ``net_mismatch`` ÜÇ DEĞERLİDİR ve bu bilinçli:
+      * ``None`` — kağıdın neti GİRİLMEMİŞ; ayrışacak bir şey YOK.
+      * ``False`` — girilmiş ve türetilenle AYNI.
+      * ``True`` — girilmiş ve FARKLI: ya brüt yanlış girilmiş, ya kesinti
+        oranları eksik, ya da alıcı SIRALI hesaplıyor.
+
+    ``False`` ile ``None``u aynı göstermek, "kağıt bizi doğruluyor" ile
+    "kağıdı hiç okumadık"ı aynı şeye indirirdi — bu modülün `revenue_amount`
+    ayrımının aynısı.
+    """
+    brut = quantity(satir["gross_quantity"])
+    net = _turetilmis_net(brut, kesintiler)
+    kagit = satir.get("ticket_net_quantity")
+    return {
+        "id": satir["id"],
+        "harvest_id": satir["harvest_id"],
+        "ticket_no": satir.get("ticket_no"),
+        "buyer_name": satir.get("buyer_name"),
+        "plate": satir.get("plate"),
+        "weighed_at": satir.get("weighed_at"),
+        "gross_quantity": format(brut, "f"),
+        "ticket_net_quantity": None if kagit is None else format(quantity(kagit), "f"),
+        "deduction_rate_total": format(
+            percentage(_kesinti_orani_toplami(kesintiler)), "f"
+        ),
+        "derived_net_quantity": format(net, "f"),
+        "net_mismatch": None if kagit is None else quantity(kagit) != net,
+        "deductions": [
+            {
+                "id": k["id"],
+                "label": k["label"],
+                "rate_percent": format(percentage(k["rate_percent"]), "f"),
+            }
+            for k in kesintiler
+        ],
+        "notes": satir.get("notes"),
+        "created_at": satir.get("created_at"),
+        "updated_at": satir.get("updated_at"),
+    }
+
+
+def _satis_net_asiyor(
+    sold_quantity: Any, net_toplam: Decimal, fis_sayisi: int
+) -> bool | None:
+    """``sold_exceeds_net`` — ÜÇ DEĞERLİ, `net_mismatch` ile AYNI gerekçeyle.
+
+    ``None`` iki AYRI bilinmezliği taşır ve ikisi de "hesaplanamaz" demektir:
+    satılan miktar girilmemiş, ya da hiç fiş yok (net bilinmiyor). Fişsiz bir
+    hasatta ``False`` dönmek "satış neti aşmıyor" diye OKUNURDU — oysa net
+    ölçülmemiştir.
+
+    KURAL BİR REDDETME DEĞİL. Aşan bir değer yazılmayı ENGELLEMİYOR: kağıtta
+    ne yazıyorsa o kaydedilir, anlaşmazlık GÖSTERİLİR. `create_harvest`teki
+    "satılan hasadı aşamaz" kontrolü AYRI ve orada kalıyor — o iki sütun aynı
+    satırda ve ilişkileri kesindir; burada karşılaştırılan şey bir TÜREVDİR.
+    """
+    if sold_quantity is None or fis_sayisi == 0:
+        return None
+    return quantity(sold_quantity) > net_toplam
 
 
 def _tutar(saat: Any, oran: Any) -> str | None:
@@ -1694,6 +1802,185 @@ def create_harvest(payload: HarvestWrite, request: Request, db: Session = Depend
         return yaris
     db.commit()
     return _hasat_yaniti(_satir(db, cid, "field_harvests", int(yeni)))
+
+
+# ------------------------------------------------------------ kantar fişi ---
+#
+# BU DİLİM DEFTERE HİÇBİR ŞEY YAZMAZ. `_entegrasyon_olayi_yaz` BURADA
+# ÇAĞRILMIYOR ve `field_stok_tuketici`ye dokunulmadı; stok hareketi hâlâ
+# `field_harvests.quantity` üzerinden yazılıyor. Sınanabilir iddia budur ve
+# `tests/test_kantar_fisi_defter.py` beş senaryoda ölçüyor.
+#
+# Fişin defteri BUGÜN oynatamamasının sebebi ölçülmüş bir SIRA sorunudur: hasat
+# olayı hasat YAZILIRKEN üretilir ve tüketici onu ilk döngüsünde tüketir; fiş
+# ise kamyon depoya VARDIKTAN sonra girilir. `_hasat_kalemleri`ye bir LEFT JOIN
+# eklemek bu yüzden yanlış olurdu — birleştirme çalıştığı anda fiş HENÜZ YOKTUR
+# ve sorgu her seferinde NULL görür.
+
+
+def _fis_kesintileri(
+    db: Session, cid: int, fis_idleri: list[int]
+) -> dict[int, list[dict[str, Any]]]:
+    """Fiş kimliğine göre kesinti satırları; kiracı kapsamlı TEK sorgu.
+
+    Fiş başına ayrı sorgu N+1 olurdu; birleştirmek de gerekmiyor çünkü kesinti
+    satırının fişten başka taşıdığı bir şey yok.
+    """
+    if not fis_idleri:
+        return {}
+    satirlar = db.execute(
+        text(
+            """SELECT id,ticket_id,label,rate_percent
+            FROM field_harvest_ticket_deductions
+            WHERE company_id=:cid AND ticket_id IN :ids
+            ORDER BY id"""
+        ).bindparams(bindparam("ids", expanding=True)),
+        {"cid": cid, "ids": fis_idleri},
+    ).mappings().all()
+    gruplar: dict[int, list[dict[str, Any]]] = {fid: [] for fid in fis_idleri}
+    for satir in satirlar:
+        gruplar[int(satir["ticket_id"])].append(dict(satir))
+    return gruplar
+
+
+def _fis_yaniti(db: Session, cid: int, fis_id: int) -> dict[str, Any]:
+    satir = _satir(db, cid, "field_harvest_tickets", fis_id)
+    return _fis_gorunumu(satir, _fis_kesintileri(db, cid, [fis_id])[fis_id])
+
+
+@router.get("/field-harvest-tickets")
+def list_harvest_tickets(
+    request: Request,
+    harvest_id: int = Query(gt=0),
+    db: Session = Depends(get_db),
+):
+    """Bir hasadın kantar fişleri ve HASAT BAŞINA türetilmiş özet.
+
+    ``harvest_id`` ZORUNLU. Firma genelinde fiş listelemek bu dilimin işi
+    değil; zorunlu olması ayrıca sorguyu SABİT METİN tutuyor (isteğe bağlı
+    filtre, bu modülün f-string WHERE desenini bir kez daha büyütürdü).
+
+    MEVCUT UÇLARIN HİÇBİRİ DEĞİŞMEDİ. `GET /api/field-harvests`,
+    `/api/field-dashboard` ve parsel zaman çizelgesi bu dilimden SONRA da
+    birebir aynı gövdeyi döndürüyor — türetilen bayraklar YALNIZ burada
+    görünür. Bu, "defter bugünküyle aynı" iddiasının okuma tarafındaki eşi.
+    """
+    cid = company_id(request)
+    hasat = _hasat_yaniti(_satir(db, cid, "field_harvests", harvest_id))
+    # SIRA `id`DEN, `weighed_at`TEN DEĞİL. `weighed_at` NULL KABUL EDER ve
+    # NULL'ın sırası DİYALEKTE BAĞLIDIR (PostgreSQL ASC'de sona, SQLite başa
+    # koyar). Tartım zamanına göre sıralamak, tartım zamanı girilmemiş bir fişi
+    # iki arka uçta FARKLI yere koyardı — sözleşme diyalekte göre değişemez.
+    # `id` yazım sırasıdır ve iki arka uçta da aynıdır.
+    satirlar = db.execute(
+        text(
+            """SELECT id,harvest_id,ticket_no,buyer_name,plate,weighed_at,
+            gross_quantity,ticket_net_quantity,notes,created_at,updated_at
+            FROM field_harvest_tickets
+            WHERE company_id=:cid AND harvest_id=:hid
+            ORDER BY id"""
+        ),
+        {"cid": cid, "hid": harvest_id},
+    ).mappings().all()
+    kesintiler = _fis_kesintileri(db, cid, [int(r["id"]) for r in satirlar])
+    fisler = [
+        _fis_gorunumu(dict(r), kesintiler[int(r["id"])]) for r in satirlar
+    ]
+    brut_toplam = sum(
+        (Decimal(f["gross_quantity"]) for f in fisler), Decimal("0")
+    )
+    net_toplam = sum(
+        (Decimal(f["derived_net_quantity"]) for f in fisler), Decimal("0")
+    )
+    # FİŞ YOKSA TOPLAM `null` — SIFIR DEĞİL. "0 kg tartıldı" ile "hiç
+    # tartılmadı" aynı şey değil; sıfır göstermek, fişi henüz girilmemiş bir
+    # hasadı "boş kamyon geldi" diye okuturdu. Aynı ayrım: `revenue_amount`.
+    olcum_var = len(fisler) > 0
+    return {
+        "harvest": {
+            "id": hasat["id"],
+            "season_id": hasat["season_id"],
+            "harvested_on": hasat["harvested_on"],
+            # Fişin miktarları HASADIN biriminde kabul ediliyor; fişte birim
+            # sütunu YOK (bkz. migration 0064, "BİRİM SÜTUNU YOK").
+            "unit": hasat["unit"],
+            "quantity": format(quantity(hasat["quantity"]), "f"),
+            "sold_quantity": hasat["sold_quantity"],
+        },
+        "tickets": fisler,
+        "summary": {
+            "ticket_count": len(fisler),
+            "gross_quantity_total": (
+                format(quantity(brut_toplam), "f") if olcum_var else None
+            ),
+            "derived_net_total": (
+                format(quantity(net_toplam), "f") if olcum_var else None
+            ),
+            "sold_exceeds_net": _satis_net_asiyor(
+                hasat["sold_quantity"], quantity(net_toplam), len(fisler)
+            ),
+        },
+    }
+
+
+@router.post("/field-harvest-tickets", status_code=201)
+def create_harvest_ticket(
+    payload: HarvestTicketWrite, request: Request, db: Session = Depends(get_db)
+):
+    """Kantar fişini ve kesintilerini TEK işlemde yazar.
+
+    OUTBOX OLAYI YAZILMIYOR — bilerek. Hasat olayı hasat yazılırken üretildi ve
+    tüketildi; buradan ikinci bir olay yazmak, aynı hasadı defterde İKİ KEZ
+    üretirdi. Fişin defteri düzeltmesi AYRI bir iştir (düzeltici olay ya da
+    olayın üretim anını değiştirmek) ve bu dilimin kapsamında DEĞİL.
+
+    Fiş ile kesintileri aynı işlemde: yarım bir fiş (kesintileri yazılmamış)
+    türetilen neti brüte EŞİT gösterirdi — sessiz ve yanlış bir cevap.
+    """
+    cid = company_id(request)
+    # Hasat BU KİRACIDA görünmüyorsa 404; başka firmanın hasadına fiş
+    # yazılamaz. Veritabanındaki bileşik yabancı anahtar son savunma, bu ilk.
+    _satir(db, cid, "field_harvests", payload.harvest_id)
+    now = _simdi()
+    try:
+        yeni = db.execute(
+            text(
+                """INSERT INTO field_harvest_tickets(company_id,harvest_id,
+                ticket_no,buyer_name,plate,weighed_at,gross_quantity,
+                ticket_net_quantity,notes,created_at,updated_at)
+                VALUES(:cid,:harvest_id,:ticket_no,:buyer_name,:plate,
+                :weighed_at,:gross_quantity,:ticket_net_quantity,:notes,
+                :now,:now) RETURNING id"""
+            ),
+            {
+                "cid": cid, "now": now,
+                **payload.model_dump(exclude={"deductions"}),
+            },
+        ).scalar_one()
+        for kesinti in payload.deductions:
+            db.execute(
+                text(
+                    """INSERT INTO field_harvest_ticket_deductions(
+                    company_id,ticket_id,label,rate_percent,created_at,
+                    updated_at)
+                    VALUES(:cid,:ticket_id,:label,:rate_percent,:now,:now)"""
+                ),
+                {
+                    "cid": cid, "ticket_id": int(yeni), "now": now,
+                    **kesinti.model_dump(),
+                },
+            )
+    except IntegrityError as exc:
+        # `uq_field_harvest_tickets_paper`: aynı hasada aynı fiş numarası.
+        # Kağıdın kendi kimliği tekrar korumasıdır; NUMARASIZ fiş bu korumanın
+        # DIŞINDADIR ve bu bedel migration 0064'te adı konmuş hâliyle kabul
+        # edildi.
+        db.rollback()
+        raise HTTPException(
+            409, "Bu hasat için aynı numaralı kantar fişi zaten kayıtlı",
+        ) from exc
+    db.commit()
+    return _fis_yaniti(db, cid, int(yeni))
 
 
 # ------------------------------------------------------------------ görev ---

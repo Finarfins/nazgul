@@ -727,6 +727,12 @@ _FARM_PATH_PREFIXES = (
     "/api/crop-seasons",
     "/api/field-activities",
     "/api/field-harvest-decision",
+    # Kantar fişi (migration 0064). "/api/field-harvest-tickets" hiçbir mevcut
+    # önekin altına DÜŞMÜYOR ("/api/field-harvests" ile başlamıyor, sondaki
+    # `s` yüzünden); bu satır olmasaydı aşağıdaki genel `/api/field` kuralına
+    # düşer ve sessizce `field_service` iznine bağlanırdı — tam da bu listenin
+    # var olma sebebi olan tuzak.
+    "/api/field-harvest-tickets",
     "/api/field-harvests",
     "/api/field-tasks",
     "/api/field-dashboard",

@@ -100,9 +100,27 @@ from app.main import PUBLIC_API, app  # noqa: E402
 #: geldiği gün kendi YAZMA iznini gerektirir — `farm.view` ona yetmez.
 #: Maruziyet: olayın kimliği, kaynak tipi/kimliği, durumu, deneme sayısı,
 #: gerekçe metni ve zaman damgaları. `idempotency_key` DÖNDÜRÜLMÜYOR.
-EXPECTED_AUTHENTICATED = 330
+#: SAYAÇ HAREKETİ — kantar fişi (migration 0064).
+#: İKİ uç eklendi: GET /api/field-harvest-tickets (`farm.view`) ve
+#: POST /api/field-harvest-tickets (`farm.manage`).
+#:
+#: ÜÇ SAYACIN İKİSİ ARTAR, FARKLI MİKTARLARDA:
+#:   * ikisi de kimlik ister (PUBLIC_API'de değil)   -> 330 -> 332
+#:   * ikisi de `read`E ÇÖZÜLMEZ                     -> 91 (DEĞİŞMEZ)
+#:   * YALNIZ GET reddedilemez: `farm.view`ı altı rolün altısı da taşır.
+#:     POST `farm.manage` ister ve o izin altı rolün HEPSİNDE YOK, yani
+#:     reddedilebilir ve bu kümeye GİRMEZ.          -> 97 -> 98
+#:
+#: BEDEL AÇIKÇA: kantar fişini OKUMAK, tarla verisini görebilen HERKESİN
+#: görebileceği bir şeydir — hasat listesiyle aynı izin. Fiş, hasadın depoda
+#: tartılmış hâlidir ve hasadı zaten gören bir role kapatmak, aynı bilginin
+#: bir yüzünü keyfî olarak gizlemek olurdu. YAZMA ayrı: fiş girmek
+#: `farm.manage`dir.
+#: Maruziyet (GET): fiş numarası, alıcı adı, plaka, tartım zamanı, brüt/net
+#: miktarlar, kesinti adları ve oranları, ve hasat başına türetilmiş özet.
+EXPECTED_AUTHENTICATED = 332
 EXPECTED_READ = 91
-EXPECTED_UNDENIABLE = 97
+EXPECTED_UNDENIABLE = 98
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
 #: sonra kendi kapılarına takılırlar. 89'a dahil, 94'e DEĞİL.
@@ -161,6 +179,7 @@ FARM_HERD_VIEW_OPERATIONS = {
     ("GET", "/api/field-activities/{activity_id}"),
     ("GET", "/api/field-dashboard"),
     ("GET", "/api/field-harvest-decision"),
+    ("GET", "/api/field-harvest-tickets"),
     ("GET", "/api/field-harvests"),
     ("GET", "/api/field-integration-events"),
     ("GET", "/api/field-integration-events/summary"),
@@ -360,7 +379,9 @@ def test_farm_and_herd_view_membership_not_just_magnitude() -> None:
     _, _, _, farm_herd = _populations()
     assert farm_herd == FARM_HERD_VIEW_OPERATIONS
     # 28 -> 30: outbox okuma yüzeyinin iki ucu (bkz. SAYAÇ HAREKETİ notu).
-    assert len(farm_herd) == 30
+    # 30 -> 31: kantar fişi OKUMA ucu. Yazma ucu bu kümede YOK — `farm.manage`
+    # ister ve reddedilebilir.
+    assert len(farm_herd) == 31
 
 
 def test_eightynine_partitions_into_sixtysix_and_twentythree() -> None:

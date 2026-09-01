@@ -421,7 +421,11 @@ def test_GERCEK_zincir_bilinen_hali_YENIDEN_URETIYOR() -> None:
     # KIRMIZI olur ve yeni başın BİLİNÇLİ bir karar olmasını zorlar; başı
     # zincirden okuyan bir kapı, yanlış yere eklenmiş bir göçü de sessizce
     # onaylardı.
-    assert zincir.bas == "20260827_0062", zincir.bas
+    # 0062 -> 0064 (kantar fişi). 0063 develop'ta BOŞ ama BKÜ dalında ALINMIŞ;
+    # aynı id'yi ilan eden iki dal #56/#60'ta ölçüldü ve yalnız BİRLEŞMEDE
+    # görünür. Bu yüzden sonraki BOŞ numara değil, sonraki ÇAKIŞMAYAN numara
+    # alındı.
+    assert zincir.bas == "20260901_0064", zincir.bas
     assert zincir.kokler == ["20260712_0000"], zincir.kokler
     assert len(zincir.sira) == zincir.dosya_sayisi, (
         f"{len(zincir.sira)} yürüdü / {zincir.dosya_sayisi} dosya"
@@ -446,7 +450,7 @@ def test_GERCEK_20260807_0044_20260812_0057_nin_ATASI() -> None:
     )
     atalar = zincir.atalar("20260812_0057")
     assert "20260807_0044" in atalar
-    assert "20260827_0062" not in atalar, "baş, kendi atasının atası olamaz"
+    assert "20260901_0064" not in atalar, "baş, kendi atasının atası olamaz"
 
 
 def test_GERCEK_20260719_0013_BIRLESMESI_IKI_EBEVEYNIYLE() -> None:
@@ -508,7 +512,7 @@ def test_CLI_kontrol_gercek_depoda_CIKIS_0() -> None:
     assert "TEK BAŞ VAR" in sonuc.stdout
     assert "HEPSİ ERİŞİLEBİLİR" in sonuc.stdout
     assert "SAYIM TUTUYOR" in sonuc.stdout
-    assert "20260827_0062" in sonuc.stdout
+    assert "20260901_0064" in sonuc.stdout
 
 
 def test_CLI_kontrol_BOZUK_zincirde_CIKIS_1_ve_IHLALI_ADLANDIRIR(tmp_path) -> None:

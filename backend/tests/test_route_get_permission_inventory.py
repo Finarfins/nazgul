@@ -67,6 +67,13 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/field-activities/{activity_id}"): "farm.view",
     ("GET", "/api/field-dashboard"): "farm.view",
     ("GET", "/api/field-harvest-decision"): "farm.view",
+    # Kantar fişi (migration 0064). AYNI TUZAK BİR KEZ DAHA: yol
+    # `/api/field-harvests` ile BAŞLAMIYOR (sondaki `s`), yani mevcut hiçbir
+    # tarla önekinin altına düşmüyor. `_FARM_PATH_PREFIXES`'e eklenmeseydi
+    # `/api/field` genel kuralına düşer ve sessizce `field_service` olurdu.
+    # SIRA KORUNDU: önce önek listesine eklendi, `required_permission` ile
+    # `farm.view` ÖLÇÜLDÜ, sonra bu satır ve parmak izi donduruldu.
+    ("GET", "/api/field-harvest-tickets"): "farm.view",
     ("GET", "/api/field-harvests"): "farm.view",
     # Outbox okuma yüzeyi (FIELD_STOK_OUTBOX açılış koşulu 2). AYNI TUZAK:
     # "/api/field" ile başlıyor, `_FARM_PATH_PREFIXES`e yazılmasaydı
@@ -268,9 +275,11 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # 160 -> 162: outbox okuma yüzeyinin İKİ GET ucu (liste + özet). Başka
 # hiçbir ucun izni değişmedi; drift raporu `changed` ve `stale` listelerini
 # BOŞ ölçtü, yani bu artış YALNIZ ekleme.
-GET_INVENTORY_COUNT = 162
+# 162 -> 163: kantar fişi okuma ucu (GET /api/field-harvest-tickets,
+# migration 0064). `changed` ve `stale` yine BOŞ ölçüldü — YALNIZ ekleme.
+GET_INVENTORY_COUNT = 163
 GET_INVENTORY_FINGERPRINT = (
-    "9ee2e037105c6c9320cb5b6be0576165d6455b633a5db00d7d856e556af75895"
+    "560ac69a6891450f40dd222ed0a8c921ef9225d79f56466034e4a0340e64199b"
 )
 
 
