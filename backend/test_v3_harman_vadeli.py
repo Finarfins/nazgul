@@ -75,16 +75,34 @@ def dec(value):
 # türetiliyor — testin okuduğu gün ile sunucunun karşılaştırdığı gün AYNI
 # fonksiyondan gelir, dolayısıyla ikisi ayrışamaz.
 #
-# 365 GÜN, 30 DEĞİL. Pay iki şeyi birden karşılıyor: (1) koşum İstanbul gece
-# yarısını geçerse test ile sunucu bir gün ayrışabilir, bu pay onu yutar;
-# (2) vade, aşağıdaki `2099-12-31` belgesinden ÖNCE kalmak zorunda (azalan
-# sıralama iddiası en büyüğün o olmasına dayanıyor) ve 2026-08-01 tarihli FIFO
-# belgesinden SONRA (FIFO en eski vadeye dağıtır). 365 gün ikisini de korur.
+# ÜÇ İDDİA AYNI ANDA TUTMALI. Bu iki vade, üç iddianın KESİŞİMİDİR:
 #
-# GEÇMİŞTE KALAN SABİTLER (2019-06-30, 2026-08-01) BİLEREK DEĞİŞTİRİLMEDİ:
-# onların anlamı "vadesi geçmiş"tir ve zaman ilerledikçe daha da doğru olur —
-# atıl sabitlerdir, bomba değil.
-ACIK_VADE = (business_today() + timedelta(days=365)).isoformat()
+#   (1) İkisi de AÇIK. `only_overdue` iddiası `?status=VADESI_GECTI`
+#       süzgecinin TEK kimlik (2019 belgesi) döndürmesini istiyor; ödeme
+#       sonrası `total_overdue` da 0 bekleniyor. İkisi de bugünden SONRA
+#       olmalı — yalnız birini ileri almak yetmez.
+#   (2) SIRA. FIFO en eski vadeye dağıtır; 1200'lük tahsilat sonrası `first`
+#       ÖDENDI (outstanding 0), `second` 800 açık kalır. `first < second`
+#       KESİN olmalı. Mutlak değerler değil, aralarındaki SIRA taşıyıcıdır.
+#   (3) TAVAN. İkisi de `2099-12-31` belgesinin altında kalmalı; azalan
+#       sıralama iddiası (`desc_ids[0] == open_id`) en büyüğün o olmasına
+#       dayanıyor. Alttaki `2019-06-30` da en küçük kalmalı
+#       (`desc_ids[-1] == overdue_id`).
+#
+# `business_today()`ten türetilince üçü de HER SAATTE tutar: sıra 365 < 730
+# olduğu için sabittir, ikisi de her zaman bugünden sonradır, ikisi de ~73 yıl
+# boyunca 2099 çapasının altındadır. Sabit bir tarih üçünü aynı anda ve
+# SÜREKLİ tutamaz — `2099-01-01` gibi ileri bir sabit (1) ile (3)'ü bugün
+# sağlar ama anlamı yine duvar saatine emanet eder; erteler, çözmez.
+#
+# 365 GÜN, 30 DEĞİL: koşum İstanbul gece yarısını geçerse test ile sunucu bir
+# gün ayrışabilir; bu pay onu yutar.
+#
+# GEÇMİŞTE KALAN SABİT (2019-06-30) BİLEREK DEĞİŞTİRİLMEDİ: onun anlamı
+# "vadesi geçmiş"tir ve zaman ilerledikçe daha da doğru olur — atıl sabittir,
+# bomba değil.
+FIFO_ERKEN_VADE = (business_today() + timedelta(days=365)).isoformat()
+FIFO_GEC_VADE = (business_today() + timedelta(days=730)).isoformat()
 
 
 with TestClient(app) as client:
@@ -168,8 +186,10 @@ with TestClient(app) as client:
     fifo_customer = client.post(
         '/api/customers', headers=headers, json={'name':'FIFO Çiftçisi'}
     ).json()['id']
-    first = sale('HARMAN_VADELI', due='2026-08-01', tx='2026-01-01')
-    second = sale('HARMAN_VADELI', due=ACIK_VADE, tx='2026-01-01')
+    # İkisi de AÇIK, `first` KESİN daha erken — gerekçe yukarıda
+    # (`FIFO_ERKEN_VADE` / `FIFO_GEC_VADE` başlığı).
+    first = sale('HARMAN_VADELI', due=FIFO_ERKEN_VADE, tx='2026-01-01')
+    second = sale('HARMAN_VADELI', due=FIFO_GEC_VADE, tx='2026-01-01')
     # Reassign the helper-created documents to the dedicated FIFO customer.
     from app.db import SessionLocal
     from sqlalchemy import text

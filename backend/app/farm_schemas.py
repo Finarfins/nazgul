@@ -170,6 +170,9 @@ class SeasonWrite(_Taban):
     ended_on: date | None = None
     planted_area_decare: Decimal | None = Field(default=None, gt=0, le=MAX_MIKTAR)
     notes: str | None = None
+    # ÇKS tek ürün: aynı parsele üçüncü yıl aynı ürün gerekçesiz GEÇMEZ
+    # (uç kontrol eder). Hasattaki safety_override_reason ile aynı şekil.
+    monoculture_override_reason: str | None = Field(default=None, max_length=255)
 
     @field_validator("crop")
     @classmethod
@@ -237,6 +240,10 @@ class ActivityWrite(_KuyrukKimligi):
     notes: str | None = None
     # Faaliyet alanı parseli aşıyorsa AÇIK gerekçe zorunlu (uç kontrol eder).
     area_override_reason: str | None = Field(default=None, max_length=255)
+    # Tarlaya giriş yasağı dolmadan faaliyet: AÇIK gerekçe (uç kontrol eder).
+    # Hasattaki safety_override_reason ile aynı şekil — sistemin bulduğu
+    # metin ayrı sütuna (reentry_warning) yazılır.
+    reentry_override_reason: str | None = Field(default=None, max_length=255)
     # AYNI İSTEKTE girdiler. Sahada ilaçlama girmek iki ayrı istek gerektiriyordu
     # (önce faaliyet, sonra girdi) ve ikisi AYRI İŞLEMDİ: arada kesilme olursa
     # girdisiz bir faaliyet kalıyor, sezon maliyeti sessizce eksik çıkıyordu.

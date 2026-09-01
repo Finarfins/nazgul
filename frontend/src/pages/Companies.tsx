@@ -20,13 +20,15 @@ export default function Companies(){
  // okuyamadığında da sıkı tarafa düşüyor, arayüz de öyle başlıyor.
  const [areaPolicy,setAreaPolicy]=useState<'allow'|'require_reason'|'block'>('require_reason');
  const [harvestPolicy,setHarvestPolicy]=useState<'warn'|'require_reason'|'block'>('require_reason');
+ const [monoPolicy,setMonoPolicy]=useState<'warn'|'require_reason'|'block'>('require_reason');
+ const [reentryPolicy,setReentryPolicy]=useState<'warn'|'require_reason'|'block'>('require_reason');
  const [doseRequired,setDoseRequired]=useState(true);
  const [negativePolicy,setNegativePolicy]=useState<PolicyMode>('block');const [creditPolicy,setCreditPolicy]=useState<PolicyMode>('block');const [logs,setLogs]=useState<OverrideLog[]>([]);const [savingPolicies,setSavingPolicies]=useState(false);
  const canApprove=user?.role==='admin'||user?.role==='yonetici';
- const load=async()=>{try{setError('');const [b,s]=await Promise.all([api.get('/branches'),api.get('/company-settings')]);setBranches(b.data);setSettingsTax(s.data.tax_number||'');setNegativePolicy(s.data.negative_stock_policy||'block');setCreditPolicy(s.data.credit_limit_policy||'block');setAreaPolicy(s.data.farm_area_override_policy||'require_reason');setHarvestPolicy(s.data.farm_early_harvest_policy||'require_reason');setDoseRequired(s.data.farm_spraying_dose_required!==false);if(canApprove){const l=await api.get('/policy-overrides',{params:{limit:20}});setLogs(l.data)}}catch(e:any){setError(e.response?.data?.detail||'Firma ayarları yüklenemedi')}};
+ const load=async()=>{try{setError('');const [b,s]=await Promise.all([api.get('/branches'),api.get('/company-settings')]);setBranches(b.data);setSettingsTax(s.data.tax_number||'');setNegativePolicy(s.data.negative_stock_policy||'block');setCreditPolicy(s.data.credit_limit_policy||'block');setAreaPolicy(s.data.farm_area_override_policy||'require_reason');setHarvestPolicy(s.data.farm_early_harvest_policy||'require_reason');setMonoPolicy(s.data.farm_monoculture_policy||'require_reason');setReentryPolicy(s.data.farm_reentry_policy||'require_reason');setDoseRequired(s.data.farm_spraying_dose_required!==false);if(canApprove){const l=await api.get('/policy-overrides',{params:{limit:20}});setLogs(l.data)}}catch(e:any){setError(e.response?.data?.detail||'Firma ayarları yüklenemedi')}};
  useEffect(()=>{void load()},[activeCompany?.id]);
  const save=async()=>{try{setError('');await api.post('/companies',{name,tax_number:tax||null});setOpen(false);window.location.reload()}catch(e:any){setError(e?.response?.data?.detail||'Firma kaydedilemedi')}};
- const savePolicies=async()=>{try{setSavingPolicies(true);setError('');setSaved('');const {data}=await api.put('/company-settings',{negative_stock_policy:negativePolicy,credit_limit_policy:creditPolicy,tax_number:settingsTax||null,farm_area_override_policy:areaPolicy,farm_early_harvest_policy:harvestPolicy,farm_spraying_dose_required:doseRequired});setSaved(data.warning||'Firma ayarları kaydedildi.')}catch(e:any){setError(e.response?.data?.detail||'Firma ayarları kaydedilemedi')}finally{setSavingPolicies(false)}};
+ const savePolicies=async()=>{try{setSavingPolicies(true);setError('');setSaved('');const {data}=await api.put('/company-settings',{negative_stock_policy:negativePolicy,credit_limit_policy:creditPolicy,tax_number:settingsTax||null,farm_area_override_policy:areaPolicy,farm_early_harvest_policy:harvestPolicy,farm_monoculture_policy:monoPolicy,farm_reentry_policy:reentryPolicy,farm_spraying_dose_required:doseRequired});setSaved(data.warning||'Firma ayarları kaydedildi.')}catch(e:any){setError(e.response?.data?.detail||'Firma ayarları kaydedilemedi')}finally{setSavingPolicies(false)}};
  return <Stack spacing={2.5}>
   <Box display="flex" justifyContent="space-between" alignItems="center"><Box><Typography variant="h4" fontWeight={900}>Firma ve Şubeler</Typography><Typography color="text.secondary">Aktif firma: {activeCompany?.name}</Typography></Box>{can('*')&&<Button variant="contained" startIcon={<AddBusinessIcon/>} onClick={()=>setOpen(true)}>Yeni Firma</Button>}</Box>
   {error&&<Alert severity="error" onClose={()=>setError('')}>{error}</Alert>}{saved&&<Alert severity="success" onClose={()=>setSaved('')}>{saved}</Alert>}
@@ -51,10 +53,22 @@ export default function Companies(){
      <MenuItem value="0">Opsiyonel</MenuItem>
     </TextField>
    </Stack>
+   <Stack direction={{xs:'column',md:'row'}} spacing={2} mt={2}>
+    <TextField select fullWidth label="Aynı parsele üçüncü yıl aynı ürün" value={monoPolicy} onChange={e=>setMonoPolicy(e.target.value as any)} disabled={!can('*')} helperText="ÇKS tek ürün. En gevşek seviye bile kaydı tutar; kontrol kapatılamaz.">
+     <MenuItem value="warn">Uyar, engelleme — durum kayda yazılır</MenuItem>
+     <MenuItem value="require_reason">Gerekçe iste (önerilen)</MenuItem>
+     <MenuItem value="block">Reddet</MenuItem>
+    </TextField>
+    <TextField select fullWidth label="Tarlaya giriş yasağı dolmadan faaliyet" value={reentryPolicy} onChange={e=>setReentryPolicy(e.target.value as any)} disabled={!can('*')} helperText="İlaçlama sonrası giriş yasağı. PHI kilidinin hasat tarafındaki ikizi.">
+     <MenuItem value="warn">Uyar, engelleme — durum kayda yazılır</MenuItem>
+     <MenuItem value="require_reason">Gerekçe iste (önerilen)</MenuItem>
+     <MenuItem value="block">Reddet</MenuItem>
+    </TextField>
+   </Stack>
    {/* Bu metin bir ürün kararının açıklaması: erken hasat kontrolünde
        "hiç bakma" seçeneği BİLEREK yok. Kalıntı riski taşıyan bir kontrolü
        tamamen kapatabilen ayar, bir kez kapatılıp unutulur. */}
-   <Alert severity="info" sx={{mt:2}}>Erken hasat kontrolü tamamen kapatılamaz. “Uyar, engelleme” seçildiğinde kayıt oluşur ama sistemin bulduğu ihlal hasat kaydına yazılır; denetimde görünür.</Alert>
+   <Alert severity="info" sx={{mt:2}}>Erken hasat, ÇKS tek ürün ve tarlaya giriş yasağı kontrolleri tamamen kapatılamaz. “Uyar, engelleme” seçildiğinde kayıt oluşur ama sistemin bulduğu ihlal satıra yazılır; denetimde görünür.</Alert>
    <Stack direction={{xs:'column',sm:'row'}} justifyContent="flex-end" mt={2}>{can('*')&&<Button variant="contained" onClick={savePolicies} disabled={savingPolicies}>{savingPolicies?'Kaydediliyor...':'Tarla Kurallarını Kaydet'}</Button>}</Stack>
   </CardContent></Card>
   <Card><CardContent><Stack direction="row" spacing={1} alignItems="center" mb={2}><StoreIcon color="secondary"/><Typography variant="h6" fontWeight={800}>Şubeler</Typography></Stack><Stack spacing={1}>{branches.map(b=><Box key={b.id} p={1.5} border="1px solid" borderColor="divider" borderRadius={2}>{b.name}</Box>)}</Stack></CardContent></Card>

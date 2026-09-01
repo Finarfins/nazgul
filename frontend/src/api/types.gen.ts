@@ -5102,6 +5102,8 @@ export interface components {
             preharvest_interval_days?: number | null;
             /** Reentry Interval Days */
             reentry_interval_days?: number | null;
+            /** Reentry Override Reason */
+            reentry_override_reason?: string | null;
             /** Season Id */
             season_id: number;
         };
@@ -5490,6 +5492,10 @@ export interface components {
             farm_area_override_policy?: ("allow" | "require_reason" | "block") | null;
             /** Farm Early Harvest Policy */
             farm_early_harvest_policy?: ("warn" | "require_reason" | "block") | null;
+            /** Farm Monoculture Policy */
+            farm_monoculture_policy?: ("warn" | "require_reason" | "block") | null;
+            /** Farm Reentry Policy */
+            farm_reentry_policy?: ("warn" | "require_reason" | "block") | null;
             /** Farm Spraying Dose Required */
             farm_spraying_dose_required?: boolean | null;
             /**
@@ -7961,6 +7967,8 @@ export interface components {
              * Format: date-time
              */
             expected_updated_at: string;
+            /** Monoculture Override Reason */
+            monoculture_override_reason?: string | null;
             /** Notes */
             notes?: string | null;
             /** Parcel Id */
@@ -7987,6 +7995,8 @@ export interface components {
             crop: string;
             /** Ended On */
             ended_on?: string | null;
+            /** Monoculture Override Reason */
+            monoculture_override_reason?: string | null;
             /** Notes */
             notes?: string | null;
             /** Parcel Id */
