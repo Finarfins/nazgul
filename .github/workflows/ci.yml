@@ -1079,35 +1079,24 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Kapı artık ayrı bir betiktir; iş, ağacı checkout etmeden onu çağıramaz.
+      - uses: actions/checkout@v4
       - name: Download tested production image
         uses: actions/download-artifact@v4
         with:
           name: tested-production-image-${{ github.sha }}
           path: ${{ runner.temp }}/tested-production-image
+          if-no-files-found: error
       - name: Load tested production image
         run: gzip -dc "$RUNNER_TEMP/tested-production-image/tested-production-image.tar.gz" | docker load
+      # Bu adım KAPI MANTIĞINI İÇERMEZ; yalnızca onu ÇAĞIRIR. Mantık
+      # `deploy/artifact-imaj-kimlik-kapisi.sh` dosyasındadır (K5).
       - name: Verify loaded image identity and OCI revision
-        run: |
-          set -euo pipefail
-          image_ref="yerel-hesap-pro:${{ github.sha }}"
-          image_id="$(docker image inspect "$image_ref" --format '{{.Id}}')"
-          revision="$(docker image inspect "$image_ref" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
-          expected_image_id="${{ needs.container.outputs.tested_image_id }}"
-          [ -n "$image_id" ] || { echo "::error::artifact image ID boş" >&2; exit 1; }
-          # KİMLİK KARŞILAŞTIRMASI. Adımın adı baştan beri "identity" diyordu
-          # ama image_id yalnız BOŞ MU diye ölçülüyordu; hiçbir şeye eşitlenmiyordu.
-          # OCI revision etiketi bu boşluğu KAPATMAZ: etiket imajın İÇERİĞİNE
-          # bağlı değildir, başka bir imaj aynı etiketi taşıyabilir (ölçüldü).
-          # `docker save` -> `docker load` .Id'yi AYNEN korur (ölçüldü), bu yüzden
-          # eşitsizlik artifact'in container'ın TEST ETTİĞİ imaj olmadığı demektir.
-          [ -n "$expected_image_id" ] \
-            || { echo "::error::container isi test edilen imaj ID'sini bildirmedi; kimlik karsilastirilamaz" >&2; exit 1; }
-          [ "$image_id" = "$expected_image_id" ] \
-            || { echo "::error::artifact imaji container'in TEST ETTIGI imaj degil: yuklenen='$image_id' beklenen='$expected_image_id'" >&2; exit 1; }
-          [ "$revision" = "${{ github.sha }}" ] \
-            || { echo "::error::artifact OCI revision yanlış: '$revision'" >&2; exit 1; }
-          printf 'artifact_image_ref=%s\nartifact_image_id=%s\nartifact_oci_revision=%s\n' \
-            "$image_ref" "$image_id" "$revision"
+        env:
+          IMAJ_REF: yerel-hesap-pro:${{ github.sha }}
+          BEKLENEN_IMAJ_KIMLIGI: ${{ needs.container.outputs.tested_image_id }}
+          BEKLENEN_OCI_REVIZYONU: ${{ github.sha }}
+        run: ./deploy/artifact-imaj-kimlik-kapisi.sh
 
   # Yayın işi test runner'larından yerel durum devralmaz. `container`ın ürettiği
   # ve doğruladığı imaj artifact'ını ancak bütün zorunlu test işleri geçtikten
