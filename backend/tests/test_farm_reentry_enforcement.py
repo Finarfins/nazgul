@@ -90,10 +90,20 @@ def run_bindparam_typing_probe(database_url: str) -> None:
 _BINDPARAM_PROBE = r'''
 import os
 
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import ProgrammingError
 
+from app.main import app
 from app.routers.farm import _GIRIS_SORGU
+
+# SEMAYI UYGULAMANIN KENDISI KURUYOR. Bu olcum tablolarin VAR OLDUGUNU
+# varsaymamali: dogrudan `create_engine` ile bos bir veritabanina baglanan
+# bir surum, KARDES kosunun goclerini calistirmis olmasina bel baglardi ve
+# TEK BASINA `UndefinedTable` ile duserdi — yani yesilligi SIRAYA bagli
+# olurdu. Olculdu: bos veritabaninda, mutasyon OLMADAN duser.
+with TestClient(app):
+    pass
 
 motor = create_engine(os.environ['DATABASE_URL'])
 
