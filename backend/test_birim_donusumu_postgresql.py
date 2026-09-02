@@ -53,7 +53,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
-from app.units import BirimCozulemedi, resolve
+from app.units import BirimCozulemedi, UrunTemsilEdilemez, resolve
 
 BACKEND = Path(__file__).resolve().parent
 
@@ -437,6 +437,96 @@ def test_COZULEMEYEN_birim_STOKA_HICBIR_SEY_YAZDIRMAZ(
         f"{birim!r} -> {taban!r} çözülemedi ama stok DEĞİŞTİ: "
         f"{onceki} -> {sonraki}. Çözemediği bir şeyi yazan bir çözücü, "
         "dönüşümün HİÇ olmamasından daha kötüdür."
+    )
+
+
+@pytest.mark.postgresql
+def test_SIFIRA_DUSEN_urun_HAREKET_yazdirmaz_stok_DEGERI_bunu_GOREMEZDI(motor) -> None:
+    """Sessiz sıfırın ikizi (sahip kararı 3). Bu red NEDEN ayrı ölçülüyor:
+
+    Diğer red testi `products.stock`un değişmediğini ölçüyor. Sessiz sıfırda
+    o ölçüm KÖRDÜR: `stock + 0.0000` yine `stock`tur, yani red KALDIRILSA da
+    stok değeri aynı kalır ve "stok değişmedi" iddiası YEŞİL geçerdi. Sessiz
+    sıfırın görünür izi stok değeri değil, `quantity = 0.0000` ile
+    `entered_quantity = 1` taşıyan TUTARSIZ bir hareket satırıdır. Bu yüzden
+    burada ölçülen, HİÇBİR HAREKET SATIRININ yazılmamış olmasıdır.
+
+    Ölçüldü — AYIRT EDİCİ: `resolve` içindeki sıfır-ürün reddi kaldırılınca
+    `pytest.raises` `DID NOT RAISE UrunTemsilEdilemez` ile KIRMIZI; geri
+    konulunca YEŞİL.
+    """
+    with motor.begin() as baglanti:
+        _, urun_id = _firma_ve_urun(baglanti, "TON")
+        baglanti.execute(
+            text("UPDATE products SET stock = 5 WHERE id = :pid"), {"pid": urun_id}
+        )
+
+    with pytest.raises(UrunTemsilEdilemez) as hata:
+        urun, katsayi = resolve(Decimal("1"), "GRAM", "TON")
+        with motor.begin() as baglanti:
+            baglanti.execute(
+                text(
+                    "INSERT INTO stock_movements (product_id, movement_type, "
+                    "quantity, movement_date, company_id, entered_quantity, "
+                    "entered_unit, entered_factor) SELECT :pid, 'IN', :urun, "
+                    "'2026-09-02', company_id, :girilen, 'GRAM', :katsayi "
+                    "FROM products WHERE id = :pid"
+                ),
+                {"pid": urun_id, "urun": urun, "girilen": Decimal("1"), "katsayi": katsayi},
+            )
+            baglanti.execute(
+                text("UPDATE products SET stock = stock + :urun WHERE id = :pid"),
+                {"urun": urun, "pid": urun_id},
+            )
+    assert hata.value.sebep == UrunTemsilEdilemez.URUN_TEMSIL_EDILEMEZ
+    assert hata.value.factor_used == Decimal("0.000001")
+
+    with motor.begin() as baglanti:
+        hareket_sayisi = baglanti.execute(
+            text("SELECT count(*) FROM stock_movements WHERE product_id = :pid"),
+            {"pid": urun_id},
+        ).scalar_one()
+        stok = baglanti.execute(
+            text("SELECT stock FROM products WHERE id = :pid"), {"pid": urun_id}
+        ).scalar_one()
+    assert hareket_sayisi == 0, (
+        "sıfıra düşen ürün bir HAREKET yazdırdı: quantity=0.0000, "
+        "entered_quantity=1 — görünmez kaybın ta kendisi"
+    )
+    # Stok değeri de değişmedi, ama bu satır TEK BAŞINA ayırt edici DEĞİLDİR
+    # (5 + 0.0000 = 5); yukarıdaki sayım asıl ölçümdür.
+    assert str(stok) == "5.0000"
+
+
+@pytest.mark.postgresql
+def test_GERCEK_SIFIR_giris_PG_uzerinde_de_REDDEDILMEZ(motor) -> None:
+    """Reddin öbür yüzü: girilen sıfır gerçek bir giriştir, hareket yazılır."""
+    urun, katsayi = resolve(Decimal("0"), "GRAM", "TON")
+    assert str(urun) == "0.0000"
+
+    with motor.begin() as baglanti:
+        _, urun_id = _firma_ve_urun(baglanti, "TON")
+        baglanti.execute(
+            text(
+                "INSERT INTO stock_movements (product_id, movement_type, "
+                "quantity, movement_date, company_id, entered_quantity, "
+                "entered_unit, entered_factor) SELECT :pid, 'IN', :urun, "
+                "'2026-09-02', company_id, :girilen, 'GRAM', :katsayi "
+                "FROM products WHERE id = :pid"
+            ),
+            {"pid": urun_id, "urun": urun, "girilen": Decimal("0"), "katsayi": katsayi},
+        )
+        satir = baglanti.execute(
+            text(
+                "SELECT quantity, entered_quantity, entered_factor "
+                "FROM stock_movements WHERE product_id = :pid"
+            ),
+            {"pid": urun_id},
+        ).one()
+    assert (str(satir[0]), str(satir[1]), str(satir[2])) == (
+        "0.0000",
+        "0.0000",
+        "0.0000010000",
     )
 
 

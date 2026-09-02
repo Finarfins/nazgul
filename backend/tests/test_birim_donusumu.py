@@ -14,7 +14,13 @@ from decimal import Decimal
 
 import pytest
 
-from app.units import URUN_KUANTUM, BirimCozulemedi, resolve, turkce_katla
+from app.units import (
+    URUN_KUANTUM,
+    BirimCozulemedi,
+    UrunTemsilEdilemez,
+    resolve,
+    turkce_katla,
+)
 
 
 # ===========================================================================
@@ -211,7 +217,11 @@ def test_KATSAYI_yuvarlanmadan_DONER_urun_olcegine_cekilmez() -> None:
     katsayıya DEĞİL.
     """
     hassas = Decimal("0.0000012345")
-    _, katsayi = resolve(Decimal("1"), "ÇUVAL", "KG", {"ÇUVAL": hassas})
+    # 1 ÇUVAL burada 0.0000 ürün verir ve sıfır-ürün reddi (aşağıda) onu
+    # DOĞRU OLARAK reddeder; bu testin iddiası KATSAYI olduğu için miktar
+    # ürünü temsil edilebilir kılacak kadar büyütüldü (PG ikiziyle aynı).
+    urun, katsayi = resolve(Decimal("1000000"), "ÇUVAL", "KG", {"ÇUVAL": hassas})
+    assert urun == Decimal("1.2345")
     assert katsayi == hassas
     assert katsayi.as_tuple().exponent == hassas.as_tuple().exponent
 
@@ -241,20 +251,75 @@ def test_urun_olcegi_TABANIN_sutunundan_gelir_KEYFI_DEGIL() -> None:
     assert QUANTITY.scale == -URUN_KUANTUM.as_tuple().exponent == 4
 
 
-def test_KABA_tabana_cevrim_SIFIRA_yuvarlanabilir_BILINEN_DAVRANIS() -> None:
-    """1 gram -> TON, 4 basamakta `0.0000`dır. ÖLÇÜLDÜ ve ADI KONDU.
+# ===========================================================================
+# SIFIR ÜRÜN — sıfır olmayan giriş SESSİZCE sıfıra düşemez (sahip kararı 3)
+# ===========================================================================
 
-    Bu bir KUSUR DEĞİL, ölçeğin doğrudan sonucudur: `NUMERIC(18,4)` ton
-    cinsinden bir gramı TEMSİL EDEMEZ ve çözücü olmayan hassasiyeti
-    UYDURMAK yerine dürüstçe yuvarlıyor.
+def test_SIFIR_OLMAYAN_giris_SIFIR_urune_DUSERSE_REDDEDILIR_sessiz_sifir_YOK() -> None:
+    """1 gram -> TON, 4 basamakta `0.0000` OLURDU. Çözücü bunu REDDEDER.
 
-    Yine de SIFIR OLMAYAN bir giriş SIFIR ürüne dönüşüyor ve bu, başlıkta
-    "görünmez hata" diye adlandırılan sınıfa yakındır. PR 1'de bir red
-    EKLENMEDİ, çünkü sözleşme "ürün 4 basamaktır" olarak çivilendi ve
-    burada red eklemek onu değiştirirdi. Karar PR 2'ye AÇIK BIRAKILDI ve
-    durum kaydında BULGU olarak adlandırıldı; bu test o günü beklerken
-    davranışın SESSİZCE değişmemesini sağlıyor.
+    PR 1 bunu "bilinen davranış" diye çivilemişti ve kararı sahibe
+    bırakmıştı. Sahip kararı 3: RED. Düşman sessizliktir, hassasiyetsizlik
+    değil — sıfır olmaması gereken bir sıfır, bu projenin aynı oturumda üç
+    kez ısırıldığı görünmez-kayıp sınıfındandır.
+
+    İstisna `BirimCozulemedi` AİLESİNDEDİR ama KENDİ ADI vardır: birim
+    çözüldü, ürün temsil edilemedi. PR 2'nin çağıranı ikisini farklı
+    yönlendirecek.
+
+    AYIRT EDİCİ: `resolve` içindeki `if entered_quantity != 0 and urun == 0`
+    reddi kaldırılınca aşağıdaki `pytest.raises` `DID NOT RAISE` ile KIRMIZI.
     """
-    urun, katsayi = resolve(Decimal("1"), "GRAM", "TON")
-    assert katsayi == Decimal("0.000001")
+    with pytest.raises(UrunTemsilEdilemez) as hata:
+        resolve(Decimal("1"), "GRAM", "TON")
+    assert hata.value.sebep == UrunTemsilEdilemez.URUN_TEMSIL_EDILEMEZ
+    assert isinstance(hata.value, BirimCozulemedi), "aynı aileden olmalı"
+    # Kanıt istisnanın ÜZERİNDE, yuvarlanmadan gider: miktar ve katsayı.
+    assert hata.value.entered_quantity == Decimal("1")
+    assert hata.value.factor_used == Decimal("0.000001")
+    assert hata.value.entered_unit == "GRAM"
+    assert hata.value.base_unit == "TON"
+
+    # Negatif giriş de sıfır olmayan bir giriştir; `-0.0000` da sıfırdır.
+    with pytest.raises(UrunTemsilEdilemez):
+        resolve(Decimal("-1"), "GRAM", "TON")
+
+    # Ürün katsayısı yoluyla da aynı red: 1 çuval x 0.0000012345 -> 0.0000.
+    with pytest.raises(UrunTemsilEdilemez):
+        resolve(Decimal("1"), "ÇUVAL", "KG", {"ÇUVAL": Decimal("0.0000012345")})
+
+
+def test_SIFIR_URUN_reddinin_SINIRI_tam_kuantumdadir() -> None:
+    """Red, ürün TEMSİL EDİLEBİLİR hale geldiği an susar; sözleşme değişmedi.
+
+    49 gram -> 0.000049 ton -> `0.0000` (RED); 50 gram -> 0.00005 -> HALF_UP
+    ile `0.0001` (GEÇER). Sınır tam `URUN_KUANTUM / 2`dedir, yani red
+    ölçekten ayrı bir eşik UYDURMUYOR — ölçeğin kendisini uyguluyor.
+    """
+    with pytest.raises(UrunTemsilEdilemez):
+        resolve(Decimal("49"), "GRAM", "TON")
+    assert resolve(Decimal("50"), "GRAM", "TON")[0] == Decimal("0.0001")
+
+
+@pytest.mark.parametrize(
+    ("miktar", "birim", "taban", "katsayilar"),
+    [
+        ("0", "KG", "KG", None),
+        ("0.0", "KG", "KG", None),
+        ("0", "GRAM", "TON", None),
+        ("0.000", "ÇUVAL", "KG", {"ÇUVAL": Decimal("33.5")}),
+    ],
+)
+def test_GERCEK_SIFIR_giris_GERCEK_SIFIR_urun_verir_RED_YOK(
+    miktar, birim, taban, katsayilar
+) -> None:
+    """Girilen bir sıfır GERÇEK bir giriştir ve gerçek bir sıfır üretir.
+
+    Red koşulunun `entered_quantity != 0` yarısı tam olarak bunun için var:
+    koşul yalnız `urun == 0` olsaydı sıfır stok sayımı girilemezdi. Buradaki
+    dört durum, reddin GRAM->TON gibi kaba yollarda bile sıfır girişe
+    dokunmadığını ölçüyor.
+    """
+    urun, _ = resolve(Decimal(miktar), birim, taban, katsayilar)
     assert urun == Decimal("0.0000")
+    assert urun.as_tuple().exponent == -4

@@ -36,6 +36,35 @@ Taban bildirilmemiş bir üründe taban dışı bir birim girilirse çözücü
 katsayı 1 ile geçmek) reddedildi: bu bir OLGU UYDURMAK olurdu ve bütün bu
 tasarım tam olarak onu yapmamak için vardır.
 
+--- SIFIR OLMAYAN GİRİŞ SIFIR ÜRÜNE DÜŞERSE REDDEDİLİR --------------------
+
+`1 GRAM -> TON` 4 basamakta `0.0000`dır. PR 1 bunu ölçüp BULGU olarak
+adlandırmış ve kararı sahibe bırakmıştı; sahip kararı 3 REDDİR. Dar koşul:
+
+    entered_quantity != 0  AND  base_quantity == 0   ->  raise
+
+Ayrı bir istisna (`UrunTemsilEdilemez`): birim ÇÖZÜLDÜ, ürün TEMSİL
+EDİLEMİYOR. Bunlar farklı hatalardır ve PR 2'nin çağıranı ikisini farklı
+yönlendirmek isteyecektir. Gerekçe, kayıt talimatı değil akıl yürütmeyi
+taşısın diye:
+
+1. DÜŞMAN SESSİZLİKTİR, HASSASİYETSİZLİK DEĞİL. Sıfır olmaması gereken bir
+   sıfır SESSİZ bir kayıptır; bu proje aynı oturumda o sınıftan üç kez
+   ısırıldı (1000x hasat hatası, tabana yuvarlanan PHI günü, yarıda kesilen
+   ifadeden sonra kaybolan satırlar).
+2. BU ÇÖZÜCÜYÜ HENÜZ KİMSE ÇAĞIRMIYOR. Bugün raise etmenin maliyeti sıfırdır.
+3. RED, KARARI KORUR. PR 2'nin çağıranı yakalar ve seçer — outbox için adı
+   konmuş atlama kovası, etkileşimli yazma için 4xx. `base_unit IS NULL`
+   için zaten karar verilmiş şeklin aynısı.
+4. SESSİZ SIFIR KARARI KAPATIR. Kurtarma yoktur. Red kurtarılabilir:
+   operatör temsil edilebilir bir birimle yeniden girer.
+5. SÖZLEŞMEYİ DEĞİŞTİRMEZ. "Ürün 4 basamaktır" duruyor. Red o sözleşme
+   uygulanmadan ÖNCE, 4 basamağın girdiyi HİÇ temsil edemediği durumda ateşler.
+
+Gerçek bir sıfır GERÇEK bir giriştir ve gerçek bir sıfır ürün verir:
+`resolve(0, "KG", "KG")` reddedilmez. Koşulun `entered_quantity != 0`
+yarısı tam olarak bunun içindir.
+
 --- NEDEN İSTİSNA, NEDEN DÖNÜŞ DEĞERİ DEĞİL -------------------------------
 
 Red bir SENTINEL ile dönseydi (None, 0, ya da `(None, None)`) çağıran onu
@@ -125,6 +154,41 @@ class BirimCozulemedi(Exception):
         self.sebep = sebep
 
 
+class UrunTemsilEdilemez(BirimCozulemedi):
+    """Birim ÇÖZÜLDÜ ama ürün 4 basamakta TEMSİL EDİLEMİYOR: sıfır olmayan
+    bir giriş sıfır ürüne düşüyordu. Sahip kararı 3 — bkz. başlık.
+
+    `BirimCozulemedi` ailesindedir (aynı `except` onu da yakalar, `.sebep`
+    üzerinden de ayırt edilir) ama KENDİ ADI vardır, çünkü "birimi
+    bilmiyorum" ile "birimi biliyorum, sayı sığmıyor" farklı hatalardır ve
+    çağıran ikisini farklı yönlendirecektir.
+
+    Girilen miktar ve kullanılan katsayı YUVARLANMADAN taşınır: red bir
+    kayıt olayıdır ve kanıtı yanında gitmelidir.
+    """
+
+    URUN_TEMSIL_EDILEMEZ = "URUN_TEMSIL_EDILEMEZ"
+
+    def __init__(
+        self,
+        entered_quantity: Decimal,
+        entered_unit: str,
+        base_unit: str,
+        factor_used: Decimal,
+    ) -> None:
+        super().__init__(
+            self.URUN_TEMSIL_EDILEMEZ,
+            f"{entered_quantity} {entered_unit!r} -> {base_unit!r}: katsayı "
+            f"{factor_used} ile ürün {URUN_KUANTUM} ölçeğinde sıfıra düştü. "
+            "Sıfır olmayan bir giriş sıfır ürüne dönüşemez; sessiz bir sıfır "
+            "yerine red. Temsil edilebilir bir birimle yeniden girin.",
+        )
+        self.entered_quantity = entered_quantity
+        self.entered_unit = entered_unit
+        self.base_unit = base_unit
+        self.factor_used = factor_used
+
+
 def turkce_katla(metin: str) -> str:
     """Türkçe büyütme: `i -> İ`, `ı -> I`, gerisi standart.
 
@@ -202,6 +266,9 @@ def resolve(
     ve yuvarlanmış bir kanıt kanıt değildir.
 
     ``float`` KABUL EDİLMEZ: ikili kayan nokta bir stok sayısına giremez.
+
+    Sıfır olmayan bir giriş 4 basamakta sıfıra düşerse ``UrunTemsilEdilemez``
+    atılır (sahip kararı 3). Sıfır giriş sıfır ürün verir, reddedilmez.
     """
     if not isinstance(entered_quantity, Decimal):
         raise BirimCozulemedi(
@@ -237,4 +304,11 @@ def resolve(
         katsayi = _katsayi(girilen_birim, taban_birim, katlanmis_katsayilar)
 
     urun = (entered_quantity * katsayi).quantize(URUN_KUANTUM, rounding=ROUND_HALF_UP)
+
+    # --- SIFIR OLMAYAN GİRİŞ SIFIR ÜRÜNE DÜŞTÜ: REDDET, SESSİZ SIFIR YOK ----
+    # Sözleşme uygulandı (ürün 4 basamak), sonuç girdiyi HİÇ temsil etmiyor.
+    # Gerçek bir sıfır giriş (`entered_quantity == 0`) buradan GEÇER; onun
+    # sıfır ürünü gerçektir.
+    if entered_quantity != 0 and urun == 0:
+        raise UrunTemsilEdilemez(entered_quantity, girilen_birim, taban_birim, katsayi)
     return urun, katsayi
