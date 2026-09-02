@@ -146,6 +146,9 @@ describe('catalogueMatch — Türkçe katlama SATIR SEÇİMİNDE de geçerli', (
     id, product_id: 77, product_name: 'ORNEK BKU', crop, registration_no: null,
     preharvest_interval_days: gun, reentry_interval_days: null, notes: null,
     status: 'ACTIVE', updated_at: '2026-08-01T10:00:00+00:00',
+    // Göç 20260902_0065 (PR #23) bu iki sütunu ZORUNLU kıldı; katlamayla
+    // ilgisi yok ama eksik alanla `tsc -b` derlemiyor.
+    origin: 'MANUAL' as const, origin_reference: null,
   });
 
   it('BÜYÜK harfli sezon bitkisi küçük harfli katalog satırını BULUR', () => {
