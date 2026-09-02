@@ -63,37 +63,61 @@ def dec(value):
 # Bu yüzden "vadesi gelmemiş" anlamı bir SABİT tarihle ifade edilemez: sabit,
 # duvar saatinin ona yetiştiği gün sessizce anlamını değiştirir.
 #
-# ÖLÇÜLDÜ (2026-09-01, İstanbul 00:39, bu depo): burada eskiden `2026-09-01`
-# sabiti vardı. İstanbul 2026-09-02'ye döndüğü anda o belge `ACIK`tan
-# `VADESI_GECTI`ye geçti ve İKİ iddiayı birden düşürdü —
-# `status=VADESI_GECTI` süzgeci iki kimlik döndürdü (bir tane bekleniyordu) ve
-# ödeme sonrası `total_overdue` 0 yerine 800 çıktı. Kusur `origin/develop`
-# (aa3d577 ve cfe7362) ağacında da AYNEN üretildi; yani dalın değil deponun
-# kusuruydu ve o gece açılan HER PR'ı kırmızıya çevirecekti.
+# ÖLÇÜLDÜ (2026-09-01, İstanbul 00:39, bu depo): burada eskiden
+# `2026-08-01`/`2026-09-01` sabitleri vardı. İstanbul 2026-09-02'ye döndüğü
+# anda smoke KIRMIZIYA döndü — `status=VADESI_GECTI` süzgeci iki kimlik
+# döndürdü (bir tane bekleniyordu) ve ödeme sonrası `total_overdue` 0 yerine
+# 800 çıktı. Kusur `origin/develop` (aa3d577 ve cfe7362) ağacında da AYNEN
+# üretildi; yani dalın değil deponun kusuruydu ve o gece açılan HER PR'ı
+# kırmızıya çevirecekti.
 #
 # ÇARE SUNUCUNUN KENDİ SAATİ. Vade aynı süreçteki `business_today()`ten
 # türetiliyor — testin okuduğu gün ile sunucunun karşılaştırdığı gün AYNI
 # fonksiyondan gelir, dolayısıyla ikisi ayrışamaz.
 #
-# ÜÇ İDDİA AYNI ANDA TUTMALI. Bu iki vade, üç iddianın KESİŞİMİDİR:
+# KIRAN SABİT YALNIZ `second`DI; ÇİFT DEĞİL. Bu satırların ilk hâli "ikisi de
+# AÇIK olmalı, yalnız birini ileri almak yetmez" diyordu. YANLIŞTI ve
+# ÖLÇÜLDÜ (2026-09-02, taban 7498ab3, iki motor):
 #
-#   (1) İkisi de AÇIK. `only_overdue` iddiası `?status=VADESI_GECTI`
+#     `first='2026-08-01'` SABİT + `second` göreli .. SQLite YEŞİL, PG YEŞİL
+#     çiftin İKİSİ de eski sabitlerinde ............ İKİSİ DE `only_overdue`
+#                                                    iddiasında KIRMIZI
+#
+# GEREKÇE KODDA: `_receivable_status` ÖNCE `outstanding <= 0` bakıp `ODENDI`
+# döner; vade karşılaştırmasına ancak AÇIK kalan belge ulaşır. FIFO 1200'lük
+# tahsilatı EN ESKİ vadeye verdiği için `first`, süzgeç okunmadan ÖNCE
+# (`first ... == 'ODENDI'` iddiası) kapanır ve ÖDENMİŞ belge hiçbir zaman
+# `VADESI_GECTI` sayılmaz. Yani `first`in vadesi geçmiş olması ne
+# `?status=VADESI_GECTI` süzgecini ne de ödeme sonrası `total_overdue`yu
+# kırabilirdi. Değişikliği ZORUNLU kılan tek şey `second`ın `VADESI_GECTI`ye
+# düşmesiydi.
+#
+# `first`İN DE GÖRELİ OLMASI BİR ZORUNLULUK DEĞİL, TERCİHTİR — ve burada
+# yazılı olmasının sebebi, ölçülmemiş bir gerekçenin bir daha yazılmaması:
+# çift tek kaynaktan türeyince SIRA (365 < 730) aritmetikle garanti olur,
+# bir sabitin hareketli bir tarihin altında kalmasına GÜVENMEZ.
+#
+# ÜÇ İDDİA AYNI ANDA TUTMALI:
+#
+#   (1) `second` AÇIK KALMALI. `only_overdue` iddiası `?status=VADESI_GECTI`
 #       süzgecinin TEK kimlik (2019 belgesi) döndürmesini istiyor; ödeme
-#       sonrası `total_overdue` da 0 bekleniyor. İkisi de bugünden SONRA
-#       olmalı — yalnız birini ileri almak yetmez.
+#       sonrası `total_overdue` da 0 bekleniyor. Kısıt YALNIZ `second`
+#       üzerindedir; `first` için ölçülen karşılığı YOKTUR.
 #   (2) SIRA. FIFO en eski vadeye dağıtır; 1200'lük tahsilat sonrası `first`
 #       ÖDENDI (outstanding 0), `second` 800 açık kalır. `first < second`
 #       KESİN olmalı. Mutlak değerler değil, aralarındaki SIRA taşıyıcıdır.
-#   (3) TAVAN. İkisi de `2099-12-31` belgesinin altında kalmalı; azalan
+#   (3) ÇAPALAR. İkisi de `2099-12-31` belgesinin altında kalmalı; azalan
 #       sıralama iddiası (`desc_ids[0] == open_id`) en büyüğün o olmasına
 #       dayanıyor. Alttaki `2019-06-30` da en küçük kalmalı
-#       (`desc_ids[-1] == overdue_id`).
+#       (`desc_ids[-1] == overdue_id`) — bu alt çapayı ayrıca API'nin kendisi
+#       koruyor: vade belge tarihinden ÖNCE olamaz (422) ve belge tarihi
+#       `2026-01-01`.
 #
-# `business_today()`ten türetilince üçü de HER SAATTE tutar: sıra 365 < 730
-# olduğu için sabittir, ikisi de her zaman bugünden sonradır, ikisi de ~73 yıl
-# boyunca 2099 çapasının altındadır. Sabit bir tarih üçünü aynı anda ve
-# SÜREKLİ tutamaz — `2099-01-01` gibi ileri bir sabit (1) ile (3)'ü bugün
-# sağlar ama anlamı yine duvar saatine emanet eder; erteler, çözmez.
+# BİLİNEN SON KULLANMA TARİHİ: `second = business_today() + 730 gün` 2099-12-31
+# çapasına 2097-12-31'de YETİŞİR ve `desc_ids[0] == open_id` iddiası o gün
+# düşer. ÖLÇÜLDÜ (donmuş saat): 2097-12-30 YEŞİL, 2097-12-31 KIRMIZI. Yani bu
+# düzeltme 2097 sonuna kadar geçerlidir; o tarihte 2099 çapası da ileri
+# alınmalıdır. Bir düzeltmenin bilinen ömrü, okuyanın bulacağı yerde yazmalı.
 #
 # 365 GÜN, 30 DEĞİL: koşum İstanbul gece yarısını geçerse test ile sunucu bir
 # gün ayrışabilir; bu pay onu yutar.
@@ -186,8 +210,8 @@ with TestClient(app) as client:
     fifo_customer = client.post(
         '/api/customers', headers=headers, json={'name':'FIFO Çiftçisi'}
     ).json()['id']
-    # İkisi de AÇIK, `first` KESİN daha erken — gerekçe yukarıda
-    # (`FIFO_ERKEN_VADE` / `FIFO_GEC_VADE` başlığı).
+    # `second` AÇIK kalmalı (kıran sabit oydu), `first` KESİN daha erken —
+    # gerekçe yukarıda (`FIFO_ERKEN_VADE` / `FIFO_GEC_VADE` başlığı).
     first = sale('HARMAN_VADELI', due=FIFO_ERKEN_VADE, tx='2026-01-01')
     second = sale('HARMAN_VADELI', due=FIFO_GEC_VADE, tx='2026-01-01')
     # Reassign the helper-created documents to the dedicated FIFO customer.
