@@ -101,8 +101,15 @@ from app.main import PUBLIC_API, app  # noqa: E402
 #: Maruziyet: olayın kimliği, kaynak tipi/kimliği, durumu, deneme sayısı,
 #: gerekçe metni ve zaman damgaları. `idempotency_key` DÖNDÜRÜLMÜYOR.
 # 334 -> 336 ve 91 -> 93: Uygulama Kayıt Çizelgesinin iki okuma ucu.
-# UNDENIABLE 99'da SABİT: ikisi de handler'da `farm.view` istiyor, yani ROL
-# ile reddedilebilir; KORUMALI read'e düşerler, ÇIPLAK read'e değil.
+# UNDENIABLE 99'da SABİT — SEBEBİ YOL YERLEŞİMİ, rol ile reddedilebilirlik
+# DEĞİL: ikisi de middleware'de `read`e çözülüyor, bu yüzden
+# FARM_HERD_VIEW_OPERATIONS'a HİÇ girmiyorlar; KORUMALI read'e düştükleri için
+# `read` ile GUARDED_READ birlikte artıyor ve ÇIPLAK read farkı (67)
+# kıpırdamıyor. Handler'daki `farm.view` kapısı GERÇEKTİR ve ATEŞ EDER
+# (enjekte edilmiş bir role karşı 403 ölçüldü), ama sevk edilen altı rolün
+# altısı da `farm.view` taşıdığı için BUGÜN TANIMLI HİÇBİR ROLÜ REDDEDEMEZ:
+# henüz var olmayan bir role karşı konmuş bir kapıdır ve ileride `read`
+# kazanan bir rolün kayıt defterini sessizce edinmesini o engeller.
 EXPECTED_AUTHENTICATED = 336
 EXPECTED_READ = 93
 EXPECTED_UNDENIABLE = 99
@@ -367,9 +374,15 @@ def test_guarded_read_membership_not_just_magnitude() -> None:
     _, _, guarded, _ = _populations()
     assert guarded == GUARDED_READ_OPERATIONS
     # 24 -> 26: Uygulama Kayıt Çizelgesinin iki okuma ucu. İkisi de
-    # middleware'de `read`, handler'da `farm.view` istiyor — yani ROL ile
-    # reddedilebilir; bu yüzden ÇIPLAK read'e değil KORUMALI read'e düşerler
-    # ve `EXPECTED_UNDENIABLE` (97) KIPIRDAMAZ (ölçüldü).
+    # middleware'de `read`, handler'da `farm.view` istiyor; bu yüzden ÇIPLAK
+    # read'e değil KORUMALI read'e düşerler ve `EXPECTED_UNDENIABLE` (99)
+    # KIPIRDAMAZ (ölçüldü). SEBEP YOL YERLEŞİMİDİR, rol ile reddedilebilirlik
+    # DEĞİL: `read`e çözüldükleri için FARM_HERD_VIEW_OPERATIONS'a girmezler.
+    # Bu kümedeki ÜYELİK "rol ile reddedilebilir" DEMEK DEĞİLDİR —
+    # `_calls_denying_guard` yalnız DENYING_GUARDS'taki çağrı ADINI arar, izin
+    # ARGÜMANINA hiç bakmaz; altı rolün altısı da `farm.view` taşıdığı için bu
+    # kapı bugün tanımlı hiçbir rolü reddedemez (enjekte edilmiş bir role karşı
+    # 403 ölçüldü: kapı gerçek ve ateş ediyor, hedefi henüz var olmayan bir rol).
     assert len(guarded) == 26
 
 
