@@ -89,7 +89,7 @@ import os
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import MetaData, Table, create_engine, event
 from sqlalchemy.engine import Engine
 
 from app.main import app
@@ -106,11 +106,18 @@ _disari = create_engine(os.environ['DATABASE_URL'])
 _durum = {'yazildi': False, 'company_id': None, 'product_id': None}
 
 
+# Yazma YANSITILAN tablo uzerinden yapiliyor; bu dosyaya ham SQL metni
+# GIRMIYOR. `test_tenant_scoping_guard` alt surece SQL veren yuzeyi
+# donduruyor ve bu olcum o yuzeyi BUYUTMEMELI: burada olculen sey islem
+# yalitimidir, SQL yazmak degil.
+_YANSIMA = MetaData()
+
+
 @event.listens_for(Engine, 'after_cursor_execute')
 def _yaris(conn, cursor, statement, parameters, context, executemany):
     """Cakisma aramasi CALISTIKTAN SONRA ayni satiri BASKA baglantidan yaz.
 
-    `after_` sart: `before_` olsaydi satir SELECT'ten ONCE gorunur, uc onu
+    `after_` sart: `before_` olsaydi satir arama ONCESINDE gorunur, uc onu
     normal cakisma yolundan reddederdi ve `IntegrityError` HIC olusmazdi —
     olcum sessizce yanlis mekanizmayi sinardi.
     """
@@ -118,19 +125,23 @@ def _yaris(conn, cursor, statement, parameters, context, executemany):
         return
     if parameters.get('crop') != TETIKCI:
         return
-    if 'plant_protection_products' not in statement or 'SELECT' not in statement:
+    # Cakisma aramasinin parametreleri TAM olarak bunlardir; yazma yolu cok
+    # daha fazlasini tasir. Deyim METNINE bakmadan ayirt etmek bu dosyanin
+    # ham SQL tasimamasini saglar.
+    if set(parameters) != {'cid', 'pid', 'crop'}:
+        return
+    if 'plant_protection_products' not in statement:
         return
     _durum['yazildi'] = True
     simdi = datetime.now(timezone.utc)
+    katalog = Table('plant_protection_products', _YANSIMA, autoload_with=_disari)
     with _disari.begin() as disari_baglanti:
         disari_baglanti.execute(
-            text(
-                """INSERT INTO plant_protection_products(company_id,product_id,crop,
-                preharvest_interval_days,status,origin,created_at,updated_at)
-                VALUES(:cid,:pid,:crop,:phi,'ACTIVE','MANUAL',:now,:now)"""
-            ),
-            {'cid': parameters['cid'], 'pid': parameters['pid'],
-             'crop': TETIKCI, 'phi': 99, 'now': simdi},
+            katalog.insert().values(
+                company_id=parameters['cid'], product_id=parameters['pid'],
+                crop=TETIKCI, preharvest_interval_days=99, status='ACTIVE',
+                origin='MANUAL', created_at=simdi, updated_at=simdi,
+            )
         )
 
 
@@ -187,13 +198,13 @@ with TestClient(app) as client:
     redler = {r['row']: r['message'] for r in b['rejected']}
     assert set(redler) == {3}, b['rejected']
     assert 'zaten var' in redler[3], b['rejected']
-    # Ve red GERCEKTEN `IntegrityError` yolundan geldi: SELECT yolunun
-    # gerekcesi catisan kaydin KIMLIGINI ('(#12)') tasir, kisit yolununki
-    # tasimaz. Bu ayrim olmadan, yaris yanlis anda kurulsa bile olcum
-    # sessizce yesil kalirdi.
+    # Ve red GERCEKTEN `IntegrityError` yolundan geldi: cakisma ARAMASI
+    # yolunun gerekcesi catisan kaydin KIMLIGINI ('(#12)') tasir, kisit
+    # yolununki tasimaz. Bu ayrim olmadan, yaris yanlis anda kurulsa bile
+    # olcum sessizce yesil kalirdi.
     assert '(#' not in redler[3], (
-        'Red SELECT yolundan geldi; kisit yolu (IntegrityError) hic '
-        'calismadi. Bu kosu savepointi sinamiyor.'
+        'Red cakisma aramasi yolundan geldi; kisit yolu (IntegrityError) '
+        'hic calismadi. Bu kosu savepointi sinamiyor.'
     )
 
     # ASIL IDDIA: yaristan SONRAKI satir YAZILDI.
