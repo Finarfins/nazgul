@@ -165,6 +165,12 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/documents/{kind}/{document_id}/pdf"): "read",
     ("GET", "/api/documents/{kind}/{document_id}/xlsx"): "read",
     ("GET", "/api/exchange-rates"): "read",
+    # Uygulama Kayıt Çizelgesi. `/api/exports/` altında olduğu için genel
+    # `read` kuralına düşer; ASIL kapı handler'daki `farm.view`. Yol
+    # `/api/field-…` seçilseydi `_FARM_PATH_PREFIXES`e eklenmediği sürece
+    # sessizce `field_service`e düşerdi (bkz. /api/field-safety olayı).
+    ("GET", "/api/exports/producer-logbook"): "read",
+    ("GET", "/api/exports/producer-logbook.xlsx"): "read",
     ("GET", "/api/exports/products.xlsx"): "read",
     ("GET", "/api/exports/warehouse-count-variance.xlsx"): "read",
     ("GET", "/api/imports/customers/template.xlsx"): "read",
@@ -274,9 +280,12 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # 160 -> 162: outbox okuma yüzeyinin İKİ GET ucu (liste + özet). Başka
 # hiçbir ucun izni değişmedi; drift raporu `changed` ve `stale` listelerini
 # BOŞ ölçtü, yani bu artış YALNIZ ekleme.
-GET_INVENTORY_COUNT = 164
+# 164 -> 166: Uygulama Kayıt Çizelgesinin JSON ve xlsx okuma uçları. İKİ dal
+# da 162 -> 164 yazmıştı (BKÜ kataloğu ve çizelge); birleşmede TOPLANDI.
+# Drift raporu ÖLÇÜLDÜ: `changed` ve `stale` BOŞ — artış YALNIZ ekleme.
+GET_INVENTORY_COUNT = 166
 GET_INVENTORY_FINGERPRINT = (
-    "3aa237d4ef49c4bf4508d633d0af1c9e91d23971080718218181affc1391d3b9"
+    "710073c80c429fa271a1e0c706e077058a68a1ee659c3c4e6780119ed6b62521"
 )
 
 

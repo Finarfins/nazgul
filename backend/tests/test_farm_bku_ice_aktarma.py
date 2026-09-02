@@ -1,4 +1,4 @@
-"""BKÜ kataloğunun dosyadan doldurulması ve satır KÖKENİ (göç 20260901_0064).
+"""BKÜ kataloğunun dosyadan doldurulması ve satır KÖKENİ (göç 20260902_0065).
 
 Göç 0063 kataloğu açtı ama doldurma yolu TEK TEK FORM'du. BKÜ listesi
 kalabalık olan bir firma için bu gerçek bir veri girişi yüküdür ve katalog boş

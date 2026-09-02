@@ -1,4 +1,4 @@
-"""PostgreSQL ikizi: BKÜ kataloğu içe aktarma ve satır kökeni (göç 20260901_0064).
+"""PostgreSQL ikizi: BKÜ kataloğu içe aktarma ve satır kökeni (göç 20260902_0065).
 
 BU İKİZ DEKORATİF DEĞİL — ve bu dosyada ikizin gerekçesi, kardeşi
 `test_farm_bku_katalogu_postgresql.py`ninkinden DAHA GÜÇLÜDÜR, çünkü içe

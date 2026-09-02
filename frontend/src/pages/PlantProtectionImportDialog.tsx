@@ -1,5 +1,5 @@
 /**
- * BKÜ kataloğunu firmanın KENDİ dosyasından doldurma (göç 20260901_0064).
+ * BKÜ kataloğunu firmanın KENDİ dosyasından doldurma (göç 20260902_0065).
  *
  * ÜÇ ŞEY BURADA BİLİNÇLİ VE ÜÇÜ DE EKRANIN TAMAMINI BELİRLİYOR:
  *

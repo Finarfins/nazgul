@@ -86,7 +86,7 @@ export type PlantProtectionProduct = {
   reentry_interval_days: number | null;
   notes: string | null; status: string; updated_at: string;
   /**
-   * Satırın KÖKENİ (göç 20260901_0064): elle mi yazıldı, dosyadan mı geldi.
+   * Satırın KÖKENİ (göç 20260902_0065): elle mi yazıldı, dosyadan mı geldi.
    *
    * "Katalogdaki 21 nereden geldi" sorusunun cevabı. `origin_reference`
    * yalnız `IMPORT` satırlarda dolu ve `'<dosya adı>:<satır no>'` biçiminde:

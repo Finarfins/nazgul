@@ -192,7 +192,7 @@ export default function PlantProtectionProducts() {
       valueGetter: (_v, row) => row.registration_no ?? '—'},
     {field: 'status', headerName: 'Durum', width: 110},
     {
-      // KÖKEN LİSTEDE GÖRÜNÜR (göç 20260901_0064). Denetimde sorulan soru
+      // KÖKEN LİSTEDE GÖRÜNÜR (göç 20260902_0065). Denetimde sorulan soru
       // "bu 21 nereden geldi"dir ve cevabın kayıtta durup ekranda
       // görünmemesi, cevabı olmamasından yalnız bir adım iyidir.
       field: 'origin', headerName: 'Köken', width: 190,

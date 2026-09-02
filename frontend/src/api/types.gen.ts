@@ -989,6 +989,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/exports/producer-logbook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Producer Logbook
+         * @description Çizelgenin JSON hâli — indirmeden önce kapsamı görmek için.
+         *
+         *     xlsx ucuyla AYNI üreticiyi çağırır; ekranın "kaç satır çıkacak" sorusunu
+         *     dosyayı indirmeden yanıtlaması için var. İki uç ayrı üretici kullansaydı
+         *     önizleme ile dosya sessizce ayrışabilirdi.
+         */
+        get: operations["producer_logbook_api_exports_producer_logbook_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/exports/producer-logbook.xlsx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Producer Logbook Xlsx
+         * @description İki sayfalı çizelge: uygulamalar ve hasatlar.
+         */
+        get: operations["producer_logbook_xlsx_api_exports_producer_logbook_xlsx_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/exports/products.xlsx": {
         parameters: {
             query?: never;
@@ -11112,6 +11156,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    producer_logbook_api_exports_producer_logbook_get: {
+        parameters: {
+            query?: {
+                farm_id?: number | null;
+                parcel_id?: number | null;
+                season_id?: number | null;
+                season_year?: number | null;
+                date_from?: string | null;
+                date_to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    producer_logbook_xlsx_api_exports_producer_logbook_xlsx_get: {
+        parameters: {
+            query?: {
+                farm_id?: number | null;
+                parcel_id?: number | null;
+                season_id?: number | null;
+                season_year?: number | null;
+                date_from?: string | null;
+                date_to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

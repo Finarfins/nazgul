@@ -1,5 +1,5 @@
 /**
- * BKÜ katalog içe aktarma diyaloğu (göç 20260901_0064).
+ * BKÜ katalog içe aktarma diyaloğu (göç 20260902_0065).
  *
  * BU DOSYANIN ANA İDDİASI TEK CÜMLE: **reddedilen satırlar SAYI DEĞİL LİSTE
  * olarak gösterilir ve HİÇBİRİ kısaltılmaz.**

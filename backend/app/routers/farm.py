@@ -56,7 +56,7 @@ from ..auth import has_permission, required_permission
 from ..business_time import ISTANBUL, business_today
 from ..money import money, quantity
 from ..tenancy import company_id
-# İÇE AKTARMA OKUYUCUSU PAYLAŞILIYOR, KOPYALANMIYOR (göç 20260901_0064).
+# İÇE AKTARMA OKUYUCUSU PAYLAŞILIYOR, KOPYALANMIYOR (göç 20260902_0065).
 # `routers/imports.py`teki bu üç yardımcı yükleme yüzeyinin SINIRLARINI
 # taşıyor: 10 MB gövde tavanı, 50.000 satır tavanı, UTF-8/cp1254 çözümü ve
 # zip-bomba kontrolü. İkinci bir kopya yazmak o tavanların BİRİNİ unutmak
@@ -2480,7 +2480,7 @@ def update_ppp(
 
 
 # ---------------------------------------------------------------------------
-# KATALOĞUN DOSYADAN DOLDURULMASI (göç 20260901_0064)
+# KATALOĞUN DOSYADAN DOLDURULMASI (göç 20260902_0065)
 # ---------------------------------------------------------------------------
 #
 # 0063 kataloğu açtı ama doldurma yolu TEK TEK FORM'du. BKÜ listesi kalabalık
