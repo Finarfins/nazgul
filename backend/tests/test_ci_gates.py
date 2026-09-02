@@ -20,8 +20,8 @@ CALL_SITE_GATE = REPO_ROOT / "deploy" / "ci-verify-cagri-kapisi.py"
 BACKEND = REPO_ROOT / "backend"
 
 
-def test_pg_test_population_exact_98() -> None:
-    """PostgreSQL test population must be exactly 98 files.
+def test_pg_test_population_exact_99() -> None:
+    """PostgreSQL test population must be exactly 99 files.
 
     95 -> 97: tarla yazma kilitleri ikizleri (`test_farm_monoculture_postgresql.py`,
     `test_farm_reentry_enforcement_postgresql.py`, göç 20260901_0064). İkizler
@@ -31,7 +31,18 @@ def test_pg_test_population_exact_98() -> None:
 
     97 -> 98: `test_uretici_kayit_defteri_postgresql.py` (Uygulama Kayıt
     Çizelgesi): genişleyen bind, NUMERIC ölçeği, TIMESTAMPTZ ve çapraz kiracı
-    GERÇEK PostgreSQL üzerinde ölçülüyor.
+    GERÇEK PostgreSQL üzerinde ölçülüyor. Bu artış develop'a PR #22 ile indi.
+
+    98 -> 99: BKÜ içe aktarma ikizi (`test_farm_bku_ice_aktarma_postgresql.py`,
+    göç 20260902_0065). TABAN DEVELOP'UN 98'İDİR ve delta ÖLÇÜLEREK bulundu,
+    daha önceki 97 -> 98 ölçümümün üzerine aritmetik yapılarak DEĞİL: o ölçüm,
+    tabanı PR #22 ile değiştiği anda geçersiz oldu.
+
+    İKİZ ZORUNLU ve gerekçesi kardeşininkinden GÜÇLÜ: "bir bozuk satır dosyayı
+    düşürmez" kuralını ayakta tutan şey SAVEPOINT ve savepoint YOKKEN SQLite
+    koşusu YEŞİL KALIR — PostgreSQL'de başarısız bir deyim işlemi ABORTED
+    yapar, SQLite'ta yapmaz. Yani bu dilimin ana iddiasının kırılması YALNIZ
+    üretim diyalektinde görünür.
 
     Bu sayaç ile `ci.yml`deki eşi birlikte artmak ZORUNDA — ikisi aynı
     popülasyonu sayıyor ve biri güncellenip diğeri unutulursa kapı kendi
@@ -43,15 +54,15 @@ def test_pg_test_population_exact_98() -> None:
         BACKEND / "tests" / "test_ci_playwright_hazirlik.py",
     ]
     all_files = pg_glob + [p for p in named if p.exists()]
-    assert len(all_files) == 98, (
-        f"PostgreSQL test population changed: expected 98, got {len(all_files)}"
+    assert len(all_files) == 99, (
+        f"PostgreSQL test population changed: expected 99, got {len(all_files)}"
     )
 
 
 def test_ci_workflow_has_frozen_pg_population_constant() -> None:
-    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=98 and strict equality."""
+    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=99 and strict equality."""
     content = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BEKLENEN_PG_DOSYA_SAYISI=98" in content
+    assert "BEKLENEN_PG_DOSYA_SAYISI=99" in content
     assert '[ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]' in content
 
 

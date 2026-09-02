@@ -29,7 +29,9 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import (
+    APIRouter, Depends, File, HTTPException, Query, Request, UploadFile,
+)
 from sqlalchemy import Integer, bindparam, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -54,6 +56,14 @@ from ..auth import has_permission, required_permission
 from ..business_time import ISTANBUL, business_today
 from ..money import money, quantity
 from ..tenancy import company_id
+# İÇE AKTARMA OKUYUCUSU PAYLAŞILIYOR, KOPYALANMIYOR (göç 20260902_0065).
+# `routers/imports.py`teki bu üç yardımcı yükleme yüzeyinin SINIRLARINI
+# taşıyor: 10 MB gövde tavanı, 50.000 satır tavanı, UTF-8/cp1254 çözümü ve
+# zip-bomba kontrolü. İkinci bir kopya yazmak o tavanların BİRİNİ unutmak
+# demekti ve unutulan tavan yalnız saldırı anında görünürdü. Uç `imports`
+# yönlendiricisine DEĞİL, `farm`a bağlı kalıyor: `/api/plant-protection-# products` öneki `farm.manage` istiyor, `/api/imports` istemiyor — uç orada
+# olsaydı yasal bekleme sürelerini içe aktarma yetkisi olan herkes yazabilirdi.
+from .imports import _cell, _map, _read_tabular_upload
 
 router = APIRouter(tags=["farm"])
 
@@ -2387,7 +2397,8 @@ def list_ppp(
         text(
             f"""SELECT k.id,k.product_id,u.name AS product_name,k.crop,
             k.registration_no,k.preharvest_interval_days,
-            k.reentry_interval_days,k.notes,k.status,k.updated_at
+            k.reentry_interval_days,k.notes,k.status,
+            k.origin,k.origin_reference,k.updated_at
             FROM plant_protection_products k
             JOIN products u ON u.id=k.product_id AND u.company_id=k.company_id
             WHERE k.company_id=:cid{kosul}
@@ -2414,10 +2425,10 @@ def create_ppp(
             text(
                 """INSERT INTO plant_protection_products(company_id,product_id,crop,
                 registration_no,preharvest_interval_days,reentry_interval_days,
-                notes,status,created_at,updated_at)
+                notes,status,origin,origin_reference,created_at,updated_at)
                 VALUES(:cid,:product_id,:crop,:registration_no,
                 :preharvest_interval_days,:reentry_interval_days,:notes,'ACTIVE',
-                :now,:now) RETURNING id"""
+                'MANUAL',NULL,:now,:now) RETURNING id"""
             ),
             {"cid": cid, "now": now, **payload.model_dump()},
         ).scalar_one()
@@ -2466,3 +2477,336 @@ def update_ppp(
         ) from exc
     db.commit()
     return _satir(db, cid, "plant_protection_products", ppp_id)
+
+
+# ---------------------------------------------------------------------------
+# KATALOĞUN DOSYADAN DOLDURULMASI (göç 20260902_0065)
+# ---------------------------------------------------------------------------
+#
+# 0063 kataloğu açtı ama doldurma yolu TEK TEK FORM'du. BKÜ listesi kalabalık
+# olan bir firma için bu gerçek bir veri girişi yüküdür ve katalog boş kaldığı
+# sürece PHI kilidi 0063 öncesindeki gibi susmaya devam eder. Bu uç o yükü
+# kaldırıyor.
+#
+# DÖRT KURAL, DÖRDÜ DE BİLİNÇLİ:
+#
+# 1. BİR BOZUK SATIR YALNIZ KENDİSİNİ REDDEDER, DOSYAYI DEĞİL. 200 satırlık
+#    listede bir yazım hatası olan çiftçi diğer 199'u kaybetmemeli. Ama SESSİZ
+#    kısmi başarı da yok: yanıt reddedilen HER satırı kendi satır numarası ve
+#    gerekçesiyle sayıyor, SAYI vermiyor — "3 satır atlandı" kullanıcıya
+#    hangisini düzelteceğini SÖYLEMEZ.
+#
+# 2. MEVCUT SATIRLA ÇAKIŞMA REDDEDİLİR, GÜNCELLENMEZ. Bu, deponun DİĞER
+#    içe aktarmalarından (`routers/imports.py`, müşteri/ürün) bilerek AYRILIR:
+#    onlar eşleşeni günceller. Burada güncelleme YANLIŞ olurdu — katalogdaki
+#    değer bir insanın ETİKETE BAKARAK yazdığı yasal bir süredir ve bir dosya
+#    onu sessizce ezerse, ezildiği kimseye görünmez. Atlamak da yanlış olurdu:
+#    kullanıcı listesinin tamamının yazıldığını sanırdı. Satır REDDEDİLİR ve
+#    çakıştığı kaydın kimliği SÖYLENİR; kullanıcı karar verip yeniden yükler.
+#
+# 3. KÖKEN KAYIT ALTINDA. Yazılan her satır `origin='IMPORT'` ve
+#    `origin_reference='<dosya>:<satır>'` taşır. Gerekçe 0064'ün başlığında:
+#    "katalogdaki 21 nereden geldi" sorusunun cevabı bir adım daha geriye,
+#    firmanın KENDİ dosyasına kadar gidiyor.
+#
+# 4. DOSYA FİRMANIN KENDİ DOSYASIDIR. Başlangıç listesi, paketlenmiş bakanlık
+#    verisi, örnek katalog YOK — 0063'ün duruşu burada da geçerli: depo hiçbir
+#    PHI rakamı iddia etmez. Bu uç yalnız firmanın getirdiğini okur.
+
+#: Satırın hangi ürünü tarif ettiği ÖNCE koddan, sonra addan çözülür. Kod
+#: kısa ve makineden gelir; ad insanın yazdığıdır. `products`ta İKİSİ DE
+#: TEKİL DEĞİL (`core_schema.py`: yalnız indeksli), dolayısıyla ikisi de
+#: birden fazla ürüne uyabilir — o durumda satır reddedilir, çünkü
+#: "muhtemelen bunu kastetti" diye seçmek yasal bir bekleme süresini YANLIŞ
+#: ürüne bağlardı.
+_ICE_AKTARMA_BASLIKLARI: dict[str, list[str]] = {
+    "product_code": ["Ürün Kodu", "Urun Kodu", "Stok Kodu", "Kod", "product_code"],
+    "product_name": ["Ürün Adı", "Urun Adi", "Ürün", "İlaç", "Ilac", "product_name"],
+    "crop": ["Bitki", "Kültür", "Kultur", "crop"],
+    "registration_no": ["Ruhsat No", "Ruhsat Numarası", "Ruhsat", "registration_no"],
+    "preharvest_interval_days": [
+        "Hasat Bekleme (Gün)", "Hasat Bekleme", "Hasat Öncesi Bekleme",
+        "PHI", "PHI (Gün)", "preharvest_interval_days",
+    ],
+    "reentry_interval_days": [
+        "Giriş Yasağı (Gün)", "Giris Yasagi (Gun)", "Giriş Yasağı",
+        "Tarlaya Giriş Yasağı", "reentry_interval_days",
+    ],
+    "notes": ["Not", "Notlar", "Açıklama", "Aciklama", "notes"],
+}
+
+#: 0063'ün `plant_protection_products` şemasındaki `CHECK` ile ve
+#: `PlantProtectionProductWrite` ile AYNI sınır. Üç yer farklı söyleseydi
+#: dosyadan geçen bir değer forma girilemez ya da veritabanına yazılamaz
+#: olurdu ve hata kullanıcıya anlamsız görünürdü.
+_PHI_EN_COK = 3650
+_BITKI_EN_UZUN = 120
+_RUHSAT_EN_UZUN = 60
+#: `origin_reference` sütununun genişliği (göç 0064). Dosya adı kullanıcıdan
+#: gelir ve uzun olabilir; kaydın YAZILMASINI engellememeli, o yüzden işaret
+#: kırpılır — kırpılmış bir işaret, hiç olmayan işaretten iyidir.
+_KOKEN_ISARETI_EN_UZUN = 255
+
+
+def _ice_aktarma_tamsayi(ham: Any) -> int | None:
+    """Hücreden tamsayı; çözülemezse ``None``.
+
+    ``int(float(...))`` KISA YOLU BİLEREK KULLANILMIYOR. Elektronik tablo bir
+    tam sayıyı ``21.0`` olarak verir ve o yol bunu 21 yapar — ama AYNI yol
+    ``20,6``yı da sessizce 20 yapardı. Bekleme süresi bir GÜN sayısıdır ve
+    aşağı yuvarlanmış bir gün, süresi dolmadan hasada izin verir. Sıfır
+    olmayan kesir REDDEDİLİR; ``21,0`` bir yazım değil BİÇİM olduğu için
+    kabul edilir.
+    """
+    if ham is None:
+        return None
+    if isinstance(ham, bool):
+        # `bool` Python'da `int`tir; "Evet/Hayır" yazılmış bir hücre 1 güne
+        # dönüşmemeli.
+        return None
+    if isinstance(ham, int):
+        return ham
+    # KAYAR NOKTA DALI BİLEREK YOK ve geri EKLENMEMELİ. Elektronik tablodan
+    # gelen `21.0` bu satırda `str()` ile "21.0"a dönüyor ve aşağıdaki metin
+    # yolu onu zaten doğru çözüyor; `20.6` ise aynı yolda REDDEDİLİYOR. Yani
+    # ayrı bir dal hiçbir şey kazandırmıyordu — ama `test_v2_9_decimal_contract`
+    # kapısı çalışma anındaki `float` kullanımını yasaklıyor (CI bu dosyada
+    # yakaladı) ve deponun para/miktar hesabı Decimal üzerine kurulu. Tek
+    # istisna açmaktansa dalı kaldırmak hem kapıyı hem de kodu sadeleştiriyor.
+    metin = str(ham).strip()
+    if not metin:
+        return None
+    if "," in metin or "." in metin:
+        gövde, ayrac, kesir = metin.replace(",", ".").rpartition(".")
+        if ayrac and gövde and kesir and set(kesir) == {"0"}:
+            metin = gövde
+    try:
+        return int(metin)
+    except ValueError:
+        return None
+
+
+def _ice_aktarma_urun_coz(
+    db: Session, cid: int, kod: str, ad: str,
+) -> tuple[int | None, str]:
+    """``(product_id, hata)``. Kod ADDAN önce gelir; belirsizlik REDDEDİLİR.
+
+    Aynı kodu ya da adı iki ürün taşıyorsa hangisinin kastedildiği BİLİNMEZ
+    ve tahmin etmek yasal bir bekleme süresini yanlış ürüne bağlardı. Satır
+    reddedilir; kullanıcı kodla ayırt eder.
+    """
+    if kod:
+        satirlar = db.execute(
+            text(
+                "SELECT id FROM products WHERE company_id=:cid "
+                "AND LOWER(product_code)=LOWER(:kod)"
+            ),
+            {"cid": cid, "kod": kod},
+        ).scalars().all()
+        if len(satirlar) == 1:
+            return int(satirlar[0]), ""
+        if len(satirlar) > 1:
+            return None, (
+                f"'{kod}' kodunu {len(satirlar)} ürün taşıyor; hangisi olduğu belirsiz."
+            )
+        if not ad:
+            return None, f"'{kod}' kodlu ürün bulunamadı."
+    if not ad:
+        return None, "Ürün kodu ve ürün adı sütunlarının ikisi de boş."
+    satirlar = db.execute(
+        text("SELECT id FROM products WHERE company_id=:cid AND LOWER(name)=LOWER(:ad)"),
+        {"cid": cid, "ad": ad},
+    ).scalars().all()
+    if len(satirlar) == 1:
+        return int(satirlar[0]), ""
+    if len(satirlar) > 1:
+        return None, (
+            f"'{ad}' adını {len(satirlar)} ürün taşıyor; ürün kodu sütunu ile ayırt edin."
+        )
+    return None, f"'{ad}' adlı ürün bulunamadı."
+
+
+@router.post("/plant-protection-products/import")
+async def import_ppp(
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Kataloğu firmanın KENDİ dosyasından doldurur; bozuk satırı ADIYLA reddeder.
+
+    Yanıt biçimi deponun diğer içe aktarmalarından (`inserted/updated/errors`)
+    BİLEREK farklı: bu uç HİÇBİR ŞEYİ GÜNCELLEMEZ, dolayısıyla `updated` alanı
+    her zaman sıfır olan ve okuyanı "acaba ne güncellendi" diye düşündüren bir
+    alan olurdu. `rejected` bir SAYI değil LİSTEdir ve her öğesi kendi satır
+    numarasını taşır.
+    """
+    cid = company_id(request)
+    dosya_adi = (file.filename or "").strip() or "liste"
+    basliklar, satirlar = await _read_tabular_upload(file)
+    esleme = _map(basliklar, _ICE_AKTARMA_BASLIKLARI)
+    # BAŞLIK EKSİKLİĞİ DOSYAYI REDDEDER, SATIRI DEĞİL — ve bu, "bir bozuk satır
+    # dosyayı düşürmez" kuralıyla ÇELİŞMEZ: eksik sütun her satırı AYNI şekilde
+    # çözümsüz bırakır, yani reddedilen şey gerçekten dosyanın kendisidir.
+    # Satır satır saymak aynı cümleyi 200 kez yazardı.
+    if "product_code" not in esleme and "product_name" not in esleme:
+        raise HTTPException(
+            400,
+            "Dosyada 'Ürün Kodu' ya da 'Ürün Adı' sütunu bulunamadı; katalog "
+            "satırı bir ürüne bağlanmadan yazılamaz.",
+        )
+    if "preharvest_interval_days" not in esleme:
+        raise HTTPException(
+            400,
+            "Dosyada 'Hasat Bekleme (Gün)' sütunu bulunamadı; kataloğun var "
+            "olma sebebi bu değerdir ve uygulama bir gün sayısı üretmez.",
+        )
+
+    yazilan = 0
+    reddedilen: list[dict[str, Any]] = []
+    #: Dosyanın KENDİ İÇİNDEKİ çakışmalar. Veritabanına bakmak yetmez: aynı
+    #: yüklemede iki kez geçen (ürün, bitki) çifti, ilki yazıldıktan SONRA
+    #: veritabanında görünür — ama o zaman gerekçe "katalogda zaten var"
+    #: olurdu ve kullanıcı satırı KENDİSİNİN iki kez yazdığını anlamazdı.
+    dosyadaki: dict[tuple[int, str], int] = {}
+    now = _simdi()
+
+    for satir_no, satir in enumerate(satirlar, start=2):
+        def _hucre(anahtar: str, _satir: list[Any] = satir) -> str:
+            return str(_cell(_satir, esleme, anahtar, "") or "").strip()
+
+        def _reddet(mesaj: str, etiket: str = "", _no: int = satir_no) -> None:
+            reddedilen.append({"row": _no, "message": mesaj, "product": etiket})
+
+        kod = _hucre("product_code")
+        ad = _hucre("product_name")
+        etiket = kod or ad
+        product_id, hata = _ice_aktarma_urun_coz(db, cid, kod, ad)
+        if product_id is None:
+            _reddet(hata, etiket)
+            continue
+
+        bitki = " ".join(_hucre("crop").split())
+        if len(bitki) > _BITKI_EN_UZUN:
+            _reddet(f"Bitki adı {_BITKI_EN_UZUN} karakteri aşıyor.", etiket)
+            continue
+        ruhsat = " ".join(_hucre("registration_no").split()) or None
+        if ruhsat is not None and len(ruhsat) > _RUHSAT_EN_UZUN:
+            _reddet(f"Ruhsat no {_RUHSAT_EN_UZUN} karakteri aşıyor.", etiket)
+            continue
+
+        ham_phi = _cell(satir, esleme, "preharvest_interval_days", "")
+        phi = _ice_aktarma_tamsayi(ham_phi)
+        if phi is None:
+            ham_metin = str(ham_phi if ham_phi is not None else "").strip()
+            _reddet(
+                "Hasat bekleme günü boş."
+                if not ham_metin
+                else f"Hasat bekleme günü tam sayı değil: '{ham_metin}'.",
+                etiket,
+            )
+            continue
+        if phi < 0 or phi > _PHI_EN_COK:
+            _reddet(
+                f"Hasat bekleme günü 0 ile {_PHI_EN_COK} arasında olmalı: {phi}.", etiket
+            )
+            continue
+
+        ham_giris = _cell(satir, esleme, "reentry_interval_days", "")
+        giris: int | None = None
+        if str(ham_giris if ham_giris is not None else "").strip():
+            giris = _ice_aktarma_tamsayi(ham_giris)
+            if giris is None:
+                _reddet(
+                    f"Giriş yasağı günü tam sayı değil: '{str(ham_giris).strip()}'.",
+                    etiket,
+                )
+                continue
+            if giris < 0 or giris > _PHI_EN_COK:
+                _reddet(
+                    f"Giriş yasağı günü 0 ile {_PHI_EN_COK} arasında olmalı: {giris}.",
+                    etiket,
+                )
+                continue
+
+        # Dosya içi çakışma karşılaştırması `casefold` ile, SQL'in
+        # `LOWER()`ında DEĞİL — 0063'ün `_bitki_esit` gerekçesinin aynısı:
+        # Türkçe İ/ı eşlemesi diyalekte bağlıdır ve hesap tek yerde kalmalı.
+        anahtar = (product_id, bitki.casefold())
+        onceki = dosyadaki.get(anahtar)
+        if onceki is not None:
+            _reddet(
+                f"Aynı ürün ve bitki dosyanın {onceki}. satırında da var; "
+                "içe aktarma aynı kaydı iki kez yazmaz.",
+                etiket,
+            )
+            continue
+
+        # ÇAKIŞMA REDDEDİLİR, GÜNCELLENMEZ (başlıktaki 2. kural). Var olan
+        # kaydın kimliği yanıtta VERİLİYOR; kullanıcı ekrandan bakıp
+        # hangisinin doğru olduğuna KENDİSİ karar versin diye.
+        mevcut = db.execute(
+            text(
+                "SELECT id FROM plant_protection_products "
+                "WHERE company_id=:cid AND product_id=:pid AND crop=:crop"
+            ),
+            {"cid": cid, "pid": product_id, "crop": bitki},
+        ).scalar()
+        if mevcut is not None:
+            _reddet(
+                f"Katalogda bu ürün ve bitki için kayıt zaten var (#{int(mevcut)}); "
+                "içe aktarma mevcut değeri değiştirmez.",
+                etiket,
+            )
+            continue
+
+        isaret = f"{dosya_adi}:{satir_no}"[:_KOKEN_ISARETI_EN_UZUN]
+        try:
+            # SAVEPOINT: bir satırın kısıt ihlali TÜM işlemi zehirlemesin.
+            # PostgreSQL'de başarısız bir deyimden sonra işlem ABORTED duruma
+            # düşer ve sonraki HER sorgu hata verir — savepoint olmadan tek
+            # bozuk satır, başlıktaki 1. kuralı SESSİZCE bozup dosyanın
+            # kalanını da düşürürdü. SQLite'ta bu yol görünmez; ayrım
+            # PostgreSQL ikizinde ölçülüyor.
+            with db.begin_nested():
+                db.execute(
+                    text(
+                        """INSERT INTO plant_protection_products(company_id,product_id,
+                        crop,registration_no,preharvest_interval_days,
+                        reentry_interval_days,notes,status,origin,origin_reference,
+                        created_at,updated_at)
+                        VALUES(:cid,:product_id,:crop,:registration_no,
+                        :preharvest_interval_days,:reentry_interval_days,:notes,
+                        'ACTIVE','IMPORT',:origin_reference,:now,:now)"""
+                    ),
+                    {
+                        "cid": cid, "product_id": product_id, "crop": bitki,
+                        "registration_no": ruhsat,
+                        "preharvest_interval_days": phi,
+                        "reentry_interval_days": giris,
+                        "notes": _hucre("notes") or None,
+                        "origin_reference": isaret,
+                        "now": now,
+                    },
+                )
+        except IntegrityError:
+            # Yukarıdaki SELECT ile bu INSERT arasında başkası aynı satırı
+            # yazdıysa buraya düşeriz. Kısıt (`uq_ppp_company_product_crop`)
+            # son sözü söylüyor ve kullanıcıya verilen gerekçe aynı kalıyor.
+            _reddet(
+                "Katalogda bu ürün ve bitki için kayıt zaten var; "
+                "içe aktarma mevcut değeri değiştirmez.",
+                etiket,
+            )
+            continue
+        dosyadaki[anahtar] = satir_no
+        yazilan += 1
+
+    db.commit()
+    return {
+        "filename": dosya_adi,
+        "total_rows": len(satirlar),
+        "imported": yazilan,
+        # SAYI DEĞİL LİSTE: "3 satır reddedildi" kullanıcıya hangisini
+        # düzelteceğini söylemez.
+        "rejected": reddedilen,
+    }

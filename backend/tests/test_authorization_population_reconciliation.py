@@ -110,7 +110,18 @@ from app.main import PUBLIC_API, app  # noqa: E402
 # altısı da `farm.view` taşıdığı için BUGÜN TANIMLI HİÇBİR ROLÜ REDDEDEMEZ:
 # henüz var olmayan bir role karşı konmuş bir kapıdır ve ileride `read`
 # kazanan bir rolün kayıt defterini sessizce edinmesini o engeller.
-EXPECTED_AUTHENTICATED = 336
+# 336 -> 337: BKÜ içe aktarma ucu (POST
+# /api/plant-protection-products/import). TABAN DEVELOP'UN 336'SIDIR (PR #22
+# indikten sonra); önceki turdaki 334 -> 335 ölçümü, tabanı değiştiği anda
+# GEÇERSİZ oldu ve bu satır yeniden ÖLÇÜLDÜ.
+# YALNIZ KİMLİKLENMİŞ SAYAÇ ARTAR, diğer dördü DEĞİL:
+#   * uç POST'tur ve `farm.manage` ister, `read`e ÇÖZÜLMEZ -> EXPECTED_READ 93'te SABİT
+#   * bir OKUMA yüzeyi değildir, dolayısıyla ne GUARDED_READ_OPERATIONS'a
+#     ne FARM_HERD_VIEW_OPERATIONS'a ne de ÇIPLAK read'e girer
+#   * bu yüzden EXPECTED_UNDENIABLE 99'da ve ÇIPLAK read 67'de SABİT
+# Bu üç sabitten biri kımıldasaydı, niyet edilmemiş bir OKUMA yüzeyi
+# eklendiği anlamına gelirdi.
+EXPECTED_AUTHENTICATED = 337
 EXPECTED_READ = 93
 EXPECTED_UNDENIABLE = 99
 
