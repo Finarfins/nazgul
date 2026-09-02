@@ -989,6 +989,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/exports/producer-logbook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Producer Logbook
+         * @description Çizelgenin JSON hâli — indirmeden önce kapsamı görmek için.
+         *
+         *     xlsx ucuyla AYNI üreticiyi çağırır; ekranın "kaç satır çıkacak" sorusunu
+         *     dosyayı indirmeden yanıtlaması için var. İki uç ayrı üretici kullansaydı
+         *     önizleme ile dosya sessizce ayrışabilirdi.
+         */
+        get: operations["producer_logbook_api_exports_producer_logbook_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/exports/producer-logbook.xlsx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Producer Logbook Xlsx
+         * @description İki sayfalı çizelge: uygulamalar ve hasatlar.
+         */
+        get: operations["producer_logbook_xlsx_api_exports_producer_logbook_xlsx_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/exports/products.xlsx": {
         parameters: {
             query?: never;
@@ -3051,6 +3095,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/plant-protection-products/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Ppp
+         * @description Kataloğu firmanın KENDİ dosyasından doldurur; bozuk satırı ADIYLA reddeder.
+         *
+         *     Yanıt biçimi deponun diğer içe aktarmalarından (`inserted/updated/errors`)
+         *     BİLEREK farklı: bu uç HİÇBİR ŞEYİ GÜNCELLEMEZ, dolayısıyla `updated` alanı
+         *     her zaman sıfır olan ve okuyanı "acaba ne güncellendi" diye düşündüren bir
+         *     alan olurdu. `rejected` bir SAYI değil LİSTEdir ve her öğesi kendi satır
+         *     numarasını taşır.
+         */
+        post: operations["import_ppp_api_plant_protection_products_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/plant-protection-products/{ppp_id}": {
         parameters: {
             query?: never;
@@ -5102,6 +5172,8 @@ export interface components {
             preharvest_interval_days?: number | null;
             /** Reentry Interval Days */
             reentry_interval_days?: number | null;
+            /** Reentry Override Reason */
+            reentry_override_reason?: string | null;
             /** Season Id */
             season_id: number;
         };
@@ -5338,6 +5410,11 @@ export interface components {
             /** File */
             file: string;
         };
+        /** Body_import_ppp_api_plant_protection_products_import_post */
+        Body_import_ppp_api_plant_protection_products_import_post: {
+            /** File */
+            file: string;
+        };
         /** Body_import_products_api_imports_products_excel_post */
         Body_import_products_api_imports_products_excel_post: {
             /** File */
@@ -5490,6 +5567,10 @@ export interface components {
             farm_area_override_policy?: ("allow" | "require_reason" | "block") | null;
             /** Farm Early Harvest Policy */
             farm_early_harvest_policy?: ("warn" | "require_reason" | "block") | null;
+            /** Farm Monoculture Policy */
+            farm_monoculture_policy?: ("warn" | "require_reason" | "block") | null;
+            /** Farm Reentry Policy */
+            farm_reentry_policy?: ("warn" | "require_reason" | "block") | null;
             /** Farm Spraying Dose Required */
             farm_spraying_dose_required?: boolean | null;
             /**
@@ -7961,6 +8042,8 @@ export interface components {
              * Format: date-time
              */
             expected_updated_at: string;
+            /** Monoculture Override Reason */
+            monoculture_override_reason?: string | null;
             /** Notes */
             notes?: string | null;
             /** Parcel Id */
@@ -7987,6 +8070,8 @@ export interface components {
             crop: string;
             /** Ended On */
             ended_on?: string | null;
+            /** Monoculture Override Reason */
+            monoculture_override_reason?: string | null;
             /** Notes */
             notes?: string | null;
             /** Parcel Id */
@@ -11071,6 +11156,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    producer_logbook_api_exports_producer_logbook_get: {
+        parameters: {
+            query?: {
+                farm_id?: number | null;
+                parcel_id?: number | null;
+                season_id?: number | null;
+                season_year?: number | null;
+                date_from?: string | null;
+                date_to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    producer_logbook_xlsx_api_exports_producer_logbook_xlsx_get: {
+        parameters: {
+            query?: {
+                farm_id?: number | null;
+                parcel_id?: number | null;
+                season_id?: number | null;
+                season_year?: number | null;
+                date_from?: string | null;
+                date_to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -15362,6 +15519,39 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_ppp_api_plant_protection_products_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_ppp_api_plant_protection_products_import_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

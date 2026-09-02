@@ -137,16 +137,25 @@ const isSelector = (value: unknown): value is FarmSeasonSelector => {
 const isPolicyMode = (value: unknown): value is 'allow' | 'require_reason' | 'block' =>
   value === 'allow' || value === 'require_reason' || value === 'block';
 
+const isSafetyPolicyMode = (value: unknown): value is 'warn' | 'require_reason' | 'block' =>
+  value === 'warn' || value === 'require_reason' || value === 'block';
+
 const normalizedPolicies = (value?: Partial<FarmPolicySettings>): FarmPolicySettings => ({
   farm_area_override_policy: isPolicyMode(value?.farm_area_override_policy)
     ? value.farm_area_override_policy
     : DEFAULT_FARM_POLICIES.farm_area_override_policy,
-  farm_early_harvest_policy: isPolicyMode(value?.farm_early_harvest_policy)
+  farm_early_harvest_policy: isSafetyPolicyMode(value?.farm_early_harvest_policy)
     ? value.farm_early_harvest_policy
     : DEFAULT_FARM_POLICIES.farm_early_harvest_policy,
   farm_spraying_dose_required: typeof value?.farm_spraying_dose_required === 'boolean'
     ? value.farm_spraying_dose_required
     : DEFAULT_FARM_POLICIES.farm_spraying_dose_required,
+  farm_monoculture_policy: isSafetyPolicyMode(value?.farm_monoculture_policy)
+    ? value.farm_monoculture_policy
+    : DEFAULT_FARM_POLICIES.farm_monoculture_policy,
+  farm_reentry_policy: isSafetyPolicyMode(value?.farm_reentry_policy)
+    ? value.farm_reentry_policy
+    : DEFAULT_FARM_POLICIES.farm_reentry_policy,
 });
 
 export function cacheFarmMetadata(

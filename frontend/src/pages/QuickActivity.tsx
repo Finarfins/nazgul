@@ -78,6 +78,7 @@ export default function QuickActivity() {
   const [gerekce, setGerekce] = useState('');
   const [reentry, setReentry] = useState('');
   const [preharvest, setPreharvest] = useState('');
+  const [reentryGerekce, setReentryGerekce] = useState('');
   const [not, setNot] = useState('');
   const [girdiler, setGirdiler] = useState<Girdi[]>([bosGirdi()]);
 
@@ -202,6 +203,7 @@ export default function QuickActivity() {
         area_override_reason: bosNull(gerekce),
         reentry_interval_days: reentry.trim() === '' ? null : Number(reentry),
         preharvest_interval_days: preharvest.trim() === '' ? null : Number(preharvest),
+        reentry_override_reason: bosNull(reentryGerekce),
         notes: bosNull(not),
         // TEK İSTEK: girdiler faaliyetle birlikte gidiyor ve sunucuda AYNI
         // işlemde yazılıyor. `total_cost` GÖNDERİLMİYOR — sunucu hesaplıyor.
@@ -216,7 +218,7 @@ export default function QuickActivity() {
       });
       // Formu sıfırla ama SEZON ve TÜR kalsın: sahada arka arkaya birkaç
       // parsele aynı işi girmek yaygın.
-      setAlan(''); setGerekce(''); setNot(''); setGirdiler([bosGirdi()]);
+      setAlan(''); setGerekce(''); setReentryGerekce(''); setNot(''); setGirdiler([bosGirdi()]);
       if (sonuc.durum === 'sent') {
         setBilgi('Faaliyet ve girdileri kaydedildi.');
       } else {
@@ -314,6 +316,9 @@ export default function QuickActivity() {
                   onChange={e => setPreharvest(e.target.value)} />
               </Stack>
             )}
+            <TextField label="Giriş yasağı gerekçesi" value={reentryGerekce} disabled={!yazabilir}
+              helperText="Yasak sürerken faaliyet gerekçesiz geçmez. Boş bırakılabilir."
+              onChange={e => setReentryGerekce(e.target.value)} />
           </Stack>
         </CardContent>
       </Card>

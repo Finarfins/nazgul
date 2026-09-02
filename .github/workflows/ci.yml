@@ -453,11 +453,19 @@ jobs:
           # company_id default contract'i adinda "postgresql" gecmese de migration
           # yolunu REQUIRE_PG=1 ile gercek PostgreSQL 16 uzerinde calistirir.
           all_files=(test_*postgresql*.py tests/test_company_id_default_contract.py tests/test_ci_playwright_hazirlik.py)
-          # Donmuş PostgreSQL test popülasyonu (92 postgresql-adlı + 2 özel dosya = 94).
+          # Donmuş PostgreSQL test popülasyonu (97 postgresql-adlı + 2 özel dosya = 99).
+          # 97 -> 98: `test_uretici_kayit_defteri_postgresql.py` (Uygulama Kayıt
+          # Çizelgesi; genişleyen bind, NUMERIC ölçeği, TIMESTAMPTZ ve çapraz
+          # kiracı GERÇEK PostgreSQL üzerinde ölçülüyor) — develop'a PR #22 ile indi.
+          # 98 -> 99: `test_farm_bku_ice_aktarma_postgresql.py` (BKÜ içe aktarma;
+          # "bir bozuk satır dosyayı düşürmez" kuralı SAVEPOINT'e dayanır ve
+          # savepoint yokken SQLite koşusu YEŞİL kalır). Taban develop'un 98'idir,
+          # sayı ÖLÇÜLDÜ. develop'un 98'i BKÜ kataloğu, tarla yazma kilitleri ve
+          # Uygulama Kayıt Çizelgesi ikizlerini zaten sayıyor.
           # Alt sınır yerine tam eşitlik: dosya silinmesi veya yeniden adlandırma ile
           # sessizce test kapsamının düşmesini engeller. Yeni PG testi eklendiğinde
           # veya çıkarıldığında bu sabit bilinçli olarak güncellenmelidir.
-          BEKLENEN_PG_DOSYA_SAYISI=95
+          BEKLENEN_PG_DOSYA_SAYISI=99
           if [ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]; then
             echo "FAIL: tam $BEKLENEN_PG_DOSYA_SAYISI PG dosyası bekleniyor, ${#all_files[@]} bulundu" >&2
             exit 1
