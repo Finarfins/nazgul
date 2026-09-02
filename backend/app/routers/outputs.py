@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from pydantic import BaseModel, Field
 from qrcode import QRCode
 from reportlab.lib import colors
@@ -38,6 +39,7 @@ from ..labels import (
 from ..money import money
 from ..statement import build_statement, config as statement_config
 from ..tenancy import company_id
+from ..uretici_kayit_defteri import DefterHatasi, defter_verisi
 from ..pdf_fonts import PDF_FONT, PDF_FONT_BOLD, register_pdf_fonts
 
 register_pdf_fonts()
@@ -691,6 +693,140 @@ def products_xlsx(request: Request, db: Session = Depends(get_db)):
         out,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": 'attachment; filename="urunler.xlsx"'},
+    )
+
+
+# --- Uygulama Kayıt Çizelgesi ------------------------------------------------
+#
+# YOL ADI BİR GÜVENLİK KARARIDIR. Bu uç `/api/field-…` altına KONMADI:
+# `auth.py`de `_FARM_PATH_PREFIXES` listesinde OLMAYAN her `/api/field-` yolu
+# sessizce `field_service` iznine düşüyor ve bu tuzağa iki kez düşüldü. Uç
+# `/api/exports/` altında duruyor, dolayısıyla middleware `read` çözüyor ve
+# yetki KAPISI handler'da açıkça çağrılıyor (`_require_permission`,
+# `farm.view`) — tıpkı `/api/exports/products.xlsx` gibi.
+#
+# Bunun ölçülebilir sonucu: uçlar `GUARDED_READ_OPERATIONS`a düşer, yani rol
+# değerine göre REDDEDİLEBİLİR sayılır ve `EXPECTED_UNDENIABLE` popülasyonunu
+# BÜYÜTMEZ. Yolu `_FARM_PATH_PREFIXES`e eklemek yetkiyi middleware'e taşır ve
+# handler kapısını gereksiz kılardı: aynı erişim, daha zayıf denetim duruşu.
+
+
+def _logbook_filters(
+    farm_id: int | None,
+    parcel_id: int | None,
+    season_id: int | None,
+    season_year: int | None,
+    date_from: date | None,
+    date_to: date | None,
+) -> dict[str, object]:
+    return {
+        "farm_id": farm_id,
+        "parcel_id": parcel_id,
+        "season_id": season_id,
+        "season_year": season_year,
+        "date_from": date_from,
+        "date_to": date_to,
+    }
+
+
+def _logbook_data(request: Request, db: Session, filters: dict[str, object]):
+    _require_permission(request, "farm.view")
+    try:
+        return defter_verisi(db, company_id(request), filters)
+    except DefterHatasi as hata:
+        # Çağıranın DÜZELTEBİLECEĞİ hata: süzgeç eksik, tarih ters ya da sonuç
+        # üst sınırı aşıyor. 500 değil 400; metin kullanıcıya gösterilecek.
+        raise HTTPException(400, str(hata)) from hata
+
+
+@router.get("/exports/producer-logbook")
+def producer_logbook(
+    request: Request,
+    db: Session = Depends(get_db),
+    farm_id: int | None = Query(None),
+    parcel_id: int | None = Query(None),
+    season_id: int | None = Query(None),
+    season_year: int | None = Query(None),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+):
+    """Çizelgenin JSON hâli — indirmeden önce kapsamı görmek için.
+
+    xlsx ucuyla AYNI üreticiyi çağırır; ekranın "kaç satır çıkacak" sorusunu
+    dosyayı indirmeden yanıtlaması için var. İki uç ayrı üretici kullansaydı
+    önizleme ile dosya sessizce ayrışabilirdi.
+    """
+    return _logbook_data(
+        request,
+        db,
+        _logbook_filters(farm_id, parcel_id, season_id, season_year, date_from, date_to),
+    )
+
+
+@router.get("/exports/producer-logbook.xlsx")
+def producer_logbook_xlsx(
+    request: Request,
+    db: Session = Depends(get_db),
+    farm_id: int | None = Query(None),
+    parcel_id: int | None = Query(None),
+    season_id: int | None = Query(None),
+    season_year: int | None = Query(None),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+):
+    """İki sayfalı çizelge: uygulamalar ve hasatlar."""
+    data = _logbook_data(
+        request,
+        db,
+        _logbook_filters(farm_id, parcel_id, season_id, season_year, date_from, date_to),
+    )
+
+    workbook = Workbook()
+    activity_sheet = workbook.active
+    activity_sheet.title = "Uygulamalar"
+    harvest_sheet = workbook.create_sheet("Hasatlar")
+
+    for sheet, headers, rows, widths in (
+        (
+            activity_sheet,
+            data["activity_headers"],
+            data["activity_rows"],
+            [14, 26, 14, 26, 10, 10, 18, 14, 14, 14, 10, 18, 16, 14, 14, 10, 16, 16,
+             28, 12, 10, 10, 12, 16, 18, 20, 20, 16, 30, 34],
+        ),
+        (
+            harvest_sheet,
+            data["harvest_headers"],
+            data["harvest_rows"],
+            [14, 26, 14, 26, 10, 10, 10, 18, 16, 14, 12, 10, 16, 14, 10, 34, 30, 34],
+        ),
+    ):
+        # 1. satır çizelgenin NE OLDUĞUNU söyler. Gerekçe yalnız kod yorumunda
+        # kalırsa dosyayı açan kişiye HİÇ ulaşmaz.
+        sheet.append([data["note"]])
+        sheet.cell(row=1, column=1).font = Font(italic=True, color="7A4A00")
+        sheet.append([])
+        sheet.append(list(headers))
+        for cell in sheet[3]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="17324D")
+        for row in rows:
+            # SERBEST METİN müfettişin açacağı hücreye gidiyor: `input_name`,
+            # `notes`, gerekçeler ve `safety_warning` kullanıcı yazımıdır.
+            sheet.append([_safe_excel_cell(value) for value in row])
+        for index, width in enumerate(widths, start=1):
+            sheet.column_dimensions[get_column_letter(index)].width = width
+
+    out = BytesIO()
+    workbook.save(out)
+    out.seek(0)
+    return StreamingResponse(
+        out,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition":
+                'attachment; filename="uygulama-kayit-cizelgesi.xlsx"'
+        },
     )
 
 

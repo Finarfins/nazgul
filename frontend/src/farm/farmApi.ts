@@ -85,6 +85,44 @@ export type PlantProtectionProduct = {
   preharvest_interval_days: number;
   reentry_interval_days: number | null;
   notes: string | null; status: string; updated_at: string;
+  /**
+   * Satırın KÖKENİ (göç 20260902_0065): elle mi yazıldı, dosyadan mı geldi.
+   *
+   * "Katalogdaki 21 nereden geldi" sorusunun cevabı. `origin_reference`
+   * yalnız `IMPORT` satırlarda dolu ve `'<dosya adı>:<satır no>'` biçiminde:
+   * denetçiyi firmanın KENDİ dosyasındaki satıra kadar götürüyor.
+   *
+   * DÜZENLEME BUNU DEĞİŞTİRMEZ. Köken satırın NEREDEN GELDİĞİdir; bir insanın
+   * sonradan değeri düzeltmesi onu "elle girilmiş" yapmaz.
+   */
+  origin: PlantProtectionOrigin;
+  origin_reference: string | null;
+};
+
+/** `MANUAL` = formdan yazıldı, `IMPORT` = dosyadan geldi. */
+export type PlantProtectionOrigin = 'MANUAL' | 'IMPORT';
+
+/** İçe aktarmada REDDEDİLEN bir satır — sayı değil, satırın KENDİSİ. */
+export type PlantProtectionRejectedRow = {
+  /** Dosyadaki satır numarası (başlık 1, ilk veri satırı 2). */
+  row: number;
+  message: string;
+  /** Satırın ürün kodu ya da adı; boşsa satırda ürün de yoktu. */
+  product: string;
+};
+
+/**
+ * İçe aktarma sonucu.
+ *
+ * `rejected` bir SAYI DEĞİL LİSTEdir ve bu bilinçli: "3 satır atlandı"
+ * kullanıcıya hangisini düzelteceğini SÖYLEMEZ. Ekran da bu yüzden listeyi
+ * gösteriyor, sayısını değil.
+ */
+export type PlantProtectionImportResult = {
+  filename: string;
+  total_rows: number;
+  imported: number;
+  rejected: PlantProtectionRejectedRow[];
 };
 
 export const PPP_PATH = '/plant-protection-products';
