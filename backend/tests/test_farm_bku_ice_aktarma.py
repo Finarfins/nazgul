@@ -57,6 +57,161 @@ def run_ice_aktarma_smoke(database_url: str) -> None:
     assert completed.returncode == 0, completed.stdout + "\n" + completed.stderr
 
 
+
+def run_savepoint_smoke(database_url: str) -> None:
+    """`db.begin_nested()` GERÇEKTEN yük taşıyor mu — ÖLÇÜLEREK.
+
+    Kardeş ikizin (`test_farm_bku_ice_aktarma_postgresql.py`) 1. iddiası
+    savepoint'e dayanıyor ama YUKARIDAKİ `_SMOKE` onu SINAMIYOR: oradaki bozuk
+    satırların üçü de (ürün yok, ürün boş, sayı değil) HİÇBİR DEYİM
+    ÇALIŞTIRILMADAN reddediliyor. Ölçüldü: bütün `_SMOKE` koşusu boyunca
+    başarısız olan deyim sayısı SIFIR ve `db.begin_nested()` silindiğinde ikiz
+    YEŞİL kalıyor. Yani o dosya, adını taşıdığı mekanizmayı ayırt etmiyor.
+
+    Bu koşu ikizin 2. iddiasını — `SELECT` ile `INSERT` arasındaki yarışı —
+    gerçekten kurar: dinleyici, çakışma araması geçtikten SONRA aynı satırı
+    BAŞKA bir bağlantıdan yazar. Uç `IntegrityError` alır; savepoint varsa
+    işlem kullanılabilir kalır ve SONRAKİ satır YAZILIR, yoksa PostgreSQL
+    işlemi ABORTED'a düşürür ve dosyanın kalanı sessizce kaybolurdu.
+    """
+    env = os.environ.copy()
+    env["DATABASE_URL"] = database_url
+    env["PYTHONPATH"] = str(BACKEND)
+    completed = subprocess.run(
+        [sys.executable, "-c", _SAVEPOINT_SMOKE],
+        cwd=BACKEND, env=env, capture_output=True, text=True, timeout=300,
+    )
+    assert completed.returncode == 0, completed.stdout + "\n" + completed.stderr
+
+
+_SAVEPOINT_SMOKE = r'''
+import os
+from datetime import datetime, timezone
+
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import Engine
+
+from app.main import app
+
+# AYNI dosyadaki oteki kosuyla AYNI parola: iki kosu ayni veritabanini
+# paylasiyor ve hangisinin once calisacagi garanti degil.
+ADMIN_PW = 'FarmIceAktarma!12345'
+UC = '/api/plant-protection-products'
+# Yarisi TETIKLEYEN bitki. Dosyada 3. satirda; ONCESINDE ve SONRASINDA
+# saglam birer satir var.
+TETIKCI = 'Yaris Bitkisi'
+
+_disari = create_engine(os.environ['DATABASE_URL'])
+_durum = {'yazildi': False, 'company_id': None, 'product_id': None}
+
+
+@event.listens_for(Engine, 'after_cursor_execute')
+def _yaris(conn, cursor, statement, parameters, context, executemany):
+    """Cakisma aramasi CALISTIKTAN SONRA ayni satiri BASKA baglantidan yaz.
+
+    `after_` sart: `before_` olsaydi satir SELECT'ten ONCE gorunur, uc onu
+    normal cakisma yolundan reddederdi ve `IntegrityError` HIC olusmazdi —
+    olcum sessizce yanlis mekanizmayi sinardi.
+    """
+    if _durum['yazildi'] or not isinstance(parameters, dict):
+        return
+    if parameters.get('crop') != TETIKCI:
+        return
+    if 'plant_protection_products' not in statement or 'SELECT' not in statement:
+        return
+    _durum['yazildi'] = True
+    simdi = datetime.now(timezone.utc)
+    with _disari.begin() as disari_baglanti:
+        disari_baglanti.execute(
+            text(
+                """INSERT INTO plant_protection_products(company_id,product_id,crop,
+                preharvest_interval_days,status,origin,created_at,updated_at)
+                VALUES(:cid,:pid,:crop,:phi,'ACTIVE','MANUAL',:now,:now)"""
+            ),
+            {'cid': parameters['cid'], 'pid': parameters['pid'],
+             'crop': TETIKCI, 'phi': 99, 'now': simdi},
+        )
+
+
+def admin_headers(client):
+    # Parola HENUZ degismemis olabilir (bu kosu once calisti) ya da
+    # degismis olabilir (oteki kosu once calisti). Ikisini de kabul et.
+    login = client.post('/api/auth/login', json={'username':'admin','password':ADMIN_PW})
+    if login.status_code == 200:
+        body = login.json()
+        return {'Authorization':'Bearer '+body['access_token'],
+                'X-Company-ID':str(body['companies'][0]['id'])}
+    login = client.post('/api/auth/login', json={'username':'admin','password':'admin123'})
+    assert login.status_code == 200, login.text
+    body = login.json()
+    h = {'Authorization':'Bearer '+body['access_token'],
+         'X-Company-ID':str(body['companies'][0]['id'])}
+    ch = client.post('/api/auth/change-password', headers=h,
+                     json={'current_password':'admin123','new_password':ADMIN_PW})
+    assert ch.status_code == 200, ch.text
+    h['Authorization'] = 'Bearer '+ch.json()['access_token']
+    return h
+
+
+with TestClient(app) as client:
+    h = admin_headers(client)
+    # KENDI firmasi: iki kosu ayni veritabanini paylasiyor ve bu kosunun
+    # yazdigi satirlar otekinin katalog SAYIMINI bozmamali.
+    firma = client.post('/api/companies', headers=h, json={'name':'Yaris Firma'})
+    assert firma.status_code in (200, 201), firma.text
+    h = dict(h, **{'X-Company-ID': str(firma.json()['id'])})
+
+    urun = client.post('/api/products', headers=h,
+                       json={'name':'YARIS BKU','product_code':'BKU-Y','sale_price':'250.00',
+                             'purchase_price':'150.00','vat_rate':20,'unit':'LT'})
+    assert urun.status_code == 201, urun.text
+
+    dosya = (
+        'Urun Kodu,Bitki,Hasat Bekleme (Gun)\n'
+        'BKU-Y,Onceki,10\n'                      # 2  saglam — yaristan ONCE
+        'BKU-Y,' + TETIKCI + ',11\n'             # 3  YARIS: IntegrityError
+        'BKU-Y,Sonraki,12\n'                     # 4  saglam — yaristan SONRA
+    )
+    y = client.post(UC + '/import', headers=h,
+                    files={'file': ('yaris.csv', dosya.encode('utf-8'), 'text/csv')})
+    # Savepoint YOKSA burasi 500'dur: PostgreSQL islemi ABORTED'a duser ve
+    # 4. satirin urun aramasi bile hata verir.
+    assert y.status_code == 200, y.text
+    b = y.json()
+
+    # Yaris GERCEKTEN kuruldu mu? Kurulmadiysa bu olcum hicbir sey ayirt
+    # etmiyor demektir ve sessizce yesil kalmamali.
+    assert _durum['yazildi'], 'Yaris tetiklenmedi; cakisma aramasi yakalanamadi.'
+
+    redler = {r['row']: r['message'] for r in b['rejected']}
+    assert set(redler) == {3}, b['rejected']
+    assert 'zaten var' in redler[3], b['rejected']
+    # Ve red GERCEKTEN `IntegrityError` yolundan geldi: SELECT yolunun
+    # gerekcesi catisan kaydin KIMLIGINI ('(#12)') tasir, kisit yolununki
+    # tasimaz. Bu ayrim olmadan, yaris yanlis anda kurulsa bile olcum
+    # sessizce yesil kalirdi.
+    assert '(#' not in redler[3], (
+        'Red SELECT yolundan geldi; kisit yolu (IntegrityError) hic '
+        'calismadi. Bu kosu savepointi sinamiyor.'
+    )
+
+    # ASIL IDDIA: yaristan SONRAKI satir YAZILDI.
+    assert b['imported'] == 2, b
+
+    liste = client.get(UC, headers=h, params={'limit':200}).json()
+    bitkiler = {r['crop']: r for r in liste['items']}
+    assert 'Onceki' in bitkiler, liste
+    assert 'Sonraki' in bitkiler, liste          # <- savepoint olmasa YOK
+    assert bitkiler['Onceki']['preharvest_interval_days'] == 10, bitkiler['Onceki']
+    assert bitkiler['Sonraki']['preharvest_interval_days'] == 12, bitkiler['Sonraki']
+    # Yarisi kazanan satir YERINDE; ice aktarma uzerine YAZMADI.
+    assert bitkiler[TETIKCI]['preharvest_interval_days'] == 99, bitkiler[TETIKCI]
+
+print('BKU ICE AKTARMA SAVEPOINT OK')
+'''
+
+
 def test_bku_ice_aktarma_sqlite(tmp_path: Path) -> None:
     run_ice_aktarma_smoke(f"sqlite:///{(tmp_path / 'farm-ice-aktarma.db').as_posix()}")
 
@@ -266,6 +421,61 @@ with TestClient(app) as client:
                       json={'season_id':sezon['id'],'harvested_on':'2026-06-09',
                             'quantity':'5000','unit':'KG'})
     assert gec.status_code == 201, gec.text
+
+    # --- XLSX KESIRLI GUN: UCTAN UCA REDDEDILIR ---------------------------
+    # `test_kesirli_gun_sessizce_yuvarlanmaz` cevirici FONKSIYONU dogrudan
+    # cagiriyor; uctan uca butun fikstürler CSV ve CSV her hucreyi METIN
+    # olarak veriyor. Yani ceviricinin USTUNE eklenen bir `float` dali
+    # (ornegin "elektronik tablo zaten sayi gonderiyor" diye `int(...)`)
+    # hicbir uctan uca kosuyu kirmazdi.
+    #
+    # Mekanizma OLCULDU: openpyxl `<v>` icerigini nokta YOKSA `int`, VARSA
+    # `float` yapar. Yani `21.0` normal yazildiginda `int` olarak gelir ve
+    # yalnizca TAM OLMAYAN bir hucre gercekten `float` teslim eder — tehlikeli
+    # olan durum tam olarak budur.
+    import io as _io
+    import openpyxl as _openpyxl
+
+    _wb = _openpyxl.Workbook()
+    _ws = _wb.active
+    _ws.append(['Urun Kodu', 'Bitki', 'Hasat Bekleme (Gun)'])
+    _ws.append(['BKU-1', 'Kesirli Bitki', 20.6])   # 2  RED: asagi yuvarlanamaz
+    _ws.append(['BKU-1', 'Tam Bitki', 21.0])       # 3  saglam: `21` olarak gelir
+    _tampon = _io.BytesIO()
+    _wb.save(_tampon)
+    _govde = _tampon.getvalue()
+
+    # Hucrelerin GERCEKTEN sayi olarak geldigini burada sabitliyoruz; aksi
+    # halde bu kosu metin yolunu sinar ve `float` dalini ayirt etmezdi.
+    _okunan = list(
+        _openpyxl.load_workbook(_io.BytesIO(_govde), data_only=True)
+        .active.iter_rows(min_row=2, values_only=True)
+    )
+    assert isinstance(_okunan[0][2], float), _okunan
+    assert isinstance(_okunan[1][2], int), _okunan
+
+    yx = client.post(
+        UC + '/import', headers=h,
+        files={'file': ('kesirli.xlsx', _govde,
+                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')},
+    )
+    assert yx.status_code == 200, yx.text
+    bx = yx.json()
+    assert set(redler(bx)) == {2}, bx['rejected']
+    assert 'tam sayi' in sadelestir(redler(bx)[2]), bx['rejected']
+    # Reddin gerekcesi hucrenin KENDISINI soylüyor.
+    assert '20.6' in redler(bx)[2], bx['rejected']
+    assert bx['imported'] == 1, bx
+
+    # VE HICBIR SEY YAZILMADI: `20` diye bir satir katalogda YOK.
+    liste_x = client.get(UC, headers=h, params={'limit':200}).json()
+    kesirli = [r for r in liste_x['items'] if r['crop'] == 'Kesirli Bitki']
+    assert kesirli == [], kesirli
+    # Tam olan YAZILDI — yani xlsx yolu gercekten calisiyor ve dosya
+    # butunuyle reddedilmis degil.
+    tam = [r for r in liste_x['items'] if r['crop'] == 'Tam Bitki']
+    assert len(tam) == 1, liste_x['items']
+    assert tam[0]['preharvest_interval_days'] == 21, tam[0]
 
     # --- BASLIK EKSIKLIGI DOSYAYI REDDEDER -------------------------------
     # Eksik sutun HER satiri ayni sekilde cozumsuz birakir; reddedilen sey
