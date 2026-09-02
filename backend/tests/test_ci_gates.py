@@ -54,15 +54,15 @@ def test_pg_test_population_exact_99() -> None:
         BACKEND / "tests" / "test_ci_playwright_hazirlik.py",
     ]
     all_files = pg_glob + [p for p in named if p.exists()]
-    assert len(all_files) == 99, (
-        f"PostgreSQL test population changed: expected 99, got {len(all_files)}"
+    assert len(all_files) == 100, (
+        f"PostgreSQL test population changed: expected 100, got {len(all_files)}"
     )
 
 
 def test_ci_workflow_has_frozen_pg_population_constant() -> None:
-    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=99 and strict equality."""
+    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=100 and strict equality."""
     content = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BEKLENEN_PG_DOSYA_SAYISI=99" in content
+    assert "BEKLENEN_PG_DOSYA_SAYISI=100" in content
     assert '[ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]' in content
 
 
