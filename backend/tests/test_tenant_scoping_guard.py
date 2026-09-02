@@ -272,7 +272,13 @@ DYNAMIC_SQL_FILE_ALLOWLIST: dict[str, tuple[int, str, str]] = {
     # sorgular birebir aynı. Parmak izi dosya içeriğinden türediği için yine de
     # yenilendi; kapının amacı zaten "gözden geçirilmiş dosyaya dokundun,
     # tekrar bak" demek.
-    "backend/app/routers/outputs.py": (4, "fb7efa2a2a2dbe107910ce8581e463c73a08f5276473a0829c585e3ccef6ab27", "closed document config after tenant-scoped parent lookup"),
+    # Parmak izi 20260901de yenilendi: Uygulama Kayit Cizelgesinin iki okuma
+    # ucu eklendi. OLCULDU: bu dosyanin dinamik text() cagrisi sayisi 4te
+    # SABIT kaldi ve dordunun argumanlari develop ile BIREBIR ayni — yeni
+    # uclarin SQL'i bu dosyada DEGIL, `app/uretici_kayit_defteri.py`de ve
+    # orasi ayri bir kayitla gozden gecirildi. Parmak izi degisti cunku
+    # dosya AST'sinin TAMAMINDAN turuyor.
+    "backend/app/routers/outputs.py": (4, "61549fac051e522179ea6ef719c18af049e78093d3c359132c206c724523a5b9", "closed document config after tenant-scoped parent lookup"),
     "backend/app/routers/pos.py": (1, "4ebd99382d5a0a8766ad792e86bcd2823fa18b39dbc1a3481cc07609d84fecdb", "fixed barcode expression; product and stock join tenant-scoped"),
     "backend/app/routers/products.py": (6, "dec8ff78d6a3037490a6740890368c28f87ec7dfcf378b5d4ac4c6a76f3359a9", "closed sort/filter/column maps and integer-only id lists"),
     "backend/app/routers/quick_pick.py": (1, "53fbdcd9d0ea6951b8fa701ea9693339e000258cb1911321d2840d31674c2e22", "fixed optional customer filter; roots and joins tenant-scoped"),
@@ -293,6 +299,18 @@ DYNAMIC_SQL_FILE_ALLOWLIST: dict[str, tuple[int, str, str]] = {
     "backend/app/service_receivable_engine.py": (2, "4590a3a9db14aa3e5f4127a316f85fe1a9018f0f6a179958d60e0f30f34c0bfc", "canonical tenant predicates with closed lock suffix"),
     "backend/app/statement.py": (4, "c9a2d509dbeaff969d1c686e690e5eb35dd54dd12f7e58d294cc6d11c3946ead", "closed entity config; document and payment sources scoped"),
     "backend/app/tenancy.py": (4, "b50d5fd5a9d35269380bfaa33b70fc95a241a72bd48e8157c56c72cf8df473a7", "hardcoded bootstrap DDL plus runtime-validated tenant_text. Parmak izi 2026-09-01de guncellendi: companies Table'ina farm_monoculture_policy ve farm_reentry_policy sutunlari eklendi (goc 20260901_0064). Dinamik text() sayisi 4te SABIT; tenant_text davranisi DEGISMEDI."),
+    # Uygulama Kayit Cizelgesi (20260901). TEK dinamik text() cagrisi var:
+    # `_sezonlar`in WHERE gövdesi. Interpole edilen parca `kosullar`
+    # listesidir ve bu liste KAPALI: dört sabit metinden ("f.id=:farm_id",
+    # "p.id=:parcel_id", "s.id=:season_id", "s.season_year=:season_year")
+    # yalnizca varligina bakilarak secilir; istekten gelen DEGERLER metne
+    # HICBIR yoldan girmez, hepsi ayni adli BAGLI PARAMETRE olarak gecer.
+    # Kok yuklem her zaman ilk sirada: "s.company_id=:cid". Iki JOIN de
+    # kiracıya bagli (p.company_id=s.company_id, f.company_id=p.company_id).
+    # Dosyadaki diger dort sorgu TAMAMEN SABIT metindir ve hepsi
+    # `company_id=:cid` bagliyor; `app_users` firma sutunu tasimadigi icin
+    # `user_company_memberships` uzerinden :cid ile baglaniyor.
+    "backend/app/uretici_kayit_defteri.py": (1, "4dd7410309e069358bbbcbce2072a48ff3b5ce77ac3802a2a8930265f9c7905f", "closed filter fragments; the single dynamic WHERE body is chosen from four literal predicate strings, request values are always bound parameters, and the root predicate company_id=:cid is unconditional"),
     "backend/app/workflow.py": (2, "ee227773e34829776546ece8aa57d7df412d36fbb36899ec36b82cfdea0f44f7", "quoted hardcoded legacy schema DDL identifiers; line tables carry company_id and a composite parent key"),
 }
 
@@ -1063,7 +1081,9 @@ def test_every_dynamic_text_call_is_exactly_reviewed() -> None:
     # 248 -> 251: outbox okuma yuzeyi (`routers/entegrasyon_olaylari.py`)
     # UC dinamik cagri ekledi. Toplam burada da donuk: tek tek dosya girdileri
     # dogru olsa bile toplu bir kayma bu satirda gorunur.
-    assert sum(item[0] for item in DYNAMIC_SQL_FILE_ALLOWLIST.values()) == 253
+    # 253 -> 254: Uygulama Kayit Cizelgesinin TEK dinamik cagrisi
+    # (`uretici_kayit_defteri._sezonlar`). Diger dort sorgusu sabit metin.
+    assert sum(item[0] for item in DYNAMIC_SQL_FILE_ALLOWLIST.values()) == 254
     assert not mismatched, (
         f"{ipucu}Dynamic SQL source changed and needs re-review: {mismatched}"
     )

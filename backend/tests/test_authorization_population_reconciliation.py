@@ -100,8 +100,18 @@ from app.main import PUBLIC_API, app  # noqa: E402
 #: geldiği gün kendi YAZMA iznini gerektirir — `farm.view` ona yetmez.
 #: Maruziyet: olayın kimliği, kaynak tipi/kimliği, durumu, deneme sayısı,
 #: gerekçe metni ve zaman damgaları. `idempotency_key` DÖNDÜRÜLMÜYOR.
-EXPECTED_AUTHENTICATED = 334
-EXPECTED_READ = 91
+# 334 -> 336 ve 91 -> 93: Uygulama Kayıt Çizelgesinin iki okuma ucu.
+# UNDENIABLE 99'da SABİT — SEBEBİ YOL YERLEŞİMİ, rol ile reddedilebilirlik
+# DEĞİL: ikisi de middleware'de `read`e çözülüyor, bu yüzden
+# FARM_HERD_VIEW_OPERATIONS'a HİÇ girmiyorlar; KORUMALI read'e düştükleri için
+# `read` ile GUARDED_READ birlikte artıyor ve ÇIPLAK read farkı (67)
+# kıpırdamıyor. Handler'daki `farm.view` kapısı GERÇEKTİR ve ATEŞ EDER
+# (enjekte edilmiş bir role karşı 403 ölçüldü), ama sevk edilen altı rolün
+# altısı da `farm.view` taşıdığı için BUGÜN TANIMLI HİÇBİR ROLÜ REDDEDEMEZ:
+# henüz var olmayan bir role karşı konmuş bir kapıdır ve ileride `read`
+# kazanan bir rolün kayıt defterini sessizce edinmesini o engeller.
+EXPECTED_AUTHENTICATED = 336
+EXPECTED_READ = 93
 EXPECTED_UNDENIABLE = 99
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
@@ -111,6 +121,8 @@ GUARDED_READ_OPERATIONS = {
     ("GET", "/api/customers/{customer_id}/statement.pdf"),
     ("GET", "/api/documents/{kind}/{document_id}/pdf"),
     ("GET", "/api/documents/{kind}/{document_id}/xlsx"),
+    ("GET", "/api/exports/producer-logbook"),
+    ("GET", "/api/exports/producer-logbook.xlsx"),
     ("GET", "/api/exports/products.xlsx"),
     ("GET", "/api/exports/warehouse-count-variance.xlsx"),
     ("GET", "/api/notifications/consents"),
@@ -361,7 +373,17 @@ def test_guarded_read_membership_not_just_magnitude() -> None:
     """Türetilen küme, elle yazılan çapaya ÜYE ÜYE eşit olmalı."""
     _, _, guarded, _ = _populations()
     assert guarded == GUARDED_READ_OPERATIONS
-    assert len(guarded) == 24
+    # 24 -> 26: Uygulama Kayıt Çizelgesinin iki okuma ucu. İkisi de
+    # middleware'de `read`, handler'da `farm.view` istiyor; bu yüzden ÇIPLAK
+    # read'e değil KORUMALI read'e düşerler ve `EXPECTED_UNDENIABLE` (99)
+    # KIPIRDAMAZ (ölçüldü). SEBEP YOL YERLEŞİMİDİR, rol ile reddedilebilirlik
+    # DEĞİL: `read`e çözüldükleri için FARM_HERD_VIEW_OPERATIONS'a girmezler.
+    # Bu kümedeki ÜYELİK "rol ile reddedilebilir" DEMEK DEĞİLDİR —
+    # `_calls_denying_guard` yalnız DENYING_GUARDS'taki çağrı ADINI arar, izin
+    # ARGÜMANINA hiç bakmaz; altı rolün altısı da `farm.view` taşıdığı için bu
+    # kapı bugün tanımlı hiçbir rolü reddedemez (enjekte edilmiş bir role karşı
+    # 403 ölçüldü: kapı gerçek ve ateş ediyor, hedefi henüz var olmayan bir rol).
+    assert len(guarded) == 26
 
 
 def test_farm_and_herd_view_membership_not_just_magnitude() -> None:
