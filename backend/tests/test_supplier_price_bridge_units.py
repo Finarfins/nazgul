@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from openpyxl import Workbook, load_workbook
 
 import app.supplier_price_bridge as bridge_rules
-from app.routers.supplier_price_bridge import _parse, _read_upload, _validate_archive
+from app.routers.supplier_price_bridge import _parse, _read_upload
 from app.supplier_price_bridge import (
     canonical_price_digest,
     classify_deviation,
@@ -158,12 +158,19 @@ def test_real_tampar_slice_contains_and_normalizes_locked_examples():
 
 
 def test_zip_bomb_stops_at_uncompressed_entry_limit(monkeypatch):
+    # Modül-düzeyi `from ... import _validate_archive` süpürmede BAYAT kalır:
+    # `test_security_audit_visibility.py:43-44,60-61` `app.*`yi silip yeniden
+    # yükler; `monkeypatch.setattr("app.routers....MAX_ENTRY_BYTES")` YENİ
+    # modüle yazar, bayat fonksiyon kendi `__globals__`ında 100MB görür ve
+    # HTTPException ATMAZ (DID NOT RAISE). Aynı import nesnesine yaz.
+    import app.routers.supplier_price_bridge as bridge_mod
+
     archive_bytes = io.BytesIO()
     with zipfile.ZipFile(archive_bytes, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("xl/worksheets/sheet1.xml", b"0" * 4096)
-    monkeypatch.setattr("app.routers.supplier_price_bridge.MAX_ENTRY_BYTES", 1024)
+    monkeypatch.setattr(bridge_mod, "MAX_ENTRY_BYTES", 1024)
     with pytest.raises(HTTPException, match="açılmış veri sınırını"):
-        _validate_archive(archive_bytes.getvalue())
+        bridge_mod._validate_archive(archive_bytes.getvalue())
 
 
 @pytest.mark.asyncio
