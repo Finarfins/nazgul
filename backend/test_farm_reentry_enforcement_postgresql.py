@@ -19,6 +19,7 @@ _spec = importlib.util.spec_from_file_location(
 _contract = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_contract)
 run_reentry_smoke = _contract.run_reentry_smoke
+run_bindparam_typing_probe = _contract.run_bindparam_typing_probe
 
 
 def _pg_url() -> str:
@@ -33,3 +34,14 @@ def _pg_url() -> str:
 @pytest.mark.postgresql
 def test_reentry_enforcement_postgresql() -> None:
     run_reentry_smoke(_pg_url())
+
+
+@pytest.mark.postgresql
+def test_giris_sorgusu_pid_tipi_postgresql() -> None:
+    """`_GIRIS_SORGU`nun `pid` TİPİ gerçekten iş görüyor mu — ÖLÇÜLEREK.
+
+    Kardeş dosyadaki `test_reentry_query_is_parcel_scoped_and_tenant_bound`
+    artık `bindparam("pid", type_=Integer)` dizgesini ARAMIYOR; dizgeyi
+    koruyup davranışı bozan bir yeniden düzenlemeyi grep yakalayamazdı.
+    """
+    run_bindparam_typing_probe(_pg_url())
