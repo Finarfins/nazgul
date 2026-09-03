@@ -1,7 +1,7 @@
 {
   "$lockfile": {
-    "sha256": "0de0d540ff11abdf7f88f31addcf313e45f5db18b592a8235d8933302d1a08d2",
-    "reason": "package-lock.json icin cevrimdisi butunluk imzasi. Kilit dosyasi degistiginde bu deger de bilerek guncellenmeli; boylece bagimlilik agacindaki her degisim, ag erisimi olmasa bile bir KARAR olur."
+    "sha256": "6c3b6750564e44dd131604b2be8fc8bade5b690f59a252301207101518d1e32c",
+    "reason": "package-lock.json icin cevrimdisi butunluk imzasi; SATIR SONLARI LF olarak normalize edilerek haslanir (Windows calisma agaci CRLF yazar, Linux kosucusu LF okur -- ham bayt haslamak ayni icerik icin iki farkli ozet uretirdi). Kilit dosyasi degistiginde bu deger de bilerek guncellenmeli."
   },
   "GHSA-w5hq-g745-h8pq": {
     "package": "uuid",

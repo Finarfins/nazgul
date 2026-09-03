@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   enforceAuditPolicy,
   enforceLockfileIntegrity,
+  lockfileDigest,
   extractAuditAdvisories,
   isNetworkClassFailure,
   main,
@@ -16,7 +17,7 @@ import {
 } from "./check-audit-policy.mjs";
 
 const LOCKFILE_SHA256 =
-  "0de0d540ff11abdf7f88f31addcf313e45f5db18b592a8235d8933302d1a08d2";
+  "6c3b6750564e44dd131604b2be8fc8bade5b690f59a252301207101518d1e32c";
 
 function networkFailureSpawn(code = "ENOTFOUND") {
   return () => ({
@@ -441,4 +442,22 @@ test("a registry outage that exits 1 with empty stdout is unavailable, not a bro
     assert.doesNotMatch(error.message, /not valid JSON/);
     return true;
   });
+});
+
+// PLATFORM CIVISI: ayni icerik, iki satir sonu bicimi, TEK ozet.
+// Bu test olmadan kapi Windows calisma agacinda yesil, Linux kosucusunda
+// kirmizi olabilir (ve CI'da tam olarak oyle oldu) -- yani bagimlilik
+// agaci hic degismeden kapinin PLATFORMU olctugu bir hal.
+test("the lockfile digest is line-ending independent", () => {
+  const CR = String.fromCharCode(13);
+  const LF = String.fromCharCode(10);
+  const lf = ['{', '  "ad": "kilit"', '}'].join(LF);
+  const crlf = lf.split(LF).join(CR + LF);
+  assert.notEqual(lf, crlf, "iki bicim gercekten farkli baytlar olmali");
+  assert.equal(lockfileDigest(crlf), lockfileDigest(lf));
+  assert.equal(lockfileDigest(Buffer.from(crlf, "utf8")), lockfileDigest(lf));
+});
+
+test("the digest still changes when real content changes", () => {
+  assert.notEqual(lockfileDigest('{"a":1}'), lockfileDigest('{"a":2}'));
 });

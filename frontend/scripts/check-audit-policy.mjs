@@ -265,6 +265,21 @@ export function enforceAuditPolicy(advisories, policy) {
   }
 }
 
+// SATIR SONU NORMALIZE EDILIR, HAM BAYT HASLANMAZ.
+// OLCULDU (ve CI'da KIRMIZI olarak yakalandi): Windows calisma agacinda
+// git `core.autocrlf` ile package-lock.json'i CRLF olarak yazar, Linux
+// kosucusunda ayni dosya LF'tir; ham bayt haslamak AYNI icerik icin IKI
+// FARKLI ozet uretir (0de0d540... / 6c3b6750...) ve kapi, bagimlilik agaci
+// hic degismeden platforma gore kirmizi yanar. Bir kapinin PLATFORMU
+// olcmesi, ucuncu tarafin calisma suresini olcmesi kadar anlamsizdir.
+export function lockfileDigest(contents) {
+  const text = Buffer.isBuffer(contents) ? contents.toString("utf8") : String(contents);
+  const CR = String.fromCharCode(13);
+  const LF = String.fromCharCode(10);
+  const normalized = text.split(CR + LF).join(LF);
+  return createHash("sha256").update(normalized, "utf8").digest("hex");
+}
+
 // CEVRIMDISI, BELIRLENIMCI SINYAL.
 // npm audit'in yasayan cagrisi bir ucuncu tarafin ayakta olmasina baglidir;
 // bu kontrol degildir. Kilit dosyasinin sha256'si allowlist icinde beyan
@@ -287,7 +302,7 @@ export function enforceLockfileIntegrity(
       `AUDIT_POLICY_RED: audit allowlist has no valid "${LOCKFILE_KEY}".sha256 (64 hex chars) for ${LOCKFILE_NAME}`,
     );
   }
-  const actual = createHash("sha256").update(read(lockfilePath)).digest("hex");
+  const actual = lockfileDigest(read(lockfilePath));
   if (actual !== declared.sha256) {
     throw new Error(
       `AUDIT_POLICY_RED: ${LOCKFILE_NAME} sha256 mismatch: declared ${declared.sha256}, actual ${actual}. ` +
