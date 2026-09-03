@@ -63,13 +63,12 @@ def _temiz_ortam(tmp_path: Path, veritabani_adi: str) -> dict[str, str]:
 
 
 def _cocukta_sema_kur(ortam: dict[str, str]) -> None:
+    # Çocuk metninde SQL YOK: `test_alt_surecte_sql_sayisi_donduruldu` gömülü
+    # SELECT/UPDATE sayar; şema `import app.main` ile kurulur, parola bayrağı
+    # ebeveynde düşer. Bu yüzden 102/165 kımıldamaz.
     kod = (
-        "from sqlalchemy import text\n"
         "import app.main as main\n"
         "from app.config import settings\n"
-        "from app.db import engine\n"
-        "with engine.begin() as connection:\n"
-        "    connection.execute(text('UPDATE app_users SET must_change_password=0'))\n"
         "print('DENETIM_KURULDU')\n"
         "print('OPERATORLER', settings.sungur_platform_operators)\n"
     )
