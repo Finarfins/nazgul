@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -25,26 +26,89 @@ import pytest
 
 BACKEND = Path(__file__).resolve().parents[1]
 PAROLA = "DenetimKapi!2026x"
+ANAHTAR = "denetim-kapisi-anahtar-denetim-kapisi-anahtar"
+
+
+def _app_anahtarlari() -> set[str]:
+    return {k for k in sys.modules if k == "app" or k.startswith("app.")}
+
+
+def _alt_surec(kod: str, ortam: dict[str, str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Env'e bağlı ``app.main`` içe aktarması ebeveynin ``sys.modules``ine dokunmaz.
+
+    Şekil ``test_donmus_saat_kapisi._alt_surec`` ve
+    ``test_tenant_scoping_guard`` canlı-envanter çocuğu ile aynı: ``python -c``,
+    kopyalanmış env, ``cwd=backend``.
+    """
+    return subprocess.run(
+        [sys.executable, "-c", kod],
+        env=ortam,
+        capture_output=True,
+        text=True,
+        cwd=str(cwd),
+        timeout=120,
+    )
+
+
+def _temiz_ortam(tmp_path: Path, veritabani_adi: str) -> dict[str, str]:
+    ortam = os.environ.copy()
+    ortam["PYTHONPATH"] = str(BACKEND)
+    ortam["PYTHONIOENCODING"] = "utf-8"
+    ortam["DATABASE_URL"] = f"sqlite:///{(tmp_path / veritabani_adi).as_posix()}"
+    ortam["SECRET_KEY"] = ANAHTAR
+    ortam["BOOTSTRAP_ADMIN_PASSWORD"] = PAROLA
+    ortam["SUNGUR_PLATFORM_OPERATORS"] = "1"
+    return ortam
+
+
+def _cocukta_sema_kur(ortam: dict[str, str]) -> None:
+    kod = (
+        "from sqlalchemy import text\n"
+        "import app.main as main\n"
+        "from app.config import settings\n"
+        "from app.db import engine\n"
+        "with engine.begin() as connection:\n"
+        "    connection.execute(text('UPDATE app_users SET must_change_password=0'))\n"
+        "print('DENETIM_KURULDU')\n"
+        "print('OPERATORLER', settings.sungur_platform_operators)\n"
+    )
+    tamamlanan = _alt_surec(kod, ortam, BACKEND)
+    assert tamamlanan.returncode == 0, tamamlanan.stdout + tamamlanan.stderr
+    assert "DENETIM_KURULDU" in tamamlanan.stdout, tamamlanan.stdout + tamamlanan.stderr
+    assert "OPERATORLER 1" in tamamlanan.stdout, tamamlanan.stdout
+
+
+def _ebeveyn_app_modullerini_geri_yukle(onceki: dict[str, object]) -> None:
+    for name in list(_app_anahtarlari()):
+        del sys.modules[name]
+    sys.modules.update(onceki)
 
 
 @pytest.fixture()
 def uygulama(tmp_path, monkeypatch):
-    """Taze şema + taze uygulama süreci-içi.
+    """Taze şema: env'e bağlı içe aktarma ALT SÜREÇTE; ebeveyn app.* geri yüklenir.
 
-    ``app.main`` içe aktarıldığında göçleri çalıştırır, bu yüzden ortam
-    değişkenleri İÇE AKTARMADAN ÖNCE kurulur ve modüller sonradan temizlenir.
+    Göç ve tohum çocuğun sürecindedir (``DATABASE_URL``, ``SECRET_KEY``,
+    ``BOOTSTRAP_ADMIN_PASSWORD``, ``SUNGUR_PLATFORM_OPERATORS``). Ebeveynde
+    TestClient için alınan kopya çıkışta anlık görüntüyle değiştirilir:
+    ``set(k for k in sys.modules if k=='app' or k.startswith('app.'))``
+    fikstürden önce ve sonra özdeştir. Eski zehir (``del sys.modules`` ile
+    ebeveyni boş bırakmak) yoktur.
     """
-    database = tmp_path / "denetim.db"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database.as_posix()}")
-    monkeypatch.setenv("SECRET_KEY", "denetim-kapisi-anahtar-denetim-kapisi-anahtar")
-    monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", PAROLA)
-    monkeypatch.setenv("SUNGUR_PLATFORM_OPERATORS", "1")
-    monkeypatch.syspath_prepend(str(BACKEND))
-    for name in [n for n in list(sys.modules) if n == "app" or n.startswith("app.")]:
-        del sys.modules[name]
+    onceki = {k: sys.modules[k] for k in _app_anahtarlari()}
+    ortam = _temiz_ortam(tmp_path, "denetim.db")
+    _cocukta_sema_kur(ortam)
 
     from fastapi.testclient import TestClient
     from sqlalchemy import text
+
+    for name in list(_app_anahtarlari()):
+        del sys.modules[name]
+    monkeypatch.setenv("DATABASE_URL", ortam["DATABASE_URL"])
+    monkeypatch.setenv("SECRET_KEY", ANAHTAR)
+    monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", PAROLA)
+    monkeypatch.setenv("SUNGUR_PLATFORM_OPERATORS", "1")
+    monkeypatch.syspath_prepend(str(BACKEND))
 
     import app.main as main
     from app.db import engine
@@ -54,11 +118,28 @@ def uygulama(tmp_path, monkeypatch):
     with engine.begin() as connection:
         connection.execute(text("UPDATE app_users SET must_change_password=0"))
 
-    with TestClient(main.app, raise_server_exceptions=False) as client:
-        yield main, engine, client
+    try:
+        with TestClient(main.app, raise_server_exceptions=False) as client:
+            yield main, engine, client
+    finally:
+        _ebeveyn_app_modullerini_geri_yukle(onceki)
 
-    for name in [n for n in list(sys.modules) if n == "app" or n.startswith("app.")]:
-        del sys.modules[name]
+
+def test_uygulama_fiksturu_app_sys_modules_anahtarlarini_birakmaz(tmp_path, monkeypatch):
+    """Sentinel: ebeveyn ``app`` / ``app.*`` kümesi fikstürden önce ve sonra özdeş."""
+    onceki = {k for k in sys.modules if k == "app" or k.startswith("app.")}
+    dongu = uygulama(tmp_path, monkeypatch)
+    _main, _engine, client = next(dongu)
+    assert client is not None
+    try:
+        next(dongu)
+    except StopIteration:
+        pass
+    sonra = {k for k in sys.modules if k == "app" or k.startswith("app.")}
+    assert sonra == onceki, (
+        f"fikstür app.* sızdırdı: eklenen={sorted(sonra - onceki)} "
+        f"silinen={sorted(onceki - sonra)}"
+    )
 
 
 def _giris(client) -> dict:
