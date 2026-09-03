@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -34,23 +33,6 @@ def _app_anahtarlari() -> set[str]:
     return {k for k in sys.modules if k == "app" or k.startswith("app.")}
 
 
-def _alt_surec(kod: str, ortam: dict[str, str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    """Env'e bağlı ``app.main`` içe aktarması ebeveynin ``sys.modules``ine dokunmaz.
-
-    Şekil ``test_donmus_saat_kapisi._alt_surec`` ve
-    ``test_tenant_scoping_guard`` canlı-envanter çocuğu ile aynı: ``python -c``,
-    kopyalanmış env, ``cwd=backend``.
-    """
-    return subprocess.run(
-        [sys.executable, "-c", kod],
-        env=ortam,
-        capture_output=True,
-        text=True,
-        cwd=str(cwd),
-        timeout=120,
-    )
-
-
 def _temiz_ortam(tmp_path: Path, veritabani_adi: str) -> dict[str, str]:
     ortam = os.environ.copy()
     ortam["PYTHONPATH"] = str(BACKEND)
@@ -62,22 +44,6 @@ def _temiz_ortam(tmp_path: Path, veritabani_adi: str) -> dict[str, str]:
     return ortam
 
 
-def _cocukta_sema_kur(ortam: dict[str, str]) -> None:
-    # Çocuk metninde SQL YOK: `test_alt_surecte_sql_sayisi_donduruldu` gömülü
-    # SELECT/UPDATE sayar; şema `import app.main` ile kurulur, parola bayrağı
-    # ebeveynde düşer. Bu yüzden 102/165 kımıldamaz.
-    kod = (
-        "import app.main as main\n"
-        "from app.config import settings\n"
-        "print('DENETIM_KURULDU')\n"
-        "print('OPERATORLER', settings.sungur_platform_operators)\n"
-    )
-    tamamlanan = _alt_surec(kod, ortam, BACKEND)
-    assert tamamlanan.returncode == 0, tamamlanan.stdout + tamamlanan.stderr
-    assert "DENETIM_KURULDU" in tamamlanan.stdout, tamamlanan.stdout + tamamlanan.stderr
-    assert "OPERATORLER 1" in tamamlanan.stdout, tamamlanan.stdout
-
-
 def _ebeveyn_app_modullerini_geri_yukle(onceki: dict[str, object]) -> None:
     for name in list(_app_anahtarlari()):
         del sys.modules[name]
@@ -86,18 +52,18 @@ def _ebeveyn_app_modullerini_geri_yukle(onceki: dict[str, object]) -> None:
 
 @contextmanager
 def _uygulama_baglam(tmp_path, monkeypatch):
-    """Taze şema: env'e bağlı içe aktarma ALT SÜREÇTE; ebeveyn app.* geri yüklenir.
+    """Anlık görüntü → geçici silme+içe aktarma (TestClient) → geri yükleme.
 
-    Göç ve tohum çocuğun sürecindedir (``DATABASE_URL``, ``SECRET_KEY``,
-    ``BOOTSTRAP_ADMIN_PASSWORD``, ``SUNGUR_PLATFORM_OPERATORS``). Ebeveynde
-    TestClient için alınan kopya çıkışta anlık görüntüyle değiştirilir:
-    ``set(k for k in sys.modules if k=='app' or k.startswith('app.'))``
+    Ebeveyn ``app`` / ``app.*`` önce saklanır. TestClient için
+    ``DATABASE_URL`` / ``SECRET_KEY`` / ``BOOTSTRAP_ADMIN_PASSWORD`` /
+    ``SUNGUR_PLATFORM_OPERATORS`` altında geçici silinip yeniden içe
+    aktarılır (şema bu içe aktarmada kurulur); çıkışta anlık görüntü
+    geri konur. ``set(k for k in sys.modules if k=='app' or k.startswith('app.'))``
     fikstürden önce ve sonra özdeştir. Eski zehir (``del sys.modules`` ile
     ebeveyni boş bırakmak) yoktur.
     """
     onceki = {k: sys.modules[k] for k in _app_anahtarlari()}
     ortam = _temiz_ortam(tmp_path, "denetim.db")
-    _cocukta_sema_kur(ortam)
 
     from fastapi.testclient import TestClient
     from sqlalchemy import text
