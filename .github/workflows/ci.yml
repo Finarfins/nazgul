@@ -960,11 +960,10 @@ jobs:
       - name: Verify production image has no test assets
         run: |
           set -euo pipefail
-          assets="$(docker run --rm --entrypoint sh yerel-hesap-pro:${{ github.sha }} \
-            -c "ls /app/backend/tests 2>&1; ls /app/backend/donmus_saat.py 2>&1")"
-          echo "$assets"
-          [ -z "$assets" ] || {
-            echo "::error::Üretim imajı test varlığı taşıyor: $assets" >&2
+          asset_count="$(docker run --rm --entrypoint sh yerel-hesap-pro:${{ github.sha }} \
+            -c 'test -e /app/backend/tests; printf "%s" "$?"; test ! -e /app/backend/donmus_saat.py; printf "%s" "$?"')"
+          [ "$asset_count" = "11" ] || {
+            echo "::error::Üretim imajı test varlığı taşıyor: tests kontrol kodu ${asset_count:0:1}, donmus_saat kontrol kodu ${asset_count:1:1}" >&2
             exit 1
           }
       - name: Smoke-test non-root read-only container
