@@ -64,6 +64,20 @@ RUN pip install --no-cache-dir -r backend/requirements-dev.txt
 USER app
 
 FROM runtime-base AS production
+USER root
+# Üretim imajı test varlıklarını taşımamalı; `test` stage ise bunları korumak
+# için runtime-base'ten türemeye devam eder. Kök olarak sileriz, sonra
+# uygulamayı yeniden non-root'a alırız. İçe aktarım denemesi f623190'da
+# temizlenmiş ağaçla `app.main` import'unu doğruladı.
+# `backend/sandbox/izibiz_smoke.py` GERCEK SOAP cagrisi yapar; uretim imajinda
+# bulunmasi, kabuga erisen birinin canli e-fatura ucuna istek atabilmesi
+# demektir. app/einvoice/*.py icindeki `backend/sandbox/izibiz_smoke.py`
+# gecisleri YALNIZCA docstring KANIT ATIFIDIR, import veya dosya okuma degil
+# (olcum: ayni yollarda `import|open(|Path(|read_text|load` ile birlikte
+# arandiginda 0 satir). requirements-dev.txt'in silinmesi `test` stage'i
+# ETKILEMEZ: orasi dosyayi 62. satirda AYRICA kopyalar. tools/ dizini degil,
+# yalniz capture_frontend_fixtures.py silinir; report_receivable_*.py KALIR.
+RUN rm -rf /app/backend/tests /app/backend/test_*.py /app/backend/donmus_saat.py /app/backend/conftest.py /app/backend/pytest.ini /app/backend/run_isolated_tests.py /app/backend/isolated_test_reporter.py /app/backend/aggregate_isolated_test_reports.py /app/backend/merge_postgresql_test_reports.py /app/backend/non_twin_skip_exceptions.json /app/backend/sandbox /app/backend/requirements-dev.txt /app/backend/LEGACY_TEST_MIGRATION_PLAN.md /app/backend/tools/capture_frontend_fixtures.py
 USER app
 EXPOSE 5050
 HEALTHCHECK --interval=20s --timeout=5s --start-period=15s --retries=3 \
