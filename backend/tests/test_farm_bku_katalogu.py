@@ -60,6 +60,13 @@ def test_katalog_bitki_eslesmesi_dialektten_bagimsiz() -> None:
     SQL'de yapılsaydı aynı katalog iki diyalektte FARKLI çözülür ve ikizi
     koşulan bir test bunu yakalayamazdı — çünkü her iki koşu da kendi
     diyalektinde tutarlı olurdu.
+
+    KURAL (2026-09-01'de ÖLÇÜLDÜ ve DEĞİŞTİ): Türkçe katlama, ``lower()`` ile.
+    Bu test ilk yazıldığında yalnız ASCII iddia ediyordu ve kuralı ÇİVİLEMİYORDU;
+    o boşlukta sunucu ``casefold()``, ön yüz ``toLocaleLowerCase('tr')``
+    kullanıyordu ve ikisi tam İ karakterinde AYRILIYORDU. Aşağıdaki iddialar
+    kuralı üç yönden çiviliyor: ``casefold()``a, ``lower()``a ya da SQL
+    ``LOWER()``a dönülürse en az biri DÜŞER.
     """
     sys.path.insert(0, str(BACKEND))
     from app.routers.farm import _bitki_esit
@@ -67,6 +74,45 @@ def test_katalog_bitki_eslesmesi_dialektten_bagimsiz() -> None:
     assert _bitki_esit("Domates", "domates")
     assert _bitki_esit("  DOMATES  ".strip(), "Domates")
     assert not _bitki_esit("Domates", "Biber")
+
+    # --- KURAL TÜRKÇE KATLAMA: aşağıdakiler `casefold()` ile DÜŞER ----------
+    # `"İNCİR".casefold()` = 'i̇ncir' (i + U+0307), yani 'incir'e eşleşmez.
+    # Türkçe klavyede BÜYÜK yazmak İ üretir; bu satırlar o girdinin
+    # katalogdaki küçük harfli satırı BULDUĞUNU ölçüyor.
+    assert _bitki_esit("\u0130NC\u0130R", "incir")          # İNCİR / incir
+    assert _bitki_esit("\u0130ncir", "incir")
+    assert _bitki_esit("B\u0130BER", "biber")               # BİBER / biber
+    assert _bitki_esit("ZEYT\u0130N", "zeytin")
+    # Ve ters yön: Türkçe'de `I`nın küçüğü `ı`dır.
+    assert _bitki_esit("MISIR", "m\u0131s\u0131r")          # MISIR / mısır
+    assert _bitki_esit("PATLICAN", "patl\u0131can")
+    assert _bitki_esit("ISPANAK", "\u0131spanak")
+    assert _bitki_esit("FINDIK", "f\u0131nd\u0131k")
+
+    # --- KURAL `lower()`, `casefold()` DEĞİL -------------------------------
+    # `casefold()` ön yüzün `toLocaleLowerCase('tr')`ından FAZLA iş yapar: ß'yi
+    # 'ss'e AÇAR, JavaScript AÇMAZ. Bu çift bilerek BÜYÜK HARF İÇERMİYOR —
+    # `WEISSKOHL` yazılsaydı içindeki `I` de Türkçe katlanır ve iddia kuralı
+    # ayırt etmezdi (ölçüldü). Katlamanın sonu `casefold()`a çevrilirse bu
+    # satır DÜŞER; ikizlik tam burada kopardı.
+    assert not _bitki_esit("Wei\u00dfkohl", "weisskohl")
+
+    # --- BİLEREK KAYBEDİLEN: LATİN yazımlı `I` -----------------------------
+    # Kural bunu kaybediyor ve kaybı KAYIT ALTINDA. `casefold()`/`lower()` ile
+    # eşleşirdi; Türkçe katlamada `Iceberg` → `ıceberg`.
+    assert not _bitki_esit("Iceberg", "iceberg")
+
+    # --- SIRA: `I` + U+0307 ------------------------------------------------
+    # Unicode'un Türkçe özel kuralı bu diziyi `i`ye indirir. Katlama çıplak
+    # `I`yı ÖNCE `ı` yapsaydı burada hiçbir yerde bulunmayan `ı`+U+0307
+    # kalırdı; bu satır sıranın doğru olduğunu ölçüyor.
+    assert _bitki_esit("I\u0307ncir", "incir")
+
+    # --- SQL `LOWER()` BU İDDİALARI TAŞIYAMAZ ------------------------------
+    # SQLite'ın `LOWER`ı ASCII dışına DOKUNMAZ: yukarıdaki hiçbir Türkçe
+    # satırı geçmezdi. Karşılaştırmanın Python'da olması bu yüzden.
+    assert "\u0130NC\u0130R".lower() != "incir"
+    assert "MISIR".lower() != "m\u0131s\u0131r"
 
 
 _SMOKE = r'''

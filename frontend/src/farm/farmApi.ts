@@ -135,6 +135,23 @@ export async function fetchPlantProtectionProducts(
 }
 
 /**
+ * Bitki adı karşılaştırmasının TEK kuralı; sunucudaki `_bitki_katla`nın İKİZİ.
+ *
+ * TÜRKÇE katlama, çünkü ürün Türkçe: `İNCİR` → `incir`, `MISIR` → `mısır`.
+ * Sunucu bunu 2026-09-01'e kadar `casefold()` ile yapıyordu ve `casefold()`
+ * Türkçe BİLMEZ (`"İ".casefold()` = `i` + U+0307), yani ÖNİZLEME İLE SUNUCU
+ * TAM O KARAKTERDE AYRILIYORDU. Artık ikisi aynı kuralı uyguluyor.
+ *
+ * BİLEREK KAYBEDİLEN: Türkçe'de `I`nın küçüğü `ı`dır, bu yüzden LATİN yazımlı
+ * `I`lı adlar ters yönde bozulur — `Iceberg` artık `iceberg` satırına
+ * EŞLEŞMEZ. Çeşit adları (`Isabella`) `crop`ta değil `variety`de durduğu için
+ * bu kayıp kabul edildi.
+ */
+export function bitkiKatla(s: string): string {
+  return s.trim().toLocaleLowerCase('tr');
+}
+
+/**
  * Bir ürün+bitki için katalogdaki satır; yoksa `null`.
  *
  * SUNUCUDAKİ ÇÖZÜMÜN AYNISI DEĞİL, ÖNİZLEMESİ. Etkin değeri sunucu belirliyor
@@ -149,9 +166,9 @@ export function catalogueMatch(
   rows: PlantProtectionProduct[], crop: string,
 ): PlantProtectionProduct | null {
   const aktif = rows.filter(r => r.status === 'ACTIVE');
-  const hedef = crop.trim().toLocaleLowerCase('tr');
+  const hedef = bitkiKatla(crop);
   const ozel = aktif.find(
-    r => r.crop.trim() !== '' && r.crop.trim().toLocaleLowerCase('tr') === hedef,
+    r => r.crop.trim() !== '' && bitkiKatla(r.crop) === hedef,
   );
   return ozel ?? aktif.find(r => r.crop.trim() === '') ?? null;
 }

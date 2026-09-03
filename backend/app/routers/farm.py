@@ -2292,6 +2292,42 @@ _PHI_KOKEN_OPERATOR = "OPERATOR"
 _PHI_KOKEN_USTUNE_YAZMA = "OPERATOR_OVERRIDE"
 
 
+# BU KATLAMA ``app/units.py``DEKİ ``turkce_katla()`` İLE AYNI ŞEY DEĞİLDİR ve
+# BİRLEŞTİRİLMEMELİDİR. O YUKARI katlar (``.replace("i", "İ")`` + ``.upper()``),
+# bu AŞAĞI katlar (``.lower()``). İKİSİ AYNI DENKLİĞİ ÜRETMİYOR — ÖLÇÜLDÜ
+# (bu dalın birleşmiş ağacında, CPython 3.12.10):
+#
+#   * "Weißkohl" (U+0057 U+0065 U+0069 U+00DF U+006B U+006F U+0068 U+006C) ile
+#     "weisskohl": YUKARI katlamada EŞİT (True), AŞAĞI katlamada DEĞİL (False).
+#     ``.upper()`` ß'yi "SS"e AÇAR; ``.lower()`` açmaz.
+#   * "I" + U+0307 + "stanbul" (U+0049 U+0307 U+0073 …) ile "İstanbul"
+#     (U+0130 U+0073 …): AŞAĞI katlamada EŞİT (True), YUKARI katlamada DEĞİL
+#     (False). Ayrıştırılmış nokta YALNIZ aşağı katlamada yeniden birleşiyor.
+#
+# (Örtüştükleri yer de var: "İncir"/"incir" İKİSİNDE de True — yani bir örnek
+# çift bakarak "aynılar" sonucuna varmak MÜMKÜNDÜR ve YANLIŞTIR.)
+#
+# İKİ KATLAMA AYRI ALANLARA HİZMET EDİYOR: bu fonksiyon SERBEST METİN bitki adı
+# EŞİTLİĞİ içindir ve sözleşmesi ön yüzün ``toLocaleLowerCase('tr')``ıyla İKİZ
+# kalmaktır; ``turkce_katla()`` ise KAPALI bir kümedeki BİRİM KODU aramasıdır ve
+# sözleşmesi kanonik BÜYÜK biçimdir. Birini diğerine çağırtmak ya da ortak bir
+# yardımcıda toplamak DAVRANIŞ DEĞİŞİKLİĞİDİR (yukarıdaki iki çift yön
+# değiştirir) ve KENDİ PR'ını, kendi kayıp analizini gerektirir; bu dilimde
+# BİLEREK yapılmadı.
+#
+# Bu blok ``#`` yorumudur, docstring DEĞİL: ``ast.dump`` yorumları taşımaz,
+# dolayısıyla bu açıklama dosyanın AST parmak izini KIMILDATMAZ.
+def _bitki_katla(s: str) -> str:
+    """Türkçe küçük harfe katlama; ön yüzdeki ``toLocaleLowerCase('tr')``ın İKİZİ.
+
+    Sıra ÖNEMLİ: ``I`` + U+0307 (birleşen üstteki nokta) Unicode'un Türkçe özel
+    kurallarında ``i``ye iner ve bu, çıplak ``I``nın ``ı``ya inmesinden ÖNCE
+    ele alınmalı — tersi sırada ``ı`` + U+0307 gibi hiçbir yerde bulunmayan bir
+    dizi üretilirdi. JavaScript bu ayrımı kendi yapıyor; burada elle yapıyoruz.
+    """
+    return s.replace("I\u0307", "i").replace("I", "\u0131").replace("\u0130", "i").lower()
+
+
 def _bitki_esit(a: str, b: str) -> bool:
     """Bitki adları SERBEST METİN; karşılaştırma Python'da yapılıyor.
 
@@ -2300,8 +2336,32 @@ def _bitki_esit(a: str, b: str) -> bool:
     yerel ayara göre davranır. İki diyalektin AYNI kataloğu farklı çözmesi,
     ikizi koşulan bir testin yakalayamayacağı bir sapma olurdu — hesabı
     tek bir yerde, Python'da tutuyoruz.
+
+    KATLAMA TÜRKÇE, VE ``lower()`` İLE — ``casefold()`` İLE DEĞİL. Üçü ölçüldü
+    (AŞAĞIDAKİ SAYILAR TABAN ``7498ab3`` BİRLEŞMİŞ AĞACI ÜZERİNDE ALINDI ve
+    kayıt ``0077-pr-0025.md`` ile AYNIDIR):
+
+    * ``casefold()`` (eski hâli) Türkçe'yi BİLMEZ: ``"İNCİR".casefold()`` =
+      ``'i̇ncir'`` (i + U+0307), yani ``incir``e EŞLEŞMEZ. Türkçe klavyeyle
+      BÜYÜK yazılmış 18 gerçek bitki adının yalnız 7'si kendi küçük hâlini
+      buluyordu; ``MISIR``/``mısır``, ``BİBER``/``biber``,
+      ``PATLICAN``/``patlıcan`` hepsi ıskalıyordu.
+    * Türkçe katlama aynı 18 adın 18'ini buluyor.
+    * ``casefold()`` DEĞİL ``lower()``, çünkü ön yüz ``toLocaleLowerCase('tr')``
+      kullanıyor ve ``casefold()`` ondan FAZLA iş yapıyor: ``"Weißkohl"``
+      (lahana) ``casefold()`` ile ``'weisskohl'``a açılır, JavaScript'te
+      açılmaz. Küçük harfe çeviren 1616 kod noktası taranarak ölçüldü:
+      ``lower()`` temelli bu katlama JavaScript ile 0 yerde ayrılıyor,
+      ``casefold()`` temelli olanı 297 yerde ayrılıyordu.
+
+    BİLEREK KAYBEDİLEN: Türkçe'de ``I`` küçüğü ``ı``dır, dolayısıyla LATİN
+    yazımlı ``I``lı bir bitki adı TERS yönde bozulur — ``Iceberg`` (marul) ve
+    ``Italyan Çimi`` artık ``iceberg``/``italyan çimi`` satırına EŞLEŞMEZ,
+    bugün eşleşiyor. Bu kayıp kabul edildi çünkü (a) ürün Türkçe ve baskın
+    girdi Türkçe klavyedir, (b) ÇEŞİT adları (``Isabella`` gibi) ``crop``ta
+    DEĞİL ayrı ``variety`` sütununda durur ve buraya hiç uğramaz.
     """
-    return a.casefold() == b.casefold()
+    return _bitki_katla(a) == _bitki_katla(b)
 
 
 def _katalog_phi(db: Session, cid: int, product_id: int, bitki: str) -> int | None:

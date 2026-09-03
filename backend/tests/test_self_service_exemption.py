@@ -46,6 +46,7 @@ olarak duruyor:
 from __future__ import annotations
 
 import ast
+import importlib
 import os
 import subprocess
 import sys
@@ -112,7 +113,13 @@ def test_no_fourth_self_service_route_outside_the_auth_prefix() -> None:
 
     def functions(module_name: str) -> dict[str, ast.AST]:
         if module_name not in sources:
-            module = sys.modules[module_name]
+            # `sys.modules[module_name]` süpürmede KeyError verir:
+            # `test_security_audit_visibility.py:43-44` ve `:60-61` her
+            # `uygulama` fikstüründe `app.*`yi siler; bu dosyanın `app`
+            # referansı koleksiyon-anı nesnesinde kalır, uçların
+            # `__module__` adı artık `sys.modules`te yoktur.
+            # `import_module` yoksa yeniden yükler, AST yine kaynaktan okunur.
+            module = importlib.import_module(module_name)
             tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
             table: dict[str, ast.AST] = {}
             for node in ast.walk(tree):
