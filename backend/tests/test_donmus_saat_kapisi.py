@@ -78,8 +78,12 @@ def test_app_import_grafigi_donmus_saat_cekmez(tmp_path: Path) -> None:
     """Uygulama girişi (`app.main`) aleti ÇEKMEZ; `app/` onu import ETMEZ.
 
     `app.main` gerçek giriş modülüdür: rotaları o toplar (ölçüldü, bu ağaç:
-    içe aktarımdan sonra `app.routers.*` altında 50 modül, ayrıca `app.labels`
-    ve `app.routers.analytics` yüklü). Alet üretim imajında diskte durduğu
+    içe aktarımdan sonra `app.routers.` önekli 49 modül, ayrıca `app.labels`
+    ve `app.routers.analytics` yüklü). 49 statik olarak da doğrulanır:
+    `ls backend/app/routers/*.py` eksi `__init__.py` = 49. Bu docstring'in
+    önceki sürümü 50 diyordu; o sayı öneki NOKTASIZ (`app.routers`) sayan bir
+    ölçümden geliyordu ve paketin KENDİSİNİ de sayıyordu — testin okuduğu
+    ifade noktalıdır. Alet üretim imajında diskte durduğu
     için "app onu import etmiyor" iddiası ancak makine tarafından
     doğrulanabildiğinde güvenlik sağlar.
     """

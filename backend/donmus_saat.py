@@ -17,7 +17,11 @@ Sessiz başarısızlık YASAK: değişken verilmiş ama yama uygulanamıyorsa
 (`app` paketi erişilemez, değer bozuk, ya da yamadan sonra `business_today`
 hâlâ donmuş günü döndürmüyorsa) `CIKIS_KODU` (97) ile ÇIKAR ve ölümü
 stderr'e yazar. Kullanıcı kodu koşmadan ölür; "donmuş saatte yeşil" ancak
-bu yüzden delildir. Değişken yoksa hiçbir şey yapmaz ve `None` döner.
+bu yüzden delildir. ÖNCELİK SIRASI: önce ÜRETİMDE RED bakılır — `ENVIRONMENT`
+`production` ise donmuş gün VERİLMİŞ OLSUN YA DA OLMASIN 97 ile ölür
+(ölçüldü: `ENVIRONMENT=production`, `NAZGUL_DONMUS_GUN` tanımsız -> 97).
+ANCAK bu redden sonra, yani `production` DIŞINDAKİ ortamlarda, değişken
+yoksa hiçbir şey yapmaz ve `None` döner.
 
 Uygulama kodu (`app/`) bu modülü BİLMEZ ve import ETMEZ. Bu iddia artık
 gelenek değil KAPIDIR: `tests/test_donmus_saat_kapisi.py` hem `app.main`
@@ -28,7 +32,10 @@ tarar ve mutasyonla kırmızıya döndüğü gösterilmiştir.
 ------------
 `uygula()` çağrıldığında `ENVIRONMENT` ham ortam değişkeni `production` ise
 hiçbir şey yamalamadan `CIKIS_KODU` ile ÖLÜR — donmuş gün verilmiş olsun ya
-da olmasın. Sebep ölçülmüştür: üretim imajı `COPY backend/ ./backend/` ile
+da olmasın (ölçüldü, İKİ YÖN: `NAZGUL_DONMUS_GUN=2097-06-15` ile 97,
+değişken TANIMSIZ iken de 97; ikisinde de `OLUMCUL_ISARETI` stderr'de).
+Yani bu red, modülün başındaki "değişken yoksa `None`" kuralının İSTİSNASI
+değil, ONDAN ÖNCE gelen kuraldır. Sebep ölçülmüştür: üretim imajı `COPY backend/ ./backend/` ile
 bu dosyayı da taşır ve `.dockerignore` test dosyalarını dışlamaz, yani alet
 üretimde diskte DURUR. Tek bir `import donmus_saat; donmus_saat.uygula()`
 satırı canlı veride `/api/receivables` satırlarını ACIK -> VADESI_GECTI'ye
