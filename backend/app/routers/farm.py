@@ -2292,6 +2292,31 @@ _PHI_KOKEN_OPERATOR = "OPERATOR"
 _PHI_KOKEN_USTUNE_YAZMA = "OPERATOR_OVERRIDE"
 
 
+# BU KATLAMA ``app/units.py``DEKİ ``turkce_katla()`` İLE AYNI ŞEY DEĞİLDİR ve
+# BİRLEŞTİRİLMEMELİDİR. O YUKARI katlar (``.replace("i", "İ")`` + ``.upper()``),
+# bu AŞAĞI katlar (``.lower()``). İKİSİ AYNI DENKLİĞİ ÜRETMİYOR — ÖLÇÜLDÜ
+# (bu dalın birleşmiş ağacında, CPython 3.12.10):
+#
+#   * "Weißkohl" (U+0057 U+0065 U+0069 U+00DF U+006B U+006F U+0068 U+006C) ile
+#     "weisskohl": YUKARI katlamada EŞİT (True), AŞAĞI katlamada DEĞİL (False).
+#     ``.upper()`` ß'yi "SS"e AÇAR; ``.lower()`` açmaz.
+#   * "I" + U+0307 + "stanbul" (U+0049 U+0307 U+0073 …) ile "İstanbul"
+#     (U+0130 U+0073 …): AŞAĞI katlamada EŞİT (True), YUKARI katlamada DEĞİL
+#     (False). Ayrıştırılmış nokta YALNIZ aşağı katlamada yeniden birleşiyor.
+#
+# (Örtüştükleri yer de var: "İncir"/"incir" İKİSİNDE de True — yani bir örnek
+# çift bakarak "aynılar" sonucuna varmak MÜMKÜNDÜR ve YANLIŞTIR.)
+#
+# İKİ KATLAMA AYRI ALANLARA HİZMET EDİYOR: bu fonksiyon SERBEST METİN bitki adı
+# EŞİTLİĞİ içindir ve sözleşmesi ön yüzün ``toLocaleLowerCase('tr')``ıyla İKİZ
+# kalmaktır; ``turkce_katla()`` ise KAPALI bir kümedeki BİRİM KODU aramasıdır ve
+# sözleşmesi kanonik BÜYÜK biçimdir. Birini diğerine çağırtmak ya da ortak bir
+# yardımcıda toplamak DAVRANIŞ DEĞİŞİKLİĞİDİR (yukarıdaki iki çift yön
+# değiştirir) ve KENDİ PR'ını, kendi kayıp analizini gerektirir; bu dilimde
+# BİLEREK yapılmadı.
+#
+# Bu blok ``#`` yorumudur, docstring DEĞİL: ``ast.dump`` yorumları taşımaz,
+# dolayısıyla bu açıklama dosyanın AST parmak izini KIMILDATMAZ.
 def _bitki_katla(s: str) -> str:
     """Türkçe küçük harfe katlama; ön yüzdeki ``toLocaleLowerCase('tr')``ın İKİZİ.
 
