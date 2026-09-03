@@ -605,3 +605,128 @@ def test_ROUND_HALF_UP_sozlesmesi_PG_ile_AYNI_YONE_yuvarlar() -> None:
     ) == Decimal("0.0001")
     # Varsayılan (HALF_EVEN) AYNI girdide FARKLI cevap verir:
     assert Decimal("0.00005").quantize(Decimal("0.0001")) == Decimal("0.0000")
+
+
+# ===========================================================================
+# SONLU OLMAYAN SAYILAR — NaN STOKA GİRİYORDU, VE `CHECK` ONU YAKALAMIYORDU
+# ===========================================================================
+#
+# NİYE BU İKİZ VAR: kusurun tamamı SQLite'ta görünmez değildi ama ASIL
+# ZARARI yalnız gerçek PostgreSQL gösteriyor — fix'ten önce ölçüldü:
+#
+#   resolve(Decimal("NaN"), "KG", "KG") -> (Decimal('NaN'), Decimal('1'))
+#   UPDATE products SET stock = NaN     -> yazıldı, GERİ OKUNDU: NaN
+#
+# İkinci katman da savunmuyordu: PostgreSQL `NaN`ı HER SONLU SAYININ ÜSTÜNE
+# sıralar, yani `CHECK (factor > 0)` onu KABUL EDER.
+
+@pytest.mark.postgresql
+@pytest.mark.parametrize("ham", ["NaN", "Infinity", "-Infinity", "sNaN"])
+@pytest.mark.parametrize("rol", ["miktar", "katsayi"])
+def test_SONLU_OLMAYAN_giris_STOKA_HICBIR_SEY_YAZDIRMAZ(motor, ham, rol) -> None:
+    """Red yolunun ikizi — istisna DEĞİL, VERİTABANININ DEĞİŞMEDİĞİ ölçülüyor.
+
+    `test_COZULEMEYEN_birim_...` ile aynı desen ve aynı gerekçe: bir çağıranın
+    istisnayı yakalayıp YİNE DE yazması mümkündür, o yüzden yalnız
+    `pytest.raises` yetmez.
+
+    AYIRT EDİCİ OLDUĞU ÖLÇÜLDÜ: `app/units.py`deki MİKTAR sonluluk kapısı
+    kaldırıldığında dört `miktar` parametresi de KIRMIZI (`Failed: DID NOT
+    RAISE <class 'app.units.BirimCozulemedi'>`); geri konulduğunda 28/28
+    YEŞİL.
+
+    O MUTASYONDA STOK DENETİMİ ÇALIŞMAZ — `pytest.raises` daha önce düşer —
+    ve bu, denetimin gereksiz olduğu anlamına GELMEZ: yukarıdaki
+    `test_COZULEMEYEN_birim_...` ile aynı gerekçe, o denetim BAŞKA bir
+    mutasyonu hedefliyor (istisna atılıp yazmanın yine de geçtiği durum).
+
+    NaN'ın `products.stock`a GERÇEKTEN ULAŞTIĞI ise ayrıca ve pytest DIŞINDA
+    ölçüldü — fix geri alınmış bir kopyayla, gerçek PostgreSQL 16.14 üzerinde:
+    `UPDATE products SET stock = <resolve'un döndürdüğü NaN>` koştu ve geri
+    okuma `NaN` verdi. Bu testin görevi o yolun bir daha AÇILMAMASIDIR.
+    """
+    with motor.begin() as baglanti:
+        _, urun_id = _firma_ve_urun(baglanti, "KG")
+        onceki = baglanti.execute(
+            text("SELECT stock FROM products WHERE id = :pid"), {"pid": urun_id}
+        ).scalar_one()
+
+    with pytest.raises(BirimCozulemedi) as hata:
+        if rol == "miktar":
+            urun, _ = resolve(Decimal(ham), "KG", "KG")
+        else:
+            urun, _ = resolve(
+                Decimal("1"), "ÇUVAL", "KG", {"ÇUVAL": Decimal(ham)}
+            )
+        with motor.begin() as baglanti:
+            baglanti.execute(
+                text("UPDATE products SET stock = :stok WHERE id = :pid"),
+                {"stok": urun, "pid": urun_id},
+            )
+
+    # SEBEP AYIRT EDİCİDİR — PR 2 bunun ÜZERİNDEN yönlendirir. Miktar bir
+    # GİRDİ kusurudur (operatör yeniden girer), katsayı bir DEFTER kusurudur
+    # (satır düzeltilir). Yanlış yönlendiren bir sebep REDDETSE BİLE kusurdur.
+    beklenen = (
+        BirimCozulemedi.MIKTAR_SONLU_DEGIL
+        if rol == "miktar"
+        else BirimCozulemedi.KATSAYI_GECERSIZ
+    )
+    assert hata.value.sebep == beklenen
+
+    with motor.begin() as baglanti:
+        sonraki = baglanti.execute(
+            text("SELECT stock FROM products WHERE id = :pid"), {"pid": urun_id}
+        ).scalar_one()
+    assert sonraki == onceki, (
+        f"{rol}={ham} reddedilmedi ve stok DEĞİŞTİ: {onceki} -> {sonraki}. "
+        "ÖLÇÜLMEMİŞ bir sayı stoka giremez; NaN bir ölçüm değildir."
+    )
+
+
+@pytest.mark.postgresql
+def test_CHECK_kisiti_NaN_katsayiyi_GERCEKTEN_REDDEDER(motor) -> None:
+    """İKİNCİ KATMAN — ve o katman ÖNCE SAVUNMUYORDU.
+
+    `CHECK (factor > 0)` göçün kendi düzyazısında "çözücü çağrılmadan yazılan
+    satırı yalnız veritabanı yakalar" diye BELGELENMİŞTİ. Gerçek PostgreSQL
+    16.14'te ölçüldü ki tam da en sessiz değer için YANLIŞTI:
+
+        SELECT 'NaN'::numeric > 0   ->  t
+        INSERT ... factor='NaN'     ->  INSERT 0 1
+
+    çünkü PostgreSQL `NaN`ı her sonlu sayının ÜSTÜNE sıralar. Kısıt
+    `factor <> 'NaN'::numeric` ile genişletildi; bu test onu çiviler.
+
+    Belgelenmiş ama savunmayan bir savunma, savunma OLMAMASINDAN kötüdür:
+    okuyucu ona güvenir.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    with motor.begin() as baglanti:
+        firma_id, urun_id = _firma_ve_urun(baglanti, "KG")
+        # PostgreSQL'in NaN sıralaması — kusurun KÖKÜ, iddia olarak burada.
+        assert baglanti.execute(text("SELECT 'NaN'::numeric > 0")).scalar_one() is True
+        assert (
+            baglanti.execute(
+                text("SELECT 'NaN'::numeric <> 'NaN'::numeric")
+            ).scalar_one()
+            is False
+        ), "kısıt `<>` kullanıyor; PostgreSQL'de NaN = NaN TRUE'dur"
+
+    with pytest.raises(IntegrityError) as hata:
+        with motor.begin() as baglanti:
+            baglanti.execute(
+                text(
+                    "INSERT INTO product_unit_factors (company_id, product_id, "
+                    "unit_code, factor, effective_from, created_at) VALUES "
+                    "(:cid, :pid, 'ÇUVAL', 'NaN'::numeric, :gun, :simdi)"
+                ),
+                {
+                    "cid": firma_id,
+                    "pid": urun_id,
+                    "gun": date(2026, 9, 2),
+                    "simdi": datetime.now(timezone.utc),
+                },
+            )
+    assert "ck_product_unit_factors_factor_positive" in str(hata.value)
