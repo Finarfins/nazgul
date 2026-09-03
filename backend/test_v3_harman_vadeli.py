@@ -44,7 +44,123 @@ def test_harman_vadeli_flow(tmp_path: Path) -> None:
 
 # Shared, DB-agnostic scenario. test_harman_vadeli_postgresql.py runs the exact
 # same script against PostgreSQL 16 so SQLite/PG parity is proven, not assumed.
+
+
+def test_donmus_saat_ileri_sarilinca_sunucu_rotasi_donmus_gunu_okur(tmp_path: Path) -> None:
+    """Alet ileri sarıldığında uygulama gerçekten donmuş günü görür.
+
+    Smoke ile aynı yol: PYTHONPATH'i yeniden yazan bir alt süreç, `donmus_saat`
+    ilk satırda, ardından sunucu rotasının okuduğu `business_today`.
+    """
+    env = os.environ.copy()
+    env["DATABASE_URL"] = f"sqlite:///{(tmp_path / 'dondur.db').as_posix()}"
+    env["PYTHONPATH"] = str(BACKEND)
+    env["NAZGUL_DONMUS_GUN"] = "2097-06-15"
+    code = (
+        "import donmus_saat\n"
+        "print('uygula', donmus_saat.uygula())\n"
+        "from app.routers import transactions\n"
+        "print('rota', transactions.business_today())\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", code], env=env, capture_output=True, text=True, cwd=str(BACKEND)
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "uygula 2097-06-15" in completed.stdout, completed.stdout
+    assert "rota 2097-06-15" in completed.stdout, completed.stdout
+    assert "DONMUS_SAAT_ETKIN" in completed.stderr, completed.stderr
+
+
+def test_donmus_saat_yamalayamazsa_kullanici_kodu_kosmadan_97_ile_olur(tmp_path: Path) -> None:
+    """Alet `app`e ulaşamıyorsa sessizce geçmez: 97 ile ölür, sonraki satır koşmaz.
+
+    Sessiz geçseydi "donmuş saatte yeşil" hiçbir şey kanıtlamazdı.
+    """
+    kopya = tmp_path / "donmus_saat.py"
+    kopya.write_bytes((BACKEND / "donmus_saat.py").read_bytes())
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(tmp_path)  # `app` paketi bu yoldan erişilemez
+    env["NAZGUL_DONMUS_GUN"] = "2097-06-15"
+    code = "import donmus_saat\ndonmus_saat.uygula()\nprint('KULLANICI KODU KOSTU')\n"
+    completed = subprocess.run(
+        [sys.executable, "-c", code], env=env, capture_output=True, text=True, cwd=str(tmp_path)
+    )
+    assert completed.returncode == 97, (completed.returncode, completed.stdout, completed.stderr)
+    assert "DONMUS_SAAT_OLUMCUL" in completed.stderr, completed.stderr
+    assert "KULLANICI KODU KOSTU" not in completed.stdout, completed.stdout
+
+# --- VADELERİN TAMAMI SUNUCUNUN SAATİNDEN TÜRER; SABİT İLERİ TARİH YOK ------
+#
+# `_receivable_status` (routers/transactions.py) kararı `due_date < today` ile
+# verir; `today` `business_today()`ten, yani İSTANBUL takvim gününden gelir.
+# "Vadesi gelmemiş" anlamı bu yüzden SABİT bir tarihle yazılamaz: sabit, duvar
+# saatinin ona yetiştiği gün sessizce anlam değiştirir.
+#
+# GEÇMİŞ (ölçüldü, bu depo): FIFO çiftinin vadeleri `2026-08-01`/`2026-09-01`
+# sabitiyken smoke İstanbul 2026-09-02'de KIRMIZIYA döndü — `status=VADESI_GECTI`
+# süzgeci iki kimlik döndürdü, ödeme sonrası `total_overdue` 800 çıktı. Temiz
+# develop ağaçlarında (aa3d577, cfe7362) donmuş 2026-09-01 YEŞİL, 2026-09-02
+# KIRMIZI. Aynı gün Cursor Agent (7443163, PR #19 / d156d13) develop'ta çifti
+# `2099-01-01`/`2099-06-01` sabitlerine taşıdı; bu dalın ilk birleşmesi
+# (03e9b2c) o düzeltmeyi sessizce ezdi ve bu kaydın önceki sürümleri bunu
+# söylemedi. BU PR'IN TABANI (9c8cb87) YEŞİLDİR: bu PR bir kırmızıyı kapatmaz,
+# 2099 sabitlerini kaldırır. Ölçüldü: 9c8cb87 ağacı donmuş 2099-06-01 YEŞİL,
+# 2099-06-02 iki motorda da KIRMIZI (`only_overdue` iddiası) — sabit, fitili
+# uzun bir bombaydı; düzeltme değil.
+#
+# ÇARE: üç ileri vade de aynı süreçteki `business_today()`ten türer
+# (`FIFO_ERKEN_VADE` +365, `FIFO_GEC_VADE` +730, `ACIK_UZAK_VADE` +1095 gün).
+# Test ile sunucu AYNI fonksiyonu okur; sıra (365 < 730 < 1095) aritmetiktir.
+#
+# TAVAN BULUNAMADI (ölçüldü, `donmus_saat` ile): donmuş 2026-07-01, 2028-01-15,
+# 2050-01-01, 2097-12-30, 2097-12-31, 2098-01-01, 2099-06-02, 2100-01-01,
+# 2150-01-01, 2200-01-01, 2500-01-01, 3000-01-01, 5000-01-01, 9000-01-01,
+# 9990-01-01 günlerinde SQLite YEŞİL; PostgreSQL 16'da 2026-07-01, 2028-01-15,
+# 2097-12-31, 2099-06-02, 2100-01-01, 2200-01-01, 3000-01-01, 9000-01-01,
+# 9990-01-01 YEŞİL. Taranan aralık budur; ötesi iddia edilmez (`date` 9999'da
+# biter). Bu dosyanın bir önceki sürümü `open_future` çapasını `2099-12-31`
+# sabitinde bırakıyordu ve BU YÜZDEN TAVANI VARDI: `today+730` çapaya
+# 2097-12-31'de yetişip `desc_ids[0] == open_id` (smoke satır 159) düşüyordu —
+# yani tabandaki 2099-06-01'lik ömrü 2097-12-30'a KISALTIYORDU. Ölçüldü, iki
+# motor: çapa sabitken 2097-12-30 YEŞİL / 2097-12-31 KIRMIZI; çapa türetilince
+# aynı günler YEŞİL.
+#
+# TABAN VAR, TAVAN YOK (ölçüldü): `payment_date='2026-02-01'` tahsilatı donmuş
+# 2026-01-31'de uygulanmıyor ve `first ... == 'ODENDI'` (smoke satır 125)
+# düşüyor. Saat bir tabandan yalnız uzaklaşır; geçmişte kalan sabitler
+# (2019-06-30, 2026-01-05, 2026-02-01) bu yüzden bilerek değiştirilmedi.
+#
+# KIRAN SABİT YALNIZ `second`DI (ölçüldü, iki motor, bu ağaç):
+#   `first='2026-08-01'` sabit + `second` göreli .... SQLite YEŞİL, PG YEŞİL
+#   çiftin ikisi de eski sabitlerinde ............... İKİSİ DE KIRMIZI,
+#                                                     smoke satır 152 (`only_overdue`)
+#   `first`/`second` vadeleri takas ................. İKİSİ DE KIRMIZI,
+#                                                     smoke satır 125 (`first == 'ODENDI'`)
+# Gerekçe kodda: `_receivable_status` ÖNCE `outstanding <= 0` bakıp `ODENDI`
+# döner; FIFO 1200'lük tahsilatı EN ESKİ vadeye verdiği için `first` süzgeç
+# okunmadan kapanır ve ödenmiş belge hiçbir zaman `VADESI_GECTI` sayılmaz.
+# `first`in de göreli olması zorunluluk değil TERCİHTİR: çift tek kaynaktan
+# türeyince sıra aritmetikle garanti olur, bir sabitin hareketli bir tarihin
+# altında kalmasına güvenmez.
+#
+# 365 GÜN, 30 DEĞİL — AKIL YÜRÜTME, ÖLÇÜM DEĞİL: koşum İstanbul gece yarısını
+# geçerse test ile sunucu bir gün ayrışabilir; iki günden büyük her pay bunu
+# yutar. Bu paragraf koşulmadı, hesaplandı.
+#
+# ALET DEPODA: `donmus_saat.py`. `NAZGUL_DONMUS_GUN=YYYY-MM-DD` verilince
+# `business_now` dondurulur; `_SMOKE`un İLK satırı onu çağırır, dolayısıyla
+# SQLite testinin PYTHONPATH'i yeniden yazan alt sürecinde de PG ikizinin aynı
+# süreçteki `exec`'inde de aynı alet çalışır. İki yönde ölçülür ve bu dosyada
+# test edilir (`test_donmus_saat_*`): ileri sarılınca sunucu rotası donmuş
+# günü okur; `app` erişilemezken 97 ile ölür ve sonraki satır koşmaz.
+#
+# Bu blok `_SMOKE`un DIŞINDADIR ki metnini değiştirmek smoke satır
+# numaralarını kaydırmasın; yukarıdaki satır numaraları smoke'a görelidir.
+
 _SMOKE = r'''
+import donmus_saat
+donmus_saat.uygula()  # NAZGUL_DONMUS_GUN verildiyse saati dondurur; yamalayamazsa 97 ile ölür
+
 from datetime import timedelta
 from decimal import Decimal
 from fastapi.testclient import TestClient
@@ -56,77 +172,11 @@ def dec(value):
     return Decimal(str(value))
 
 
-# --- VADESİ AÇIK BELGENİN TARİHİ SABİT YAZILAMAZ ---------------------------
-#
-# `_receivable_status` (routers/transactions.py) kararı `due_date < today` ile
-# verir ve `today` `business_today()`ten, yani İSTANBUL takvim gününden gelir.
-# Bu yüzden "vadesi gelmemiş" anlamı bir SABİT tarihle ifade edilemez: sabit,
-# duvar saatinin ona yetiştiği gün sessizce anlamını değiştirir.
-#
-# ÖLÇÜLDÜ (2026-09-01, İstanbul 00:39, bu depo): burada eskiden
-# `2026-08-01`/`2026-09-01` sabitleri vardı. İstanbul 2026-09-02'ye döndüğü
-# anda smoke KIRMIZIYA döndü — `status=VADESI_GECTI` süzgeci iki kimlik
-# döndürdü (bir tane bekleniyordu) ve ödeme sonrası `total_overdue` 0 yerine
-# 800 çıktı. Kusur `origin/develop` (aa3d577 ve cfe7362) ağacında da AYNEN
-# üretildi; yani dalın değil deponun kusuruydu ve o gece açılan HER PR'ı
-# kırmızıya çevirecekti.
-#
-# ÇARE SUNUCUNUN KENDİ SAATİ. Vade aynı süreçteki `business_today()`ten
-# türetiliyor — testin okuduğu gün ile sunucunun karşılaştırdığı gün AYNI
-# fonksiyondan gelir, dolayısıyla ikisi ayrışamaz.
-#
-# KIRAN SABİT YALNIZ `second`DI; ÇİFT DEĞİL. Bu satırların ilk hâli "ikisi de
-# AÇIK olmalı, yalnız birini ileri almak yetmez" diyordu. YANLIŞTI ve
-# ÖLÇÜLDÜ (2026-09-02, taban 7498ab3, iki motor):
-#
-#     `first='2026-08-01'` SABİT + `second` göreli .. SQLite YEŞİL, PG YEŞİL
-#     çiftin İKİSİ de eski sabitlerinde ............ İKİSİ DE `only_overdue`
-#                                                    iddiasında KIRMIZI
-#
-# GEREKÇE KODDA: `_receivable_status` ÖNCE `outstanding <= 0` bakıp `ODENDI`
-# döner; vade karşılaştırmasına ancak AÇIK kalan belge ulaşır. FIFO 1200'lük
-# tahsilatı EN ESKİ vadeye verdiği için `first`, süzgeç okunmadan ÖNCE
-# (`first ... == 'ODENDI'` iddiası) kapanır ve ÖDENMİŞ belge hiçbir zaman
-# `VADESI_GECTI` sayılmaz. Yani `first`in vadesi geçmiş olması ne
-# `?status=VADESI_GECTI` süzgecini ne de ödeme sonrası `total_overdue`yu
-# kırabilirdi. Değişikliği ZORUNLU kılan tek şey `second`ın `VADESI_GECTI`ye
-# düşmesiydi.
-#
-# `first`İN DE GÖRELİ OLMASI BİR ZORUNLULUK DEĞİL, TERCİHTİR — ve burada
-# yazılı olmasının sebebi, ölçülmemiş bir gerekçenin bir daha yazılmaması:
-# çift tek kaynaktan türeyince SIRA (365 < 730) aritmetikle garanti olur,
-# bir sabitin hareketli bir tarihin altında kalmasına GÜVENMEZ.
-#
-# ÜÇ İDDİA AYNI ANDA TUTMALI:
-#
-#   (1) `second` AÇIK KALMALI. `only_overdue` iddiası `?status=VADESI_GECTI`
-#       süzgecinin TEK kimlik (2019 belgesi) döndürmesini istiyor; ödeme
-#       sonrası `total_overdue` da 0 bekleniyor. Kısıt YALNIZ `second`
-#       üzerindedir; `first` için ölçülen karşılığı YOKTUR.
-#   (2) SIRA. FIFO en eski vadeye dağıtır; 1200'lük tahsilat sonrası `first`
-#       ÖDENDI (outstanding 0), `second` 800 açık kalır. `first < second`
-#       KESİN olmalı. Mutlak değerler değil, aralarındaki SIRA taşıyıcıdır.
-#   (3) ÇAPALAR. İkisi de `2099-12-31` belgesinin altında kalmalı; azalan
-#       sıralama iddiası (`desc_ids[0] == open_id`) en büyüğün o olmasına
-#       dayanıyor. Alttaki `2019-06-30` da en küçük kalmalı
-#       (`desc_ids[-1] == overdue_id`) — bu alt çapayı ayrıca API'nin kendisi
-#       koruyor: vade belge tarihinden ÖNCE olamaz (422) ve belge tarihi
-#       `2026-01-01`.
-#
-# BİLİNEN SON KULLANMA TARİHİ: `second = business_today() + 730 gün` 2099-12-31
-# çapasına 2097-12-31'de YETİŞİR ve `desc_ids[0] == open_id` iddiası o gün
-# düşer. ÖLÇÜLDÜ (donmuş saat): 2097-12-30 YEŞİL, 2097-12-31 KIRMIZI. Yani bu
-# düzeltme 2097 sonuna kadar geçerlidir; o tarihte 2099 çapası da ileri
-# alınmalıdır. Bir düzeltmenin bilinen ömrü, okuyanın bulacağı yerde yazmalı.
-#
-# 365 GÜN, 30 DEĞİL: koşum İstanbul gece yarısını geçerse test ile sunucu bir
-# gün ayrışabilir; bu pay onu yutar.
-#
-# GEÇMİŞTE KALAN SABİT (2019-06-30) BİLEREK DEĞİŞTİRİLMEDİ: onun anlamı
-# "vadesi geçmiş"tir ve zaman ilerledikçe daha da doğru olur — atıl sabittir,
-# bomba değil.
+# Üç ileri vade de sunucunun saatinden türer; gerekçe ve ölçümler bu dosyanın
+# modül başlığındaki `VADELERİN TAMAMI SUNUCUNUN SAATİNDEN TÜRER` bloğunda.
 FIFO_ERKEN_VADE = (business_today() + timedelta(days=365)).isoformat()
 FIFO_GEC_VADE = (business_today() + timedelta(days=730)).isoformat()
+ACIK_UZAK_VADE = (business_today() + timedelta(days=1095)).isoformat()
 
 
 with TestClient(app) as client:
@@ -178,7 +228,7 @@ with TestClient(app) as client:
     assert dec(overdue.json()['final_total']) == Decimal('1000')
     assert dec(overdue.json()['remaining_amount']) == Decimal('1000')
 
-    open_future = sale('HARMAN_VADELI', due='2099-12-31', tx='2026-01-05')  # future -> ACIK
+    open_future = sale('HARMAN_VADELI', due=ACIK_UZAK_VADE, tx='2026-01-05')  # future -> ACIK
     assert open_future.status_code == 201, open_future.text
     open_id = open_future.json()['id']
 
@@ -193,7 +243,7 @@ with TestClient(app) as client:
     data = listing.json()
     rows = data['receivables']
     # PESIN sales are excluded; exactly the two harman-vadeli sales are listed.
-    assert [r['id'] for r in rows] == [overdue_id, open_id]  # due_asc: 2019 before 2099
+    assert [r['id'] for r in rows] == [overdue_id, open_id]  # due_asc: 2019 before today+1095
     by_id = {r['id']: r for r in rows}
     assert by_id[overdue_id]['status'] == 'VADESI_GECTI'
     assert by_id[open_id]['status'] == 'ACIK'
@@ -211,7 +261,7 @@ with TestClient(app) as client:
         '/api/customers', headers=headers, json={'name':'FIFO Çiftçisi'}
     ).json()['id']
     # `second` AÇIK kalmalı (kıran sabit oydu), `first` KESİN daha erken —
-    # gerekçe yukarıda (`FIFO_ERKEN_VADE` / `FIFO_GEC_VADE` başlığı).
+    # gerekçe modül başlığında (`FIFO_ERKEN_VADE` / `FIFO_GEC_VADE`).
     first = sale('HARMAN_VADELI', due=FIFO_ERKEN_VADE, tx='2026-01-01')
     second = sale('HARMAN_VADELI', due=FIFO_GEC_VADE, tx='2026-01-01')
     # Reassign the helper-created documents to the dedicated FIFO customer.
