@@ -20,6 +20,7 @@ import logging
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -84,8 +85,8 @@ def _ebeveyn_app_modullerini_geri_yukle(onceki: dict[str, object]) -> None:
     sys.modules.update(onceki)
 
 
-@pytest.fixture()
-def uygulama(tmp_path, monkeypatch):
+@contextmanager
+def _uygulama_baglam(tmp_path, monkeypatch):
     """Taze şema: env'e bağlı içe aktarma ALT SÜREÇTE; ebeveyn app.* geri yüklenir.
 
     Göç ve tohum çocuğun sürecindedir (``DATABASE_URL``, ``SECRET_KEY``,
@@ -125,16 +126,21 @@ def uygulama(tmp_path, monkeypatch):
         _ebeveyn_app_modullerini_geri_yukle(onceki)
 
 
+@pytest.fixture()
+def uygulama(tmp_path, monkeypatch):
+    with _uygulama_baglam(tmp_path, monkeypatch) as baglam:
+        yield baglam
+
+
 def test_uygulama_fiksturu_app_sys_modules_anahtarlarini_birakmaz(tmp_path, monkeypatch):
     """Sentinel: ebeveyn ``app`` / ``app.*`` kümesi fikstürden önce ve sonra özdeş."""
+    monkeypatch.syspath_prepend(str(BACKEND))
+    import app.config  # noqa: F401 — boş==boş her zaman geçer; ebeveynde app.* olsun
+
     onceki = {k for k in sys.modules if k == "app" or k.startswith("app.")}
-    dongu = uygulama(tmp_path, monkeypatch)
-    _main, _engine, client = next(dongu)
-    assert client is not None
-    try:
-        next(dongu)
-    except StopIteration:
-        pass
+    assert onceki, "sentinel kör: app.* yok"
+    with _uygulama_baglam(tmp_path, monkeypatch) as (_main, _engine, client):
+        assert client is not None
     sonra = {k for k in sys.modules if k == "app" or k.startswith("app.")}
     assert sonra == onceki, (
         f"fikstür app.* sızdırdı: eklenen={sorted(sonra - onceki)} "
