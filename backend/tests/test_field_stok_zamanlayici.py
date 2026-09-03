@@ -6,7 +6,7 @@ import os
 import subprocess
 import sys
 import threading
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,6 +15,34 @@ import pytest
 
 BACKEND = Path(__file__).resolve().parents[1]
 APP = BACKEND / "app"
+
+
+@contextmanager
+def _yakala(logger: logging.Logger, level: int = logging.INFO):
+    """Kayıtları bu logger'dan al — köke (caplog) güvenme.
+
+    `app.main` satır 109 `logging.getLogger("yerel_hesap").propagate = False`
+    yapar. Tam süpürmede başka bir dosya `app.main`i KOLEKSİYONDA içe aktarır;
+    çocuk logger `yerel_hesap.field_stok_zamanlayici` kaydı ebeveynin stdout
+    handler'ına verir, kökteki caplog BOŞ kalır, `caplog.records[-1]`
+    IndexError olur. CI bunu görmez: `run_isolated_tests.py` her dosyayı
+    ayrı süreçte koşturur, `app.main` bu dosyanın ebeveyn sürecine girmez.
+    """
+    kayitlar: list[str] = []
+
+    class Yakala(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            kayitlar.append(record.getMessage())
+
+    tutucu = Yakala()
+    onceki = logger.level
+    logger.setLevel(level)
+    logger.addHandler(tutucu)
+    try:
+        yield kayitlar
+    finally:
+        logger.removeHandler(tutucu)
+        logger.setLevel(onceki)
 
 
 def _run_isolated(
@@ -113,7 +141,7 @@ def test_interval_has_working_default_and_environment_override(monkeypatch) -> N
     assert Settings().field_stock_outbox_interval_seconds == 45
 
 
-def test_cycle_logs_every_outcome_bucket(monkeypatch, caplog) -> None:
+def test_cycle_logs_every_outcome_bucket(monkeypatch) -> None:
     from app import field_stok_zamanlayici as scheduler
 
     result = {
@@ -128,15 +156,16 @@ def test_cycle_logs_every_outcome_bucket(monkeypatch, caplog) -> None:
     monkeypatch.setattr(scheduler, "SessionLocal", lambda: nullcontext(SimpleNamespace()))
     monkeypatch.setattr(scheduler, "tum_firmalari_isle", lambda _db: result)
 
-    with caplog.at_level(logging.INFO, logger=scheduler.LOGGER_NAME):
+    with _yakala(scheduler.logger) as kayitlar:
         assert scheduler.bir_dongu_calistir() == result
 
-    message = caplog.records[-1].getMessage()
+    assert kayitlar, "dongu hic log yazmadi"
+    message = kayitlar[-1]
     for key, value in result.items():
         assert f"{key}={value}" in message
 
 
-def test_empty_cycle_is_logged_explicitly(monkeypatch, caplog) -> None:
+def test_empty_cycle_is_logged_explicitly(monkeypatch) -> None:
     from app import field_stok_zamanlayici as scheduler
 
     result = {
@@ -151,10 +180,11 @@ def test_empty_cycle_is_logged_explicitly(monkeypatch, caplog) -> None:
     monkeypatch.setattr(scheduler, "SessionLocal", lambda: nullcontext(SimpleNamespace()))
     monkeypatch.setattr(scheduler, "tum_firmalari_isle", lambda _db: result)
 
-    with caplog.at_level(logging.INFO, logger=scheduler.LOGGER_NAME):
+    with _yakala(scheduler.logger) as kayitlar:
         scheduler.bir_dongu_calistir()
 
-    assert "olay bulunmadi" in caplog.records[-1].getMessage()
+    assert kayitlar, "bos dongu hic log yazmadi"
+    assert "olay bulunmadi" in kayitlar[-1]
 
 
 def test_claim_lost_survives_all_company_conservation_and_cycle_log(
@@ -532,7 +562,7 @@ print(
     print(result.stdout.strip())
 
 
-def test_shutdown_keeps_reference_to_a_stuck_thread(monkeypatch, caplog) -> None:
+def test_shutdown_keeps_reference_to_a_stuck_thread(monkeypatch) -> None:
     from app import field_stok_zamanlayici as scheduler
 
     class StuckThread:
@@ -547,11 +577,12 @@ def test_shutdown_keeps_reference_to_a_stuck_thread(monkeypatch, caplog) -> None
     monkeypatch.setattr(scheduler, "_thread", stuck)
     monkeypatch.setattr(scheduler, "_dur", bayrak)
 
-    with caplog.at_level(logging.ERROR, logger=scheduler.LOGGER_NAME):
+    with _yakala(scheduler.logger, logging.ERROR) as kayitlar:
         scheduler.durdur_field_stok_zamanlayici()
 
     assert scheduler._thread is stuck
-    assert "durmadi" in caplog.records[-1].getMessage().lower()
+    assert kayitlar, "durduramayan durdurma hic log yazmadi"
+    assert "durmadi" in kayitlar[-1].lower()
     # DURDURAMAYAN DURDURMA BUNU SÖYLER *ve* bayrağı SET bırakır: takılı
     # thread kendi döngüsünde sonlanır, ama `_thread`/`_dur` birlikte durduğu
     # için sonraki `baslat` durumu ANLAYIP taze bir bayrakla yeni thread açar.
