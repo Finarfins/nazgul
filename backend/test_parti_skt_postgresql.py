@@ -1,7 +1,14 @@
 """PostgreSQL ikizi: parti/SKT DEPOSU ve FEFO seçicisinin GERÇEK sayılarla eşi.
 
-Göç `20260903_0067` + `app/parti.py`. SEÇİCİYİ ÇAĞIRAN BİR YOL YOKTUR — bu
-dosya ile `tests/test_parti_skt.py`, seçicinin TEK kapsamıdır.
+Göç `20260903_0067` + `app/parti.py`. SEÇİCİ HİÇBİR ŞEYE BAĞLANMADI ve
+iddia ÖLÇÜLEBİLİR biçimde ikiye bölünmüştür: `backend/app` altında
+(`app/parti.py` HARİÇ) NE `product_lots` LİTERALİ (aşağıdaki
+`test_PARTI_MIKTARI_bu_PR_da_HICBIR_YERDEN_guncellenmiyor`) NE DE
+`app.parti` İTHALİ (`tests/test_parti_skt.py` içindeki
+`test_APP_ALTINDA_app_parti_ITHALI_ve_fefo_sec_REFERANSI_YOKTUR`) vardır.
+İKİSİ BİRLİKTE gerekir: yalnız literal kapısı, seçiciyi PYTHON SEVİYESİNDE
+çağıran bir dosyayı GÖRMÜYORDU (ölçüldü). Bu dosya ile
+`tests/test_parti_skt.py`, seçicinin TEK kapsamıdır.
 
 --- BU İKİZ NEDEN VAR ------------------------------------------------------
 
@@ -623,15 +630,24 @@ def test_stok_ile_parti_toplami_AYRISABILIR_ikinci_katman_YOK(motor) -> None:
 
 @pytest.mark.postgresql
 def test_PARTI_MIKTARI_bu_PR_da_HICBIR_YERDEN_guncellenmiyor(motor) -> None:
-    """Sahip kararı 3'ün STATİK kanıtı: tüketim yolu YOKTUR.
+    """Sahip kararı 3'ün STATİK kanıtı: `product_lots` LİTERALİ YOKTUR.
 
-    `backend/app` altında `product_lots`a değen TEK BİR satır bile yoktur —
-    ne okuma ne yazma. Kardeş test ayrışmanın MÜMKÜN olduğunu ölçüyor; bu
-    test ayrışmanın bu PR'da KİMSE TARAFINDAN üretilemeyeceğini ölçüyor.
+    KAPSAM DAR VE ADIYLA DARDIR: bu test `backend/app` altında BELGE DİZGİSİ
+    OLMAYAN metin sabitlerinde `product_lots` arar — yani bir SQL gövdesini
+    ya da bir tablo adı sabitini yakalar. TEK BAŞINA "çağıranı yoktur"
+    DEMEZ ve bir tur boyunca öyle sanıldı: `from app.parti import fefo_sec`
+    yazıp onu çağıran, tablo adını hiç anmayan bir dosya buradan SESSİZCE
+    GEÇİYORDU (ölçüldü, bütün takım yeşil kaldı).
 
-    Bir çağıran eklendiği gün BURASI kırmızı olur ve bu DOĞRUDUR: o gün
-    "çağıranı yoktur" cümlesi artık yalandır ve göçün ile kaydın düzyazısı
-    da güncellenmelidir.
+    İKİNCİ YARISI KARDEŞ KAPIDADIR: `tests/test_parti_skt.py` içindeki
+    `test_APP_ALTINDA_app_parti_ITHALI_ve_fefo_sec_REFERANSI_YOKTUR`
+    `app.parti` İTHALİNİ ve `fefo_sec` REFERANSINI arar. İkisi BİRLİKTE
+    şunu söyler ve tamamı ölçülür: `backend/app` altında (`app/parti.py`
+    hariç) NE `product_lots` literali NE `app.parti` ithali vardır.
+
+    Bir çağıran eklendiği gün İKİSİNDEN BİRİ kırmızı olur ve bu DOĞRUDUR:
+    o gün bağlama PR'ı gelmiştir ve göçün ile kaydın düzyazısı da
+    güncellenmelidir.
 
     ARAMA HAM METİNDE DEĞİL, AST ÜZERİNDE YAPILIYOR ve bu fark ÖLÇÜLEREK
     öğrenildi: ham `grep` `app/parti.py`yi yakalıyordu, çünkü o dosya tabloyu
@@ -683,6 +699,9 @@ def test_PARTI_MIKTARI_bu_PR_da_HICBIR_YERDEN_guncellenmiyor(motor) -> None:
 
     assert degenler == [], (
         f"`product_lots`a ÇALIŞTIRILABİLİR metinde değen yer(ler) var: "
-        f"{degenler}. Bu PR'ın sözleşmesi ÇAĞIRANI YOKTUR'dur; bir çağıran "
-        "eklendiyse göçün ve kaydın düzyazısı da güncellenmelidir."
+        f"{degenler}. Bu PR'ın sözleşmesi ŞUDUR: ne `product_lots` literali "
+        "ne `app.parti` ithali (ikinci yarısı `tests/test_parti_skt.py` "
+        "içindeki `test_APP_ALTINDA_app_parti_ITHALI_ve_fefo_sec_REFERANSI_"
+        "YOKTUR`). Bir çağıran eklendiyse göçün ve kaydın düzyazısı da "
+        "güncellenmelidir."
     )
