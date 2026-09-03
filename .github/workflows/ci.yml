@@ -957,6 +957,16 @@ jobs:
         run: |
           docker run --rm --entrypoint pg_dump yerel-hesap-pro:${{ github.sha }} --version
           docker run --rm --entrypoint pg_restore yerel-hesap-pro:${{ github.sha }} --version
+      - name: Verify production image has no test assets
+        run: |
+          set -euo pipefail
+          assets="$(docker run --rm --entrypoint sh yerel-hesap-pro:${{ github.sha }} \
+            -c "ls /app/backend/tests 2>&1; ls /app/backend/donmus_saat.py 2>&1")"
+          echo "$assets"
+          [ -z "$assets" ] || {
+            echo "::error::Üretim imajı test varlığı taşıyor: $assets" >&2
+            exit 1
+          }
       - name: Smoke-test non-root read-only container
         run: |
           docker network create yhp-ci

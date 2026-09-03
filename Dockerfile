@@ -64,6 +64,12 @@ RUN pip install --no-cache-dir -r backend/requirements-dev.txt
 USER app
 
 FROM runtime-base AS production
+USER root
+# Üretim imajı test varlıklarını taşımamalı; `test` stage ise bunları korumak
+# için runtime-base'ten türemeye devam eder. Kök olarak sileriz, sonra
+# uygulamayı yeniden non-root'a alırız. İçe aktarım denemesi f623190'da
+# temizlenmiş ağaçla `app.main` import'unu doğruladı.
+RUN rm -rf /app/backend/tests /app/backend/test_*.py /app/backend/donmus_saat.py /app/backend/conftest.py /app/backend/pytest.ini /app/backend/run_isolated_tests.py /app/backend/isolated_test_reporter.py /app/backend/aggregate_isolated_test_reports.py /app/backend/merge_postgresql_test_reports.py
 USER app
 EXPOSE 5050
 HEALTHCHECK --interval=20s --timeout=5s --start-period=15s --retries=3 \
