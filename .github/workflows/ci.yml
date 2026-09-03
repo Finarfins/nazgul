@@ -1005,6 +1005,7 @@ jobs:
         if: always()
         run: |
           docker rmi -f yerel-hesap-test:uretim-imaji-kapisi || true
+          docker rmi -f yerel-hesap-pro:uretim-imaji-kapisi || true
           docker images | grep uretim-imaji-kapisi && exit 1 || echo "temiz: kapi etiketi kalmadi"
       - name: Smoke-test non-root read-only container
         run: |
