@@ -16,49 +16,137 @@
 """
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import logging
-import os
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
 BACKEND = Path(__file__).resolve().parents[1]
+APP_DIR = BACKEND / "app"
 PAROLA = "DenetimKapi!2026x"
+ANAHTAR = "denetim-kapisi-anahtar-denetim-kapisi-anahtar"
+TAKMA = "_denetim_kapi_uygulama"
 
 
-@pytest.fixture()
-def uygulama(tmp_path, monkeypatch):
-    """Taze şema + taze uygulama süreci-içi.
+def _app_anahtarlari() -> set[str]:
+    return {k for k in sys.modules if k == "app" or k.startswith("app.")}
+
+
+def _takma_anahtarlari() -> list[str]:
+    return [k for k in list(sys.modules) if k == TAKMA or k.startswith(f"{TAKMA}.")]
+
+
+def _takmayi_sil() -> None:
+    for ad in _takma_anahtarlari():
+        del sys.modules[ad]
+
+
+def _ebeveyn_app_anahtarlarini_geri_al(onceki: set[str]) -> None:
+    """Takma yüklemenin mutlak ``from app.X`` sızıntısını ebeveynden siler.
+
+    Birkaç üretim dosyası (``invoice_pdf``) ``app``ı mutlak içe aktarır; o
+    import ebeveynin ``sys.modules``ine ``app.*`` anahtarı yazar. Fikstür
+    onları siler; önceden duran ``app.*`` nesnelerine dokunmaz.
+    """
+    for ad in list(_app_anahtarlari() - onceki):
+        del sys.modules[ad]
+
+
+def _taze_uygulama_yukle():
+    """``app`` paketini başka ad altında yükler; ebeveyn ``app`` adına yazmaz.
+
+    Şekil ``importlib.util.spec_from_file_location`` + ayrı paket adı:
+    göç ve ``Settings()`` bu kopyada, env'i okuyarak çalışır. Ebeveynin
+    ``sys.modules['app']`` / ``['app.*']`` kümesi yüklemenin kendisi tarafından
+    silinmez.
+    """
+    _takmayi_sil()
+    spec = importlib.util.spec_from_file_location(
+        TAKMA,
+        APP_DIR / "__init__.py",
+        submodule_search_locations=[str(APP_DIR)],
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"{APP_DIR} takma ad altında yüklenemedi")
+    paket = importlib.util.module_from_spec(spec)
+    sys.modules[TAKMA] = paket
+    spec.loader.exec_module(paket)
+    main = importlib.import_module(f"{TAKMA}.main")
+    db = importlib.import_module(f"{TAKMA}.db")
+    return main, db.engine
+
+
+def _paket_modul(main, ad: str):
+    return importlib.import_module(f"{main.__package__}.{ad}")
+
+
+@contextmanager
+def _uygulama_baglam(tmp_path, monkeypatch):
+    """Taze şema: env'e bağlı içe aktarma TAKMA AD altında.
 
     ``app.main`` içe aktarıldığında göçleri çalıştırır, bu yüzden ortam
-    değişkenleri İÇE AKTARMADAN ÖNCE kurulur ve modüller sonradan temizlenir.
+    değişkenleri İÇE AKTARMADAN ÖNCE kurulur. Eski zehir (ebeveynin
+    ``app`` / ``app.*`` anahtarlarını ``del sys.modules`` ile silmek) yoktur:
+    ebeveyn kümesi fikstürden önce, sırasında ve sonra özdeştir.
     """
+    onceki = _app_anahtarlari()
     database = tmp_path / "denetim.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database.as_posix()}")
-    monkeypatch.setenv("SECRET_KEY", "denetim-kapisi-anahtar-denetim-kapisi-anahtar")
+    monkeypatch.setenv("SECRET_KEY", ANAHTAR)
     monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", PAROLA)
     monkeypatch.setenv("SUNGUR_PLATFORM_OPERATORS", "1")
+    monkeypatch.setenv("SUNGUR_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.syspath_prepend(str(BACKEND))
-    for name in [n for n in list(sys.modules) if n == "app" or n.startswith("app.")]:
-        del sys.modules[name]
 
     from fastapi.testclient import TestClient
     from sqlalchemy import text
 
-    import app.main as main
-    from app.db import engine
+    main, engine = _taze_uygulama_yukle()
+    _ebeveyn_app_anahtarlarini_geri_al(onceki)
 
     # Bootstrap admin parola rotasyonu ile başlar; kapı rotasyonu değil denetimi
     # ölçüyor, bu yüzden bayrak düşürülür.
     with engine.begin() as connection:
         connection.execute(text("UPDATE app_users SET must_change_password=0"))
 
-    with TestClient(main.app, raise_server_exceptions=False) as client:
-        yield main, engine, client
+    try:
+        with TestClient(main.app, raise_server_exceptions=False) as client:
+            yield main, engine, client
+    finally:
+        _takmayi_sil()
+        _ebeveyn_app_anahtarlarini_geri_al(onceki)
 
-    for name in [n for n in list(sys.modules) if n == "app" or n.startswith("app.")]:
-        del sys.modules[name]
+
+@pytest.fixture()
+def uygulama(tmp_path, monkeypatch):
+    with _uygulama_baglam(tmp_path, monkeypatch) as baglam:
+        yield baglam
+
+
+def test_uygulama_fiksturu_app_sys_modules_anahtarlarini_birakmaz(tmp_path, monkeypatch):
+    """Sentinel: ebeveyn ``app`` / ``app.*`` kümesi fikstürden önce ve sonra özdeş."""
+    monkeypatch.syspath_prepend(str(BACKEND))
+    import app.config  # noqa: F401 — boş==boş her zaman geçer; ebeveynde app.* olsun
+
+    onceki = {k for k in sys.modules if k == "app" or k.startswith("app.")}
+    assert onceki, "sentinel kör: app.* yok"
+    with _uygulama_baglam(tmp_path, monkeypatch) as (_main, _engine, client):
+        assert client is not None
+        sirada = {k for k in sys.modules if k == "app" or k.startswith("app.")}
+        assert sirada == onceki, (
+            f"fikstür sırasında app.* değişti: eklenen={sorted(sirada - onceki)} "
+            f"silinen={sorted(onceki - sirada)}"
+        )
+    sonra = {k for k in sys.modules if k == "app" or k.startswith("app.")}
+    assert sonra == onceki, (
+        f"fikstür app.* sızdırdı: eklenen={sorted(sonra - onceki)} "
+        f"silinen={sorted(onceki - sonra)}"
+    )
+    assert not any(k == TAKMA or k.startswith(f"{TAKMA}.") for k in sys.modules)
 
 
 def _giris(client) -> dict:
@@ -153,8 +241,8 @@ def test_yutan_yazici_geri_gelirse_kapi_kirmiziya_doner(uygulama, monkeypatch):
     main, engine, client = uygulama
     from sqlalchemy import insert
 
-    from app.auth import audit_logs
-    from app.db import SessionLocal
+    audit_logs = _paket_modul(main, "auth").audit_logs
+    SessionLocal = _paket_modul(main, "db").SessionLocal
 
     def eski_yazici(request, response, started_at, *, failure_reason=None):
         path = request.url.path
@@ -402,8 +490,8 @@ def test_platform_yolu_kaldirilinca_kapi_kirmiziya_doner(uygulama, monkeypatch):
 
 def test_platform_yolu_sıradan_yoneticiye_kapali(uygulama, monkeypatch):
     """Bu satırlar tek bir kiracıya ait değil; tek bir kiracının yöneticisine de."""
-    _main, _engine, client = uygulama
-    from app.config import settings
+    main, _engine, client = uygulama
+    settings = _paket_modul(main, "config").settings
 
     monkeypatch.setattr(settings, "sungur_platform_operators", "", raising=False)
 
