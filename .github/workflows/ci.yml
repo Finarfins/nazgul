@@ -453,7 +453,7 @@ jobs:
           # company_id default contract'i adinda "postgresql" gecmese de migration
           # yolunu REQUIRE_PG=1 ile gercek PostgreSQL 16 uzerinde calistirir.
           all_files=(test_*postgresql*.py tests/test_company_id_default_contract.py tests/test_ci_playwright_hazirlik.py)
-          # Donmuş PostgreSQL test popülasyonu (99 postgresql-adlı + 2 özel = 101).
+          # Donmuş PostgreSQL test popülasyonu (98 postgresql-adlı + 2 özel dosya = 100).
           # SAYIM ÖLÇÜLDÜ, aritmetikle türetilmedi. Bu yorum bir tur boyunca
           # "97 + 2 = 99" derken sabit 100'dü; değeri doğru olan ama gerekçesi
           # onu yalanlayan bir çivi sonraki okuyucu için TUZAKTIR.
@@ -471,14 +471,6 @@ jobs:
           # Alt sınır yerine tam eşitlik: dosya silinmesi veya yeniden adlandırma ile
           # sessizce test kapsamının düşmesini engeller. Yeni PG testi eklendiğinde
           # veya çıkarıldığında bu sabit bilinçli olarak güncellenmelidir.
-          # 100 -> 101: `test_parti_skt_postgresql.py` (parti/SKT + FEFO; göç
-          # 20260903_0067). İkiz ZORUNLU çünkü üç iddia yalnız üretim
-          # diyalektinde ayırt edici: `CHECK ... quantity <> 'NaN'::numeric`in
-          # NaN yarısı yalnız PostgreSQL'de vardır, dağıtım paylarının
-          # NUMERIC(18,4) ölçeği SQLite'ta dayatılmaz, ve bileşik yabancı
-          # anahtar SQLite'ta varsayılan olarak uygulanmaz. Taban develop'un
-          # 98 glob dosyasıdır ve ÖLÇÜLDÜ (`ls backend/test_*postgresql*.py |
-          # wc -l`), önceki ölçümün üzerine aritmetik yapılarak değil.
           BEKLENEN_PG_DOSYA_SAYISI=100
           if [ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]; then
             echo "FAIL: tam $BEKLENEN_PG_DOSYA_SAYISI PG dosyası bekleniyor, ${#all_files[@]} bulundu" >&2
