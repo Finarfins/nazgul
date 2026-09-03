@@ -190,7 +190,23 @@ def test_runtime_image_remains_non_root_and_test_tools_are_separate() -> None:
     assert "FROM runtime-base AS production" in dockerfile
     production = dockerfile.split("FROM runtime-base AS production", 1)[1]
     assert "USER app" in production
-    assert "requirements-dev.txt" not in production
+    # requirements-dev.txt uretim stage'inde KURULMAMALI. Onceki iddia bunu
+    # "metinde HIC gecmesin" diye olcuyordu; o vekil, dosyayi SILEN satirin
+    # kendisini de reddediyor, yani KURULUM ile KALDIRMA'yi ayirt etmiyordu --
+    # oysa silme, iddianin korudugu seyin TA KENDISIDIR. Iddia artik yone bakar.
+    calisan = [
+        satir.strip()
+        for satir in production.splitlines()
+        if satir.strip() and not satir.strip().startswith("#")
+    ]
+    kurulum = [s for s in calisan if "pip install" in s and "requirements-dev" in s]
+    assert not kurulum, f"production stage dev bagimliliklarini kuruyor: {kurulum}"
+    silme = [
+        s
+        for s in calisan
+        if s.startswith("RUN rm -rf") and "/app/backend/requirements-dev.txt" in s
+    ]
+    assert silme, "production stage requirements-dev.txt'i SILMIYOR"
 
 
 def test_reverse_proxy_security_headers_and_forwarding_are_declared() -> None:
