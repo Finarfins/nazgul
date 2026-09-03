@@ -2337,20 +2337,22 @@ def _bitki_esit(a: str, b: str) -> bool:
     ikizi koşulan bir testin yakalayamayacağı bir sapma olurdu — hesabı
     tek bir yerde, Python'da tutuyoruz.
 
-    KATLAMA TÜRKÇE, VE ``lower()`` İLE — ``casefold()`` İLE DEĞİL. Üçü ölçüldü:
+    KATLAMA TÜRKÇE, VE ``lower()`` İLE — ``casefold()`` İLE DEĞİL. Üçü ölçüldü
+    (AŞAĞIDAKİ SAYILAR TABAN ``7498ab3`` BİRLEŞMİŞ AĞACI ÜZERİNDE ALINDI ve
+    kayıt ``0077-pr-0025.md`` ile AYNIDIR):
 
     * ``casefold()`` (eski hâli) Türkçe'yi BİLMEZ: ``"İNCİR".casefold()`` =
       ``'i̇ncir'`` (i + U+0307), yani ``incir``e EŞLEŞMEZ. Türkçe klavyeyle
-      BÜYÜK yazılmış 18 gerçek bitki adının yalnız 8'i kendi küçük hâlini
+      BÜYÜK yazılmış 18 gerçek bitki adının yalnız 7'si kendi küçük hâlini
       buluyordu; ``MISIR``/``mısır``, ``BİBER``/``biber``,
       ``PATLICAN``/``patlıcan`` hepsi ıskalıyordu.
     * Türkçe katlama aynı 18 adın 18'ini buluyor.
     * ``casefold()`` DEĞİL ``lower()``, çünkü ön yüz ``toLocaleLowerCase('tr')``
       kullanıyor ve ``casefold()`` ondan FAZLA iş yapıyor: ``"Weißkohl"``
       (lahana) ``casefold()`` ile ``'weisskohl'``a açılır, JavaScript'te
-      açılmaz. Küçük harfe çeviren 1775 kod noktası taranarak ölçüldü:
+      açılmaz. Küçük harfe çeviren 1616 kod noktası taranarak ölçüldü:
       ``lower()`` temelli bu katlama JavaScript ile 0 yerde ayrılıyor,
-      ``casefold()`` temelli olanı 207 yerde ayrılıyordu.
+      ``casefold()`` temelli olanı 297 yerde ayrılıyordu.
 
     BİLEREK KAYBEDİLEN: Türkçe'de ``I`` küçüğü ``ı``dır, dolayısıyla LATİN
     yazımlı ``I``lı bir bitki adı TERS yönde bozulur — ``Iceberg`` (marul) ve
