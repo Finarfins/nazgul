@@ -45,7 +45,7 @@ from __future__ import annotations
 
 import os
 from datetime import date, datetime, timezone
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
 import pytest
@@ -617,33 +617,55 @@ def test_ROUND_HALF_UP_sozlesmesi_PG_ile_AYNI_YONE_yuvarlar() -> None:
 #   resolve(Decimal("NaN"), "KG", "KG") -> (Decimal('NaN'), Decimal('1'))
 #   UPDATE products SET stock = NaN     -> yazıldı, GERİ OKUNDU: NaN
 #
+# VE BU ARTIK DÜZYAZI DEĞİL: yazma denemesi aşağıdaki testin İÇİNDE koşuyor
+# (kapı varsa `resolve` daha önce reddettiği için denenmez), o yüzden kapı
+# kaldırılırsa kırmızı mesaj `products.stock`tan GERİ OKUNAN değeri söyler.
+#
 # İkinci katman da savunmuyordu: PostgreSQL `NaN`ı HER SONLU SAYININ ÜSTÜNE
-# sıralar, yani `CHECK (factor > 0)` onu KABUL EDER.
+# sıralar, yani `CHECK (factor > 0)` onu KABUL EDER — ve `products.stock`
+# üzerinde ÖYLE BİR KISIT HİÇ YOKTUR (`test_products_stock_NaN_KABUL_EDER_
+# ikinci_katman_YOK` bunu çiviliyor), yani çözücü TEK bariyerdir.
 
 @pytest.mark.postgresql
 @pytest.mark.parametrize("ham", ["NaN", "Infinity", "-Infinity", "sNaN"])
 @pytest.mark.parametrize("rol", ["miktar", "katsayi"])
 def test_SONLU_OLMAYAN_giris_STOKA_HICBIR_SEY_YAZDIRMAZ(motor, ham, rol) -> None:
-    """Red yolunun ikizi — istisna DEĞİL, VERİTABANININ DEĞİŞMEDİĞİ ölçülüyor.
+    """Red yolunun ikizi — VE YAZMA GERÇEKTEN DENENİYOR.
 
-    `test_COZULEMEYEN_birim_...` ile aynı desen ve aynı gerekçe: bir çağıranın
-    istisnayı yakalayıp YİNE DE yazması mümkündür, o yüzden yalnız
-    `pytest.raises` yetmez.
+    BU TESTİN ŞEKLİ BİR BULGUNUN SONUCUDUR VE ŞEKİL İDDİANIN KENDİSİDİR.
+    Önceki hâlinde `UPDATE products SET stock` satırı `pytest.raises` bloğunun
+    İÇİNDEYDİ, yani `resolve` istisna atınca yazma HİÇ KOŞMUYORDU: test iki
+    yönde de yalnız "istisna atıldı mı" diye soruyordu ve bu dosyanın en güçlü
+    iddiası — NaN'ın `products.stock` sütununa GERÇEKTEN ULAŞTIĞI — testin
+    DIŞINDA, düzyazıda kalmıştı. Bir iddia düzyazıda durursa çürütülemez;
+    çürütülemeyen bir iddia sözleşme değildir.
 
-    AYIRT EDİCİ OLDUĞU ÖLÇÜLDÜ: `app/units.py`deki MİKTAR sonluluk kapısı
-    kaldırıldığında dört `miktar` parametresi de KIRMIZI (`Failed: DID NOT
-    RAISE <class 'app.units.BirimCozulemedi'>`); geri konulduğunda 28/28
-    YEŞİL.
+    ŞİMDİ: kapı VARSA `resolve` reddeder, yazma denenmez ve test yeşildir.
+    Kapı YOKSA `resolve` bir sayı döndürür, o sayı gerçek PostgreSQL'e
+    YAZILIR ve test SÜTUNDAN GERİ OKUNAN DEĞERİ ADIYLA söyleyerek düşer.
+    Yani mutasyon altındaki kırmızı mesaj artık "DID NOT RAISE" değil,
+    kusurun KENDİSİDİR: `products.stock = 'NaN'`.
 
-    O MUTASYONDA STOK DENETİMİ ÇALIŞMAZ — `pytest.raises` daha önce düşer —
-    ve bu, denetimin gereksiz olduğu anlamına GELMEZ: yukarıdaki
-    `test_COZULEMEYEN_birim_...` ile aynı gerekçe, o denetim BAŞKA bir
-    mutasyonu hedefliyor (istisna atılıp yazmanın yine de geçtiği durum).
+    İSTİSNA SINIFI DA AYIRT EDİLİYOR: `decimal.InvalidOperation` AYRI
+    yakalanıp `pytest.fail`e çevriliyor. `BirimCozulemedi` ailesinin DIŞINDA
+    kalan bir istisna, belgelenen `except BirimCozulemedi:` sözleşmesinden
+    KAÇAR ve çağıran için reddin hiç olmamasıyla aynı kapıya çıkar — o yüzden
+    burada YEŞİL sayılmaz.
 
-    NaN'ın `products.stock`a GERÇEKTEN ULAŞTIĞI ise ayrıca ve pytest DIŞINDA
-    ölçüldü — fix geri alınmış bir kopyayla, gerçek PostgreSQL 16.14 üzerinde:
-    `UPDATE products SET stock = <resolve'un döndürdüğü NaN>` koştu ve geri
-    okuma `NaN` verdi. Bu testin görevi o yolun bir daha AÇILMAMASIDIR.
+    ÖLÇÜLDÜ (miktar sonluluk kapısı `app/units.py`den kaldırılarak, dört
+    `miktar` parametresi, gerçek PostgreSQL 16.14) — DÖRDÜ DE KIRMIZI AMA
+    HEPSİ AYNI SEBEPLE DEĞİL, ve bu ayrım kaydedilmek zorunda çünkü ikisi
+    FARKLI kusur sınıfıdır:
+
+      * `NaN`       -> `resolve` HİÇ reddetmez, `Decimal('NaN')` döner ve o
+                      değer `products.stock`a YAZILIR; test sütundan geri
+                      okunan `'NaN'` ile düşer. (Sessiz veri bozulması.)
+      * `Infinity`  -> `decimal.InvalidOperation` (`quantize`ta), AİLE DIŞI.
+      * `-Infinity` -> `decimal.InvalidOperation`, AİLE DIŞI.
+      * `sNaN`      -> `decimal.InvalidOperation`, AİLE DIŞI.
+
+    Yalnız `NaN` sessizce geçiyordu; öteki üçü gürültülü ama YANLIŞ AİLEDEN
+    bir istisnayla kaçıyordu. Kapı ikisini birden kapatıyor.
     """
     with motor.begin() as baglanti:
         _, urun_id = _firma_ve_urun(baglanti, "KG")
@@ -651,37 +673,107 @@ def test_SONLU_OLMAYAN_giris_STOKA_HICBIR_SEY_YAZDIRMAZ(motor, ham, rol) -> None
             text("SELECT stock FROM products WHERE id = :pid"), {"pid": urun_id}
         ).scalar_one()
 
-    with pytest.raises(BirimCozulemedi) as hata:
-        if rol == "miktar":
-            urun, _ = resolve(Decimal(ham), "KG", "KG")
-        else:
-            urun, _ = resolve(
-                Decimal("1"), "ÇUVAL", "KG", {"ÇUVAL": Decimal(ham)}
-            )
-        with motor.begin() as baglanti:
-            baglanti.execute(
-                text("UPDATE products SET stock = :stok WHERE id = :pid"),
-                {"stok": urun, "pid": urun_id},
-            )
-
-    # SEBEP AYIRT EDİCİDİR — PR 2 bunun ÜZERİNDEN yönlendirir. Miktar bir
-    # GİRDİ kusurudur (operatör yeniden girer), katsayı bir DEFTER kusurudur
-    # (satır düzeltilir). Yanlış yönlendiren bir sebep REDDETSE BİLE kusurdur.
     beklenen = (
         BirimCozulemedi.MIKTAR_SONLU_DEGIL
         if rol == "miktar"
         else BirimCozulemedi.KATSAYI_GECERSIZ
     )
-    assert hata.value.sebep == beklenen
+
+    reddedildi = False
+    urun = None
+    try:
+        if rol == "miktar":
+            urun, _ = resolve(Decimal(ham), "KG", "KG")
+        else:
+            urun, _ = resolve(Decimal("1"), "ÇUVAL", "KG", {"ÇUVAL": Decimal(ham)})
+    except BirimCozulemedi as hata:
+        reddedildi = True
+        # SEBEP AYIRT EDİCİDİR — PR 2 bunun ÜZERİNDEN yönlendirir. Miktar bir
+        # GİRDİ kusurudur (operatör yeniden girer), katsayı bir DEFTER
+        # kusurudur (satır düzeltilir). Yanlış yönlendiren bir sebep REDDETSE
+        # BİLE kusurdur.
+        assert hata.sebep == beklenen, (
+            f"{rol}={ham}: sebep {hata.sebep!r}, beklenen {beklenen!r}"
+        )
+    except InvalidOperation as hata:
+        pytest.fail(
+            f"{rol}={ham}: `decimal.InvalidOperation` AİLE DIŞINA sızdı "
+            f"({hata!r}). Belgelenen `except BirimCozulemedi:` sözleşmesi bunu "
+            "YAKALAMAZ; çağıran için bu, reddin hiç olmamasıyla aynı kapıdır."
+        )
+
+    if not reddedildi:
+        # KAPI YOK: çözücünün döndürdüğü SONLU OLMAYAN sayıyı GERÇEKTEN yaz.
+        # Bu satır testin var olma sebebidir — kusur burada GÖRÜNÜR olur.
+        with motor.begin() as baglanti:
+            baglanti.execute(
+                text("UPDATE products SET stock = :stok WHERE id = :pid"),
+                {"stok": urun, "pid": urun_id},
+            )
+        with motor.begin() as baglanti:
+            geri = baglanti.execute(
+                text("SELECT stock::text FROM products WHERE id = :pid"),
+                {"pid": urun_id},
+            ).scalar_one()
+        pytest.fail(
+            f"{rol}={ham}: SONLULUK KAPISI YOK — `resolve` {urun!r} döndürdü, "
+            f"o değer gerçek PostgreSQL'e YAZILDI ve `products.stock` geri "
+            f"okunduğunda {geri!r} verdi. ÖLÇÜLMEMİŞ bir sayı stoka giremez."
+        )
 
     with motor.begin() as baglanti:
         sonraki = baglanti.execute(
             text("SELECT stock FROM products WHERE id = :pid"), {"pid": urun_id}
         ).scalar_one()
     assert sonraki == onceki, (
-        f"{rol}={ham} reddedilmedi ve stok DEĞİŞTİ: {onceki} -> {sonraki}. "
-        "ÖLÇÜLMEMİŞ bir sayı stoka giremez; NaN bir ölçüm değildir."
+        f"{rol}={ham} reddedildi ama stok DEĞİŞTİ: {onceki} -> {sonraki}. "
+        "Bir red, yazmayı gerçekten engellemiyorsa red değildir."
     )
+
+
+@pytest.mark.postgresql
+def test_products_stock_NaN_KABUL_EDER_ikinci_katman_YOK(motor) -> None:
+    """`products.stock` NaN'ı KABUL EDER — ÇÖZÜCÜ TEK BARİYERDİR.
+
+    Bu test bir DAVRANIŞI değil, BİR DELİĞİ çiviliyor, ve deliğin çivilenmesi
+    kapatılmasından ÖNCE gelir: okuyucu `product_unit_factors` üzerindeki
+    `CHECK (factor > 0 AND factor <> 'NaN'::numeric)` kısıtını görüp
+    "veritabanı beni koruyor" diye genelleyebilir. GENELLEME YANLIŞTIR.
+    `products.stock` üzerinde ÖYLE BİR KISIT YOKTUR: ham bir `UPDATE`
+    NaN yazabilir ve geri okuyabilir. ÖLÇÜLDÜ, aşağıda.
+
+    YANİ SONLU OLMAYAN BİR STOK SAYISINA KARŞI TEK SAVUNMA `app/units.py`
+    İÇİNDEKİ SONLULUK KAPISIDIR. Kardeş test o kapının çalıştığını ölçüyor;
+    bu test o kapının YALNIZ OLDUĞUNU ölçüyor. İkisi birlikte, kapının
+    kaldırılmasının maliyetini tam olarak söylüyor.
+
+    KISIT BU PR'DA EKLENMEDİ VE BU BİR KARARDIR: `products` ÇEKİRDEK bir
+    tablodur, bu PR'ın kapsamı çözücü ile KENDİ deposudur ve çekirdek bir
+    tabloya kısıt eklemek mevcut satırların taranmasını gerektirir — ayrı bir
+    iştir, ayrı ölçüm ister. Delik KABUL EDİLDİ ve kaydına yazıldı; bu test
+    onun sessizce unutulmasını engelliyor. Kısıt bir gün eklenirse BU TEST
+    KIRMIZI OLUR ve bu DOĞRUDUR: o gün burası, kısıtı doğrulayan teste döner.
+    """
+    with motor.begin() as baglanti:
+        _, urun_id = _firma_ve_urun(baglanti, "KG")
+        baglanti.execute(
+            text("UPDATE products SET stock = 'NaN'::numeric WHERE id = :pid"),
+            {"pid": urun_id},
+        )
+    with motor.begin() as baglanti:
+        geri, nan_mi = baglanti.execute(
+            text(
+                "SELECT stock::text, stock = 'NaN'::numeric FROM products "
+                "WHERE id = :pid"
+            ),
+            {"pid": urun_id},
+        ).one()
+    assert geri == "NaN", (
+        f"`products.stock` NaN yazmayı reddetti ve {geri!r} verdi. Bu İYİ bir "
+        "haberdir ama bu testin ve kardeşinin gerekçesini DEĞİŞTİRİR: ikinci "
+        "bir katman doğmuş demektir, testler ona göre yeniden yazılmalıdır."
+    )
+    assert nan_mi is True, "PostgreSQL'de `NaN = NaN` TRUE'dur; okuma NaN değil"
 
 
 @pytest.mark.postgresql
