@@ -76,6 +76,15 @@ TENANT_TABLES = frozenset({
     # açıldı, bu yüzden buradaki kayıt şimdilik yalnız kiracı NÖBETÇİSİNE
     # görünürlük sağlar; ilk çağıran geldiğinde kapsam zaten kurulmuş olur.
     "product_unit_factors",
+    # Parti/SKT defteri (göç 20260903_0067). company_id taşır ve ürüne
+    # BİLEŞİK yabancı anahtarla bağlıdır (0062'nin kuralı), yani bir
+    # kiracının partisi BAŞKA kiracının ürününü işaret edemez; ayrıca
+    # `stock_movements.lot_id` de (company_id, lot_id) ile BİLEŞİK bağlıdır.
+    # Tekillik (company_id, product_id, lot_code) kapsamındadır. BU PR'DA
+    # OKUYAN/YAZAN YOL YOKTUR — tablo seçiciden (`app/parti.py`) önce açıldı,
+    # bu yüzden buradaki kayıt şimdilik yalnız kiracı NÖBETÇİSİNE görünürlük
+    # sağlar; ilk çağıran geldiğinde kapsam zaten kurulmuş olur.
+    "product_lots",
     "quotes", "receivable_charge_documents", "receivable_charge_idempotency",
     "receivable_charge_periods", "receivable_legacy_residuals",
     "returns", "sales_orders", "security_audit_logs", "stock_movements",
