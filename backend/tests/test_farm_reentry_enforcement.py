@@ -46,8 +46,10 @@ def test_reentry_query_is_parcel_scoped_and_tenant_bound() -> None:
     assert "company_id=:cid" in govde
     assert "reentry_interval_days IS NOT NULL" in govde
     assert ":pid" in govde
-    # pid=None (field-safety) PostgreSQL'de tipi belirsiz kalmasın.
-    assert 'bindparam("pid", type_=Integer)' in govde
+    # `bindparam("pid", type_=Integer)` BURADA ARANMIYOR: kaynağı grep'lemek,
+    # dizgeyi koruyup DAVRANIŞI bozan bir yeniden düzenlemeyi yeşil geçirirdi.
+    # Tipin gerçekten iş görüp görmediği `run_bindparam_typing_probe` ile
+    # PostgreSQL ikizinde ÖLÇÜLÜYOR.
 
 
 def run_reentry_smoke(database_url: str) -> None:
@@ -59,6 +61,76 @@ def run_reentry_smoke(database_url: str) -> None:
         cwd=BACKEND, env=env, capture_output=True, text=True, timeout=300,
     )
     assert completed.returncode == 0, completed.stdout + "\n" + completed.stderr
+
+
+
+def run_bindparam_typing_probe(database_url: str) -> None:
+    """`pid` TİPİ olmadan `pid=None` PostgreSQL'de ÇÖZÜLEMEZ.
+
+    Kaynağı grep'lemek `bindparam(...)` dizgesini yerinde bırakıp tipi etkisiz
+    kılan bir yeniden düzenlemeyi (örneğin sorgunun `str()`inden yeni bir
+    `text()` kurmak) YEŞİL geçirirdi. Bu ölçüm o boşluğu kapatıyor: sorgunun
+    METNİ birebir aynı kalıp yalnız tip düşerse PostgreSQL `42P08
+    AmbiguousParameter` veriyor, gerçek sabit ise vermiyor. `field-safety`
+    raporu sorguyu `pid=None` ile çağırıyor; tip düşerse o uç 500 döner.
+
+    SQLite'ta ölçülemez: tipi belirsiz bir parametre orada hata vermez, yani
+    bu ayrım yalnız üretim diyalektinde görünür.
+    """
+    env = os.environ.copy()
+    env["DATABASE_URL"] = database_url
+    env["PYTHONPATH"] = str(BACKEND)
+    completed = subprocess.run(
+        [sys.executable, "-c", _BINDPARAM_PROBE],
+        cwd=BACKEND, env=env, capture_output=True, text=True, timeout=300,
+    )
+    assert completed.returncode == 0, completed.stdout + "\n" + completed.stderr
+
+
+_BINDPARAM_PROBE = r'''
+import os
+
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import ProgrammingError
+
+# SEMAYI KURAN SEY ASAGIDAKI ICE AKTARMADIR. `app.main` ice aktarildigi anda,
+# modul duzeyinde, alembic gocunu kosturur (`run_database_migrations`; lifespan
+# icinde DEGIL). Bu olcum tablolarin VAR OLDUGUNU varsaymamali: yalniz
+# `app.routers.farm`i ice aktarip dogrudan `create_engine` ile baglanan ilk
+# surum, KARDES kosunun goclerini calistirmis olmasina bel bagliyordu ve TEK
+# BASINA `UndefinedTable` ile dusuyordu — yesilligi SIRAYA bagliydi. Olculdu,
+# iki yonde: bu ice aktarma OLMADAN bos veritabaninda kirmizi, kardes semayi
+# kurduktan sonra yesil; ice aktarma VARKEN bos veritabaninda da yesil. Onceki
+# surumdeki `with TestClient(app): pass` satiri semayi KURMUYORDU (o satir
+# silinip ice aktarma birakilinca da yesil, olculdu); bu yuzden kaldirildi.
+import app.main  # noqa: F401
+from app.routers.farm import _GIRIS_SORGU
+
+motor = create_engine(os.environ['DATABASE_URL'])
+
+# Sorgunun METNI birebir ayni; DUSEN tek sey `bindparam` tipi.
+tipsiz = text(str(_GIRIS_SORGU))
+
+with motor.connect() as baglanti:
+    try:
+        baglanti.execute(tipsiz, {'cid': 1, 'pid': None}).all()
+    except ProgrammingError as exc:
+        kaynak = getattr(exc, 'orig', None)
+        assert type(kaynak).__name__ == 'AmbiguousParameter', type(kaynak).__name__
+        assert getattr(kaynak, 'sqlstate', None) == '42P08', kaynak
+    else:
+        raise AssertionError(
+            'Tipsiz `pid=None` PostgreSQL tarafindan REDDEDILMEDI; bu olcum '
+            'artik bir sey ayirt etmiyor.'
+        )
+    baglanti.rollback()
+
+    # GERCEK sabit: ayni cagri hata VERMEZ ve `pid` verildiginde de calisir.
+    baglanti.execute(_GIRIS_SORGU, {'cid': 1, 'pid': None}).all()
+    baglanti.execute(_GIRIS_SORGU, {'cid': 1, 'pid': 7}).all()
+
+print('GIRIS SORGUSU PID TIPI OK')
+'''
 
 
 def test_reentry_enforcement_sqlite(tmp_path: Path) -> None:
