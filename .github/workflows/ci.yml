@@ -756,10 +756,32 @@ jobs:
             echo "::error::frontend/e2e lint uyarı sayısı $okunan, bildirilen $BEKLENEN. Arttıysa yeni uyarıyı düzeltin; azaldıysa bu adımdaki BEKLENEN değerini düşürün — her iki yön de bilinçli bir karar olmalı." >&2
             exit 1
           fi
+      # ZORUNLU BAGLAM UCUNCU TARAFIN AYAKTA OLMASINA BAGLANAMAZ.
+      #
+      # OLCULEN ARIZA: 2026-09-03 ~22:00'den beri npm kayit defteri ucu zaman
+      # asimina ugruyor; develop caf4114'un kendisi (kosu 33807936220), PR #31
+      # (3 yeniden kosu) ve PR #32 yalniz AUDIT_TIMEOUT yuzunden KIRMIZI yandi,
+      # butun kod testleri gecerken. Bir ucuncu tarafin erisilebilirligiyle
+      # dusen zorunlu baglam bir KAPI degildir: sinyal degil gurultu uretir ve
+      # yesili yeniden kosarak "kazanmayi" ogretir.
+      #
+      # BOZULAN SEY, KAPI DEGIL, ARIZA SEKLI: betik uc kez (her biri 30 sn)
+      # dener; ancak AG SINIFI bir hata sonrasi --degrade-on-unavailable ile
+      # ::warning::AUDIT_UNAVAILABLE basip 0 ile ciker. Bir POLITIKA IHLALI
+      # ya da bozuk yuk bu yoldan ASLA gecmez -- kanit: betigin
+      # "--degrade-on-unavailable NEVER swallows a real policy violation" ve
+      # "a registry outage that exits 1 ... is unavailable, not a broken
+      # payload" alt-testleri.
+      #
+      # CEVRIMDISI SINYAL YERINDE KALIR: package-lock.json'un sha256'si
+      # audit-allowlist.json icinde beyan edilir ve bu kontrol bozulmus gecis
+      # yolunda DA kosar. Yani ag olmasa bile bagimlilik agacindaki her degisim
+      # kapiyi kirmizi yakar. Yasayan GHSA kontrolu KATI haliyle gunluk
+      # audit-gunluk.yml is akisinda kosar (zorunlu DEGIL, sesli duser).
       - name: Enforce exact frontend GHSA audit policy
         run: |
           npm run test:audit-policy
-          npm run audit:policy
+          npm run audit:policy -- --degrade-on-unavailable
       - run: npm run build:bridge
       - run: npm run build:field-pwa
       - run: npm test -- --run

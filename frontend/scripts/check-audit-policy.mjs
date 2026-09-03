@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,10 +12,54 @@ const GHSA_PATTERN = /^GHSA-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}$/;
 const GHSA_URL_PATTERN = /\/advisories\/(GHSA-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4})(?:$|[?#])/i;
 const SUPPORTED_AUDIT_REPORT_VERSION = 2;
 const AUDIT_TIMEOUT_MS = 30_000;
+const AUDIT_ATTEMPTS = 3;
+const AUDIT_BACKOFF_MS = [1_000, 4_000];
+const LOCKFILE_KEY = "$lockfile";
+const LOCKFILE_NAME = "package-lock.json";
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+// AG SINIFI HATA KODLARI: yalnizca bunlar "kayit defterine ulasilamadi"
+// sayilir. Baska her sey -- bozuk yuk, politika ihlali, npm'in kendi
+// cokmesi -- KIRMIZI kalir. Liste bilerek dar: genisledikce, bir
+// politika ihlalinin ag arizasi kilifina girme ihtimali dogar.
+const NETWORK_ERROR_CODES = new Set([
+  "ETIMEDOUT",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ENETUNREACH",
+  "ENETDOWN",
+  "EHOSTUNREACH",
+  "EPIPE",
+  "ERR_SOCKET_TIMEOUT",
+  "ENOTCACHED",
+]);
 const VULNERABILITY_LEVELS = ["info", "low", "moderate", "high", "critical"];
 
 function unusableAuditPayload(message) {
   return new Error(`AUDIT_PAYLOAD_UNUSABLE: ${message}`);
+}
+
+function auditUnavailable(message) {
+  const error = new Error(`AUDIT_UNAVAILABLE: ${message}`);
+  error.auditUnavailable = true;
+  return error;
+}
+
+export function isNetworkClassFailure({ error, stderr = "", stdout = "" }) {
+  if (error && NETWORK_ERROR_CODES.has(error.code)) {
+    return true;
+  }
+  const haystack = `${stderr}
+${stdout}`;
+  for (const code of NETWORK_ERROR_CODES) {
+    if (haystack.includes(code)) {
+      return true;
+    }
+  }
+  return /request to https?:\/\/\S+ failed|network (?:error|timeout)|getaddrinfo|socket hang up/i.test(
+    haystack,
+  );
 }
 
 function parseJson(raw, source) {
@@ -163,6 +208,9 @@ export function parseAllowlist(rawPolicy) {
   }
   const policy = new Map();
   for (const [rawId, entry] of Object.entries(rawPolicy)) {
+    if (rawId === LOCKFILE_KEY) {
+      continue;
+    }
     const id = rawId.toUpperCase();
     if (!GHSA_PATTERN.test(id)) {
       throw new Error(`invalid audit allowlist key: ${rawId}`);
@@ -217,11 +265,49 @@ export function enforceAuditPolicy(advisories, policy) {
   }
 }
 
+// CEVRIMDISI, BELIRLENIMCI SINYAL.
+// npm audit'in yasayan cagrisi bir ucuncu tarafin ayakta olmasina baglidir;
+// bu kontrol degildir. Kilit dosyasinin sha256'si allowlist icinde beyan
+// edilir: bagimlilik agaci degistiginde, kayit defterine hic ulasilamasa
+// bile kapi KIRMIZI yanar ve beyanin bilerek guncellenmesini ister.
+export function enforceLockfileIntegrity(
+  rawPolicy,
+  lockfilePath = resolve(FRONTEND_ROOT, LOCKFILE_NAME),
+  { read = readFileSync } = {},
+) {
+  const declared = rawPolicy?.[LOCKFILE_KEY];
+  if (
+    !declared ||
+    typeof declared !== "object" ||
+    Array.isArray(declared) ||
+    typeof declared.sha256 !== "string" ||
+    !SHA256_PATTERN.test(declared.sha256)
+  ) {
+    throw new Error(
+      `AUDIT_POLICY_RED: audit allowlist has no valid "${LOCKFILE_KEY}".sha256 (64 hex chars) for ${LOCKFILE_NAME}`,
+    );
+  }
+  const actual = createHash("sha256").update(read(lockfilePath)).digest("hex");
+  if (actual !== declared.sha256) {
+    throw new Error(
+      `AUDIT_POLICY_RED: ${LOCKFILE_NAME} sha256 mismatch: declared ${declared.sha256}, actual ${actual}. ` +
+        `Bagimlilik agaci degisti; allowlist icindeki "${LOCKFILE_KEY}".sha256 degerini bilerek guncelleyin.`,
+    );
+  }
+  return actual;
+}
+
 function parseArguments(argv) {
-  const options = { allowlist: DEFAULT_ALLOWLIST, auditJson: null };
+  const options = {
+    allowlist: DEFAULT_ALLOWLIST,
+    auditJson: null,
+    degradeOnUnavailable: false,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (argument === "--allowlist" || argument === "--audit-json") {
+    if (argument === "--degrade-on-unavailable") {
+      options.degradeOnUnavailable = true;
+    } else if (argument === "--allowlist" || argument === "--audit-json") {
       const value = argv[index + 1];
       if (!value) {
         throw new Error(`${argument} requires a path`);
@@ -260,14 +346,43 @@ export function runNpmAudit({ spawn = spawnSync, timeoutMs = AUDIT_TIMEOUT_MS } 
   });
   if (result.error) {
     if (result.error.code === "ETIMEDOUT") {
-      throw new Error(
-        `AUDIT_TIMEOUT: npm audit did not return within ${timeoutMs}ms; no audit policy decision was made`,
+      // TESHIS SOZCUGU KORUNDU: "AUDIT_TIMEOUT" mevcut bir alt-testin
+      // sabitledigi metindir; degisen tek sey, artik ag sinifi olarak
+      // isaretlenip yeniden denenebilmesidir.
+      throw Object.assign(
+        new Error(
+          `AUDIT_TIMEOUT: npm audit did not return within ${timeoutMs}ms; no audit policy decision was made`,
+        ),
+        { auditUnavailable: true },
       );
+    }
+    if (isNetworkClassFailure(result)) {
+      throw auditUnavailable(`npm audit could not reach the registry: ${result.error.message}`);
     }
     throw new Error(`npm audit could not start: ${result.error.message}`);
   }
-  const audit = parseJson(result.stdout, "npm audit output");
-  if (![0, 1].includes(result.status)) {
+  // AG SINIFI AYRIMI, CIKIS KODUNDAN ONCE VE YUKTEN ONCE.
+  // OLCULDU: npm, kayit defterine ulasamadiginda da CIKIS 1 verir -- yani
+  // "acik bulundu" ile ayni kod. Cikis kodunu once eleyen bir sira, gercek
+  // bir ag arizasini "bozuk yuk" diye KIRMIZI yakar (bu betikte tam olarak
+  // bu kusur vardi: stub'lu prova "npm audit output is not valid JSON"
+  // uretti). Bu yuzden karar SIRASI: once yuk okunabilir mi, degilse ag mi.
+  let audit = null;
+  let parseError = null;
+  try {
+    audit = parseJson(result.stdout, "npm audit output");
+  } catch (error) {
+    parseError = error;
+  }
+  if (parseError || ![0, 1].includes(result.status)) {
+    if (isNetworkClassFailure(result)) {
+      throw auditUnavailable(
+        `npm audit could not reach the registry (exit ${result.status}): ${result.stderr.trim()}`,
+      );
+    }
+    if (parseError) {
+      throw parseError;
+    }
     throw new Error(
       `npm audit failed with exit ${result.status}: ${result.stderr.trim()}`,
     );
@@ -275,13 +390,73 @@ export function runNpmAudit({ spawn = spawnSync, timeoutMs = AUDIT_TIMEOUT_MS } 
   return audit;
 }
 
-export function main(argv = process.argv.slice(2)) {
+function sleepSync(durationMs) {
+  if (durationMs > 0) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, durationMs);
+  }
+}
+
+// UC DENEME, SONRA BOZULMA -- FAIL-OPEN DEGIL, DAR BIR AGIZ.
+// Yalniz AUDIT_UNAVAILABLE (ag sinifi) yeniden denenir. Bir politika ihlali
+// ya da bozuk yuk ILK denemede firlar; tekrar denemek onu gizlemez.
+export function runNpmAuditWithRetry({
+  spawn = spawnSync,
+  timeoutMs = AUDIT_TIMEOUT_MS,
+  attempts = AUDIT_ATTEMPTS,
+  backoffMs = AUDIT_BACKOFF_MS,
+  sleep = sleepSync,
+  log = console.error,
+} = {}) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return runNpmAudit({ spawn, timeoutMs });
+    } catch (error) {
+      if (!error.auditUnavailable) {
+        throw error;
+      }
+      lastError = error;
+      log(`AUDIT_RETRY ${attempt}/${attempts}: ${error.message}`);
+      if (attempt < attempts) {
+        sleep(backoffMs[attempt - 1] ?? backoffMs.at(-1) ?? 0);
+      }
+    }
+  }
+  throw lastError;
+}
+
+export function main(argv = process.argv.slice(2), { audit: auditRunner } = {}) {
   const options = parseArguments(argv);
-  const audit = options.auditJson
-    ? parseJson(readFileSync(options.auditJson, "utf8"), options.auditJson)
-    : runNpmAudit();
-  const rawPolicy = readFileSync(options.allowlist, "utf8");
-  const policy = parseAllowlist(parseJson(rawPolicy, options.allowlist));
+  const rawPolicy = parseJson(
+    readFileSync(options.allowlist, "utf8"),
+    options.allowlist,
+  );
+  // KILIT KONTROLU HER ZAMAN VE ONCE: bozulmus gecis (degraded) yolunda bile
+  // calisir. Ag olmadan da bir sinyal kalmasinin tek sebebi budur.
+  enforceLockfileIntegrity(rawPolicy, resolve(FRONTEND_ROOT, LOCKFILE_NAME));
+  const policy = parseAllowlist(rawPolicy);
+
+  let audit;
+  if (options.auditJson) {
+    audit = parseJson(readFileSync(options.auditJson, "utf8"), options.auditJson);
+  } else {
+    try {
+      audit = (auditRunner ?? runNpmAuditWithRetry)();
+    } catch (error) {
+      // BOZULMUS GECIS YALNIZ AG SINIFINDA. Bir politika ihlali ya da bozuk
+      // yuk buraya hic ulasmaz: onlar auditUnavailable tasimaz ve asagidaki
+      // firlatma ile KIRMIZI yanar.
+      if (options.degradeOnUnavailable && error.auditUnavailable) {
+        console.log(
+          `::warning::${error.message}. ` +
+            `Kilit dosyasi butunlugu DOGRULANDI; yasayan GHSA kontrolu gunluk (zorunlu olmayan) is akisina birakildi.`,
+        );
+        return "AUDIT_UNAVAILABLE";
+      }
+      throw error;
+    }
+  }
+
   const advisories = extractAuditAdvisories(audit);
   enforceAuditPolicy(advisories, policy);
 
@@ -292,6 +467,7 @@ export function main(argv = process.argv.slice(2)) {
   for (const id of ids) {
     console.log(`ACCEPTED ${id}: ${policy.get(id).reason}`);
   }
+  return "AUDIT_POLICY_GREEN";
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
