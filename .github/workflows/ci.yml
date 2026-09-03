@@ -957,6 +957,32 @@ jobs:
         run: |
           docker run --rm --entrypoint pg_dump yerel-hesap-pro:${{ github.sha }} --version
           docker run --rm --entrypoint pg_restore yerel-hesap-pro:${{ github.sha }} --version
+      - name: Verify production image has no test assets
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint sh yerel-hesap-pro:${{ github.sha }} -c '
+            set -eu
+            cd /app/backend
+            # Bosluklu YOK; $yollar bilerek tirnaksiz genisletilir (kelime bolme).
+            yollar="tests donmus_saat.py non_twin_skip_exceptions.json"
+            yollar="$yollar sandbox requirements-dev.txt"
+            yollar="$yollar LEGACY_TEST_MIGRATION_PLAN.md"
+            yollar="$yollar tools/capture_frontend_fixtures.py"
+            kalan=""
+            for yol in $yollar
+            do
+              if [ -e "$yol" ]; then kalan="$kalan /app/backend/$yol"; fi
+            done
+            if [ -n "$kalan" ]; then
+              echo "Uretim imaji test varligi tasiyor:$kalan" >&2
+              exit 1
+            fi
+            adet="$(find /app/backend -name "test_*.py" | wc -l)"
+            if [ "$adet" != "0" ]; then
+              echo "Uretim imajinda $adet adet test_*.py kaldi" >&2
+              exit 1
+            fi
+          '
       - name: Smoke-test non-root read-only container
         run: |
           docker network create yhp-ci
