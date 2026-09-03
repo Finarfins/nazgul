@@ -18,7 +18,24 @@ EXPECTED_RUNTIME_REMOVAL = (
     "/app/backend/run_isolated_tests.py "
     "/app/backend/isolated_test_reporter.py "
     "/app/backend/aggregate_isolated_test_reports.py "
-    "/app/backend/merge_postgresql_test_reports.py"
+    "/app/backend/merge_postgresql_test_reports.py "
+    "/app/backend/non_twin_skip_exceptions.json "
+    "/app/backend/sandbox "
+    "/app/backend/requirements-dev.txt "
+    "/app/backend/LEGACY_TEST_MIGRATION_PLAN.md "
+    "/app/backend/tools/capture_frontend_fixtures.py"
+)
+
+# Uretim imajinda BULUNMAMASI gereken yollar; find ile sayilan test_*.py
+# disindaki her sey burada. Kapinin tek tek `test -e` ile olctugu liste budur.
+YASAKLI_URETIM_YOLLARI = (
+    "/app/backend/tests",
+    "/app/backend/donmus_saat.py",
+    "/app/backend/non_twin_skip_exceptions.json",
+    "/app/backend/sandbox",
+    "/app/backend/requirements-dev.txt",
+    "/app/backend/LEGACY_TEST_MIGRATION_PLAN.md",
+    "/app/backend/tools/capture_frontend_fixtures.py",
 )
 
 
@@ -31,11 +48,18 @@ def _production_stage(content: str) -> str:
 def test_production_stage_removes_test_assets_only_in_that_stage() -> None:
     content = DOCKERFILE.read_text(encoding="utf-8")
     production_stage = _production_stage(content)
+    # `next(...)` VARSAYILANSIZ birakilirsa satir yoksa StopIteration ile patlar:
+    # kapi kirmizi olur ama NEDENI okunmaz. Varsayilan + mesajli assert, "RUN rm
+    # satiri test stage'e tasindi" mutasyonunu ADIYLA soyler.
     removal_line = next(
-        line
-        for line in production_stage.splitlines()
-        if line.startswith("RUN rm -rf /app/backend/tests")
+        (
+            line
+            for line in production_stage.splitlines()
+            if line.startswith("RUN rm -rf /app/backend/tests")
+        ),
+        None,
     )
+    assert removal_line is not None, "production stage'de RUN rm satırı yok"
     assert removal_line == f"RUN {EXPECTED_RUNTIME_REMOVAL}", removal_line
     test_stage = content[content.index("FROM runtime-base AS test"):content.index("FROM runtime-base AS production")]
     assert EXPECTED_RUNTIME_REMOVAL not in test_stage
@@ -96,12 +120,15 @@ def test_production_image_contains_no_test_assets() -> None:
             "sh",
             PRODUCTION_TAG,
             "-c",
-            "test ! -d /app/backend/tests && test ! -e /app/backend/donmus_saat.py",
+            " && ".join(f"test ! -e {yol}" for yol in YASAKLI_URETIM_YOLLARI),
         ],
         capture_output=True,
         text=False,
     )
-    assert frozen_clock.returncode == 0, frozen_clock.stdout + frozen_clock.stderr
+    assert frozen_clock.returncode == 0, (
+        "üretim imajı yasaklı yol taşıyor, beklenen yokluk: "
+        + ", ".join(YASAKLI_URETIM_YOLLARI)
+    )
 
 
 def test_stage_still_contains_tests() -> None:
@@ -136,10 +163,39 @@ def test_stage_still_contains_tests() -> None:
             "sh",
             "yerel-hesap-test:uretim-imaji-kapisi",
             "-c",
-            "test -d /app/backend/tests; find /app/backend -name 'test_*.py' | wc -l",
+            # `;` DEGIL `&&`: noktali virgul `test -d`nin cikis kodunu YUTAR, kabuk
+            # yalnizca `wc -l`in kodunu dondururdu. Ustelik sayim /app/backend
+            # GENELINDE yapilinca backend KOKUNDEKI 290 test_*.py tek basina
+            # toplami >0 tutar; tests/ TAMAMEN silinmis bir imajda bile kapi yesil
+            # kalirdi (olculdu: doctored imajda eski komut 290 basip 0 ile cikti).
+            # Bu yuzden sayim tests/ ALTINDA yapilir.
+            "test -d /app/backend/tests && "
+            "find /app/backend/tests -name 'test_*.py' | wc -l",
         ],
         capture_output=True,
         text=False,
     )
-    assert test_count.returncode == 0, test_count.stdout + test_count.stderr
+    assert test_count.returncode == 0, (
+        "test stage'de /app/backend/tests yok ya da sayım çalışmadı: "
+        + (test_count.stdout + test_count.stderr).decode("utf-8", "replace")
+    )
     assert int(test_count.stdout.decode("utf-8").strip()) > 0, test_count.stdout
+
+    # Toplam (kok + tests/) sayim IKINCI bir iddia olarak; birinin digerini
+    # maskelemesini engeller.
+    toplam = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--entrypoint",
+            "sh",
+            "yerel-hesap-test:uretim-imaji-kapisi",
+            "-c",
+            "find /app/backend -name 'test_*.py' | wc -l",
+        ],
+        capture_output=True,
+        text=False,
+    )
+    assert toplam.returncode == 0, toplam.stdout + toplam.stderr
+    assert int(toplam.stdout.decode("utf-8").strip()) > 0, toplam.stdout
