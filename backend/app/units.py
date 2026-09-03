@@ -36,6 +36,51 @@ Taban bildirilmemiş bir üründe taban dışı bir birim girilirse çözücü
 katsayı 1 ile geçmek) reddedildi: bu bir OLGU UYDURMAK olurdu ve bütün bu
 tasarım tam olarak onu yapmamak için vardır.
 
+--- SONLU OLMAYAN SAYILAR: NaN, Inf, -Inf, sNaN --------------------------
+
+`Decimal` OLMAK sonlu olmak DEĞİLDİR. `Decimal("NaN")` bir `Decimal`dir,
+`isinstance` kapısından geçer ve `Decimal(<kullanıcı metni>)` ile üretilebilir
+— PR 2'nin çağıranı istek gövdesinden tam olarak böyle ayrıştıracaktır.
+
+ÖLÇÜLEN KUSUR (fix'ten ÖNCE, bu dalın kendi ağacında):
+
+    resolve(Decimal("NaN"), "KG", "KG")  ->  (Decimal('NaN'), Decimal('1'))
+
+istisna YOK. O NaN gerçek PostgreSQL 16.14'te `products.stock`a YAZILDI ve
+NaN olarak geri okundu. Üç katman birden kaçırıyordu, üçü de ölçüldü:
+
+  1. Kapı TİP kapısıydı, SONLULUK kapısı değil.
+  2. Sıfır-ürün reddi `urun == 0` sorar; `NaN == 0` FALSE'tur, yani NaN
+     reddin İÇİNDEN değil ÜSTÜNDEN geçer.
+  3. Inf/-Inf/sNaN `quantize`ta `decimal.InvalidOperation` atıyordu — o da
+     `BirimCozulemedi` AİLESİNİN DIŞINDADIR ve bu dosyanın her iki çağıran
+     için belgelediği `except BirimCozulemedi:` sözleşmesinden KAÇAR.
+     Gerçek bir girdinin kaçtığı bir aile sözleşme değildir.
+
+İKİ FARKLI `sebep`, VE BU BİLİNÇLİ BİR KARARDIR. PR 2 `sebep` üzerinden
+yönlendirir (outbox'ta adı konmuş atlama kovası, etkileşimli yazmada red),
+bu yüzden yanlış yönlendiren bir sebep REDDETSE BİLE kusurdur:
+
+  * MİKTAR sonlu değilse -> `MIKTAR_SONLU_DEGIL` (YENİ). Bu bir GİRDİ
+    kusurudur: sayıyı o an bir insan yazdı. Çaresi operatörün YENİDEN
+    GİRMESİDİR — etkileşimli yazmada 4xx, outbox'ta o kayda ait atlama.
+    Hiçbir defter satırı bozuk DEĞİLDİR.
+  * KATSAYI sonlu değilse -> `KATSAYI_GECERSIZ` (MEVCUT, yeni değil). Bu bir
+    DEFTER kusurudur: `product_unit_factors` satırı bozuktur ve operatörün
+    yeniden girmesi onu DÜZELTMEZ; birinin DEFTERİ düzeltmesi gerekir. Çare
+    mevcut geçersiz-katsayı vakalarıyla (Decimal olmayan, pozitif olmayan)
+    AYNIDIR, o yüzden aynı kovaya girer.
+
+NİYE KATSAYI İÇİN YENİ SEBEP AÇILMADI — ÖLÇÜLMÜŞ GEREKÇE: `-Inf` katsayısı
+FIX'TEN ÖNCE BİLE doğru kovaya düşüyordu (`-Inf <= 0` TRUE'dur, ölçüldü),
+yani `KATSAYI_GECERSIZ`. Sonlu olmayan katsayılara ayrı bir sebep açmak
+`-Inf`i KOVA DEĞİŞTİRTİRDİ: bugün doğru yönlendirilen bir girdi, kusuru
+düzelten bir yamada yönünü değiştirirdi. Tek bir çare iki kovaya bölünmez.
+
+VERİTABANI KATMANI AYRICA ONARILDI: `CHECK (factor > 0)` sonlu olmayanı
+YAKALAMIYORDU (PostgreSQL `NaN`ı her sonlu sayının üstüne sıralar). Bkz.
+göç `20260902_0066`; kısıt artık `factor <> 'NaN'::numeric` de içeriyor.
+
 --- SIFIR OLMAYAN GİRİŞ SIFIR ÜRÜNE DÜŞERSE REDDEDİLİR --------------------
 
 `1 GRAM -> TON` 4 basamakta `0.0000`dır. PR 1 bunu ölçüp BULGU olarak
@@ -148,6 +193,7 @@ class BirimCozulemedi(Exception):
     BIRIM_TANIMSIZ = "BIRIM_TANIMSIZ"
     BOYUT_UYUSMAZLIGI = "BOYUT_UYUSMAZLIGI"
     KATSAYI_GECERSIZ = "KATSAYI_GECERSIZ"
+    MIKTAR_SONLU_DEGIL = "MIKTAR_SONLU_DEGIL"
 
     def __init__(self, sebep: str, mesaj: str) -> None:
         super().__init__(f"{sebep}: {mesaj}")
@@ -218,6 +264,24 @@ def _katsayi(
                 "Bu çözücü float KABUL ETMEZ; ikili kayan nokta bir stok "
                 "sayısına giremez.",
             )
+        # --- SONLULUK, `<= 0` KARŞILAŞTIRMASINDAN ÖNCE --------------------
+        # SIRA ZORUNLUDUR, üslup değildir: Python'da `Decimal("NaN") <= 0`
+        # KARŞILAŞTIRMANIN KENDİSİ `decimal.InvalidOperation` ATAR. Denetim
+        # `<= 0`dan SONRA konsaydı NaN ona HİÇ ULAŞAMAZ ve aile dışı istisna
+        # sızmaya DEVAM ederdi. ÖLÇÜLDÜ (fix'ten önce): NaN/sNaN katsayısı
+        # `InvalidOperation`, Inf ise `quantize`ta yine `InvalidOperation`;
+        # YALNIZ `-Inf` (çünkü `-Inf <= 0` TRUE'dur) zaten doğru kovadaydı.
+        #
+        # SEBEP `KATSAYI_GECERSIZ`, YENİ BİR SEBEP DEĞİL — bkz. başlıktaki
+        # "SONLU OLMAYAN SAYILAR": çaresi mevcut geçersiz-katsayı vakalarıyla
+        # AYNIDIR (defter satırı düzeltilir) ve `-Inf` bugün zaten bu kovada;
+        # ayrı bir sebep onu KOVA DEĞİŞTİRTİRDİ.
+        if not katsayi.is_finite():
+            raise BirimCozulemedi(
+                BirimCozulemedi.KATSAYI_GECERSIZ,
+                f"{birim!r} katsayısı SONLU değil: {katsayi}. Bir katsayı "
+                "firmanın ÖLÇÜLMÜŞ beyanıdır; NaN ve sonsuzluk beyan değildir.",
+            )
         if katsayi <= 0:
             raise BirimCozulemedi(
                 BirimCozulemedi.KATSAYI_GECERSIZ,
@@ -269,12 +333,43 @@ def resolve(
 
     Sıfır olmayan bir giriş 4 basamakta sıfıra düşerse ``UrunTemsilEdilemez``
     atılır (sahip kararı 3). Sıfır giriş sıfır ürün verir, reddedilmez.
+
+    SONLU OLMAYAN girdiler REDDEDİLİR ve reddin tamamı ``BirimCozulemedi``
+    AİLESİNİN İÇİNDEDİR — ``decimal.InvalidOperation`` DIŞARI SIZMAZ. Miktar
+    ``MIKTAR_SONLU_DEGIL``, katsayı ``KATSAYI_GECERSIZ`` sebebiyle reddedilir;
+    ikisinin AYRI olmasının gerekçesi başlıktaki "SONLU OLMAYAN SAYILAR"
+    bölümündedir (biri GİRDİ kusuru, öteki DEFTER kusuru — çareleri farklı).
     """
     if not isinstance(entered_quantity, Decimal):
         raise BirimCozulemedi(
             BirimCozulemedi.KATSAYI_GECERSIZ,
             "entered_quantity Decimal olmalı, "
             f"{type(entered_quantity).__name__} verildi.",
+        )
+    # --- SONLULUK KAPISI, TİP KAPISININ YANINDA ---------------------------
+    # `Decimal` OLMAK yetmez: `Decimal("NaN")`, `Decimal("Infinity")`,
+    # `Decimal("-Infinity")` ve `Decimal("sNaN")` hepsi `Decimal`dir ve tip
+    # kapısından GEÇER. Bunlar `Decimal(<kullanıcı metni>)` ile ÜRETİLEBİLİR
+    # — PR 2'nin çağıranı gövdeden tam olarak böyle ayrıştıracaktır.
+    #
+    # NİYE SIFIR-ÜRÜN REDDİ BUNU YAKALAMAZ: o red `urun == 0` sorar ve
+    # `NaN == 0` FALSE'tur (`NaN != 0` da TRUE'dur), yani NaN reddin İÇİNDEN
+    # DEĞİL ÜSTÜNDEN geçer. ÖLÇÜLDÜ (fix'ten önce):
+    #     resolve(Decimal("NaN"), "KG", "KG") -> (Decimal('NaN'), Decimal('1'))
+    # istisna YOK — ve o NaN gerçek PostgreSQL 16.14'te `products.stock`a
+    # yazılıp NaN olarak geri okundu.
+    #
+    # NİYE `quantize`ın kendi hatasına GÜVENİLMEZ: Inf/-Inf/sNaN için
+    # `quantize` `decimal.InvalidOperation` atar, o da `BirimCozulemedi`
+    # AİLESİNİN DIŞINDADIR ve belgelenmiş `except BirimCozulemedi:`
+    # sözleşmesinden KAÇAR. Gerçek bir girdinin kaçtığı bir aile sözleşme
+    # değildir; kapı bu yüzden burada, ailenin İÇİNDE.
+    if not entered_quantity.is_finite():
+        raise BirimCozulemedi(
+            BirimCozulemedi.MIKTAR_SONLU_DEGIL,
+            f"entered_quantity SONLU değil: {entered_quantity}. NaN ve "
+            "sonsuzluk ÖLÇÜLMEMİŞ sayılardır; stoka giremezler. Sıfır-ürün "
+            "reddi bunu yakalayamaz çünkü NaN hiçbir şeye EŞİT DEĞİLDİR.",
         )
 
     girilen_birim = turkce_katla(entered_unit)

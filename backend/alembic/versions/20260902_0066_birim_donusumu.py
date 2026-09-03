@@ -66,13 +66,37 @@ eklemek bu deponun hiçbir yerinde kurulmamış bir desen olurdu. Yasak
 BURADA YAZILI ve `effective_from`un varlığıyla ŞEMADA GÖRÜNÜR: tek bir
 geçerli satır olsaydı o sütun gereksiz olurdu.
 
---- `CHECK factor > 0` ------------------------------------------------------
+--- `CHECK (factor > 0 AND factor <> 'NaN'::numeric)` -----------------------
 
 Sıfır katsayı her miktarı sessizce 0'a çevirirdi; negatif katsayı bir girişi
 ÇIKIŞA çevirirdi. İkisi de UYGULAMA hatasıdır ama ikisi de veriye YAZILABİLİR
 olduğu için kısıt veritabanındadır. Çözücü aynı denetimi ayrıca yapıyor
 (`KATSAYI_GECERSIZ`); iki katman KASITLIDIR — çözücü çağrılmadan yazılan bir
 satırı yalnız veritabanı yakalar.
+
+`AND factor <> 'NaN'::numeric` YARISI SONRADAN EKLENDİ VE SEBEBİ ÖLÇÜLDÜ.
+Yalın `factor > 0` bu ikinci katmanı SAĞLAMIYORDU: PostgreSQL `NaN`ı her
+sonlu sayının ÜSTÜNE sıralar, yani kısıt onu KABUL EDER. Gerçek PostgreSQL
+16.14'te ölçüldü:
+
+    SELECT 'NaN'::numeric > 0        ->  t
+    SELECT 'NaN'::numeric > 1e300    ->  t
+    INSERT ... factor='NaN'          ->  INSERT 0 1     (yalın kısıtla)
+    INSERT ... factor='NaN'          ->  CheckViolation (bu kısıtla)
+
+Yani "çözücü çağrılmadan yazılan satırı veritabanı yakalar" cümlesi, tam da
+en sessiz değer için YANLIŞTI. Belgelenmiş ama savunmayan bir savunma,
+savunma olmamasından KÖTÜDÜR: okuyucu ona güvenir.
+
+`<>` KULLANILIYOR ÇÜNKÜ PostgreSQL'de `NaN = NaN` TRUE'dur (IEEE 754'ten
+AYRILIR, `numeric` sıralanabilir olsun diye). Bu yüzden `factor <> 'NaN'`
+ifadesi NaN için FALSE döner ve satır reddedilir; ÖLÇÜLDÜ:
+`SELECT 'NaN'::numeric <> 'NaN'::numeric` -> `f`.
+
+`Infinity`/`-Infinity` BU KISITA HİÇ ULAŞMAZ: `numeric(24,10)` onları
+`NumericValueOutOfRange` ile zaten reddeder (ölçüldü). Kısıta onlar için bir
+şart EKLENMEDİ — ölçülmeden savunma yazmak, bu satırın düzelttiği hatanın
+aynısı olurdu.
 
 --- BİLEŞİK YABANCI ANAHTAR, ÇIPLAK OLANI DEĞİL (0062'nin KURALI) ---------
 
@@ -191,7 +215,10 @@ def upgrade() -> None:
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
             # Sıfır her miktarı sessizce 0 yapardı; negatif girişi ÇIKIŞA
             # çevirirdi. İkisi de yazılabilir olduğu için kısıt buradadır.
-            sa.CheckConstraint("factor > 0", name=CK_KATSAYI_POZITIF),
+            sa.CheckConstraint(
+                "factor > 0 AND factor <> 'NaN'::numeric",
+                name=CK_KATSAYI_POZITIF,
+            ),
             sa.ForeignKeyConstraint(["company_id"], ["companies.id"]),
             # ÇIPLAK DEĞİL BİLEŞİK: çapraz kiracı ürün referansını engeller.
             sa.ForeignKeyConstraint(

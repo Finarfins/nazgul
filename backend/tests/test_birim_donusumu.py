@@ -323,3 +323,123 @@ def test_GERCEK_SIFIR_giris_GERCEK_SIFIR_urun_verir_RED_YOK(
     urun, _ = resolve(Decimal(miktar), birim, taban, katsayilar)
     assert urun == Decimal("0.0000")
     assert urun.as_tuple().exponent == -4
+
+
+# ===========================================================================
+# SONLU OLMAYAN SAYILAR — `Decimal` OLMAK sonlu olmak DEĞİLDİR
+# ===========================================================================
+#
+# NİYE AYRI BİR BÖLÜM: bu dört değer (`NaN`, `Infinity`, `-Infinity`, `sNaN`)
+# `isinstance(..., Decimal)` kapısından GEÇER ve `Decimal(<kullanıcı metni>)`
+# ile ÜRETİLEBİLİR — PR 2'nin çağıranı istek gövdesinden tam olarak böyle
+# ayrıştıracaktır. Fix'ten ÖNCE ölçülen davranış:
+#
+#   MİKTAR:  NaN  -> (Decimal('NaN'), Decimal('1'))   istisna YOK
+#            Inf/-Inf/sNaN -> decimal.InvalidOperation (AİLE DIŞI)
+#   KATSAYI: NaN/Inf/sNaN  -> decimal.InvalidOperation (AİLE DIŞI)
+#            -Inf          -> KATSAYI_GECERSIZ (zaten doğru kovada)
+#
+# O NaN gerçek PostgreSQL 16'da `products.stock`a yazılıp NaN olarak geri
+# okundu. Sıfır-ürün reddi onu yakalayamaz: `NaN == 0` FALSE'tur.
+
+SONLU_OLMAYANLAR = ["NaN", "Infinity", "-Infinity", "sNaN"]
+
+
+@pytest.mark.parametrize("ham", SONLU_OLMAYANLAR)
+def test_SONLU_OLMAYAN_miktar_REDDEDILIR_stoka_GIREMEZ(ham: str) -> None:
+    """Dördü de `MIKTAR_SONLU_DEGIL` ile ve AİLENİN İÇİNDE reddedilir."""
+    with pytest.raises(BirimCozulemedi) as hata:
+        resolve(Decimal(ham), "KG", "KG")
+    assert hata.value.sebep == BirimCozulemedi.MIKTAR_SONLU_DEGIL
+
+
+@pytest.mark.parametrize("ham", SONLU_OLMAYANLAR)
+def test_SONLU_OLMAYAN_KATSAYI_REDDEDILIR_defter_kusurudur(ham: str) -> None:
+    """Katsayı `KATSAYI_GECERSIZ`tir — MİKTARDAN AYRI bir sebep.
+
+    Gerekçe `app/units.py` başlığındadır: miktar bir GİRDİ kusurudur
+    (operatör yeniden girer), katsayı bir DEFTER kusurudur (satır
+    düzeltilmelidir). PR 2 `sebep` üzerinden yönlendirir, o yüzden yanlış
+    yönlendiren bir sebep REDDETSE BİLE kusurdur.
+    """
+    with pytest.raises(BirimCozulemedi) as hata:
+        resolve(Decimal("1"), "ÇUVAL", "KG", {"ÇUVAL": Decimal(ham)})
+    assert hata.value.sebep == BirimCozulemedi.KATSAYI_GECERSIZ
+
+
+@pytest.mark.parametrize("ham", SONLU_OLMAYANLAR)
+@pytest.mark.parametrize("rol", ["miktar", "katsayi"])
+def test_SONLU_OLMAYAN_red_AILE_ICINDEDIR_InvalidOperation_SIZMAZ(
+    ham: str, rol: str
+) -> None:
+    """BELGELENEN SÖZLEŞME: `except BirimCozulemedi:` HEPSİNİ yakalar.
+
+    Bu testin ayrı var olma sebebi: yukarıdaki iki test `pytest.raises`
+    ile zaten `BirimCozulemedi` bekliyor, ama bir okuyucu için asıl kusur
+    "reddetmiyor" DEĞİL, "aile DIŞINDA bir istisnayla reddediyor"du.
+    `decimal.InvalidOperation` `BirimCozulemedi`nin ATASI DEĞİLDİR; bu test
+    onun sızmadığını AÇIKÇA ölçer. Gerçek bir girdinin kaçtığı bir aile
+    sözleşme değildir.
+    """
+    from decimal import InvalidOperation
+
+    try:
+        if rol == "miktar":
+            resolve(Decimal(ham), "KG", "KG")
+        else:
+            resolve(Decimal("1"), "ÇUVAL", "KG", {"ÇUVAL": Decimal(ham)})
+    except BirimCozulemedi:
+        pass  # SÖZLEŞME TUTTU
+    except InvalidOperation as sizinti:  # pragma: no cover - kusur yolu
+        raise AssertionError(
+            f"{rol}={ham}: `decimal.InvalidOperation` AİLE DIŞINA sızdı — "
+            "belgelenen `except BirimCozulemedi:` sözleşmesi bunu YAKALAMAZ"
+        ) from sizinti
+    else:  # pragma: no cover - kusur yolu
+        raise AssertionError(f"{rol}={ham}: HİÇ reddedilmedi")
+
+
+def test_SONLU_OLMAYAN_katsayi_denetimi_KARSILASTIRMADAN_ONCE_gelir() -> None:
+    """SIRA ZORUNLUDUR: `Decimal("NaN") <= 0` KARŞILAŞTIRMASI hata atar.
+
+    Sonluluk denetimi `<= 0`dan SONRA konsaydı NaN ona HİÇ ULAŞAMAZ, ve
+    `decimal.InvalidOperation` aile dışına sızmaya DEVAM ederdi. Bu test o
+    sırayı çiviler: denetimi aşağı taşıyan bir düzenleme burayı kırar.
+    """
+    from decimal import InvalidOperation
+
+    with pytest.raises(InvalidOperation):
+        Decimal("NaN") <= 0  # noqa: B015 - ÖLÇÜLEN ŞEY BU İFADENİN KENDİSİ
+
+    with pytest.raises(BirimCozulemedi) as hata:
+        resolve(Decimal("1"), "ÇUVAL", "KG", {"ÇUVAL": Decimal("NaN")})
+    assert hata.value.sebep == BirimCozulemedi.KATSAYI_GECERSIZ
+
+
+def test_EKSI_SONSUZ_katsayi_KOVA_DEGISTIRMEDI_gerileme_yok() -> None:
+    """`-Inf` fix'ten ÖNCE de `KATSAYI_GECERSIZ`ti (`-Inf <= 0` TRUE).
+
+    Katsayıya AYRI bir sebep açılmamasının ÖLÇÜLMÜŞ gerekçesi budur: ayrı
+    bir sebep, bugün zaten doğru yönlendirilen bu girdiyi KOVA
+    DEĞİŞTİRTİRDİ. Test o gerekçeyi çiviler.
+    """
+    with pytest.raises(BirimCozulemedi) as hata:
+        resolve(Decimal("1"), "ÇUVAL", "KG", {"ÇUVAL": Decimal("-Infinity")})
+    assert hata.value.sebep == BirimCozulemedi.KATSAYI_GECERSIZ
+
+
+@pytest.mark.parametrize(
+    ("miktar", "birim", "taban", "katsayilar", "beklenen"),
+    [
+        ("0", "KG", "KG", None, "0.0000"),
+        ("2", "TON", "KG", None, "2000.0000"),
+        ("50", "GRAM", "TON", None, "0.0001"),
+        ("3", "ÇUVAL", "KG", {"ÇUVAL": Decimal("33.5")}, "100.5000"),
+    ],
+)
+def test_SONLULUK_kapisi_SONLU_girdilere_DOKUNMAZ(
+    miktar, birim, taban, katsayilar, beklenen
+) -> None:
+    """Kapı yalnız sonlu OLMAYANI keser; sonlu yollar AYNEN durur."""
+    urun, _ = resolve(Decimal(miktar), birim, taban, katsayilar)
+    assert str(urun) == beklenen
