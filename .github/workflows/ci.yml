@@ -970,7 +970,7 @@ jobs:
           set -euo pipefail
           asset_count="$(docker run --rm --entrypoint sh yerel-hesap-pro:${{ github.sha }} \
             -c 'test ! -d /app/backend/tests; printf "%s" "$?"; test ! -e /app/backend/donmus_saat.py; printf "%s" "$?"')"
-          [ "$asset_count" = "11" ] || {
+          [ "$asset_count" = "00" ] || {
             echo "::error::Üretim imajı test varlığı taşıyor: tests kontrol kodu ${asset_count:0:1}, donmus_saat kontrol kodu ${asset_count:1:1}" >&2
             exit 1
           }
