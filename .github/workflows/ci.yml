@@ -453,10 +453,16 @@ jobs:
           # company_id default contract'i adinda "postgresql" gecmese de migration
           # yolunu REQUIRE_PG=1 ile gercek PostgreSQL 16 uzerinde calistirir.
           all_files=(test_*postgresql*.py tests/test_company_id_default_contract.py tests/test_ci_playwright_hazirlik.py)
-          # Donmuş PostgreSQL test popülasyonu (97 postgresql-adlı + 2 özel dosya = 99).
+          # Donmuş PostgreSQL test popülasyonu (98 postgresql-adlı + 2 özel dosya = 100).
+          # SAYIM ÖLÇÜLDÜ, aritmetikle türetilmedi. Bu yorum bir tur boyunca
+          # "97 + 2 = 99" derken sabit 100'dü; değeri doğru olan ama gerekçesi
+          # onu yalanlayan bir çivi sonraki okuyucu için TUZAKTIR.
           # 97 -> 98: `test_uretici_kayit_defteri_postgresql.py` (Uygulama Kayıt
           # Çizelgesi; genişleyen bind, NUMERIC ölçeği, TIMESTAMPTZ ve çapraz
           # kiracı GERÇEK PostgreSQL üzerinde ölçülüyor) — develop'a PR #22 ile indi.
+          # 99 -> 100: `test_birim_donusumu_postgresql.py` (birim dönüşümü; göç
+          # 20260902_0066 — çözücünün SAYISAL iddiası ve SONLU OLMAYAN girdinin
+          # reddi yalnız gerçek NUMERIC(18,4) üzerinde ayırt edici).
           # 98 -> 99: `test_farm_bku_ice_aktarma_postgresql.py` (BKÜ içe aktarma;
           # "bir bozuk satır dosyayı düşürmez" kuralı SAVEPOINT'e dayanır ve
           # savepoint yokken SQLite koşusu YEŞİL kalır). Taban develop'un 98'idir,

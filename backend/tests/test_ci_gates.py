@@ -20,8 +20,8 @@ CALL_SITE_GATE = REPO_ROOT / "deploy" / "ci-verify-cagri-kapisi.py"
 BACKEND = REPO_ROOT / "backend"
 
 
-def test_pg_test_population_exact_99() -> None:
-    """PostgreSQL test population must be exactly 99 files.
+def test_pg_test_population_exact_100() -> None:
+    """PostgreSQL test population must be exactly 100 files.
 
     95 -> 97: tarla yazma kilitleri ikizleri (`test_farm_monoculture_postgresql.py`,
     `test_farm_reentry_enforcement_postgresql.py`, göç 20260901_0064). İkizler
@@ -43,6 +43,17 @@ def test_pg_test_population_exact_99() -> None:
     koşusu YEŞİL KALIR — PostgreSQL'de başarısız bir deyim işlemi ABORTED
     yapar, SQLite'ta yapmaz. Yani bu dilimin ana iddiasının kırılması YALNIZ
     üretim diyalektinde görünür.
+
+    99 -> 100: bu PR'ın birim dönüşümü ikizi
+    (`test_birim_donusumu_postgresql.py`, göç 20260902_0066). SAYIM ÖLÇÜLDÜ:
+    98 `postgresql`-adlı glob + 2 adlandırılmış özel dosya = 100.
+
+    ADIN VE DÜZYAZININ SAYIYLA BİRLİKTE HAREKET ETMESİ ZORUNLUDUR. Bu test
+    bir tur boyunca `..._exact_99` ADIYLA `== 100` İDDİA ETTİ ve `ci.yml`in
+    yorumu `97 + 2 = 99` derken sabit `100`dü. Değeri doğru olan ama gerekçesi
+    onu yalanlayan bir çivi, sonraki okuyucu için TUZAKTIR: okuyucu gerekçeye
+    güvenip sayıyı "düzeltmeye" kalkar. Bu yüzden ad, düzyazı ve sayı ÜÇÜ
+    BİRDEN güncellenir.
 
     Bu sayaç ile `ci.yml`deki eşi birlikte artmak ZORUNDA — ikisi aynı
     popülasyonu sayıyor ve biri güncellenip diğeri unutulursa kapı kendi

@@ -98,6 +98,12 @@ ifadesi NaN için FALSE döner ve satır reddedilir; ÖLÇÜLDÜ:
 şart EKLENMEDİ — ölçülmeden savunma yazmak, bu satırın düzelttiği hatanın
 aynısı olurdu.
 
+NaN YARISI YALNIZ PostgreSQL'E EKLENİR (`_katsayi_kisit_metni`). `'NaN'::numeric`
+PostgreSQL sözdizimidir; ÖLÇÜLDÜ ki SQLite göçü `sqlite3.OperationalError:
+unrecognized token: ":"` ile düşürüyor. Savunduğu kusur da yalnız orada:
+PostgreSQL `numeric` NaN saklar, SQLite'ın `NUMERIC`i tür/ölçek dayatmaz.
+Çözücü İKİ diyalektte de reddeder, yani SQLite'ta eksilen İKİNCİ katmandır.
+
 --- BİLEŞİK YABANCI ANAHTAR, ÇIPLAK OLANI DEĞİL (0062'nin KURALI) ---------
 
 `(company_id, product_id) -> products(company_id, id)`. Çıplak
@@ -178,6 +184,28 @@ def _tekiller(inspector, tablo: str) -> set[str]:
     return {item["name"] for item in inspector.get_unique_constraints(tablo)}
 
 
+def _katsayi_kisit_metni(bind) -> str:
+    """`CHECK` ifadesi DİYALEKTE BAĞLIDIR ve bu bilinçlidir.
+
+    `factor > 0` her iki diyalektte de aynı şeyi söyler. NaN yarısı SÖYLEMEZ:
+    `'NaN'::numeric` PostgreSQL sözdizimidir ve SQLite onu AYRIŞTIRAMAZ —
+    ÖLÇÜLDÜ, göç SQLite üzerinde `sqlite3.OperationalError: unrecognized
+    token: ":"` ile düşüyordu.
+
+    Şart YALNIZ PostgreSQL'e eklenir, çünkü savunduğu kusur YALNIZ orada
+    vardır: PostgreSQL `numeric` NaN'ı SAKLAYABİLİR ve onu her sonlu sayının
+    ÜSTÜNE sıralar. SQLite'ın `NUMERIC`i ise ölçek/tür dayatmaz ve bu kısıt
+    orada zaten farklı bir şey ölçerdi; taşınabilir görünsün diye ölçülmemiş
+    bir ifade yazmak, bu satırın DÜZELTTİĞİ hatanın aynısı olurdu.
+
+    ÇÖZÜCÜ HER İKİ DİYALEKTTE DE REDDEDER (`app/units.py`, sonluluk kapıları)
+    — yani SQLite'ta kaybolan şey İKİNCİ katmandır, tek katman değil.
+    """
+    if bind.dialect.name == "postgresql":
+        return "factor > 0 AND factor <> 'NaN'::numeric"
+    return "factor > 0"
+
+
 def upgrade() -> None:
     bind = op.get_bind()
 
@@ -216,8 +244,7 @@ def upgrade() -> None:
             # Sıfır her miktarı sessizce 0 yapardı; negatif girişi ÇIKIŞA
             # çevirirdi. İkisi de yazılabilir olduğu için kısıt buradadır.
             sa.CheckConstraint(
-                "factor > 0 AND factor <> 'NaN'::numeric",
-                name=CK_KATSAYI_POZITIF,
+                _katsayi_kisit_metni(bind), name=CK_KATSAYI_POZITIF
             ),
             sa.ForeignKeyConstraint(["company_id"], ["companies.id"]),
             # ÇIPLAK DEĞİL BİLEŞİK: çapraz kiracı ürün referansını engeller.
