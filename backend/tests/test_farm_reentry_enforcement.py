@@ -90,20 +90,21 @@ def run_bindparam_typing_probe(database_url: str) -> None:
 _BINDPARAM_PROBE = r'''
 import os
 
-from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import ProgrammingError
 
-from app.main import app
+# SEMAYI KURAN SEY ASAGIDAKI ICE AKTARMADIR. `app.main` ice aktarildigi anda,
+# modul duzeyinde, alembic gocunu kosturur (`run_database_migrations`; lifespan
+# icinde DEGIL). Bu olcum tablolarin VAR OLDUGUNU varsaymamali: yalniz
+# `app.routers.farm`i ice aktarip dogrudan `create_engine` ile baglanan ilk
+# surum, KARDES kosunun goclerini calistirmis olmasina bel bagliyordu ve TEK
+# BASINA `UndefinedTable` ile dusuyordu — yesilligi SIRAYA bagliydi. Olculdu,
+# iki yonde: bu ice aktarma OLMADAN bos veritabaninda kirmizi, kardes semayi
+# kurduktan sonra yesil; ice aktarma VARKEN bos veritabaninda da yesil. Onceki
+# surumdeki `with TestClient(app): pass` satiri semayi KURMUYORDU (o satir
+# silinip ice aktarma birakilinca da yesil, olculdu); bu yuzden kaldirildi.
+import app.main  # noqa: F401
 from app.routers.farm import _GIRIS_SORGU
-
-# SEMAYI UYGULAMANIN KENDISI KURUYOR. Bu olcum tablolarin VAR OLDUGUNU
-# varsaymamali: dogrudan `create_engine` ile bos bir veritabanina baglanan
-# bir surum, KARDES kosunun goclerini calistirmis olmasina bel baglardi ve
-# TEK BASINA `UndefinedTable` ile duserdi — yani yesilligi SIRAYA bagli
-# olurdu. Olculdu: bos veritabaninda, mutasyon OLMADAN duser.
-with TestClient(app):
-    pass
 
 motor = create_engine(os.environ['DATABASE_URL'])
 

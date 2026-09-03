@@ -95,7 +95,10 @@ from sqlalchemy.engine import Engine
 from app.main import app
 
 # AYNI dosyadaki oteki kosuyla AYNI parola: iki kosu ayni veritabanini
-# paylasiyor ve hangisinin once calisacagi garanti degil.
+# paylasiyor ve hangisinin once calisacagi garanti degil. Iki kosunun
+# `admin_headers`i de bu yuzden HER IKI parolayi kabul eder; yalniz birinin
+# kabul etmesi dosyayi tanim sirasina bagimli kilar (olculdu: ters sirada
+# kirmizi).
 ADMIN_PW = 'FarmIceAktarma!12345'
 UC = '/api/plant-protection-products'
 # Yarisi TETIKLEYEN bitki. Dosyada 3. satirda; ONCESINDE ve SONRASINDA
@@ -264,6 +267,19 @@ UC = '/api/plant-protection-products'
 
 
 def admin_headers(client):
+    # IKI YONDE DE CALISIR. Bu kosu ile `_SAVEPOINT_SMOKE` AYNI dosyada AYNI
+    # veritabanini paylasiyor ve hangisinin once kosacagi tanim sirasindan
+    # baska bir seye bagli degil; dosyanin yesilligi o siraya BAGLI OLMAMALI.
+    # Parola ya HENUZ degismemis (bu kosu once) ya da kardes onu zaten
+    # `ADMIN_PW`ye cevirmis (kardes once) olabilir; ikisi de kabul edilir.
+    # Rotasyonun kendisi kaldirilamaz, OLCULDU: ilk parola `must_change_password`
+    # tasir ve parola degismeden yapilan ilk is cagrisi 403
+    # PASSWORD_CHANGE_REQUIRED doner.
+    login = client.post('/api/auth/login', json={'username':'admin','password':ADMIN_PW})
+    if login.status_code == 200:
+        body = login.json()
+        return {'Authorization':'Bearer '+body['access_token'],
+                'X-Company-ID':str(body['companies'][0]['id'])}
     login = client.post('/api/auth/login', json={'username':'admin','password':'admin123'})
     assert login.status_code == 200, login.text
     body = login.json()
