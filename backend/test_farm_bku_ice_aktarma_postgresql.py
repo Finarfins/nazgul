@@ -53,6 +53,7 @@ _spec = importlib.util.spec_from_file_location(
 _contract = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_contract)
 run_ice_aktarma_smoke = _contract.run_ice_aktarma_smoke
+run_savepoint_smoke = _contract.run_savepoint_smoke
 
 
 def _pg_url() -> str:
@@ -67,3 +68,17 @@ def _pg_url() -> str:
 @pytest.mark.postgresql
 def test_bku_ice_aktarma_postgresql() -> None:
     run_ice_aktarma_smoke(_pg_url())
+
+
+@pytest.mark.postgresql
+def test_bku_ice_aktarma_savepoint_postgresql() -> None:
+    """Başlıktaki 1. ve 2. iddianın GERÇEKTEN ölçüldüğü yer.
+
+    `test_bku_ice_aktarma_postgresql` bu dosyanın adını taşıdığı mekanizmayı
+    AYIRT ETMİYOR: paylaşılan `_SMOKE`un bozuk satırlarının üçü de hiçbir
+    deyim çalıştırılmadan reddediliyor ve `db.begin_nested()` silinse bile o
+    koşu YEŞİL kalıyor (ölçüldü). Buradaki koşu `SELECT` ile `INSERT`
+    arasındaki yarışı kurup gerçek bir `IntegrityError` ürettiği için
+    savepoint'i yük taşır hâle getiriyor.
+    """
+    run_savepoint_smoke(_pg_url())
