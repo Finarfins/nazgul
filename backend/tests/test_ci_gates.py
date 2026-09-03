@@ -20,8 +20,8 @@ CALL_SITE_GATE = REPO_ROOT / "deploy" / "ci-verify-cagri-kapisi.py"
 BACKEND = REPO_ROOT / "backend"
 
 
-def test_pg_test_population_exact_99() -> None:
-    """PostgreSQL test population must be exactly 99 files.
+def test_pg_test_population_exact_100() -> None:
+    """PostgreSQL test population must be exactly 100 files.
 
     95 -> 97: tarla yazma kilitleri ikizleri (`test_farm_monoculture_postgresql.py`,
     `test_farm_reentry_enforcement_postgresql.py`, göç 20260901_0064). İkizler
@@ -44,6 +44,17 @@ def test_pg_test_population_exact_99() -> None:
     yapar, SQLite'ta yapmaz. Yani bu dilimin ana iddiasının kırılması YALNIZ
     üretim diyalektinde görünür.
 
+    99 -> 100: bu PR'ın birim dönüşümü ikizi
+    (`test_birim_donusumu_postgresql.py`, göç 20260902_0066). SAYIM ÖLÇÜLDÜ:
+    98 `postgresql`-adlı glob + 2 adlandırılmış özel dosya = 100.
+
+    ADIN VE DÜZYAZININ SAYIYLA BİRLİKTE HAREKET ETMESİ ZORUNLUDUR. Bu test
+    bir tur boyunca `..._exact_99` ADIYLA `== 100` İDDİA ETTİ ve `ci.yml`in
+    yorumu `97 + 2 = 99` derken sabit `100`dü. Değeri doğru olan ama gerekçesi
+    onu yalanlayan bir çivi, sonraki okuyucu için TUZAKTIR: okuyucu gerekçeye
+    güvenip sayıyı "düzeltmeye" kalkar. Bu yüzden ad, düzyazı ve sayı ÜÇÜ
+    BİRDEN güncellenir.
+
     Bu sayaç ile `ci.yml`deki eşi birlikte artmak ZORUNDA — ikisi aynı
     popülasyonu sayıyor ve biri güncellenip diğeri unutulursa kapı kendi
     kendisiyle çelişir.
@@ -54,15 +65,15 @@ def test_pg_test_population_exact_99() -> None:
         BACKEND / "tests" / "test_ci_playwright_hazirlik.py",
     ]
     all_files = pg_glob + [p for p in named if p.exists()]
-    assert len(all_files) == 99, (
-        f"PostgreSQL test population changed: expected 99, got {len(all_files)}"
+    assert len(all_files) == 100, (
+        f"PostgreSQL test population changed: expected 100, got {len(all_files)}"
     )
 
 
 def test_ci_workflow_has_frozen_pg_population_constant() -> None:
-    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=99 and strict equality."""
+    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=100 and strict equality."""
     content = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BEKLENEN_PG_DOSYA_SAYISI=99" in content
+    assert "BEKLENEN_PG_DOSYA_SAYISI=100" in content
     assert '[ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]' in content
 
 

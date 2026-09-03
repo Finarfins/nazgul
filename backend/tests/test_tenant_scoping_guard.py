@@ -67,6 +67,15 @@ TENANT_TABLES = frozenset({
     # doldurulan kaydı; company_id taşır, ürüne BİLEŞİK yabancı anahtarla
     # bağlıdır ve tekilliği (company_id, product_id, crop) kapsamındadır.
     "plant_protection_products",
+    # Birim dönüşümü katsayı defteri (göç 20260902_0066). company_id taşır ve
+    # ürüne BİLEŞİK yabancı anahtarla bağlıdır (0062'nin kuralı), yani bir
+    # kiracının katsayı beyanı BAŞKA kiracının ürününü işaret edemez.
+    # EKLEMELİDİR: düzeltme yeni `effective_from` ile YENİ SATIRDIR, `UPDATE`
+    # değil; tekillik (company_id, product_id, unit_code, effective_from)
+    # kapsamındadır. BU PR'DA OKUYAN/YAZAN YOL YOKTUR — tablo çözücüden önce
+    # açıldı, bu yüzden buradaki kayıt şimdilik yalnız kiracı NÖBETÇİSİNE
+    # görünürlük sağlar; ilk çağıran geldiğinde kapsam zaten kurulmuş olur.
+    "product_unit_factors",
     "quotes", "receivable_charge_documents", "receivable_charge_idempotency",
     "receivable_charge_periods", "receivable_legacy_residuals",
     "returns", "sales_orders", "security_audit_logs", "stock_movements",
