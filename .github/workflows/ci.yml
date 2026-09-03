@@ -962,10 +962,16 @@ jobs:
           set -euo pipefail
           docker run --rm --entrypoint sh yerel-hesap-pro:${{ github.sha }} -c '
             set -eu
+            cd /app/backend
+            # Bosluklu YOK; $yollar bilerek tirnaksiz genisletilir (kelime bolme).
+            yollar="tests donmus_saat.py non_twin_skip_exceptions.json"
+            yollar="$yollar sandbox requirements-dev.txt"
+            yollar="$yollar LEGACY_TEST_MIGRATION_PLAN.md"
+            yollar="$yollar tools/capture_frontend_fixtures.py"
             kalan=""
-            for yol in               /app/backend/tests               /app/backend/donmus_saat.py               /app/backend/non_twin_skip_exceptions.json               /app/backend/sandbox               /app/backend/requirements-dev.txt               /app/backend/LEGACY_TEST_MIGRATION_PLAN.md               /app/backend/tools/capture_frontend_fixtures.py
+            for yol in $yollar
             do
-              if [ -e "$yol" ]; then kalan="$kalan $yol"; fi
+              if [ -e "$yol" ]; then kalan="$kalan /app/backend/$yol"; fi
             done
             if [ -n "$kalan" ]; then
               echo "Uretim imaji test varligi tasiyor:$kalan" >&2
