@@ -1018,6 +1018,30 @@ jobs:
               exit 1
             fi
           '
+      # Imaj kuran kapi testi backend-quality shard'indan BURAYA tasindi:
+      # shard'da iki imaj kurup 62-180 s harciyor ve 180 s timeout'a carpip
+      # "0 test" ile kirmizi yanabiliyordu (run 33812772540 attempt 1, shard 0).
+      # Uretim yarisi zaten YUKARIDAKI "Verify production image has no test
+      # assets" adiminda, bu job'in ZATEN kurdugu imaj uzerinde olculuyor; o
+      # yuzden yalniz test stage yarisi kaldi ve --target test'i kendisi kurar.
+      # Bu job'da defaults working-directory YOK ve Python kurulu DEGIL; pytest.ini
+      # asyncio_mode=auto istedigi icin pytest-asyncio de gerekiyor.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test stage kapisi (docker_imaj)
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet pytest pytest-asyncio
+          python -m pytest tests/test_uretim_imaji_kapisi.py -m docker_imaj -q
+      # Kapi etiketi ~526 MB tutuyor; runner diskini sonraki adimlara birak.
+      - name: Kapi imaj etiketini temizle
+        if: always()
+        run: |
+          docker rmi -f yerel-hesap-test:uretim-imaji-kapisi || true
+          docker rmi -f yerel-hesap-pro:uretim-imaji-kapisi || true
+          docker images | grep uretim-imaji-kapisi && exit 1 || echo "temiz: kapi etiketi kalmadi"
       - name: Smoke-test non-root read-only container
         run: |
           docker network create yhp-ci
