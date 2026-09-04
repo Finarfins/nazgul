@@ -623,7 +623,20 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    # ÖLÇÜLDÜ (son 30 tamamlanmış CI koşusu, 2026-09-04): frontend süreleri
+    # min 1m25s, medyan 6m09s, maks 12m19s. Tamamlanan (success) denemelerde
+    # maks 11m51s — tavanın ~28 saniye altında. Otuz koşunun ÜÇ frontend
+    # işi tam tavanda öldürüldü (33856366292, 33854225188 deneme 1,
+    # 33853270963); GitHub timeout öldürmesini `failure` değil `cancelled`
+    # bildirdiği için bu üç iş toplu görünümde arıza gibi DEĞİL, iptal gibi
+    # görünüyordu. ~28 saniyelik pay bir bütçe değildir.
+    #
+    # ARİTMETİK: gözlenen maks 12m19s tavanda kırpılmış (gerçek süre bilinmiyor,
+    # >= bu), yukarı yuvarla -> 13 dk; 13 x 1.5 = 19.5; 5'e yukarı yuvarla -> 20.
+    #
+    # ÖLÇÜLMEDİ: npm ci 2-7 dk varyansı — cache stratejisi. Bu PR yalnız
+    # bütçeyi ölçer, süreyi değil.
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend
