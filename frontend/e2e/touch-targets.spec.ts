@@ -2272,7 +2272,7 @@ test.describe.serial('six-screen measured mobile batch gate', () => {
   });
 
   for (const viewport of VIEWPORTS) {
-    test(`${viewport.name}: seeded data and required actions survive responsive rendering`, async ({page}) => {
+    test(`${viewport.name}: seeded data and required actions survive responsive rendering @tahsis-motoru`, async ({page}) => {
       test.setTimeout(180_000);
       await page.setViewportSize({width: viewport.width, height: viewport.height});
       await login(page);
