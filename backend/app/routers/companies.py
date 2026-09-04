@@ -13,6 +13,7 @@ from ..tenancy import companies, branches, memberships, user_companies, company_
 from ..auth import utcnow
 from ..inventory import ensure_company_default_warehouse
 from ..company_policies import VALID_POLICY_MODES, policy_override_logs
+from ..firma_profilleri import profilleri_coz
 from .auth import validate_tax_number
 
 router = APIRouter(tags=["Firmalar"])
@@ -46,6 +47,32 @@ class CompanyPolicyUpdate(BaseModel):
     # yazılır.
     farm_monoculture_policy: Literal["warn", "require_reason", "block"] | None = None
     farm_reentry_policy: Literal["warn", "require_reason", "block"] | None = None
+
+    # --- Firma profilleri (göç 20260904_0068) -------------------------------
+    # İSTEĞE BAĞLI ve `model_fields_set` ile uygulanıyor — kardeşlerinin
+    # kalıbının aynısı: zorunlu yapmak bu uca bugün istek atan her istemciyi
+    # kırardı.
+    #
+    # `Literal` KULLANILMADI çünkü alan tek bir belirteç DEĞİL bir ALT
+    # KÜMEDİR; `Literal` onu tekile indirger ve karma firmayı (bayi + servis
+    # + tarla) KAYDEDİLEMEZ yapardı. Doğrulama `profilleri_coz`da ve
+    # `ValueError` -> 422 aile içinde.
+    profiller: str | None = None
+
+    @field_validator("profiller")
+    @classmethod
+    def _normalize_profiller(cls, value: str | None) -> str | None:
+        """KANONİK biçime indirger; bilinmeyen belirteç `ValueError` -> 422.
+
+        `None` OLDUĞU GİBİ geçer ve `''`e ÇEVRİLMEZ: ikisi bu uçta AYRI
+        şeylerdir — `None` "bu istek profilleri değiştirmiyor" (alan
+        `model_fields_set`e girmez), `''` ise "profilleri TEMİZLE"dir.
+        Birleştirmek, alanı göndermeyen bir istemcinin kaydını SESSİZCE
+        silerdi.
+        """
+        if value is None:
+            return None
+        return profilleri_coz(value)
 
     @field_validator("tax_number")
     @classmethod
@@ -114,6 +141,7 @@ def get_company_settings(request: Request, db: Session = Depends(get_db)):
             companies.c.farm_spraying_dose_required,
             companies.c.farm_monoculture_policy,
             companies.c.farm_reentry_policy,
+            companies.c.profiller,
         ).where(companies.c.id == cid)
     ).mappings().first()
     if not row:
@@ -145,6 +173,15 @@ def update_company_settings(
     ):
         if alan in payload.model_fields_set:
             values[alan] = getattr(payload, alan)
+    # `profiller` genel döngünün DIŞINDA, çünkü tek fark None'ın anlamıdır:
+    # alan gönderilmediyse sütuna DOKUNULMAZ, açıkça `null` gönderildiyse
+    # bu "TEMİZLE"dir ve sütuna `''` yazılır. Döngüde bırakılsaydı `None`
+    # olduğu gibi yazılırdı ve sütun `NOT NULL`dur — açıkça `null` gönderen
+    # bir istemci 500 alırdı. ÖLÇÜLDÜ:
+    # `tests/test_firma_profilleri.py::test_IKI_YAZAN_YOL_ucdan_uca_sqlite`,
+    # `_SMOKE` içindeki (G) bölümü — bu satır kaldırılırsa orası kırmızı olur.
+    if "profiller" in payload.model_fields_set:
+        values["profiller"] = payload.profiller or ""
     warning = None
     if "tax_number" in payload.model_fields_set:
         values["tax_number"], warning = validate_tax_number(payload.tax_number)

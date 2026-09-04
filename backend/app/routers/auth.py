@@ -54,6 +54,7 @@ from ..email_verification import (
     queue_existing_account_notice,
     queue_verification_email,
 )
+from ..firma_profilleri import profilleri_coz
 from ..password_reset import create_reset_token, queue_reset_email
 from ..tenancy import branches, companies, memberships, user_companies
 from ..platform_access import is_platform_operator
@@ -149,6 +150,10 @@ class RegisterPayload(BaseModel):
     phone: str = Field(min_length=10, max_length=10)
     terms_accepted: bool
     turnstile_token: str | None = Field(default=None, max_length=4096)
+    # Firma profilleri (göç 20260904_0068). İSTEĞE BAĞLI: kayıt akışı bu
+    # alan olmadan da tamdır ve zorunlu yapmak mevcut kayıt ekranını
+    # kırardı. Verilmezse firma `''` ile doğar — "henüz seçilmedi".
+    profiller: str | None = Field(default=None, max_length=200)
 
     @field_validator("company_name", "display_name")
     @classmethod
@@ -157,6 +162,19 @@ class RegisterPayload(BaseModel):
         if not normalized:
             raise ValueError("Bu alan boş olamaz")
         return normalized
+
+    @field_validator("profiller")
+    @classmethod
+    def _normalize_profiller(cls, value: str | None) -> str | None:
+        """KANONİK biçime indirger; bilinmeyen belirteç `ValueError` -> 422.
+
+        Doğrulama KAYIT AKIŞINDAN ÖNCE, Pydantic katmanında olur — yani
+        geçersiz bir profil firma satırı AÇILMADAN reddedilir ve yarım bir
+        kiracı geride kalmaz.
+        """
+        if value is None:
+            return None
+        return profilleri_coz(value)
 
     @field_validator("email")
     @classmethod
@@ -568,6 +586,10 @@ def register(
                         name=payload.company_name,
                         tax_number=None,
                         is_active=True,
+                        # `or ""`: alan verilmediyse de açıkça `null`
+                        # gönderildiyse de sütuna boş küme gider; sütun
+                        # `NOT NULL`dur ve `''` "henüz seçilmedi"dir.
+                        profiller=payload.profiller or "",
                         created_at=utcnow(),
                     )
                     .returning(companies.c.id)
