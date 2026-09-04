@@ -284,6 +284,13 @@ def _uygulamaya_ait_metadata() -> dict[str, object]:
     EDİLEN SINIR. Ölçüldü — göç yansıtması ``field_activities`` için canlı bir
     Table üretiyor ve naif tarama kalıcı yanlış pozitif verirdi.
     """
+    # Tarama kendi kendine yetsin: sys.modules'u dolduran import'lar BASKA
+    # testlerdeydi, bu yuzden bu yardimci tek basina/ters sirada bos donuyordu
+    # (olculdu: ters sirada "app.* altinda hic MetaData bulunamadi").
+    import importlib
+
+    importlib.import_module("app.main")
+
     from sqlalchemy import MetaData
 
     bulunan: dict[str, object] = {}
