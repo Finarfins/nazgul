@@ -1031,7 +1031,7 @@ jobs:
       # Proje AÇIKÇA verilir: #64 iki proje bildiriyor ve bu ölçüm İSTANBUL DIŞI
       # dilimde yapılmalı. Proje adı yazılmazsa hangi dilimde ölçüldüğü rapordan
       # okunamaz — bildirilmemiş dilim, ölçülmemiş demektir.
-      - run: npx playwright test e2e/touch-targets.spec.ts --project=chromium-utc
+      - run: npx playwright test e2e/touch-targets.spec.ts --project=chromium-utc --grep "@tahsis-motoru"
         working-directory: frontend
         env:
           PAYMENT_ALLOCATION_ENGINE_ENABLED: "true"

@@ -402,7 +402,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
     olcum: 'positive',
     dosya: 'e2e/touch-targets.spec.ts',
     testAdi:
-      'six-screen measured mobile batch gate > mobile-390: seeded data and required actions survive responsive rendering',
+      'six-screen measured mobile batch gate > mobile-390: seeded data and required actions survive responsive rendering @tahsis-motoru',
     gerekce: 'tohumlanan aktif inek ve gecikmiş aşı ile sürü panosu 390px\'te çizilir',
   },
   {
@@ -658,7 +658,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
     olcum: 'positive',
     dosya: 'e2e/touch-targets.spec.ts',
     testAdi:
-      'six-screen measured mobile batch gate > mobile-390: seeded data and required actions survive responsive rendering',
+      'six-screen measured mobile batch gate > mobile-390: seeded data and required actions survive responsive rendering @tahsis-motoru',
     gerekce: 'tohumlanan onay bekleyen bildirim olayıyla 390px\'te açılır; kutu yüzeyi ölçülür',
   },
   {
@@ -667,7 +667,7 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
     olcum: 'positive',
     dosya: 'e2e/touch-targets.spec.ts',
     testAdi:
-      'six-screen measured mobile batch gate > mobile-390: seeded data and required actions survive responsive rendering',
+      'six-screen measured mobile batch gate > mobile-390: seeded data and required actions survive responsive rendering @tahsis-motoru',
     gerekce: 'tohumlanan aktif servis hatırlatma şablonuyla 390px\'te açılır',
   },
   {
