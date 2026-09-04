@@ -54,6 +54,7 @@ from ..email_verification import (
     queue_existing_account_notice,
     queue_verification_email,
 )
+from ..firma_profilleri import FirmaProfili, profilleri_birlestir
 from ..password_reset import create_reset_token, queue_reset_email
 from ..tenancy import branches, companies, memberships, user_companies
 from ..platform_access import is_platform_operator
@@ -149,6 +150,10 @@ class RegisterPayload(BaseModel):
     phone: str = Field(min_length=10, max_length=10)
     terms_accepted: bool
     turnstile_token: str | None = Field(default=None, max_length=4096)
+    # Faz 5.2 — kayıt anındaki iş kolu seçimi. İSTEĞE BAĞLIDIR: zorunlu
+    # yapmak, bu uca bugün istek atan her istemciyi ve kayıt akışını kırardı.
+    # Boş liste "seçilmedi" demektir ve depoda `''` olarak durur.
+    profiller: list[FirmaProfili] = Field(default_factory=list)
 
     @field_validator("company_name", "display_name")
     @classmethod
@@ -568,6 +573,7 @@ def register(
                         name=payload.company_name,
                         tax_number=None,
                         is_active=True,
+                        profiller=profilleri_birlestir(payload.profiller),
                         created_at=utcnow(),
                     )
                     .returning(companies.c.id)

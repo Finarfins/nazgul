@@ -1,5 +1,5 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
-import {Alert,Box,Button,Card,CardContent,Checkbox,CircularProgress,FormControlLabel,Link,Stack,TextField,Typography} from '@mui/material';
+import {Alert,Box,Button,Card,CardContent,Checkbox,CircularProgress,FormControlLabel,FormGroup,FormLabel,Link,Stack,TextField,Typography} from '@mui/material';
 import {Link as RouterLink} from 'react-router-dom';
 import {api,errorDetail} from '../api';
 import {PASSWORD_MIN_LENGTH,PASSWORD_RULE_LABEL} from '../passwordPolicy';
@@ -8,7 +8,12 @@ declare global{
  interface Window{turnstile?:{render:(element:HTMLElement,options:{sitekey:string;callback:(token:string)=>void;'expired-callback':()=>void})=>string;reset:(widgetId?:string)=>void}}
 }
 
-const initial={company_name:'',display_name:'',email:'',phone:'',password:'',password_confirmation:'',terms_accepted:false,turnstile_token:''};
+const initial={company_name:'',display_name:'',email:'',phone:'',password:'',password_confirmation:'',terms_accepted:false,turnstile_token:'',profiller:[] as string[]};
+// Dört iş kolu ÇOKLU seçilir: karışmak kuraldır, istisna değil (bir işletme
+// aynı anda bayilik + servis + tarla + sürü tutabilir). Sıra sahibin saydığı
+// sıradır; DEPODA alfabetik sıralanarak saklanır, o normalleştirme sunucuda.
+// Seçim İSTEĞE BAĞLIDIR: boş bırakmak "seçilmedi" demektir, "hiçbiri" demez.
+const PROFILLER=[['ciftci','Çiftçi'],['tuccar','Tüccar'],['veteriner','Veteriner'],['pazarci','Pazarcı']] as const;
 const siteKey=import.meta.env.VITE_TURNSTILE_SITE_KEY as string|undefined;
 
 export default function Register(){
@@ -49,6 +54,10 @@ export default function Register(){
     <TextField required type="password" label="Şifre" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/>
     <Stack spacing={0.25}>{passwordRules.map(([label,ok])=><Typography key={label} variant="caption" color={ok?'success.main':'text.secondary'}>{ok?'✓':'○'} {label}</Typography>)}</Stack>
     <TextField required type="password" label="Şifre Tekrar" error={Boolean(form.password_confirmation&&form.password!==form.password_confirmation)} helperText={form.password_confirmation&&form.password!==form.password_confirmation?'Şifreler eşleşmiyor':''} value={form.password_confirmation} onChange={e=>setForm({...form,password_confirmation:e.target.value})}/>
+    <Box>
+     <FormLabel component="legend" sx={{fontSize:14}}>Ne iş yapıyorsunuz? (isteğe bağlı, birden fazla seçebilirsiniz)</FormLabel>
+     <FormGroup row>{PROFILLER.map(([deger,etiket])=><FormControlLabel key={deger} control={<Checkbox checked={form.profiller.includes(deger)} onChange={e=>setForm(current=>({...current,profiller:e.target.checked?[...current.profiller,deger]:current.profiller.filter(p=>p!==deger)}))}/>} label={etiket}/>)}</FormGroup>
+    </Box>
     <FormControlLabel control={<Checkbox checked={form.terms_accepted} onChange={e=>setForm({...form,terms_accepted:e.target.checked})}/>} label="Kullanım Koşullarını kabul ediyorum"/>
     {siteKey&&<Box ref={turnstileHost}/>}
     <Button type="submit" variant="contained" size="large" disabled={busy||!valid}>{busy?<CircularProgress size={22}/>:'Kayıt ol'}</Button>

@@ -13,6 +13,7 @@ from ..tenancy import companies, branches, memberships, user_companies, company_
 from ..auth import utcnow
 from ..inventory import ensure_company_default_warehouse
 from ..company_policies import VALID_POLICY_MODES, policy_override_logs
+from ..firma_profilleri import FirmaProfili, profilleri_birlestir, profilleri_coz
 from .auth import validate_tax_number
 
 router = APIRouter(tags=["Firmalar"])
@@ -21,6 +22,10 @@ router = APIRouter(tags=["Firmalar"])
 class CompanyCreate(BaseModel):
     name: str = Field(min_length=2, max_length=200)
     tax_number: str | None = None
+    # İSTEĞE BAĞLI ve varsayılanı BOŞ: bu uca bugün istek atan her istemci
+    # `profiller` göndermiyor ve zorunlu yapmak hepsini kırardı. Boş liste
+    # "seçilmedi" demektir, "hiçbiri" demez.
+    profiller: list[FirmaProfili] = Field(default_factory=list)
 
 
 class CompanyPolicyUpdate(BaseModel):
@@ -46,6 +51,10 @@ class CompanyPolicyUpdate(BaseModel):
     # yazılır.
     farm_monoculture_policy: Literal["warn", "require_reason", "block"] | None = None
     farm_reentry_policy: Literal["warn", "require_reason", "block"] | None = None
+    # Firma profilleri (Faz 5.2). `None` ile `[]` AYRI şeylerdir ve ayrım
+    # `model_fields_set` ile korunur: alan hiç gönderilmezse mevcut değer
+    # KORUNUR, boş liste gönderilirse seçim BİLİNÇLİ olarak temizlenir.
+    profiller: list[FirmaProfili] | None = None
 
     @field_validator("tax_number")
     @classmethod
@@ -74,6 +83,7 @@ def create_company(payload: CompanyCreate, request: Request, db: Session = Depen
                 is_active=True,
                 negative_stock_policy="block",
                 credit_limit_policy="block",
+                profiller=profilleri_birlestir(payload.profiller),
                 created_at=utcnow(),
             )
             .returning(companies.c.id)
@@ -114,11 +124,17 @@ def get_company_settings(request: Request, db: Session = Depends(get_db)):
             companies.c.farm_spraying_dose_required,
             companies.c.farm_monoculture_policy,
             companies.c.farm_reentry_policy,
+            companies.c.profiller,
         ).where(companies.c.id == cid)
     ).mappings().first()
     if not row:
         raise HTTPException(404, "Firma bulunamadı")
-    return dict(row)
+    govde = dict(row)
+    # Depoda virgülle birleşik TEK DİZGİ duruyor; dışarıya LİSTE veriliyor,
+    # çünkü uca giren şekil de listedir. İki uçta iki farklı şekil, istemciyi
+    # depo biçimini ayrıştırmaya zorlardı.
+    govde["profiller"] = profilleri_coz(govde["profiller"])
+    return govde
 
 
 @router.put("/company-settings")
@@ -145,6 +161,8 @@ def update_company_settings(
     ):
         if alan in payload.model_fields_set:
             values[alan] = getattr(payload, alan)
+    if "profiller" in payload.model_fields_set:
+        values["profiller"] = profilleri_birlestir(payload.profiller or [])
     warning = None
     if "tax_number" in payload.model_fields_set:
         values["tax_number"], warning = validate_tax_number(payload.tax_number)
@@ -166,6 +184,7 @@ def update_company_settings(
         "farm_monoculture_policy": values.get("farm_monoculture_policy"),
         "farm_reentry_policy": values.get("farm_reentry_policy"),
         "tax_number": values.get("tax_number"),
+        "profiller": profilleri_coz(values.get("profiller")),
         "warning": warning,
     }
 

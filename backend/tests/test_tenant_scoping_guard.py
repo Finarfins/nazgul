@@ -316,7 +316,7 @@ DYNAMIC_SQL_FILE_ALLOWLIST: dict[str, tuple[int, str, str]] = {
     "backend/app/routers/workflow.py": (16, "b418371785ff4cbfb227fc9279d256d8f2f6c60d465fa7d59e7d959f76f512d0", "closed workflow config; scoped parents gate item operations; line tenant predicate is UNCONDITIONAL (tenant_line scaffolding removed in slice 1)"),
     "backend/app/service_receivable_engine.py": (2, "4590a3a9db14aa3e5f4127a316f85fe1a9018f0f6a179958d60e0f30f34c0bfc", "canonical tenant predicates with closed lock suffix"),
     "backend/app/statement.py": (4, "c9a2d509dbeaff969d1c686e690e5eb35dd54dd12f7e58d294cc6d11c3946ead", "closed entity config; document and payment sources scoped"),
-    "backend/app/tenancy.py": (4, "b50d5fd5a9d35269380bfaa33b70fc95a241a72bd48e8157c56c72cf8df473a7", "hardcoded bootstrap DDL plus runtime-validated tenant_text. Parmak izi 2026-09-01de guncellendi: companies Table'ina farm_monoculture_policy ve farm_reentry_policy sutunlari eklendi (goc 20260901_0064). Dinamik text() sayisi 4te SABIT; tenant_text davranisi DEGISMEDI."),
+    "backend/app/tenancy.py": (4, "e81ca5866970562aa1844a294e10f4e5967a678c42bfa7f166199d8ab1ae197c", "hardcoded bootstrap DDL plus runtime-validated tenant_text. Parmak izi 2026-09-01de guncellendi: companies Table'ina farm_monoculture_policy ve farm_reentry_policy sutunlari eklendi (goc 20260901_0064). Dinamik text() sayisi 4te SABIT; tenant_text davranisi DEGISMEDI. Parmak izi 2026-09-04te yeniden turetildi: companies Table'ina TEK sutun eklendi, profiller Text NOT NULL DEFAULT '' (goc 20260904_0068, FIRMA PROFILI). Eklenen sey bir Core sutun BILDIRIMIDIR, text() cagrisi DEGIL: dinamik text() sayisi 4te SABIT ve dordunun de argumanlari develop ile BIREBIR ayni (OLCULDU, CPython 3.12.3). Parmak izi b50d5fd5->e81ca586 KIMILDADI cunku dosya AST'sinin TAMAMINDAN turuyor. companies KIRACI KOKUDUR (company_id TASIMAZ), bu yuzden yeni sutun kiraci yuklemi GEREKTIRMEZ ve TENANT_TABLES'a girmez; profiller hicbir SQL metnine interpole EDILMIYOR, okuma/yazma Core ifadeleriyle yapiliyor."),
     # Uygulama Kayit Cizelgesi (20260901). TEK dinamik text() cagrisi var:
     # `_sezonlar`in WHERE gövdesi. Interpole edilen parca `kosullar`
     # listesidir ve bu liste KAPALI: dört sabit metinden ("f.id=:farm_id",
@@ -1646,8 +1646,21 @@ print("TENANT_TABLES_JSON=" + json.dumps(tables))
 #      olabilir. Tek dosyada birlestirilseydi o agacta `ImportError` verir ve
 #      sizintiyi HIC olcemezdi — olculdu.
 # app/ altinda yine SIFIR: bu tur uretim kodu SQL'i alt surece VERMIYOR.
-BEKLENEN_ALT_SUREC_SQL_DOSYA = 102
-BEKLENEN_ALT_SUREC_SQL_METIN = 165
+# 102/165 -> 103/166 (FIRMA PROFILI, goc 20260904_0068): +1 DOSYA, +1 metin.
+#   +1 dosya / +1 metin  tests/test_firma_profili.py — YENI dosya. Tek gomulu
+#      senaryo (`_SMOKE`) kendi tazeveritabanini ister ve AYRI SUREC sarttir:
+#      `import app.main` goc zincirini surec basina BIR KEZ kurar, senaryo ise
+#      `POST /api/auth/register` ile SIFIRDAN bir kiraci dogurur (firma + Merkez
+#      subesi + admin + uyelik, tek islemde) ve iddiayi UCUN GOVDESINDE DEGIL
+#      `companies.profiller` SATIRINDA olcer. Govdede olcmek MUMKUN DEGIL: uc
+#      200 doner ve govdesi BILINCLI olarak opaktir (var olan hesapla ayni
+#      cevap + zaman tabani, hesap sayimini engellemek icin), yani yeni firmanin
+#      durumunu DISARI VERMEZ. Satiri okumak icin `select(companies.c.profiller)`
+#      gerekiyor ve bu SQL o yuzden gomulu metne giriyor. Sayacin buyumesi
+#      BILINCLIDIR ve yuzey app/ altina TASINMADI: kapinin `test_alt_surecte_
+#      sql_uretim_kodunda_yok` ayagi bu turda da SIFIR olcuyor.
+BEKLENEN_ALT_SUREC_SQL_DOSYA = 103
+BEKLENEN_ALT_SUREC_SQL_METIN = 166
 
 
 def _alt_surecte_sql() -> tuple[list[str], int]:

@@ -91,3 +91,67 @@ describe('Register parola politikası',()=>{
   await waitFor(()=>expect(submit).toBeEnabled());
  });
 });
+
+describe('Register firma profilleri',()=>{
+ beforeEach(()=>{
+  cleanup();
+  vi.resetModules();
+  vi.stubEnv('VITE_TURNSTILE_SITE_KEY','');
+  post.mockReset();
+ });
+
+ const zorunlulariDoldur=()=>{
+  fireEvent.change(screen.getByLabelText(/^Ad Soyad/),{target:{value:'Ayşe Test'}});
+  fireEvent.change(screen.getByLabelText(/^Şirket Ünvanı \/ Şahıs Adı/),{target:{value:'Test Şirketi'}});
+  fireEvent.change(screen.getByLabelText(/^E-posta/),{target:{value:'ayse@example.com'}});
+  fireEvent.change(screen.getByLabelText(/^Cep Telefonu/),{target:{value:'5361234567'}});
+  const [parola,tekrar]=screen.getAllByLabelText(/^Şifre/);
+  fireEvent.change(parola,{target:{value:'GuvenliParola!2026'}});
+  fireEvent.change(tekrar,{target:{value:'GuvenliParola!2026'}});
+  fireEvent.click(screen.getByLabelText('Kullanım Koşullarını kabul ediyorum'));
+ };
+
+ it('dört iş kolunu TÜRKÇE etiketle gösterir',async()=>{
+  const {default:Register}=await import('./Register');
+  render(<MemoryRouter><Register/></MemoryRouter>);
+  for(const etiket of ['Çiftçi','Tüccar','Veteriner','Pazarcı']){
+   expect(screen.getByLabelText(etiket)).toBeInTheDocument();
+  }
+ });
+
+ it('seçim İSTEĞE BAĞLI: hiçbiri seçilmeden kayıt BOŞ liste gönderir',async()=>{
+  // Kutular formu ENGELLEMEZ. Boş liste "seçilmedi" demektir; sunucu onu
+  // `''` olarak saklar ve bu DOĞRU veridir.
+  post.mockResolvedValueOnce({data:{message:'ok'}});
+  const {default:Register}=await import('./Register');
+  render(<MemoryRouter><Register/></MemoryRouter>);
+  zorunlulariDoldur();
+  const gonder=await screen.findByRole('button',{name:'Kayıt ol'});
+  await waitFor(()=>expect(gonder).toBeEnabled());
+  fireEvent.click(gonder);
+  await waitFor(()=>expect(post).toHaveBeenCalledWith('/auth/register',expect.objectContaining({
+   profiller:[],
+  })));
+ });
+
+ it('ÇOKLU seçilir ve seçilen değerler gönderilir; tekrar tıklamak kaldırır',async()=>{
+  // Karışmak KURALDIR: aynı işletme hem çiftçi hem veteriner olabilir.
+  post.mockResolvedValueOnce({data:{message:'ok'}});
+  const {default:Register}=await import('./Register');
+  render(<MemoryRouter><Register/></MemoryRouter>);
+  zorunlulariDoldur();
+  fireEvent.click(screen.getByLabelText('Veteriner'));
+  fireEvent.click(screen.getByLabelText('Çiftçi'));
+  fireEvent.click(screen.getByLabelText('Tüccar'));
+  fireEvent.click(screen.getByLabelText('Tüccar'));  // geri alındı
+  const gonder=await screen.findByRole('button',{name:'Kayıt ol'});
+  await waitFor(()=>expect(gonder).toBeEnabled());
+  fireEvent.click(gonder);
+  await waitFor(()=>expect(post).toHaveBeenCalledWith('/auth/register',expect.objectContaining({
+   profiller:['veteriner','ciftci'],
+  })));
+  // SIRALAMA İSTEMCİDE YAPILMAZ: gövde tıklama sırasını taşıyor ve bu
+  // bilinçlidir — normalleştirme (tekilleştir + sırala) SUNUCUNUN işidir,
+  // çünkü istemciye güvenilerek saklanan bir sıra ilk `curl`da bozulurdu.
+ });
+});
