@@ -775,14 +775,18 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     ("app/routers/auth.py", "verify_email", "update",
      "ca4c2613620c6dd23ed462cfc2ff973af225e9e95573ae0621bea2d5db14953e"): (1, "users", "arg0"),  # satır [661]
     # --- app/routers/companies.py
+    # Parmak izi 2026-09-04te yenilendi: projeksiyona `companies.c.profiller`
+    # eklendi (göç 20260904_0068, FİRMA PROFİLİ). Sorgunun YÜKLEMİ ve hedefi
+    # DEĞİŞMEDİ — `where(companies.c.id == cid)` aynen duruyor ve `cid`
+    # `company_id(request)`ten geliyor; değişen tek şey OKUNAN SÜTUN kümesidir.
     ("app/routers/companies.py", "get_company_settings", "select",
-     "165d58888daa6cae9e70ce3738dc2826b0c87a0e13f37cbcfb1ae6f8acc27155"): (1, "companies", "arg0"),  # satır [102]
+     "5525fded9c47466a0b93a6e7f27c6c519b6d21ec527e1039044f12737f2119ab"): (1, "companies", "arg0"),  # satır [115]
     ("app/routers/companies.py", "list_branches", "select",
      "a1e5782db98e816f1960a283e2827acf34c2f7f89add2c976e5c8d680863b69b"): (1, "branches", "arg0"),  # satır [183]
     ("app/routers/companies.py", "list_policy_overrides", "select",
      "ea58d0004604dbac10e300d3cf299a9f7fba9a4bb528ff1242d312055532d2a4"): (1, "policy_override_logs", "arg0"),  # satır [171]
     ("app/routers/companies.py", "update_company_settings", "update",
-     "129af4bf7c5971f5e15da1d92e816f288ed6c484fd6b1e154d816612a8a2a214"): (1, "companies", "arg0"),  # satır [142]
+     "129af4bf7c5971f5e15da1d92e816f288ed6c484fd6b1e154d816612a8a2a214"): (1, "companies", "arg0"),  # satır [169]
     # --- app/routers/finance.py
     ("app/routers/finance.py", "_account_row", "select",
      "d788fedfa3e8275016b11f4e6c2153ab26d5d8ec163a2474466b3b1bcca63e01"): (1, "finance_accounts", "arg0"),  # satır [566]
@@ -874,7 +878,7 @@ EXPECTED_OP_COUNTS = {"select": 89, "update": 41, "delete": 7}
 # 20260812: +1 select — app/routers/platform_audit.py::list_untenanted_audit.
 # Firmasız güvenlik denetim satırlarının okuma yolu; company_id ile SÜZMEZ,
 # company_id IS NULL arar (bkz. göç 20260812_0059).
-INVENTORY_FINGERPRINT = "099ecb9dad92587af6207f109312235c67977fcd80be422852cb8e7acf6c3f11"
+INVENTORY_FINGERPRINT = "787d65cfb7a0fd30b6b1a3208cb54e053fd5a76e68b145603efc4becd3d6c73b"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet. Bugün boş.
 UNRESOLVED_ALLOWLIST: dict[Kimlik, str] = {}
