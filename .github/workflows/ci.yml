@@ -624,18 +624,35 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     # ÖLÇÜLDÜ (son 30 tamamlanmış CI koşusu, 2026-09-04): frontend süreleri
-    # min 1m25s, medyan 6m09s, maks 12m19s. Tamamlanan (success) denemelerde
+    # min 0m48s, medyan 6m09s, maks 12m19s. Tamamlanan (success) denemelerde
     # maks 11m51s — tavanın ~28 saniye altında. Otuz koşunun ÜÇ frontend
     # işi tam tavanda öldürüldü (33856366292, 33854225188 deneme 1,
     # 33853270963); GitHub timeout öldürmesini `failure` değil `cancelled`
     # bildirdiği için bu üç iş toplu görünümde arıza gibi DEĞİL, iptal gibi
     # görünüyordu. ~28 saniyelik pay bir bütçe değildir.
     #
-    # ARİTMETİK: gözlenen maks 12m19s tavanda kırpılmış (gerçek süre bilinmiyor,
-    # >= bu), yukarı yuvarla -> 13 dk; 13 x 1.5 = 19.5; 5'e yukarı yuvarla -> 20.
+    # VARYANSIN SEBEBİ ARTIK ÖLÇÜLDÜ (bu yorumun önceki hâli "ÖLÇÜLMEDİ: npm ci
+    # 2-7 dk varyansı" diyordu). Baskın adım `npm ci` (0m14s–7m04s) ve İKİ AYRI
+    # yavaşlama sınıfı var:
+    #   (a) ÖRTÜK AUDIT ASILMASI — `npm ci`'nin kendiliğinden yaptığı audit
+    #       isteği, kayıt defteri bozukken sabit bir zaman aşımı merdiveninde
+    #       asılıyor. Log'dan AYIRT EDİLİR: audit koştuysa satır "added 608
+    #       packages, and audited 609 packages in <süre>"; asıldıysa audit
+    #       cümlesi DÜŞER ve satır "added 608 packages in 7m" olur. Paket sayısı
+    #       (608) her koşuda AYNI — inen ağırlık değişmiyor, asılan şey audit.
+    #       Bu sınıftaki ALTI koşu: 33856366292, 33853270963, 33846053464,
+    #       33859065506, 33843671226 (hepsi "in 7m") ve 33815691003 ("in 5m").
+    #       Aşağıdaki `--no-audit` bu sınıfı kaynağından kapatır.
+    #   (b) YAVAŞ İNDİRME — audit BAŞARIYLA koşuyor ama indirme yine de uzun:
+    #       33848969644'te `npm ci` 4m54s ve satır "added 608 packages, and
+    #       audited 609 packages in 5m". `--no-audit` bu sınıfı KAPATMAZ.
     #
-    # ÖLÇÜLMEDİ: npm ci 2-7 dk varyansı — cache stratejisi. Bu PR yalnız
-    # bütçeyi ölçer, süreyi değil.
+    # ARİTMETİK (audit sivrileri ÇIKARILARAK — 29 koşudan 6'sı çıktı, 23 kaldı):
+    # kalan maks 11m15s (33848969644, success, tavanda KIRPILMAMIŞ) -> yukarı
+    # yuvarla 12 dk; 12 x 1.5 = 18; 5'e yukarı yuvarla -> 20.
+    # Yani sivriler çıkarılsa BİLE 12 dk yetmez (11m15s x 1.5 = 16.9 dk > 12).
+    # Bütçeyi (b) sınıfı belirler ve 20'de kalır; (a) sınıfı ayrıca ve
+    # bağımsız olarak kaynağından düzeltilir. İki karar, iki gerekçe.
     timeout-minutes: 20
     defaults:
       run:
@@ -647,7 +664,23 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
+      # `--no-audit`: KAPSAM KAYBI YOK, YALNIZ ASILAN İSTEK KALKAR.
+      #
+      # `npm ci`'nin örtük audit'i bu depoda ZATEN bir kapı DEĞİLDİ: `npm ci`
+      # audit bulgusunda non-zero dönmez, yani bu çağrının çıktısı hiçbir yerde
+      # okunmuyor ve hiçbir işi kırmızı yakmıyordu. Ölçülen tek etkisi süreydi
+      # (yukarıdaki (a) sınıfı: "added 608 packages in 7m", audit cümlesi düşmüş).
+      #
+      # GERÇEK GHSA KAPISI YERİNDE DURUYOR ve bu satırdan bağımsızdır:
+      #   * aşağıdaki AÇIK adım — `npm run test:audit-policy` + `npm run
+      #     audit:policy -- --degrade-on-unavailable` (#34; ağ sınıfı hatada
+      #     ::warning:: basıp geçer, POLİTİKA İHLALİNİ asla yutmaz),
+      #   * `package-lock.json` sha256'sı `audit-allowlist.json` içinde beyan
+      #     edilir ve bozulmuş geçiş yolunda DA kontrol edilir (çevrimdışı sinyal),
+      #   * yaşayan GHSA kontrolü KATI hâliyle `audit-gunluk.yml` günlük iş
+      #     akışında koşar.
+      # Yani kaldırılan şey ölçüm değil, ölçüm YAPMAYAN bir bekleme.
+      - run: npm ci --no-audit
       # ESLint'in varsayılan çıkış sözleşmesi burada bilinçli: hata varsa
       # non-zero, uyarı varsa zero. Böylece mevcut uyarıların tamamı ve toplam
       # sayısı job çıktısında görünür, fakat yalnız error seviyesi kapıyı kapatır.
@@ -882,7 +915,20 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r backend/requirements-dev.txt
-      - run: npm ci
+      # `--no-audit`: KAPSAM KAYBI YOK — gerekçe `frontend` işindekiyle AYNI.
+      #
+      # `npm ci`'nin örtük audit'i audit bulgusunda non-zero DÖNMEZ; bu işte
+      # çıktısı hiç okunmuyordu, yani kapı değildi. Ölçüldü: bu işin `npm ci`
+      # adımı beş koşunun DÖRDÜNDE 5m53s–7m03s sürdü ve o dördünde log satırı
+      # audit cümlesini DÜŞÜRMÜŞTÜ ("added 608 packages in 7m"); audit'in
+      # başarıyla koştuğu tek koşuda (33848969644) adım 53 saniyeydi
+      # ("added 608 packages, and audited 609 packages in 53s"). Paket sayısı
+      # (608) beşinde de aynı.
+      #
+      # GERÇEK GHSA KAPISI bu işte DEĞİL, `frontend` işindeki AÇIK
+      # `npm run audit:policy -- --degrade-on-unavailable` adımında ve günlük
+      # `audit-gunluk.yml` akışında duruyor; ikisi de bu satırdan etkilenmez.
+      - run: npm ci --no-audit
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
