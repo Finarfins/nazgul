@@ -76,6 +76,16 @@ class ProductUpdate(BaseModel):
     # değiştirmenin hiçbir yolu yoktu: ürün detayı "Pasif Ürün" rozetini
     # gösteriyor, hiç kimse pasife alamıyordu.
     active: bool = True
+    # ÜRÜNÜN STOĞUNUN TUTULDUĞU BİRİM (göç 20260902_0066). İSTEĞE BAĞLI ve
+    # `model_fields_set` ile uygulanıyor: zorunlu yapmak bu uca bugün istek
+    # atan her istemciyi kırardı, ve alanı göndermeyen bir istemcinin taban
+    # birimini SIFIRLAMAK sessiz bir veri kaybı olurdu.
+    #
+    # `unit` İLE AYNI ŞEY DEĞİL: `unit` satış/görüntü birimidir, `base_unit`
+    # stoğun TUTULDUĞU birimdir. 0066 ikisini bilerek ayırdı ve `base_unit`i
+    # `unit`ten KOPYALAMAYI reddetti — kopyalamak ölçülmemiş bir olguyu
+    # ölçülmüş gibi kaydetmek olurdu.
+    base_unit: str | None = Field(default=None, max_length=40)
 
     @field_validator('name', 'unit')
     @classmethod

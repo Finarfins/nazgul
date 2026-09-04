@@ -7,6 +7,7 @@ from sqlalchemy import insert, select, text, update
 from sqlalchemy.orm import Session
 
 from ..activity_log import format_money_tr, log_request_activity
+from ..units import turkce_katla
 from ..business_time import business_today
 from ..change_history import record_change
 from ..company_policies import (
@@ -404,6 +405,25 @@ def update_product(
     override_policies: set[str] = set()
     values = payload.model_dump()
     target = quantity(values.pop("stock", old["stock"] or 0))
+    # --- TABAN BİRİM: AYRI YAZILIR, HİÇBİR ŞEY YENİDEN HESAPLANMAZ ---------
+    # `base_unit` genel UPDATE'in DIŞINDA çünkü alanın gönderilmemesi ile
+    # `null` gönderilmesi AYRI şeylerdir: gönderilmediyse sütuna DOKUNULMAZ.
+    # Döngüye katılsaydı, alanı bilmeyen eski bir istemci her kaydetmede
+    # taban birimi SESSİZCE siler ve 0066'nın "geriye doldurma yok" kararını
+    # tersine çevirirdi.
+    #
+    # DEĞER `turkce_katla` İLE KANONİKLEŞİR: birim kodu KAPALI kümede aranan
+    # bir anahtardır ve `units.resolve` onu büyük harfli biçimde bekler.
+    # Katlama burada yapılmazsa "kg" yazan operatörün ürünü, "KG" bekleyen
+    # çözücüde BİRİM_TANIMSIZ alırdı.
+    #
+    # HİÇBİR ŞEY YENİDEN HESAPLANMIYOR: mevcut hareketlerin `entered_factor`ı
+    # ve `base_quantity`si O GÜN neye inanıldığının kanıtıdır; taban birim
+    # değişince onları yeniden çarpmak, geçmişi bugünün inancına göre
+    # yazmak olurdu (`app/units.py`, sahip kararı 1).
+    taban_birim_yazildi = "base_unit" in payload.model_fields_set
+    ham_taban = values.pop("base_unit", None)
+    yeni_taban = turkce_katla(ham_taban) if ham_taban else None
     values.update({"id": product_id, "cid": cid})
     try:
         db.execute(
@@ -418,6 +438,29 @@ def update_product(
             ),
             values,
         )
+        if taban_birim_yazildi and yeni_taban != (old["base_unit"] or None):
+            db.execute(
+                text(
+                    "UPDATE products SET base_unit=:bu "
+                    "WHERE id=:id AND company_id=:cid"
+                ),
+                {"bu": yeni_taban, "id": product_id, "cid": cid},
+            )
+            # KAYIT, DEĞİŞİKLİĞİN KENDİSİ KADAR ÖNEMLİ: taban birim bütün
+            # gelecek birim çözümlerinin kaynağıdır ve sessizce değişirse
+            # ondan sonraki her `entered_factor` başka bir sayı olur. Eski
+            # değer de yazılıyor ki "neydi" sorusu kayıttan cevaplanabilsin.
+            log_request_activity(
+                db,
+                request,
+                cid,
+                "UPDATE",
+                "product",
+                product_id,
+                f"Ürün taban birimi: {old['base_unit'] or '—'} -> "
+                f"{yeni_taban or '—'}",
+                {"base_unit_before": old["base_unit"], "base_unit_after": yeni_taban},
+            )
         diff = target - quantity(old["stock"])
         if diff:
             warehouse_id = default_warehouse(db, cid)
