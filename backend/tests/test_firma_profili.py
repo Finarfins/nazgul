@@ -234,9 +234,19 @@ def _deger_dali_ihlalleri(kaynak: str, etiket: str) -> list[str]:
     * Aynı sebeple dışarıda kalanlar: `case _ if profiller:`
       (`ast.match_case.guard`), `bool(f.profiller)` ve `any(f.profiller for f
       in firmalar)` (üreteç ELEMANI — `ifs` değil).
+    * `case {"profiller": True}:` — bu bir DESEN (`ast.MatchMapping`), yukarıda
+      anılan `guard` DEĞİLDİR: `profiller` orada bir ifade olarak değil bir
+      eşleme ANAHTARI olarak duruyor, `_profil_kimligi` onu görmez.
+    * YEREL DEĞİŞKEN DOLAYIMI: `p = company.profiller` sonra `if p:`. Bu,
+      buradaki kaçışların EN ULAŞILABİLİRİDİR ve tek KASITSIZ olanıdır —
+      diğerleri kapıdan kaçmak için özel bir şekil yazmayı gerektirir, bu ise
+      sıradan bir ara değişkendir. Kapıyı değere DEĞİL ada bağlamadan
+      kapatmanın yolu yok: dolayımı yakalamak veri akışı izlemek demektir ve
+      bu ucuz bir AST çitinin işi değildir.
 
-    Bunlar kapının BİLİNEN sınırıdır: kapı bir ispat değil, ucuz ve okunur bir
-    ÇİTtir. Kardeş kapı (ADIYLA) profil adlarını ayrıca arıyor.
+    Bunlar kapının BİLİNEN sınırıdır ve liste TÜKETİCİ DEĞİLDİR: kapı bir ispat
+    değil, ucuz ve okunur bir ÇİTtir. Kardeş kapı (ADIYLA) profil adlarını
+    ayrıca arıyor.
     """
     agac = ast.parse(kaynak, filename=etiket)
     cagri_argumanlari = {
