@@ -1,4 +1,8 @@
 {
+  "$lockfile": {
+    "sha256": "6c3b6750564e44dd131604b2be8fc8bade5b690f59a252301207101518d1e32c",
+    "reason": "package-lock.json icin cevrimdisi butunluk imzasi; SATIR SONLARI LF olarak normalize edilerek haslanir (Windows calisma agaci CRLF yazar, Linux kosucusu LF okur -- ham bayt haslamak ayni icerik icin iki farkli ozet uretirdi). Kilit dosyasi degistiginde bu deger de bilerek guncellenmeli."
+  },
   "GHSA-w5hq-g745-h8pq": {
     "package": "uuid",
     "reason": "Accepted transitively through dev-only @capacitor/cli -> xcode -> uuid. This repository builds Android, while xcode is iOS project-file tooling; current upstream has no compatible patched chain, and downgrading Capacitor CLI or forcing a uuid major adds mobile-build risk without production-runtime benefit."
