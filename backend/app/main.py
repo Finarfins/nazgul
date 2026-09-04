@@ -67,6 +67,7 @@ from .routers import (
     payment_allocations,
     part_supersessions,
     platform_audit,
+    kiraci_disa_aktarim,
     platform_backups,
     pos,
     products,
@@ -554,6 +555,7 @@ app.include_router(supplier_price_import.router, prefix="/api")
 app.include_router(supplier_price_bridge.router, prefix="/api")
 app.include_router(part_supersessions.router, prefix="/api")
 app.include_router(platform_backups.router, prefix="/api")
+app.include_router(kiraci_disa_aktarim.router, prefix="/api")
 app.include_router(transactions.router, prefix="/api")
 
 

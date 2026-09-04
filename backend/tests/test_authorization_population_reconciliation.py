@@ -132,7 +132,10 @@ from app.main import PUBLIC_API, app  # noqa: E402
 #     listesiyle aynı sınıf; bu yüzden FARM_HERD_VIEW_OPERATIONS'a girer.
 #     POST `farm.manage` ister, reddedilebilir, UNDENIABLE'a GİRMEZ.
 #   * ÇIPLAK read farkı (67) kımıldamadı: yeni bir çıplak okuma yüzeyi YOK.
-EXPECTED_AUTHENTICATED = 339
+# 339 -> 340: kiracı dışa aktarımı ucu (GET /api/company/export). Kimlik
+# doğrulaması ZORUNLU; izni `__admin_only__`, yani deny-by-default
+# nöbetçisiyle aynı ad — yalnız admin taşır.
+EXPECTED_AUTHENTICATED = 340
 EXPECTED_READ = 93
 EXPECTED_UNDENIABLE = 100
 

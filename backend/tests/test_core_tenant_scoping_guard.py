@@ -3114,7 +3114,34 @@ def test_alternatif_anahtar_sozlugu_CAPALI() -> None:
 # pozitif üretirdi. Bu yüzden her modülde `Table`ın SQLAlchemy'den gelip
 # gelmediği İMPORTTAN çözülüyor, `as` takma adları dahil.
 YANSIMA_ANAHTARLARI = frozenset({"autoload", "autoload_with"})
-BEKLENEN_YANSIMA_SAYISI = 0
+# 0 -> 1 (20260905, KİRACI DIŞA AKTARIMI). Bu, kapının kendi öngördüğü
+# "ayrı bir karar"dır ve sessizce alınmadı.
+#
+# TEK İSTİSNA: `app/routers/kiraci_disa_aktarim.py` içindeki
+# `MetaData.reflect`. Gerekçe, bu kapının yasakladığı şeyin TAM TERSİ bir
+# riski kapatıyor olmasıdır. Dışa aktarım 102 kiracı tablosunun HEPSİNİ
+# yazmak zorunda; elle yazılmış bir tablo listesi, yeni bir göç 103'üncü
+# tabloyu eklediğinde SESSİZCE eski kalır ve o tablonun satırları kiracıya
+# teslim edilen dosyaya HİÇ girmezdi. Eksik veri teslim etmek, burada
+# gürültülü bir hatadan kötüdür ve hiçbir statik kapı onu yakalamaz.
+#
+# KAPININ ASIL KORKUSU BURADA KARŞILANIYOR: kapı, "yansıma tablo adını
+# çalışma zamanına taşır ve STATİK OLARAK görülemeyen bir kiracı yüzeyi
+# açar" diyor. Bu doğru — ve bu yüzden o yüzey ÇALIŞMA ZAMANINDA
+# kapatılıyor:
+#   * `tests/test_kiraci_disa_aktarim.py::test_hicbir_dosyada_baska_firmanin_satiri_yok`
+#     iki firmayı da veriyle tohumlar, üretilen zip'teki HER tablonun HER
+#     satırını tek tek gezer ve `company_id`nin dışa aktarılan firmaya ait
+#     olduğunu doğrular. Tek bir tabloda yüklem düşerse test o tablonun ADINI
+#     söyleyerek kırılır. Statik bir kapının 102 tabloda veremeyeceği kanıt
+#     budur.
+#   * `test_yuz_iki_tablo_dosyasi_tam` yansımayla türetilen kümenin
+#     `TENANT_TABLES` ile BİREBİR aynı olduğunu doğrular (102 = 102), yani
+#     yansıma kapının bildiği evrenin dışına çıkamaz.
+#
+# SINIR: istisna TEK dosyaya ait. Sayı 1'de çapalı kaldığı için `app/` içinde
+# ikinci bir yansıma yolu açılırsa bu kapı yine kırılır.
+BEKLENEN_YANSIMA_SAYISI = 1
 
 
 def _sqlalchemy_table_adlari(agac: ast.Module) -> set[str]:

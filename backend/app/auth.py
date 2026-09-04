@@ -821,6 +821,14 @@ SELF_SERVICE_API: frozenset[str] = frozenset(
 
 
 def required_permission(method: str, path: str) -> str:
+    # KİRACI DIŞA AKTARIMI yalnız ``admin``e açıktır (ROLE_RANK: 100, var olan
+    # EN YÜKSEK rol) ve bunu dosyanın SONUNDAKİ deny-by-default nöbetçisiyle
+    # AYNI adı döndürerek söyler. Kural AÇIKÇA yazılmıştır, çünkü sessizce
+    # nöbetçiye düşen bir uç ``test_route_get_permission_inventory``de
+    # "sınıflandırılmamış" sayılır; ayrıca güvenli bir GET olduğu için üstteki
+    # genel SAFE_METHODS kuralına takılıp ``read``e düşme riski vardır ve o
+    # hâlde HER rol firmanın tüm defterini indirebilirdi.
+    if path.startswith("/api/company/export"): return "__admin_only__"
     if path.startswith("/api/platform/backups"):
         # The router applies the stronger admin + environment allow-list check.
         # Middleware still requires authentication and CSRF.

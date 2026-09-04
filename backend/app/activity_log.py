@@ -113,6 +113,10 @@ ACTION_TYPES: dict[str, str] = {
     "activity_log.archive": "Aktivite kaydı arşivleme",
     "activity_log.unarchive": "Aktivite kaydı arşivden çıkarma",
     # Platform düzeyi tam-veritabanı işlemleri tenant adminliğinden ayrıdır.
+    # Kiracı dışa aktarımı YEDEK DEĞİL: platform yedeği kümenin tamamını
+    # alır, bu ise TEK firmanın verisini o firmaya teslim eder. Ayrı bir
+    # eylem adı olmasaydı ikisi panelde birbirine karışırdı.
+    "company.exported": "Kiracı verisi dışa aktarma",
     "backup.created": "Veritabanı yedeği oluşturma",
     "backup.downloaded": "Veritabanı yedeği indirme",
     "backup.restore_started": "Veritabanı geri yükleme başlatma",
