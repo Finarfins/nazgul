@@ -756,10 +756,32 @@ jobs:
             echo "::error::frontend/e2e lint uyarı sayısı $okunan, bildirilen $BEKLENEN. Arttıysa yeni uyarıyı düzeltin; azaldıysa bu adımdaki BEKLENEN değerini düşürün — her iki yön de bilinçli bir karar olmalı." >&2
             exit 1
           fi
+      # ZORUNLU BAGLAM UCUNCU TARAFIN AYAKTA OLMASINA BAGLANAMAZ.
+      #
+      # OLCULEN ARIZA: 2026-09-03 ~22:00'den beri npm kayit defteri ucu zaman
+      # asimina ugruyor; develop caf4114'un kendisi (kosu 33807936220), PR #31
+      # (3 yeniden kosu) ve PR #32 yalniz AUDIT_TIMEOUT yuzunden KIRMIZI yandi,
+      # butun kod testleri gecerken. Bir ucuncu tarafin erisilebilirligiyle
+      # dusen zorunlu baglam bir KAPI degildir: sinyal degil gurultu uretir ve
+      # yesili yeniden kosarak "kazanmayi" ogretir.
+      #
+      # BOZULAN SEY, KAPI DEGIL, ARIZA SEKLI: betik uc kez (her biri 30 sn)
+      # dener; ancak AG SINIFI bir hata sonrasi --degrade-on-unavailable ile
+      # ::warning::AUDIT_UNAVAILABLE basip 0 ile ciker. Bir POLITIKA IHLALI
+      # ya da bozuk yuk bu yoldan ASLA gecmez -- kanit: betigin
+      # "--degrade-on-unavailable NEVER swallows a real policy violation" ve
+      # "a registry outage that exits 1 ... is unavailable, not a broken
+      # payload" alt-testleri.
+      #
+      # CEVRIMDISI SINYAL YERINDE KALIR: package-lock.json'un sha256'si
+      # audit-allowlist.json icinde beyan edilir ve bu kontrol bozulmus gecis
+      # yolunda DA kosar. Yani ag olmasa bile bagimlilik agacindaki her degisim
+      # kapiyi kirmizi yakar. Yasayan GHSA kontrolu KATI haliyle gunluk
+      # audit-gunluk.yml is akisinda kosar (zorunlu DEGIL, sesli duser).
       - name: Enforce exact frontend GHSA audit policy
         run: |
           npm run test:audit-policy
-          npm run audit:policy
+          npm run audit:policy -- --degrade-on-unavailable
       - run: npm run build:bridge
       - run: npm run build:field-pwa
       - run: npm test -- --run
@@ -809,7 +831,20 @@ jobs:
   # quick-pick akışı bugünkü prod çökmesinin birebir reprodüksiyonudur.
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # ÖLÇÜLDÜ (son 30 CI koşusu, 2026-09-03/04): e2e süreleri min 1m24s,
+    # medyan 16m31s, maks 20m19s. Tamamlanan (success) 16 koşuda maks 19m59s —
+    # tavanın BİR saniye altında. Otuz koşunun BEŞİ tam tavanda öldürüldü
+    # (33843671226, 33821605217, 33819153815, 33815691003, 33812273855);
+    # GitHub timeout öldürmesini `failure` değil `cancelled` bildirdiği için bu
+    # beş koşu toplu görünümde arıza gibi DEĞİL, iptal gibi görünüyordu.
+    # ~1 dakikalık pay bir bütçe değildir.
+    #
+    # ARİTMETİK: gözlenen maks 20m19s tavanda kırpılmış (gerçek süre bilinmiyor,
+    # >= bu), yukarı yuvarla -> 21 dk; 21 x 1.5 = 31.5; 5'e yukarı yuvarla -> 35.
+    #
+    # ÖLÇÜLMEDİ: e2e'nin NEDEN 19 dakika sürdüğü. Bu PR yalnız bütçeyi ölçer,
+    # süreyi değil. Ayrı keşif işi (bkz. durum kaydı 0067).
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -983,6 +1018,30 @@ jobs:
               exit 1
             fi
           '
+      # Imaj kuran kapi testi backend-quality shard'indan BURAYA tasindi:
+      # shard'da iki imaj kurup 62-180 s harciyor ve 180 s timeout'a carpip
+      # "0 test" ile kirmizi yanabiliyordu (run 33812772540 attempt 1, shard 0).
+      # Uretim yarisi zaten YUKARIDAKI "Verify production image has no test
+      # assets" adiminda, bu job'in ZATEN kurdugu imaj uzerinde olculuyor; o
+      # yuzden yalniz test stage yarisi kaldi ve --target test'i kendisi kurar.
+      # Bu job'da defaults working-directory YOK ve Python kurulu DEGIL; pytest.ini
+      # asyncio_mode=auto istedigi icin pytest-asyncio de gerekiyor.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test stage kapisi (docker_imaj)
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet pytest pytest-asyncio
+          python -m pytest tests/test_uretim_imaji_kapisi.py -m docker_imaj -q
+      # Kapi etiketi ~526 MB tutuyor; runner diskini sonraki adimlara birak.
+      - name: Kapi imaj etiketini temizle
+        if: always()
+        run: |
+          docker rmi -f yerel-hesap-test:uretim-imaji-kapisi || true
+          docker rmi -f yerel-hesap-pro:uretim-imaji-kapisi || true
+          docker images | grep uretim-imaji-kapisi && exit 1 || echo "temiz: kapi etiketi kalmadi"
       - name: Smoke-test non-root read-only container
         run: |
           docker network create yhp-ci

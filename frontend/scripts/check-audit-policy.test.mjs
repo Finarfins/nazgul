@@ -6,11 +6,27 @@ import test from "node:test";
 
 import {
   enforceAuditPolicy,
+  enforceLockfileIntegrity,
+  lockfileDigest,
   extractAuditAdvisories,
+  isNetworkClassFailure,
   main,
   parseAllowlist,
   runNpmAudit,
+  runNpmAuditWithRetry,
 } from "./check-audit-policy.mjs";
+
+const LOCKFILE_SHA256 =
+  "6c3b6750564e44dd131604b2be8fc8bade5b690f59a252301207101518d1e32c";
+
+function networkFailureSpawn(code = "ENOTFOUND") {
+  return () => ({
+    error: Object.assign(new Error(`synthetic ${code}`), { code }),
+    stdout: "",
+    stderr: "",
+    status: null,
+  });
+}
 
 const ACCEPTED_ID = "GHSA-w5hq-g745-h8pq";
 
@@ -241,4 +257,207 @@ test("a second GHSA for an already allowlisted package still fails", () => {
     () => enforceAuditPolicy(actual, policyWith()),
     /AUDIT_POLICY_RED: unapproved advisory GHSA-4444-5555-6666 \(uuid\)/,
   );
+});
+
+// --- BOZULMUS GECIS: AG SINIFI HATA -> UYARI, CIKIS 0 ---
+
+test("network-class spawn failures are classified as unavailable, not red", () => {
+  assert.equal(
+    isNetworkClassFailure({
+      error: Object.assign(new Error("x"), { code: "EAI_AGAIN" }),
+    }),
+    true,
+  );
+  assert.equal(
+    isNetworkClassFailure({ stderr: "request to https://registry.npmjs.org/ failed" }),
+    true,
+  );
+  assert.equal(
+    isNetworkClassFailure({ stderr: "npm ERR! some unrelated explosion" }),
+    false,
+  );
+});
+
+test("a network-class failure is retried three times with backoff, then reported unavailable", () => {
+  let attempts = 0;
+  const slept = [];
+  const spawn = (...args) => {
+    attempts += 1;
+    return networkFailureSpawn("ENOTFOUND")(...args);
+  };
+  assert.throws(
+    () =>
+      runNpmAuditWithRetry({
+        spawn,
+        attempts: 3,
+        backoffMs: [1, 2],
+        sleep: (ms) => slept.push(ms),
+        log: () => {},
+      }),
+    /AUDIT_UNAVAILABLE/,
+  );
+  assert.equal(attempts, 3);
+  assert.deepEqual(slept, [1, 2]);
+});
+
+test("a non-network failure is NOT retried and stays red", () => {
+  let attempts = 0;
+  const spawn = () => {
+    attempts += 1;
+    return {
+      error: null,
+      stdout: "{}",
+      stderr: "npm ERR! catastrophic internal fault",
+      status: 7,
+    };
+  };
+  assert.throws(
+    () => runNpmAuditWithRetry({ spawn, attempts: 3, sleep: () => {}, log: () => {} }),
+    /npm audit failed with exit 7/,
+  );
+  assert.equal(attempts, 1, "a non-network failure must fail on the first attempt");
+});
+
+test("--degrade-on-unavailable turns registry unavailability into a warning and exit 0", () => {
+  const logged = [];
+  const originalLog = console.log;
+  console.log = (line) => logged.push(line);
+  try {
+    const outcome = main(["--degrade-on-unavailable"], {
+      audit: () => {
+        throw Object.assign(new Error("AUDIT_UNAVAILABLE: synthetic outage"), {
+          auditUnavailable: true,
+        });
+      },
+    });
+    assert.equal(outcome, "AUDIT_UNAVAILABLE");
+  } finally {
+    console.log = originalLog;
+  }
+  assert.match(logged.join(" | "), /::warning::AUDIT_UNAVAILABLE/);
+});
+
+test("--degrade-on-unavailable NEVER swallows a real policy violation", () => {
+  const directory = mkdtempSync(join(tmpdir(), "audit-policy-violation-"));
+  const auditPath = join(directory, "audit.json");
+  writeFileSync(
+    auditPath,
+    JSON.stringify(auditWith(advisory("GHSA-9999-8888-7777", "uuid"))),
+    "utf8",
+  );
+  try {
+    assert.throws(
+      () => main(["--degrade-on-unavailable", "--audit-json", auditPath]),
+      /AUDIT_POLICY_RED: unapproved advisory GHSA-9999-8888-7777/,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+// --- CEVRIMDISI KILIT SINYALI ---
+
+test("the declared package-lock.json sha256 matches the real lockfile", () => {
+  assert.equal(
+    enforceLockfileIntegrity({
+      $lockfile: { sha256: LOCKFILE_SHA256 },
+    }),
+    LOCKFILE_SHA256,
+  );
+});
+
+test("a changed package-lock.json without an updated declaration is red", () => {
+  const directory = mkdtempSync(join(tmpdir(), "audit-policy-lock-"));
+  const lockPath = join(directory, "package-lock.json");
+  writeFileSync(lockPath, '{"name":"mutated-lockfile"}', "utf8");
+  try {
+    assert.throws(
+      () =>
+        enforceLockfileIntegrity(
+          { $lockfile: { sha256: LOCKFILE_SHA256 } },
+          lockPath,
+        ),
+      /AUDIT_POLICY_RED: package-lock\.json sha256 mismatch/,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a missing or malformed lockfile declaration is red, not skipped", () => {
+  assert.throws(
+    () => enforceLockfileIntegrity({}),
+    /AUDIT_POLICY_RED: audit allowlist has no valid "\$lockfile"\.sha256/,
+  );
+  assert.throws(
+    () => enforceLockfileIntegrity({ $lockfile: { sha256: "kisa" } }),
+    /AUDIT_POLICY_RED: audit allowlist has no valid "\$lockfile"\.sha256/,
+  );
+});
+
+test("the reserved $lockfile key is not mistaken for a GHSA allowlist entry", () => {
+  const policy = parseAllowlist({
+    $lockfile: { sha256: LOCKFILE_SHA256 },
+    [ACCEPTED_ID]: { package: "uuid", reason: "Accepted test fixture" },
+  });
+  assert.equal(policy.size, 1);
+  assert.equal(policy.has(ACCEPTED_ID.toUpperCase()), true);
+});
+
+test("a registry timeout is also retried as a network-class failure", () => {
+  let attempts = 0;
+  assert.throws(
+    () =>
+      runNpmAuditWithRetry({
+        spawn: (...args) => {
+          attempts += 1;
+          return networkFailureSpawn("ETIMEDOUT")(...args);
+        },
+        attempts: 3,
+        backoffMs: [0, 0],
+        sleep: () => {},
+        log: () => {},
+      }),
+    /AUDIT_TIMEOUT/,
+  );
+  assert.equal(attempts, 3);
+});
+
+// GERILEME KAPISI: npm, kayit defterine ulasamadiginda da CIKIS 1 verir --
+// "acik bulundu" ile ayni kod. Bu test, o durumun "bozuk yuk" diye KIRMIZI
+// yanmasini degil, ULASILAMADI olarak siniflanmasini sabitler.
+test("a registry outage that exits 1 with empty stdout is unavailable, not a broken payload", () => {
+  const outageSpawn = () => ({
+    error: null,
+    stdout: "",
+    stderr: [
+      "npm ERR! code ENOTFOUND",
+      "npm ERR! request to https://registry.npmjs.org/ failed, reason: getaddrinfo ENOTFOUND",
+    ].join(" "),
+    status: 1,
+  });
+  assert.throws(() => runNpmAudit({ spawn: outageSpawn }), (error) => {
+    assert.equal(error.auditUnavailable, true);
+    assert.match(error.message, /AUDIT_UNAVAILABLE: npm audit could not reach the registry/);
+    assert.doesNotMatch(error.message, /not valid JSON/);
+    return true;
+  });
+});
+
+// PLATFORM CIVISI: ayni icerik, iki satir sonu bicimi, TEK ozet.
+// Bu test olmadan kapi Windows calisma agacinda yesil, Linux kosucusunda
+// kirmizi olabilir (ve CI'da tam olarak oyle oldu) -- yani bagimlilik
+// agaci hic degismeden kapinin PLATFORMU olctugu bir hal.
+test("the lockfile digest is line-ending independent", () => {
+  const CR = String.fromCharCode(13);
+  const LF = String.fromCharCode(10);
+  const lf = ['{', '  "ad": "kilit"', '}'].join(LF);
+  const crlf = lf.split(LF).join(CR + LF);
+  assert.notEqual(lf, crlf, "iki bicim gercekten farkli baytlar olmali");
+  assert.equal(lockfileDigest(crlf), lockfileDigest(lf));
+  assert.equal(lockfileDigest(Buffer.from(crlf, "utf8")), lockfileDigest(lf));
+});
+
+test("the digest still changes when real content changes", () => {
+  assert.notEqual(lockfileDigest('{"a":1}'), lockfileDigest('{"a":2}'));
 });

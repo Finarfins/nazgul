@@ -1,0 +1,46 @@
+# GUNLUK KATI GHSA DENETIMI -- ZORUNLU DEGIL, SESLI DUSER.
+#
+# NEDEN AYRI BIR IS AKISI: zorunlu `frontend` baglami artik npm kayit defteri
+# ulasilamaz oldugunda ::warning::AUDIT_UNAVAILABLE basip geciyor (bkz.
+# ci.yml, "Enforce exact frontend GHSA audit policy"). Bu, gercek bir yeni
+# aciga karsi korumayi zayiflatirdi -- eger yasayan kontrol HIC kosmasaydi.
+# Burada KATI haliyle, --degrade-on-unavailable OLMADAN kosar: ag arizasi da
+# yeni bir GHSA da bu isi KIRMIZI yakar.
+#
+# ZORUNLU BAGLAM LISTESINE EKLENMEDI (deploy/ci-required-contexts.json 17
+# kalir): zorunlu olsaydi, kaciniks istedigimiz uctan-baglilik geri gelirdi.
+# Burada bir kesinti bir PR'i engellemez, ama SESSIZ de kalmaz.
+name: audit-gunluk
+
+on:
+  schedule:
+    # Her gun 06:17 UTC. Tam saatten kacinildi: GitHub'in zamanlanmis is
+    # kuyruklari tam saatlerde yigiliyor ve kosu gecikiyor.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-audit-kati:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      # Once politika betiginin KENDI testleri: kapi bozuksa, kapinin
+      # verdigi yesil de bir sey ifade etmez.
+      - run: npm run test:audit-policy
+      # KATI: --degrade-on-unavailable YOK. Kayit defteri dusukse bu is
+      # KIRMIZI yanar ve bunu bilmemiz gerekir.
+      - name: Strict GHSA audit policy (no degraded path)
+        run: npm run audit:policy
