@@ -68,6 +68,13 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/field-dashboard"): "farm.view",
     ("GET", "/api/field-harvest-decision"): "farm.view",
     ("GET", "/api/field-harvests"): "farm.view",
+    # Kantar fişi listesi (göç 20260904_0069). `/api/field-harvests` ile
+    # BAŞLAMIYOR (sondaki `s`); `_FARM_PATH_PREFIXES`e ayrıca yazıldı, yoksa
+    # `field_service`e düşerdi (ölçüldü). Maruziyet: fişin brütü, girilen
+    # birim, katsayı, taban miktar, kağıdın neti, kesintiler ve hasat başına
+    # üç değerli iki bayrak — hasat listesinin yanında duran, aynı role
+    # bağlı bir okuma. YAZMA `farm.manage` ister ve bu envanterde DEĞİLDİR.
+    ("GET", "/api/field-harvest-tickets"): "farm.view",
     # Outbox okuma yüzeyi (FIELD_STOK_OUTBOX açılış koşulu 2). AYNI TUZAK:
     # "/api/field" ile başlıyor, `_FARM_PATH_PREFIXES`e yazılmasaydı
     # `field_service` iznine düşerdi. Kuyruk TARLA verisidir; okuması
@@ -283,9 +290,12 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # 164 -> 166: Uygulama Kayıt Çizelgesinin JSON ve xlsx okuma uçları. İKİ dal
 # da 162 -> 164 yazmıştı (BKÜ kataloğu ve çizelge); birleşmede TOPLANDI.
 # Drift raporu ÖLÇÜLDÜ: `changed` ve `stale` BOŞ — artış YALNIZ ekleme.
-GET_INVENTORY_COUNT = 166
+# 166 -> 167: kantar fişi listesi (GET /api/field-harvest-tickets, göç
+# 20260904_0069). Başka hiçbir ucun izni değişmedi; drift raporu ÖLÇÜLDÜ:
+# `changed` ve `stale` BOŞ — artış YALNIZ ekleme.
+GET_INVENTORY_COUNT = 167
 GET_INVENTORY_FINGERPRINT = (
-    "710073c80c429fa271a1e0c706e077058a68a1ee659c3c4e6780119ed6b62521"
+    "0789829a4578491203d02726628be0d4d3de9a593aad47b4e742ebe435791de7"
 )
 
 

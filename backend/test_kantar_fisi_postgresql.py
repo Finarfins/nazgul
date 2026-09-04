@@ -349,3 +349,50 @@ def test_NUMARASIZ_fis_IKI_KEZ_girilebilir_NULL_CAKISMAZ(motor) -> None:
                      "(SELECT max(id) FROM field_harvest_tickets WHERE company_id=:cid)"),
                 {"cid": cid},
             )
+
+
+# ===========================================================================
+# 5. UÇ SMOKE'LARININ PG İKİZİ — AYRI DOSYA AÇILMADI
+# ===========================================================================
+#
+# Üç davranış smoke'u (`tests/test_kantar_fisi_defter.py`,
+# `tests/test_kantar_fisi_sozlesme.py`, `tests/test_kantar_fisi_sonluluk.py`)
+# SQLite'ta koşuyor; burada AYNI gövde gerçek PostgreSQL'e karşı koşturulur
+# (`test_farm_harvest_revenue_postgresql.py`nin kalıbı: importlib ile yükle,
+# URL'yi ver). YENİ `*_postgresql.py` DOSYASI AÇILMADI — PG popülasyonu üç
+# yerde 102'ye çivili ve bu dilim o sayıyı oynatmıyor.
+#
+# ÜÇ SMOKE AYNI VERİTABANINI VE AYNI BOOTSTRAP FİRMASINI PAYLAŞIR: giriş aday
+# döngüsüyle (ortak `KantarFisi!123`), sayaçlar tabana göre FARK olarak
+# yazıldı. Sıra bağımlılığı burada değil smoke'larda çözüldü ki SQLite ile PG
+# aynı gövdeyi koşsun.
+
+
+def _smoke(dosya: str, ad: str):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        f"kantar_{dosya}", BACKEND / "tests" / f"test_kantar_fisi_{dosya}.py"
+    )
+    modul = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(modul)
+    return getattr(modul, ad)
+
+
+@pytest.mark.postgresql
+def test_kantar_fisi_defter_postgresql() -> None:
+    """Beş senaryo, gerçek defter: PG'de de fiş stok hareketini oynatmıyor."""
+    _smoke("defter", "run_defter_smoke")(_url())
+
+
+@pytest.mark.postgresql
+def test_kantar_fisi_sozlesme_postgresql() -> None:
+    """Uç sözleşmesi + taban birim iki bacağı, gerçek NUMERIC ölçekleriyle."""
+    _smoke("sozlesme", "run_sozlesme_smoke")(_url())
+
+
+@pytest.mark.postgresql
+def test_kantar_fisi_sonluluk_uc_postgresql() -> None:
+    """Sonlu olmayan girdi: PG'de de 422 ve iki tabloda SIFIR satır."""
+    _smoke("sonluluk", "run_sonluluk_smoke")(_url())

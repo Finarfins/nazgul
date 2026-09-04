@@ -454,7 +454,11 @@ def update_product(
                 db,
                 request,
                 cid,
-                "UPDATE",
+                # KATALOĞA KAYITLI tip: `activity_log.ACTION_TYPES` kapalı bir
+                # kümedir ve katalog dışı bir tip ValueError ile reddedilir.
+                # İlk yazım burada "UPDATE" diyordu ve uç 4xx veriyordu —
+                # ÖLÇÜLDÜ (`tests/test_kantar_fisi_sozlesme.py`).
+                "product.base_unit_update",
                 "product",
                 product_id,
                 f"Ürün taban birimi: {old['base_unit'] or '—'} -> "

@@ -878,6 +878,11 @@ EXPECTED_OP_COUNTS = {"select": 89, "update": 41, "delete": 7}
 # 20260812: +1 select — app/routers/platform_audit.py::list_untenanted_audit.
 # Firmasız güvenlik denetim satırlarının okuma yolu; company_id ile SÜZMEZ,
 # company_id IS NULL arar (bkz. göç 20260812_0059).
+# 20260905 kantar fişi v2 (göç 20260904_0069): Core envanteri DEĞİŞMEDİ —
+# ÖLÇÜLDÜ, birleşmiş ağaçta (CPython 3.12.10) 137/89/41/7 ve parmak izi
+# 787d65cf SABİT. Dilimin bütün SQL'i text() ile yazıldı (farm.py kantar bloğu,
+# products.py `base_unit` UPDATE'i); hiçbir Core sorgunun yüklemi ya da hedef
+# tablosu değişmedi. Bu satır bir yeniden çivileme DEĞİL, ölçümün kaydıdır.
 INVENTORY_FINGERPRINT = "787d65cfb7a0fd30b6b1a3208cb54e053fd5a76e68b145603efc4becd3d6c73b"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet. Bugün boş.
