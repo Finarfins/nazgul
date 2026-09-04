@@ -5578,6 +5578,8 @@ export interface components {
              * @enum {string}
              */
             negative_stock_policy: "block" | "manager_override" | "allow";
+            /** Profiller */
+            profiller?: string | null;
             /** Tax Number */
             tax_number?: string | null;
         };
@@ -7964,6 +7966,8 @@ export interface components {
             password_confirmation: string;
             /** Phone */
             phone: string;
+            /** Profiller */
+            profiller?: string | null;
             /** Terms Accepted */
             terms_accepted: boolean;
             /** Turnstile Token */
