@@ -831,7 +831,20 @@ jobs:
   # quick-pick akışı bugünkü prod çökmesinin birebir reprodüksiyonudur.
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # ÖLÇÜLDÜ (son 30 CI koşusu, 2026-09-03/04): e2e süreleri min 1m24s,
+    # medyan 16m31s, maks 20m19s. Tamamlanan (success) 16 koşuda maks 19m59s —
+    # tavanın BİR saniye altında. Otuz koşunun BEŞİ tam tavanda öldürüldü
+    # (33843671226, 33821605217, 33819153815, 33815691003, 33812273855);
+    # GitHub timeout öldürmesini `failure` değil `cancelled` bildirdiği için bu
+    # beş koşu toplu görünümde arıza gibi DEĞİL, iptal gibi görünüyordu.
+    # ~1 dakikalık pay bir bütçe değildir.
+    #
+    # ARİTMETİK: gözlenen maks 20m19s tavanda kırpılmış (gerçek süre bilinmiyor,
+    # >= bu), yukarı yuvarla -> 21 dk; 21 x 1.5 = 31.5; 5'e yukarı yuvarla -> 35.
+    #
+    # ÖLÇÜLMEDİ: e2e'nin NEDEN 19 dakika sürdüğü. Bu PR yalnız bütçeyi ölçer,
+    # süreyi değil. Ayrı keşif işi (bkz. durum kaydı 0067).
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
