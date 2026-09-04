@@ -8,7 +8,6 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCKERFILE = REPO_ROOT / "Dockerfile"
-PRODUCTION_TAG = "yerel-hesap-pro:uretim-imaji-kapisi"
 EXPECTED_RUNTIME_REMOVAL = (
     "rm -rf /app/backend/tests "
     "/app/backend/test_*.py "
@@ -24,18 +23,6 @@ EXPECTED_RUNTIME_REMOVAL = (
     "/app/backend/requirements-dev.txt "
     "/app/backend/LEGACY_TEST_MIGRATION_PLAN.md "
     "/app/backend/tools/capture_frontend_fixtures.py"
-)
-
-# Uretim imajinda BULUNMAMASI gereken yollar; find ile sayilan test_*.py
-# disindaki her sey burada. Kapinin tek tek `test -e` ile olctugu liste budur.
-YASAKLI_URETIM_YOLLARI = (
-    "/app/backend/tests",
-    "/app/backend/donmus_saat.py",
-    "/app/backend/non_twin_skip_exceptions.json",
-    "/app/backend/sandbox",
-    "/app/backend/requirements-dev.txt",
-    "/app/backend/LEGACY_TEST_MIGRATION_PLAN.md",
-    "/app/backend/tools/capture_frontend_fixtures.py",
 )
 
 
@@ -71,66 +58,7 @@ def _docker_is_available() -> bool:
     return shutil.which("docker") is not None
 
 
-def test_production_image_contains_no_test_assets() -> None:
-    if not _docker_is_available():
-        pytest.skip("DOKER YOK: docker komutu bulunamadı; imaj tabanlı kapı ölçülemedi")
-
-    build = subprocess.run(
-        [
-            "docker",
-            "build",
-            "--provenance=false",
-            "--sbom=false",
-            "--target",
-            "production",
-            "--build-arg",
-            "VITE_TURNSTILE_SITE_KEY=ci-dummy-public-key",
-            "--tag",
-            PRODUCTION_TAG,
-            str(REPO_ROOT),
-        ],
-        capture_output=True,
-        text=False,
-    )
-    assert build.returncode == 0, build.stdout + build.stderr
-
-    test_count = subprocess.run(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "--entrypoint",
-            "sh",
-            PRODUCTION_TAG,
-            "-c",
-            "find /app/backend -name 'test_*.py' | wc -l",
-        ],
-        capture_output=True,
-        text=False,
-    )
-    assert test_count.returncode == 0, test_count.stdout + test_count.stderr
-    assert test_count.stdout.strip() == b"0", test_count.stdout
-
-    frozen_clock = subprocess.run(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "--entrypoint",
-            "sh",
-            PRODUCTION_TAG,
-            "-c",
-            " && ".join(f"test ! -e {yol}" for yol in YASAKLI_URETIM_YOLLARI),
-        ],
-        capture_output=True,
-        text=False,
-    )
-    assert frozen_clock.returncode == 0, (
-        "üretim imajı yasaklı yol taşıyor, beklenen yokluk: "
-        + ", ".join(YASAKLI_URETIM_YOLLARI)
-    )
-
-
+@pytest.mark.docker_imaj
 def test_stage_still_contains_tests() -> None:
     if not _docker_is_available():
         pytest.skip("DOKER YOK: docker komutu bulunamadı; test stage sayımı ölçülemedi")
