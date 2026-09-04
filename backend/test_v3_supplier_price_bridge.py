@@ -53,11 +53,16 @@ def workbook_bytes(cash="100,00 TL", term="110,00 TL"):
 
 
 def login(client):
-    password = "admin123"
-    response = client.post("/api/auth/login", json={"username": "admin", "password": password})
-    if response.status_code != 200:
-        password = "SupplierImport123!"
-        response = client.post("/api/auth/login", json={"username": "admin", "password": password})
+    # Aday listesi eksikti: bu ailenin diger smoke'lari sifreyi
+    # admin123Changed!/SupplierBridge123! gibi degerlere de donduruyor.
+    for password in ('admin123', 'admin123Changed!', 'SupplierImport123!',
+                     'SupplierBridge123!', 'ImportReport123!', 'ImportReport456!',
+                     'BridgeAccounting123!', 'BridgeAccounting456!'):
+        response = client.post(
+            "/api/auth/login", json={"username": "admin", "password": password}
+        )
+        if response.status_code == 200:
+            break
     assert response.status_code == 200, response.text
     body = response.json()
     headers = {
@@ -122,13 +127,19 @@ with TestClient(app) as client:
 
     imports = client.get("/api/supplier-prices/imports", headers=headers)
     assert imports.status_code == 200, imports.text
-    assert imports.json() == [{
+    # Paylasilan veritabaninda baska smoke'lar da ice-aktarma satiri birakiyor;
+    # TUM listenin tek elemanli olmasini sart kosmak bu smoke'u ILK kosmaya
+    # bagimli kiliyordu (karisik sirada ciplak AssertionError). Yalnizca BU
+    # ice-aktarmanin satiri dogrulanir. (Olculdu.)
+    benim = [satir for satir in imports.json() if satir["id"] == import_id]
+    assert len(benim) == 1, imports.text
+    assert benim[0] == {
         "id": import_id,
         "status": "DRY_RUN_READY",
         "source_filename": "tampar.xlsx",
         "parsed_row_count": 2,
-        "created_at": imports.json()[0]["created_at"],
-    }]
+        "created_at": benim[0]["created_at"],
+    }
 
     report = client.get(f"/api/supplier-prices/imports/{import_id}", headers=headers)
     assert report.status_code == 200, report.text
@@ -227,7 +238,13 @@ with TestClient(app) as client:
         json={"expected_revision": body["report_digest"], "report_digest": body["report_digest"]},
     )
     assert applied.status_code == 200, applied.text
-    assert applied.json()["revision"] == 1
+    # Revizyon sayaci bu sirkette PAYLASIK: baska bir smoke daha once bir
+    # uygulama yaptiysa zincir 1'den baslamiyordu (ters/karisik sirada
+    # AssertionError). Mutlak degeri gevsetmek yerine zincir ilk gozlenen
+    # degere capalanir; "her uygulama sayaci bir artirir" sozlesmesi aynen
+    # olculmeye devam eder. (Olculdu.)
+    ilk_rev = applied.json()["revision"]
+    assert isinstance(ilk_rev, int) and ilk_rev >= 1, applied.text
     with SessionLocal() as db:
         price = db.execute(text("""SELECT price_cash,price_term,currency,term_days
             FROM supplier_part_prices
@@ -310,12 +327,12 @@ with TestClient(app) as client:
         },
     )
     assert second_apply.status_code == 200, second_apply.text
-    assert second_apply.json()["revision"] == 2
+    assert second_apply.json()["revision"] == ilk_rev + 1
     old_revert = client.post(f"/api/supplier-prices/imports/{import_id}/revert", headers=headers)
     assert old_revert.status_code == 409, old_revert.text
     reverted = client.post(f"/api/supplier-prices/imports/{second_id}/revert", headers=headers)
     assert reverted.status_code == 200, reverted.text
-    assert reverted.json()["revision"] == 3
+    assert reverted.json()["revision"] == ilk_rev + 2
     with SessionLocal() as db:
         restored = db.execute(text("""SELECT price_cash,price_term FROM supplier_part_prices
             WHERE company_id=:cid AND supplier_id=:sid AND part_id=:pid"""),
@@ -361,7 +378,7 @@ with TestClient(app) as client:
                 {"cid": company_a, "sid": supplier_id, "pid": product_id}).scalar_one() == 1
             assert db.execute(text("""SELECT revision FROM supplier_price_imports
                 WHERE company_id=:cid AND id=:id"""),
-                {"cid": company_a, "id": raced_id}).scalar_one() == 4
+                {"cid": company_a, "id": raced_id}).scalar_one() == ilk_rev + 3
 
         interleaved = upload(client, headers, profile_id, workbook_bytes("160,00 TL", "170,00 TL"))
         assert interleaved.status_code == 202, interleaved.text

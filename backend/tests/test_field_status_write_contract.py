@@ -124,15 +124,27 @@ PNG = bytes.fromhex(
 
 
 def admin_headers(client):
-    login = client.post('/api/auth/login', json={'username':'admin','password':'admin123'})
+    # Paylasilan PG veritabaninda bu dosyanin dort smoke'u AYNI bootstrap
+    # kullanicisini kullaniyor ve her biri sifreyi kendi ADMIN_PW'sine
+    # donduruyor. 'admin123' sabit yazilinca smoke ILK kosmaya bagimli
+    # oluyordu; ters sirada giris
+    # {"detail":"Kullanici adi veya sifre hatali"} donuyordu. (Olculdu.)
+    bilinen = ('admin123', ADMIN_PW, 'FieldEk!123', 'FieldParts!123',
+               'FieldStatus!123', 'FieldIscilik!123')
+    for candidate in bilinen:
+        login = client.post('/api/auth/login',
+                            json={'username':'admin','password':candidate})
+        if login.status_code == 200:
+            break
     assert login.status_code == 200, login.text
     body = login.json()
     headers = {'Authorization':'Bearer '+body['access_token'],
                'X-Company-ID':str(body['companies'][0]['id'])}
-    changed = client.post('/api/auth/change-password', headers=headers,
-                          json={'current_password':'admin123','new_password':ADMIN_PW})
-    assert changed.status_code == 200, changed.text
-    headers['Authorization'] = 'Bearer '+changed.json()['access_token']
+    if candidate != ADMIN_PW:
+        changed = client.post('/api/auth/change-password', headers=headers,
+                              json={'current_password':candidate,'new_password':ADMIN_PW})
+        assert changed.status_code == 200, changed.text
+        headers['Authorization'] = 'Bearer '+changed.json()['access_token']
     return headers, body
 
 
@@ -221,15 +233,27 @@ ADMIN_PW = 'FieldParts!123'
 
 
 def admin_headers(client):
-    login = client.post('/api/auth/login', json={'username':'admin','password':'admin123'})
+    # Paylasilan PG veritabaninda bu dosyanin dort smoke'u AYNI bootstrap
+    # kullanicisini kullaniyor ve her biri sifreyi kendi ADMIN_PW'sine
+    # donduruyor. 'admin123' sabit yazilinca smoke ILK kosmaya bagimli
+    # oluyordu; ters sirada giris
+    # {"detail":"Kullanici adi veya sifre hatali"} donuyordu. (Olculdu.)
+    bilinen = ('admin123', ADMIN_PW, 'FieldEk!123', 'FieldParts!123',
+               'FieldStatus!123', 'FieldIscilik!123')
+    for candidate in bilinen:
+        login = client.post('/api/auth/login',
+                            json={'username':'admin','password':candidate})
+        if login.status_code == 200:
+            break
     assert login.status_code == 200, login.text
     body = login.json()
     headers = {'Authorization':'Bearer '+body['access_token'],
                'X-Company-ID':str(body['companies'][0]['id'])}
-    changed = client.post('/api/auth/change-password', headers=headers,
-                          json={'current_password':'admin123','new_password':ADMIN_PW})
-    assert changed.status_code == 200, changed.text
-    headers['Authorization'] = 'Bearer '+changed.json()['access_token']
+    if candidate != ADMIN_PW:
+        changed = client.post('/api/auth/change-password', headers=headers,
+                              json={'current_password':candidate,'new_password':ADMIN_PW})
+        assert changed.status_code == 200, changed.text
+        headers['Authorization'] = 'Bearer '+changed.json()['access_token']
     return headers, body
 
 
@@ -344,15 +368,27 @@ ADMIN_PW = 'FieldStatus!123'
 
 
 def admin_headers(client):
-    login = client.post('/api/auth/login', json={'username':'admin','password':'admin123'})
+    # Paylasilan PG veritabaninda bu dosyanin dort smoke'u AYNI bootstrap
+    # kullanicisini kullaniyor ve her biri sifreyi kendi ADMIN_PW'sine
+    # donduruyor. 'admin123' sabit yazilinca smoke ILK kosmaya bagimli
+    # oluyordu; ters sirada giris
+    # {"detail":"Kullanici adi veya sifre hatali"} donuyordu. (Olculdu.)
+    bilinen = ('admin123', ADMIN_PW, 'FieldEk!123', 'FieldParts!123',
+               'FieldStatus!123', 'FieldIscilik!123')
+    for candidate in bilinen:
+        login = client.post('/api/auth/login',
+                            json={'username':'admin','password':candidate})
+        if login.status_code == 200:
+            break
     assert login.status_code == 200, login.text
     body = login.json()
     headers = {'Authorization':'Bearer '+body['access_token'],
                'X-Company-ID':str(body['companies'][0]['id'])}
-    changed = client.post('/api/auth/change-password', headers=headers,
-                          json={'current_password':'admin123','new_password':ADMIN_PW})
-    assert changed.status_code == 200, changed.text
-    headers['Authorization'] = 'Bearer '+changed.json()['access_token']
+    if candidate != ADMIN_PW:
+        changed = client.post('/api/auth/change-password', headers=headers,
+                              json={'current_password':candidate,'new_password':ADMIN_PW})
+        assert changed.status_code == 200, changed.text
+        headers['Authorization'] = 'Bearer '+changed.json()['access_token']
     return headers, body
 
 
@@ -479,15 +515,27 @@ ADMIN_PW = 'FieldIscilik!123'
 
 
 def admin_headers(client):
-    login = client.post('/api/auth/login', json={'username':'admin','password':'admin123'})
+    # Paylasilan PG veritabaninda bu dosyanin dort smoke'u AYNI bootstrap
+    # kullanicisini kullaniyor ve her biri sifreyi kendi ADMIN_PW'sine
+    # donduruyor. 'admin123' sabit yazilinca smoke ILK kosmaya bagimli
+    # oluyordu; ters sirada giris
+    # {"detail":"Kullanici adi veya sifre hatali"} donuyordu. (Olculdu.)
+    bilinen = ('admin123', ADMIN_PW, 'FieldEk!123', 'FieldParts!123',
+               'FieldStatus!123', 'FieldIscilik!123')
+    for candidate in bilinen:
+        login = client.post('/api/auth/login',
+                            json={'username':'admin','password':candidate})
+        if login.status_code == 200:
+            break
     assert login.status_code == 200, login.text
     body = login.json()
     headers = {'Authorization':'Bearer '+body['access_token'],
                'X-Company-ID':str(body['companies'][0]['id'])}
-    changed = client.post('/api/auth/change-password', headers=headers,
-                          json={'current_password':'admin123','new_password':ADMIN_PW})
-    assert changed.status_code == 200, changed.text
-    headers['Authorization'] = 'Bearer '+changed.json()['access_token']
+    if candidate != ADMIN_PW:
+        changed = client.post('/api/auth/change-password', headers=headers,
+                              json={'current_password':candidate,'new_password':ADMIN_PW})
+        assert changed.status_code == 200, changed.text
+        headers['Authorization'] = 'Bearer '+changed.json()['access_token']
     return headers, body
 
 

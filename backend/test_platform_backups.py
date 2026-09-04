@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 import os
 import subprocess
 import sys
@@ -24,7 +25,7 @@ HEAD = application_head()
 
 
 def database(path: Path, revision: str = HEAD, marker: str = "before") -> str:
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript(
             "CREATE TABLE alembic_version(version_num TEXT PRIMARY KEY);"
             "CREATE TABLE companies(id INTEGER PRIMARY KEY, name TEXT);"
@@ -95,7 +96,7 @@ def test_restore_creates_prebackup_and_verifies_counts(tmp_path: Path) -> None:
     assert result["pre_restore_backup"]["name"] != selected["name"]
     assert result["revision"] == HEAD
     assert result["table_counts"]["companies"] == 1
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         assert db.execute("SELECT value FROM marker").fetchone()[0] == "selected"
 
 
@@ -137,7 +138,7 @@ def test_manifest_missing_is_rejected_before_restore_changes_database(tmp_path: 
     selected = create_platform_backup(url, tmp_path)
     selected_path = tmp_path / "backups" / str(selected["name"])
     selected_path.with_suffix(selected_path.suffix + ".manifest.json").unlink()
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("UPDATE marker SET value='current'")
         db.commit()
     env = os.environ.copy()
@@ -154,7 +155,7 @@ def test_manifest_missing_is_rejected_before_restore_changes_database(tmp_path: 
     )
     assert completed.returncode == 2
     assert "manifest" in completed.stdout.lower()
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         assert db.execute("SELECT value FROM marker").fetchone()[0] == "current"
 
 

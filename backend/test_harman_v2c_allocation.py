@@ -789,20 +789,34 @@ with SessionLocal() as db:
     db.commit()
 
 with TestClient(app) as client:
-    login = client.post(
-        "/api/auth/login", json={"username": "admin", "password": "admin123"}
-    ).json()
-    headers = {
-        "Authorization": "Bearer " + login["access_token"],
-        "X-Company-ID": str(login["companies"][0]["id"]),
-    }
-    changed = client.post(
-        "/api/auth/change-password",
-        headers=headers,
-        json={"current_password": "admin123", "new_password": "ChargeFlagOff123!"},
-    )
-    assert changed.status_code == 200, changed.text
-    headers["Authorization"] = "Bearer " + changed.json()["access_token"]
+    # Shared-DB PG runs execute every smoke in this file against one database,
+    # so an earlier smoke may already have rotated the bootstrap password.
+    # Hard-coding "admin123" here made this smoke depend on running FIRST:
+    # in reverse order the login returned no token and the body raised
+    # KeyError: 'access_token'. (Olculdu.)
+    OWN_PW = "ChargeFlagOff123!"
+    headers = None
+    for candidate in ("admin123", OWN_PW, "PutChargeAdmin123!"):
+        login = client.post(
+            "/api/auth/login", json={"username": "admin", "password": candidate}
+        )
+        if login.status_code != 200:
+            continue
+        body = login.json()
+        headers = {
+            "Authorization": "Bearer " + body["access_token"],
+            "X-Company-ID": str(body["companies"][0]["id"]),
+        }
+        if candidate != OWN_PW:
+            changed = client.post(
+                "/api/auth/change-password",
+                headers=headers,
+                json={"current_password": candidate, "new_password": OWN_PW},
+            )
+            assert changed.status_code == 200, changed.text
+            headers["Authorization"] = "Bearer " + changed.json()["access_token"]
+        break
+    assert headers is not None, "admin girisi hicbir bilinen sifreyle yapilamadi"
     body = {
         "entity_type": "customer",
         "entity_id": api_customer,

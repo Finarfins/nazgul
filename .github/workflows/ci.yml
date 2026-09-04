@@ -271,6 +271,60 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      # PR'da DEGISEN SQLite test dosyalarini bir kez TERS SIRADA kosturur.
+      # Sira-bagimli test, tanim sirasinda yesil oldugu icin normal kosuda
+      # gorunmez; ucuz karsi-kanit tek bir ters kosudur.
+      #
+      # SINIR: bu iste PostgreSQL servisi YOKTUR, bu yuzden *postgresql*.py
+      # ikizleri bilerek DISARIDA birakilir. Onlarin ters-sira korumasi bu
+      # adimda DEGIL, backend-postgresql isinde aranmalidir.
+      #
+      # checkout@v4 fetch-depth=1 ile geldigi icin taban ref'i adim icinde
+      # ayrica cekiyoruz; is genelinde fetch-depth: 0 acmak butun isi
+      # yavaslatirdi.
+      - name: Değişen SQLite testlerini ters sırada koştur
+        if: github.event_name == 'pull_request'
+        working-directory: ${{ github.workspace }}
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=200 origin "$BASE_REF"
+          if ! git merge-base FETCH_HEAD HEAD >/dev/null 2>&1; then
+            git fetch --no-tags --unshallow origin || true
+            git fetch --no-tags origin "$BASE_REF" || true
+          fi
+          degisen=$(git diff --name-only FETCH_HEAD...HEAD             | grep -E '^backend/(tests/)?test_.*\.py$'             | grep -vE 'postgresql' || true)
+          if [ -z "$degisen" ]; then
+            echo "değişen test dosyası yok"
+            exit 0
+          fi
+          cd backend
+          basarisiz=""
+          for yol in $degisen; do
+            dosya="${yol#backend/}"
+            if [ ! -f "$dosya" ]; then
+              echo "== $dosya silinmis, atlanıyor =="
+              continue
+            fi
+            echo "== ters sıra: $dosya =="
+            mapfile -t dugum < <(python -m pytest --collect-only -q "$dosya"               | grep '::' | tac)
+            if [ "${#dugum[@]}" -eq 0 ]; then
+              echo "  düğüm toplanamadı, atlanıyor"
+              continue
+            fi
+            # Tek dosyada durmuyoruz: butun degisen dosyalar kosuluyor,
+            # kapi sonda kapaniyor. Ayni maliyet, tam teshis.
+            if ! DATABASE_URL="sqlite:///$RUNNER_TEMP/ters-$(basename "$dosya").db" python -m pytest -q --no-header "${dugum[@]}"; then
+              basarisiz="$basarisiz $dosya"
+            fi
+          done
+          if [ -n "$basarisiz" ]; then
+            echo "ters sırada düşen dosya(lar):$basarisiz"
+            exit 1
+          fi
+          echo "değişen SQLite test dosyaları ters sırada da yeşil"
+
   backend-quality:
     runs-on: ubuntu-latest
     strategy:
