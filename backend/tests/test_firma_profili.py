@@ -21,6 +21,7 @@ import ast
 import os
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -207,6 +208,86 @@ def _bos_varsayilan_koruyucusu(dugum: ast.AST, cagri_argumanlari: set[int]) -> b
     )
 
 
+def _deger_dali_ihlalleri(kaynak: str, etiket: str) -> list[str]:
+    """`profiller` sütununu adlandıran ifade bir DAL TESTİNDE geçiyor mu?
+
+    YÜRÜNEN düğüm kümesi — bir KONUM eklemek buraya yazmakla olur:
+
+    * `ast.If.test`, `ast.IfExp.test`, `ast.While.test`
+    * `ast.Match.subject`      — `match govde["profiller"]:`
+    * `ast.comprehension.ifs`  — `[x for x in y if firma.profiller]`
+    * `ast.Assert.test`        — `assert payload.profiller`
+    * ağacın HERHANGİ yerindeki `ast.BoolOp` ve `ast.Compare`
+
+    Son madde konumdan bağımsız olduğu için KARŞILAŞTIRMA (`match
+    govde["profiller"] == x:` gibi) üç yeni konumda ZATEN yakalanıyordu; ölçülen
+    KAÇAK yalnız ÇIPLAK DOĞRULUK sınamasıydı (`match govde["profiller"]:`) ve üç
+    konum tam bunun için eklendi.
+
+    YÜRÜNMEYENLER, bilerek ve sayılarak:
+
+    * `ast.Lambda`nın gövdesi AYRI bir konum olarak ele alınmıyor. `ast.walk`
+      bütün ağacı gezdiği için lambda İÇİNDEKİ bir `if`/`and`/karşılaştırma
+      zaten yakalanır; yakalanmayan şey ÇIPLAK gövdeli bir YÜKLEMdir
+      (`filter(lambda f: f.profiller, firmalar)`) — orada dal sözdizimsel
+      olarak ÇAĞRILANIN içindedir, bu dosyada değil.
+    * Aynı sebeple dışarıda kalanlar: `case _ if profiller:`
+      (`ast.match_case.guard`), `bool(f.profiller)` ve `any(f.profiller for f
+      in firmalar)` (üreteç ELEMANI — `ifs` değil).
+
+    Bunlar kapının BİLİNEN sınırıdır: kapı bir ispat değil, ucuz ve okunur bir
+    ÇİTtir. Kardeş kapı (ADIYLA) profil adlarını ayrıca arıyor.
+    """
+    agac = ast.parse(kaynak, filename=etiket)
+    cagri_argumanlari = {
+        id(arg)
+        for dugum in ast.walk(agac)
+        if isinstance(dugum, ast.Call)
+        and isinstance(getattr(dugum, "func", None), (ast.Name, ast.Attribute))
+        and (
+            getattr(dugum.func, "id", None) == "profilleri_birlestir"
+            or getattr(dugum.func, "attr", None) == "profilleri_birlestir"
+        )
+        for arg in dugum.args
+    }
+    # Muafiyet KONUMDAN bağımsız olsun diye alt ağacın TAMAMI işaretleniyor:
+    # aksi halde koruyucu bir `assert`in içine sarıldığı gün yalancı kırmızı
+    # verirdi. Muafiyetin DARLIĞI `_bos_varsayilan_koruyucusu`nda duruyor.
+    muaf_dugumler: set[int] = set()
+    for dugum in ast.walk(agac):
+        if isinstance(dugum, ast.BoolOp) and _bos_varsayilan_koruyucusu(
+            dugum, cagri_argumanlari
+        ):
+            muaf_dugumler.update(id(alt) for alt in ast.walk(dugum))
+
+    ihlaller: list[str] = []
+    for dugum in ast.walk(agac):
+        if isinstance(dugum, (ast.If, ast.IfExp, ast.While, ast.Assert)):
+            testler = [dugum.test]
+        elif isinstance(dugum, ast.Match):
+            testler = [dugum.subject]
+        elif isinstance(dugum, ast.comprehension):
+            testler = list(dugum.ifs)
+        elif isinstance(dugum, (ast.BoolOp, ast.Compare)):
+            if id(dugum) in muaf_dugumler:
+                continue
+            testler = [dugum]
+        else:
+            continue
+        tur = type(dugum).__name__
+        for test in testler:
+            for alt in ast.walk(test):
+                if id(alt) in muaf_dugumler:
+                    continue
+                ad = _profil_kimligi(alt)
+                if ad is None:
+                    continue
+                ihlaller.append(
+                    f"{etiket}:{getattr(alt, 'lineno', '?')} {tur} icinde {ad!r}"
+                )
+    return ihlaller
+
+
 def test_HICBIR_MODUL_profil_DEGERINE_gore_DALLANMIYOR() -> None:
     """Sütunun DEĞERİ hiçbir yerde bir DALIN testinde geçmiyor — ölçülerek.
 
@@ -219,57 +300,105 @@ def test_HICBIR_MODUL_profil_DEGERINE_gore_DALLANMIYOR() -> None:
     ÖLÇÜLDÜ: adsız kapı eklendiğinde kardeş test YEŞİL kalıyordu.
 
     Bu yüzden burada aranan şey ad değil KONUM: `profiller` sütununu
-    adlandıran bir ifadenin bir DAL TESTİNDE (`if`, `if/else` ifadesi,
-    `while`), bir `and`/`or` zincirinde ya da bir KARŞILAŞTIRMADA geçmesi.
-    Sütunu OKUMAK, YAZMAK ve ÇÖZMEK serbesttir; ona göre AYRILMAK değildir.
+    adlandıran bir ifadenin bir DAL TESTİNDE geçmesi. Sütunu OKUMAK, YAZMAK ve
+    ÇÖZMEK serbesttir; ona göre AYRILMAK değildir. Hangi konumların YÜRÜNDÜĞÜ
+    ve hangilerinin BİLEREK dışarıda bırakıldığı `_deger_dali_ihlalleri`in
+    belge dizgisinde ADIYLA sayılıdır; kapının BOŞ OLMADIĞI ise ayrı bir testle
+    (`test_DEGER_KAPISI_UC_ADSIZ_KONUMU_da_goruyor`) ölçülüyor, çünkü gerçek
+    `app/` ağacı temiz olduğu için burası bozulsa da yeşil kalabilirdi.
 
     `if "profiller" in payload.model_fields_set:` KAPSAM DIŞIDIR ve olması
     gerektiği gibidir: orada sınanan şey alanın GÖNDERİLİP gönderilmediğidir,
     DEĞERİ değil — düz bir metin sabitidir, sütunu adlandıran bir ifade değil.
     """
+    ihlaller: list[str] = []
     app_dir = BACKEND / "app"
     muaf = {app_dir / "firma_profilleri.py"}
-    ihlaller: list[str] = []
     for yol in sorted(app_dir.rglob("*.py")):
         if yol in muaf:
             continue
-        agac = ast.parse(yol.read_text(encoding="utf-8"), filename=str(yol))
-        cagri_argumanlari = {
-            id(arg)
-            for dugum in ast.walk(agac)
-            if isinstance(dugum, ast.Call)
-            and isinstance(getattr(dugum, "func", None), (ast.Name, ast.Attribute))
-            and (
-                getattr(dugum.func, "id", None) == "profilleri_birlestir"
-                or getattr(dugum.func, "attr", None) == "profilleri_birlestir"
-            )
-            for arg in dugum.args
-        }
-        for dugum in ast.walk(agac):
-            if isinstance(dugum, (ast.If, ast.IfExp, ast.While)):
-                testler = [dugum.test]
-                tur = type(dugum).__name__
-            elif isinstance(dugum, (ast.BoolOp, ast.Compare)):
-                if _bos_varsayilan_koruyucusu(dugum, cagri_argumanlari):
-                    continue
-                testler = [dugum]
-                tur = type(dugum).__name__
-            else:
-                continue
-            for test in testler:
-                for alt in ast.walk(test):
-                    ad = _profil_kimligi(alt)
-                    if ad is None:
-                        continue
-                    ihlaller.append(
-                        f"{yol.relative_to(BACKEND).as_posix()}:"
-                        f"{getattr(alt, 'lineno', '?')} {tur} icinde {ad!r}"
-                    )
+        ihlaller += _deger_dali_ihlalleri(
+            yol.read_text(encoding="utf-8"), yol.relative_to(BACKEND).as_posix()
+        )
     assert not ihlaller, (
         "Bir DAL firma profilinin DEGERINE bakiyor — bu PR'in iddiasi "
         "hicbir davranisin ona bagli OLMAMASIDIR. Modul anahtarlari geldigi "
         "gun bu kapi, anahtari DOGRULAYAN teste donusmelidir: " + str(ihlaller)
     )
+
+
+def test_DEGER_KAPISI_UC_ADSIZ_KONUMU_da_goruyor() -> None:
+    """Kapının KENDİSİ ölçülüyor: üç konumda ÇIPLAK doğruluk KIRMIZI olmalı.
+
+    Bu test kapının BOŞ OLMADIĞINI çiviliyor. Kapı gerçek `app/` ağacına
+    bakıyor ve orası (doğru olarak) TEMİZ; temiz bir ağaca bakan bir tarayıcı
+    ise bozulduğu gün de yeşil kalır. ÖLÇÜLDÜ: `ast.Match` / `ast.comprehension`
+    / `ast.Assert` eklenmeden önce aşağıdaki üç mutasyon YEŞİL geçiyordu —
+    aynı konumlardaki KARŞILAŞTIRMA zaten yakalanıyordu, kaçan tek şey ÇIPLAK
+    addı.
+
+    Yeşil kalması gerekenler de burada duruyor, çünkü bir çit ancak neyi
+    GEÇİRDİĞİ de ölçülünce çittir: profille İLGİSİZ bir üreteç koşulu, ve
+    `profilleri_birlestir(... or [])` boş-varsayılan koruyucusu.
+    """
+    kirmizi = {
+        "Match": textwrap.dedent(
+            """
+            def f(govde):
+                match govde["profiller"]:
+                    case _:
+                        return 1
+            """
+        ),
+        "comprehension": textwrap.dedent(
+            """
+            def f(y, company):
+                return [x for x in y if company.profiller]
+            """
+        ),
+        "Assert": textwrap.dedent(
+            """
+            def f(payload):
+                assert payload.profiller
+            """
+        ),
+    }
+    for tur, kaynak in kirmizi.items():
+        ihlaller = _deger_dali_ihlalleri(kaynak, f"mutasyon_{tur}.py")
+        assert ihlaller, f"{tur} konumunda ÇIPLAK doğruluk sınaması KAÇTI"
+        assert all(tur in i for i in ihlaller), ihlaller
+
+    yesil = {
+        "ilgisiz üreteç koşulu": textwrap.dedent(
+            """
+            def f(y):
+                return [x for x in y if x == 1]
+            """
+        ),
+        "boş-varsayılan koruyucusu": textwrap.dedent(
+            """
+            def f(payload, values):
+                values["profiller"] = profilleri_birlestir(payload.profiller or [])
+            """
+        ),
+        "koruyucu bir dal testinin İÇİNE sarıldığında": textwrap.dedent(
+            """
+            def f(payload):
+                assert profilleri_birlestir(payload.profiller or [])
+            """
+        ),
+    }
+    for etiket, kaynak in yesil.items():
+        assert _deger_dali_ihlalleri(kaynak, "yesil.py") == [], etiket
+
+    # Muafiyet DAR: aynı şekil BOŞ OLMAYAN bir varsayılanla MUAF DEĞİLDİR.
+    dar = textwrap.dedent(
+        """
+        def f(payload):
+            return profilleri_birlestir(payload.profiller or ["ciftci"])
+        """
+    )
+    assert _deger_dali_ihlalleri(dar, "dar.py"), "boş olmayan varsayılan muaf sayılmamalı"
 
 
 def test_ACIK_null_YAZMA_DALINA_duser_kaydedilmemis_alan_DEGILDIR() -> None:
