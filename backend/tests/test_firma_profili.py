@@ -157,6 +157,37 @@ def test_HICBIR_MODUL_profil_ADIYLA_ACILIP_KAPANMIYOR() -> None:
     )
 
 
+def test_ACIK_null_YAZMA_DALINA_duser_kaydedilmemis_alan_DEGILDIR() -> None:
+    """`profiller: null` "hiç göndermedi" DEĞİLDİR — yazma dalına düşer.
+
+    Kusurun ÖN KOŞULU budur ve ölçülmeden bırakılırsa görünmez: şema
+    `list[FirmaProfili] | None` olduğu için JSON `null` GEÇERLİ bir gövdedir
+    ve `model_fields_set`e GİRER. Yani uç `if "profiller" in
+    payload.model_fields_set:` dalına girer ve `None`u sütuna YAZMAYA
+    çalışır — sütun `NOT NULL` olduğundan bu 500 demektir.
+
+    Uçtaki koruma `payload.profiller or []`dir ve ONUN kırmızısı uçtan uca
+    dumandadır (`test_kayit_ve_ayar_ucu_sqlite`): burada yalnız dalın
+    GERÇEKTEN alındığı çivileniyor, çünkü bu iddia bir veritabanı
+    gerektirmiyor ve ayrı durduğunda daha okunur.
+    """
+    from app.routers.companies import CompanyPolicyUpdate
+
+    model = CompanyPolicyUpdate(
+        negative_stock_policy="block", credit_limit_policy="block", profiller=None
+    )
+    assert "profiller" in model.model_fields_set, (
+        "açık null `model_fields_set`e girmeli; girmezse uç bu değeri "
+        "'hiç gönderilmedi' sanar ve mevcut seçimi sessizce korurdu"
+    )
+    assert model.profiller is None
+    # Alan hiç gönderilmediğinde ise dal ALINMAZ ve mevcut değer korunur.
+    dokunmayan = CompanyPolicyUpdate(
+        negative_stock_policy="block", credit_limit_policy="block"
+    )
+    assert "profiller" not in dokunmayan.model_fields_set
+
+
 def _kayit_dumani(database_url: str) -> None:
     env = os.environ.copy()
     env["DATABASE_URL"] = database_url
@@ -259,6 +290,43 @@ with TestClient(app) as client:
         'negative_stock_policy': 'block', 'credit_limit_policy': 'block',
         'profiller': ['kasap']})
     assert kotu.status_code == 422, kotu.text
+
+    # --- 5) AÇIKÇA `null` GÖNDERİLDİĞİNDE `''` YAZILIR, `None` DEĞİL ----
+    # Şema `list[FirmaProfili] | None` olduğu için JSON `null` GEÇERLİ bir
+    # gövdedir ve `model_fields_set`e GİRER — yani "hiç göndermedi" dalına
+    # DÜŞMEZ, yazma dalına düşer. Sütun `NOT NULL` olduğundan `None` yazmak
+    # 500 üretirdi; koruma `payload.profiller or []`dir.
+    bos = client.put('/api/company-settings', headers=h, json={
+        'negative_stock_policy': 'block', 'credit_limit_policy': 'block',
+        'profiller': None})
+    assert bos.status_code == 200, bos.text
+    assert bos.json()['profiller'] == [], bos.text
+    # İDDİA SATIRDA ÖLÇÜLÜYOR: sütunda `''` durmalı, `NULL` DEĞİL.
+    with SessionLocal() as db:
+        ham = db.execute(
+            select(companies.c.profiller).where(companies.c.id == int(h['X-Company-ID']))
+        ).scalar_one()
+    assert ham == '', repr(ham)
+    assert ham is not None, 'sütunda NULL var — NOT NULL sütununa None yazılmış'
+    # Seçim GERÇEKTEN temizlendi (önceki tur ['ciftci','veteriner'] yazmıştı).
+    assert client.get('/api/company-settings',
+                      headers=h).json()['profiller'] == [], 'açık null seçimi temizlemeliydi'
+
+    # --- 6) İKİNCİ KATMAN GERÇEKTEN VAR: sütun ham NULL'u REDDEDER -----
+    # 0067'nin çivilediği türden bir YOKLUK değil, bir VARLIK: uygulama
+    # koruması düşse bile veritabanı yazmayı durdurur. Ölçülmeden iddia
+    # edilseydi "veritabanı beni korur" genellemesi olurdu.
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy import text as sql_text
+    reddedildi = False
+    try:
+        with SessionLocal() as db:
+            db.execute(sql_text('UPDATE companies SET profiller=NULL WHERE id=:i'),
+                       {'i': int(h['X-Company-ID'])})
+            db.commit()
+    except IntegrityError:
+        reddedildi = True
+    assert reddedildi, 'profiller sütunu NULL KABUL ETTİ — NOT NULL ikinci katmanı YOK'
 
 print('FIRMA PROFILI SMOKE OK')
 '''
