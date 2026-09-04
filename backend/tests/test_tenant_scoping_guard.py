@@ -52,6 +52,14 @@ TENANT_TABLES = frozenset({
     "herd_integration_events", "milk_yields",
     "farm_operations", "farm_parcels", "farms",
     "field_activities", "field_activity_inputs", "field_harvests",
+    # Kantar fişi ve kesinti satırları (göç 20260904_0069). İkisi de
+    # company_id taşır; fiş hasada, kesinti fişe BİLEŞİK yabancı anahtarla
+    # bağlıdır (0062'nin kuralı), yani bir kiracının fişi BAŞKA kiracının
+    # hasadını, bir kesinti de başka kiracının fişini işaret EDEMEZ.
+    # Kesintinin kiracısı ayrıca fişinkiyle aynı olmak ZORUNDADIR; bu,
+    # `(company_id, ticket_id) -> field_harvest_tickets(company_id, id)`
+    # hedefinin bileşik olmasının tek sebebidir.
+    "field_harvest_ticket_deductions", "field_harvest_tickets",
     "field_integration_events", "field_operations", "field_tasks",
     "finance_accounts", "finance_transactions", "financial_instruments",
     "harvest_calendars", "harvest_due_rules", "harvest_regions", "income_expenses",
