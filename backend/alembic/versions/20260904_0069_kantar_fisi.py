@@ -3,9 +3,10 @@
 Konu: hasadın DEPODA tartılan hâli. Bu göç kağıdı KAYDEDER; deftere hiçbir şey
 yazmaz ve hiçbir defter satırını değiştirmez.
 
---- `gross_quantity` NEDİR: ÜRÜNÜN AĞIRLIĞI, ARACIN DEĞİL --------------------
+--- `gross_entered_quantity` NEDİR: ÜRÜNÜN AĞIRLIĞI, ARACIN DEĞİL -----------
 
-**`gross_quantity`, KALİTE KESİNTİLERİNDEN ÖNCEKİ ÜRÜN AĞIRLIĞIDIR.**
+**`gross_entered_quantity`, KALİTE KESİNTİLERİNDEN ÖNCEKİ ÜRÜN AĞIRLIĞIDIR**
+ve GİRİLDİĞİ BİRİMDEDİR (`entered_unit`).
 Kantarın "brüt" hanesi (dolu araç) DEĞİLDİR ve dara (boş araç) ile ilgisi
 YOKTUR. Kağıtta genellikle üç sayı vardır:
 
@@ -16,8 +17,8 @@ Bu satır başlıkta duruyor çünkü karıştırılması ERROR ÜRETMEZ, CEVAP 
 biri buraya araç+yük ağırlığını yazarsa gross birkaç ton şişer, türetilen net
 de şişer, `net_mismatch` (aşağıda) kağıdın netini gördüğü sürece bunu yakalar
 — ama kağıdın neti girilmemişse HİÇBİR ŞEY yakalamaz ve ondan sonraki her
-sayı sessizce yanlış olur. Sütun adı `gross_quantity`dir çünkü KESİNTİLERİN
-brütüdür; aracın brütü değil.
+sayı sessizce yanlış olur. Sütun adındaki `gross` KESİNTİLERİN brütünü söyler, aracın brütünü DEĞİL;
+`entered` ise 0066'nın sözlüğüdür ve "kullanıcının yazdığı birimde" demektir.
 
 Bu göç bunu ŞEMADA ZORLAYAMAZ — veritabanı bir tonun nereden geldiğini
 bilemez. Zorlayabildiği tek şey `> 0` ve ölçek; gerisi bu başlık, uçtaki
@@ -42,7 +43,7 @@ türetmez; brütten ve oranlardan türetir. Kağıdın neti yalnız KARŞILAŞTI
 Türetimi ona bağlamak, istemcinin gönderdiği bir sayıyı hesabın kaynağı
 yapardı — bu modülün `total_cost`u istemciden almama kuralının aynısı.
 
---- TÜRETİLEN HİÇBİR ŞEY SAKLANMIYOR ----------------------------------------
+--- SAKLANAN TEK TÜREV `base_quantity`DİR, VE NİYE -------------------------
 
 `derived_net_quantity`, `deduction_rate_total`, `net_mismatch` ve
 `sold_exceeds_net` SÜTUN DEĞİLDİR; her okumada brütten, oranlardan ve
@@ -50,6 +51,22 @@ hasadın `sold_quantity`sinden yeniden türetilir. Gerekçe: saklanan bir türev
 bileşim kuralı düzeltildiği gün ESKİ kuralla hesaplanmış satırlar bırakır ve
 hangi satırın hangi kuralla yazıldığı kayıttan okunamaz. Aynı duruş:
 `_tutar` (saat × donmuş oran) ve `gross_margin`.
+
+`base_quantity` BU KURALIN İSTİSNASIDIR ve istisna olmasının sebebi
+kuralın KENDİ gerekçesidir. Yukarıdaki dört türevi saklamak tehlikelidir
+çünkü onları üreten şey SATIRDA DEĞİLDİR: kesinti satırları ayrı bir
+tablodadır ve bileşim kuralı sunucudadır, yani saklanan bir net hangi
+kuralla ve hangi kesintilerle çıktığını SÖYLEYEMEZ.
+
+`base_quantity` için bu geçerli değildir: onu üreten İKİ çarpanın İKİSİ DE
+AYNI SATIRDA durur (`gross_entered_quantity` × `entered_factor`). Satır
+KENDİ KENDİNİ DOĞRULAR — çarpımı yeniden yapan biri saklanan değeri
+denetleyebilir, ve katsayı bir gün değişse bile BU satırın hangi katsayıyla
+yazıldığı kayıttan OKUNUR. 0066'nın `stock_movements`ta yaptığının aynısı:
+orada da `entered_quantity`/`entered_factor` ikilisi hareketin üstünde durur.
+
+Yani ölçüt "türev mi değil mi" DEĞİLDİR; ölçüt **türevi üreten girdilerin
+satırda durup durmadığıdır**.
 
 --- DEFTERE HİÇBİR ŞEY YAZILMIYOR (BU GÖÇÜN SINANABİLİR İDDİASI) ------------
 
@@ -96,7 +113,10 @@ KESINTI = "field_harvest_ticket_deductions"
 
 UQ_FIS = "uq_field_harvest_tickets_company_id"
 
+# 0066'NIN TİPLERİ, ADIYLA: `MIKTAR_TIPI` = NUMERIC(18,4),
+# `KATSAYI_TIPI` = NUMERIC(24,10). Aynı sözlük, aynı ölçek.
 MIKTAR = sa.Numeric(18, 4)
+KATSAYI = sa.Numeric(24, 10)
 ORAN = sa.Numeric(7, 4)
 
 
@@ -122,19 +142,30 @@ def upgrade() -> None:
             sa.Column("weighed_at", sa.DateTime(timezone=True), nullable=True),
             # KALİTE KESİNTİLERİNDEN ÖNCEKİ ÜRÜN AĞIRLIĞI — araç+yük DEĞİL.
             # Bkz. başlıktaki ilk bölüm; bu satır tek başına yetmez.
-            sa.Column("gross_quantity", MIKTAR, nullable=False),
-            # Brütün BİRİMİ ve o birimin ürünün taban birimine çevrilmesinde
-            # KULLANILAN KATSAYI. İkisi de YAZILDIĞI GİBİ saklanır ve
-            # YUVARLANMAZ: katsayı, o gün NEYE İNANILDIĞININ tek kanıtıdır
+            sa.Column("gross_entered_quantity", MIKTAR, nullable=False),
+            # 0066'NIN SÖZLÜĞÜ, AYNEN: `entered_unit` ve `entered_factor`.
+            # `stock_movements` bu üçlüyü (`entered_quantity`,
+            # `entered_unit`, `entered_factor`) 0066'da açtı ve kantar fişi
+            # onların İLK TÜKETİCİSİDİR. Aynı olguya ikinci bir ad vermek
+            # (`unit_factor` gibi) sözlüğü ÇATALLARDI: iki ad, iki arama,
+            # ve bir gün ikisinin ayrıştığını kimse fark etmezdi.
+            # Katsayı YUVARLANMAZ: o gün NEYE İNANILDIĞININ tek kanıtıdır
             # (`app/units.py`, sahip kararı 1). Yanlış çıkan bir katsayı
             # ASLA yeniden hesaplanmaz; düzeltme YENİ BİR SATIRDIR.
             sa.Column("entered_unit", sa.String(length=40), nullable=False),
-            sa.Column("unit_factor", sa.Numeric(24, 10), nullable=False),
-            # Brütün ÜRÜNÜN TABAN BİRİMİNDEKİ karşılığı. TÜRETİLMİŞ ama
-            # SAKLANAN tek sayı, ve gerekçesi türevlerinkinin TERSİDİR:
-            # bunu üreten katsayı da satırda duruyor, yani satır KENDİ
-            # KENDİNİ doğrular. Kural değişse bile bu satırın hangi katsayıyla
-            # yazıldığı kayıttan OKUNUR.
+            sa.Column("entered_factor", KATSAYI, nullable=False),
+            # SAKLANAN TEK TÜREV — ve gerekçesi ötekilerin TERSİDİR.
+            # `base_quantity`yi üreten İKİ çarpan da AYNI SATIRDA duruyor
+            # (`gross_entered_quantity` ve `entered_factor`), yani satır
+            # KENDİ KENDİNİ DOĞRULAR: çarpımı yeniden yapan biri saklanan
+            # değeri denetleyebilir ve kural bir gün değişse bile BU satırın
+            # HANGİ katsayıyla yazıldığı kayıttan OKUNUR.
+            # Öteki türevler (`derived_net_quantity`, `deduction_rate_total`,
+            # `net_mismatch`, `sold_exceeds_net`) SAKLANMAZ çünkü onları
+            # üreten şey satırda DEĞİLDİR: kesinti satırları ayrı tablodadır
+            # ve bileşim kuralı sunucudadır. Onları saklamak, kural
+            # düzeltildiği gün ESKİ kuralla yazılmış satırlar bırakırdı ve
+            # hangisinin hangi kuralla yazıldığı SORULAMAZDI.
             sa.Column("base_quantity", MIKTAR, nullable=False),
             # KAĞIDIN NETİ — TANIK, GİRDİ DEĞİL. Sunucu netini bundan
             # TÜRETMEZ; yalnız karşılaştırır (`net_mismatch`).
@@ -151,7 +182,8 @@ def upgrade() -> None:
                 name="fk_field_harvest_tickets_harvest_same_company",
             ),
             sa.CheckConstraint(
-                "gross_quantity > 0", name="ck_field_harvest_tickets_gross_positive"
+                "gross_entered_quantity > 0",
+                name="ck_field_harvest_tickets_gross_positive",
             ),
             sa.CheckConstraint(
                 "base_quantity > 0", name="ck_field_harvest_tickets_base_positive"
@@ -159,7 +191,8 @@ def upgrade() -> None:
             # Katsayı POZİTİF olmalı: sıfır katsayı ürünü yok eder, negatif
             # katsayı ise ölçülmüş bir olgu değildir.
             sa.CheckConstraint(
-                "unit_factor > 0", name="ck_field_harvest_tickets_factor_positive"
+                "entered_factor > 0",
+                name="ck_field_harvest_tickets_factor_positive",
             ),
             sa.CheckConstraint(
                 "ticket_net_quantity IS NULL OR ticket_net_quantity >= 0",
