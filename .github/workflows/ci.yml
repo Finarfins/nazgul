@@ -831,28 +831,7 @@ jobs:
   # quick-pick akışı bugünkü prod çökmesinin birebir reprodüksiyonudur.
   e2e:
     runs-on: ubuntu-latest
-    # BUTCE OLCULEREK BUYUTULDU, TAHMINLE DEGIL.
-    #
-    # OLCULEN: bu is develop `40921fb` uzerinde 927 sn'de GECIYOR, yani 20
-    # dakikalik eski tavanin yalnizca ~4,5 dakika altinda. npm kayit defteri
-    # yavaslayinca `npm ci` adimi ayni dalda ayni agac uzerinde UC KOSUDA
-    # 185 sn -> 260 sn -> 424 sn tirmandi (build 18/23/24 sn ve ana playwright
-    # kosusu 507/589/594 sn ile neredeyse SABIT kalirken), ve is iki kez tam
-    # 20m15s'te BUTCE DOLDUGU icin oldurudu -- bir iddia dusmedi, is
-    # kesildi. Bir isin ucuncu tarafin hizina gore olmesi, `frontend`
-    # baglaminda kapatilan fail-open'in ta kendisiyle ayni sinifta bir
-    # gurultudur (bkz. bu PR'in frontend denetim adimi).
-    #
-    # ARITMETIK, ACIKCA: en yuksek gozlenen sure 1215 sn (20m15s); 1215 × 1.5
-    # = 1822,5 sn = 30,375 dk; yukari yuvarlama 31 dk; 5'in katina yuvarlama
-    # 35 dk. Pay 1.5'tir cunku 927 sn'lik saglikli kosu ile 1215 sn'lik
-    # oldurulmus kosu arasindaki oran zaten ~1,31'dir ve tavanin GOZLENEN en
-    # kotu halin ustunde kalmasi istendi.
-    #
-    # BU BIR TESHIS DEGIL: e2e'nin NEDEN ~19 dakika surdugu OLCULMEDI ve bu
-    # tavan o soruyu YANITLAMIYOR, yalnizca sorunun zorunlu bir baglami
-    # rastgele oldurmesini engelliyor. Ayri kesif icin kayda yazildi.
-    timeout-minutes: 35
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
