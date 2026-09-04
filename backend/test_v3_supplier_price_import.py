@@ -70,8 +70,19 @@ def xlsx_upload(client, headers, supplier_id, rows):
     )
 
 
+# Paylasilan PG veritabaninda bu ailenin smoke'lari ayni bootstrap
+# kullanicisini kullanip sifreyi donduruyor. Sabit 'admin123' bu smoke'u
+# ILK kosmaya bagimli kiliyordu (ters sirada: "Kullanici adi veya sifre
+# hatali"). Bilinen tum sifreler sirayla denenir. (Olculdu.)
+BILINEN_SIFRELER = ('admin123', 'admin123Changed!', 'SupplierImport123!',
+                    'SupplierBridge123!', 'ImportReport123!', 'ImportReport456!',
+                    'BridgeAccounting123!', 'BridgeAccounting456!')
+
 with TestClient(app) as client:
-    login = client.post('/api/auth/login', json={'username':'admin','password':'admin123'})
+    for _aday in BILINEN_SIFRELER:
+        login = client.post('/api/auth/login', json={'username':'admin','password':_aday})
+        if login.status_code == 200:
+            break
     assert login.status_code == 200, login.text
     body = login.json()
     company_a = body['companies'][0]['id']
@@ -79,11 +90,12 @@ with TestClient(app) as client:
         'Authorization':'Bearer '+body['access_token'],
         'X-Company-ID':str(company_a),
     }
-    changed = client.post('/api/auth/change-password', headers=headers, json={
-        'current_password':'admin123','new_password':'SupplierImport123!',
-    })
-    assert changed.status_code == 200, changed.text
-    headers['Authorization'] = 'Bearer ' + changed.json()['access_token']
+    if _aday != 'SupplierImport123!':
+        changed = client.post('/api/auth/change-password', headers=headers, json={
+            'current_password':_aday,'new_password':'SupplierImport123!',
+        })
+        assert changed.status_code == 200, changed.text
+        headers['Authorization'] = 'Bearer ' + changed.json()['access_token']
 
     supplier = client.post('/api/suppliers', headers=headers, json={'name':'Liste Tedarikçisi'}).json()['id']
     product_try = client.post('/api/products', headers=headers, json={
