@@ -157,6 +157,121 @@ def test_HICBIR_MODUL_profil_ADIYLA_ACILIP_KAPANMIYOR() -> None:
     )
 
 
+def _profil_kimligi(dugum: ast.AST) -> str | None:
+    """`profiller` SÜTUNUNU adlandıran bir ifade mi? Adı döner, değilse `None`.
+
+    Üç şekil sayılır ve üçü de aynı sütunu okur:
+    `profiller` (Name), `payload.profiller` / `companies.c.profiller`
+    (Attribute), `govde["profiller"]` / `values["profiller"]` (Subscript).
+    """
+    if isinstance(dugum, ast.Name):
+        return dugum.id if dugum.id == "profiller" else None
+    if isinstance(dugum, ast.Attribute):
+        return dugum.attr if dugum.attr == "profiller" else None
+    if isinstance(dugum, ast.Subscript):
+        dilim = dugum.slice
+        if (
+            isinstance(dilim, ast.Constant)
+            and isinstance(dilim.value, str)
+            and dilim.value == "profiller"
+        ):
+            return dilim.value
+    return None
+
+
+def _bos_varsayilan_koruyucusu(dugum: ast.AST, cagri_argumanlari: set[int]) -> bool:
+    """`profilleri_birlestir(payload.profiller or [])` kalıbı MI?
+
+    Bu `BoolOp` bir DAL DEĞİL, bir BOŞ-VARSAYILAN koruyucusudur: açıkça
+    `null` gönderen istemcinin `NOT NULL` sütuna `None` yazmasını engeller
+    ve davranışı profilin DEĞERİNE göre değiştirmez — hangi profil olursa
+    olsun aynı yola gider. Kendi testi var
+    (`test_ACIK_null_YAZMA_DALINA_duser_kaydedilmemis_alan_DEGILDIR`);
+    kaldırılırsa orası kırmızı olur.
+
+    Muafiyet DAR tutuldu: yalnız `or` ve yalnız BOŞ bir sabit ile, ve yalnız
+    doğrudan `profilleri_birlestir`e argüman olarak verilmişken. `or "ciftci"`
+    ya da bir `if` testinde duran aynı şekil MUAF DEĞİLDİR.
+    """
+    if not (isinstance(dugum, ast.BoolOp) and isinstance(dugum.op, ast.Or)):
+        return False
+    if id(dugum) not in cagri_argumanlari:
+        return False
+    if len(dugum.values) != 2:
+        return False
+    sol, sag = dugum.values
+    if _profil_kimligi(sol) is None:
+        return False
+    return (isinstance(sag, (ast.List, ast.Tuple)) and not sag.elts) or (
+        isinstance(sag, ast.Constant) and sag.value in ("", None)
+    )
+
+
+def test_HICBIR_MODUL_profil_DEGERINE_gore_DALLANMIYOR() -> None:
+    """Sütunun DEĞERİ hiçbir yerde bir DALIN testinde geçmiyor — ölçülerek.
+
+    Kardeş kapı (`test_HICBIR_MODUL_profil_ADIYLA_ACILIP_KAPANMIYOR`) profil
+    ADLARINI arıyor ve `if "veteriner" in profiller:` gibi ADLA yapılan
+    kapıyı yakalıyor. Ama ADSIZ bir kapı ondan KAÇAR:
+    `if govde["profiller"]:` ya da `if company.profiller:` hiçbir profil adı
+    anmaz, yine de davranışı sütuna BAĞLAR — "profili olan kiracı şunu
+    görür" cümlesi tam olarak budur ve bu PR'ın iddiası onun YOKLUĞUDUR.
+    ÖLÇÜLDÜ: adsız kapı eklendiğinde kardeş test YEŞİL kalıyordu.
+
+    Bu yüzden burada aranan şey ad değil KONUM: `profiller` sütununu
+    adlandıran bir ifadenin bir DAL TESTİNDE (`if`, `if/else` ifadesi,
+    `while`), bir `and`/`or` zincirinde ya da bir KARŞILAŞTIRMADA geçmesi.
+    Sütunu OKUMAK, YAZMAK ve ÇÖZMEK serbesttir; ona göre AYRILMAK değildir.
+
+    `if "profiller" in payload.model_fields_set:` KAPSAM DIŞIDIR ve olması
+    gerektiği gibidir: orada sınanan şey alanın GÖNDERİLİP gönderilmediğidir,
+    DEĞERİ değil — düz bir metin sabitidir, sütunu adlandıran bir ifade değil.
+    """
+    app_dir = BACKEND / "app"
+    muaf = {app_dir / "firma_profilleri.py"}
+    ihlaller: list[str] = []
+    for yol in sorted(app_dir.rglob("*.py")):
+        if yol in muaf:
+            continue
+        agac = ast.parse(yol.read_text(encoding="utf-8"), filename=str(yol))
+        cagri_argumanlari = {
+            id(arg)
+            for dugum in ast.walk(agac)
+            if isinstance(dugum, ast.Call)
+            and isinstance(getattr(dugum, "func", None), (ast.Name, ast.Attribute))
+            and (
+                getattr(dugum.func, "id", None) == "profilleri_birlestir"
+                or getattr(dugum.func, "attr", None) == "profilleri_birlestir"
+            )
+            for arg in dugum.args
+        }
+        for dugum in ast.walk(agac):
+            if isinstance(dugum, (ast.If, ast.IfExp, ast.While)):
+                testler = [dugum.test]
+                tur = type(dugum).__name__
+            elif isinstance(dugum, (ast.BoolOp, ast.Compare)):
+                if _bos_varsayilan_koruyucusu(dugum, cagri_argumanlari):
+                    continue
+                testler = [dugum]
+                tur = type(dugum).__name__
+            else:
+                continue
+            for test in testler:
+                for alt in ast.walk(test):
+                    ad = _profil_kimligi(alt)
+                    if ad is None:
+                        continue
+                    ihlaller.append(
+                        f"{yol.relative_to(BACKEND).as_posix()}:"
+                        f"{getattr(alt, 'lineno', '?')} {tur} icinde {ad!r}"
+                    )
+    assert not ihlaller, (
+        "Bir DAL firma profilinin DEGERINE bakiyor — bu PR'in iddiasi "
+        "hicbir davranisin ona bagli OLMAMASIDIR. Modul anahtarlari geldigi "
+        "gun bu kapi, anahtari DOGRULAYAN teste donusmelidir: " + str(ihlaller)
+    )
+
+
 def test_ACIK_null_YAZMA_DALINA_duser_kaydedilmemis_alan_DEGILDIR() -> None:
     """`profiller: null` "hiç göndermedi" DEĞİLDİR — yazma dalına düşer.
 
