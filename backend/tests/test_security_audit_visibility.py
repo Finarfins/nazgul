@@ -19,32 +19,62 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
 BACKEND = Path(__file__).resolve().parents[1]
 PAROLA = "DenetimKapi!2026x"
+ANAHTAR = "denetim-kapisi-anahtar-denetim-kapisi-anahtar"
 
 
-@pytest.fixture()
-def uygulama(tmp_path, monkeypatch):
-    """Taze şema + taze uygulama süreci-içi.
+def _app_anahtarlari() -> set[str]:
+    return {k for k in sys.modules if k == "app" or k.startswith("app.")}
 
-    ``app.main`` içe aktarıldığında göçleri çalıştırır, bu yüzden ortam
-    değişkenleri İÇE AKTARMADAN ÖNCE kurulur ve modüller sonradan temizlenir.
-    """
-    database = tmp_path / "denetim.db"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database.as_posix()}")
-    monkeypatch.setenv("SECRET_KEY", "denetim-kapisi-anahtar-denetim-kapisi-anahtar")
-    monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", PAROLA)
-    monkeypatch.setenv("SUNGUR_PLATFORM_OPERATORS", "1")
-    monkeypatch.syspath_prepend(str(BACKEND))
-    for name in [n for n in list(sys.modules) if n == "app" or n.startswith("app.")]:
+
+def _temiz_ortam(tmp_path: Path, veritabani_adi: str) -> dict[str, str]:
+    ortam = os.environ.copy()
+    ortam["PYTHONPATH"] = str(BACKEND)
+    ortam["PYTHONIOENCODING"] = "utf-8"
+    ortam["DATABASE_URL"] = f"sqlite:///{(tmp_path / veritabani_adi).as_posix()}"
+    ortam["SECRET_KEY"] = ANAHTAR
+    ortam["BOOTSTRAP_ADMIN_PASSWORD"] = PAROLA
+    ortam["SUNGUR_PLATFORM_OPERATORS"] = "1"
+    return ortam
+
+
+def _ebeveyn_app_modullerini_geri_yukle(onceki: dict[str, object]) -> None:
+    for name in list(_app_anahtarlari()):
         del sys.modules[name]
+    sys.modules.update(onceki)
+
+
+@contextmanager
+def _uygulama_baglam(tmp_path, monkeypatch):
+    """Anlık görüntü → geçici silme+içe aktarma (TestClient) → geri yükleme.
+
+    Ebeveyn ``app`` / ``app.*`` önce saklanır. TestClient için
+    ``DATABASE_URL`` / ``SECRET_KEY`` / ``BOOTSTRAP_ADMIN_PASSWORD`` /
+    ``SUNGUR_PLATFORM_OPERATORS`` altında geçici silinip yeniden içe
+    aktarılır (şema bu içe aktarmada kurulur); çıkışta anlık görüntü
+    geri konur. ``set(k for k in sys.modules if k=='app' or k.startswith('app.'))``
+    fikstürden önce ve sonra özdeştir. Eski zehir (``del sys.modules`` ile
+    ebeveyni boş bırakmak) yoktur.
+    """
+    onceki = {k: sys.modules[k] for k in _app_anahtarlari()}
+    ortam = _temiz_ortam(tmp_path, "denetim.db")
 
     from fastapi.testclient import TestClient
     from sqlalchemy import text
+
+    for name in list(_app_anahtarlari()):
+        del sys.modules[name]
+    monkeypatch.setenv("DATABASE_URL", ortam["DATABASE_URL"])
+    monkeypatch.setenv("SECRET_KEY", ANAHTAR)
+    monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", PAROLA)
+    monkeypatch.setenv("SUNGUR_PLATFORM_OPERATORS", "1")
+    monkeypatch.syspath_prepend(str(BACKEND))
 
     import app.main as main
     from app.db import engine
@@ -54,11 +84,33 @@ def uygulama(tmp_path, monkeypatch):
     with engine.begin() as connection:
         connection.execute(text("UPDATE app_users SET must_change_password=0"))
 
-    with TestClient(main.app, raise_server_exceptions=False) as client:
-        yield main, engine, client
+    try:
+        with TestClient(main.app, raise_server_exceptions=False) as client:
+            yield main, engine, client
+    finally:
+        _ebeveyn_app_modullerini_geri_yukle(onceki)
 
-    for name in [n for n in list(sys.modules) if n == "app" or n.startswith("app.")]:
-        del sys.modules[name]
+
+@pytest.fixture()
+def uygulama(tmp_path, monkeypatch):
+    with _uygulama_baglam(tmp_path, monkeypatch) as baglam:
+        yield baglam
+
+
+def test_uygulama_fiksturu_app_sys_modules_anahtarlarini_birakmaz(tmp_path, monkeypatch):
+    """Sentinel: ebeveyn ``app`` / ``app.*`` kümesi fikstürden önce ve sonra özdeş."""
+    monkeypatch.syspath_prepend(str(BACKEND))
+    import app.config  # noqa: F401 — boş==boş her zaman geçer; ebeveynde app.* olsun
+
+    onceki = {k for k in sys.modules if k == "app" or k.startswith("app.")}
+    assert onceki, "sentinel kör: app.* yok"
+    with _uygulama_baglam(tmp_path, monkeypatch) as (_main, _engine, client):
+        assert client is not None
+    sonra = {k for k in sys.modules if k == "app" or k.startswith("app.")}
+    assert sonra == onceki, (
+        f"fikstür app.* sızdırdı: eklenen={sorted(sonra - onceki)} "
+        f"silinen={sorted(onceki - sonra)}"
+    )
 
 
 def _giris(client) -> dict:
