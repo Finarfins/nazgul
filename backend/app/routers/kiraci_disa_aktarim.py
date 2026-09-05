@@ -47,7 +47,6 @@ from __future__ import annotations
 
 import base64
 import json
-import math
 import zipfile
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
@@ -116,20 +115,25 @@ def _seri(deger: Any, tablo: str, sutun: str) -> Any:
     if deger is None or isinstance(deger, (str, bool, int)):
         return deger
     if isinstance(deger, Decimal):
-        # ``format(..., "f")`` bilimsel gösterimi ("1E+2") engeller.
-        return format(deger, "f")
-    if isinstance(deger, float):
-        # NaN/Inf JSON'da KARŞILIĞI OLMAYAN değerlerdir; ``json.dumps`` onları
-        # standart dışı ``NaN`` sözcüğüyle yazar ve katı bir okuyucu dosyayı
-        # reddeder. Sessizce null'a çevirmek de veriyi kaybederdi: burada
-        # DURUYORUZ.
-        if not math.isfinite(deger):
+        # SONLULUK DENETİMİ. ``Decimal`` NaN/Infinity taşıyabilir ve
+        # ``json.dumps`` onları standart DIŞI ``NaN``/``Infinity`` sözcükleriyle
+        # yazar; katı bir okuyucu dosyanın tamamını reddeder. Sessizce null'a
+        # çevirmek veriyi kaybederdi — burada DURUYORUZ.
+        #
+        # DENETİM NEDEN YALNIZ BURADA: şemada ikili kayan sayı sütunu YOK
+        # (ölçüldü: `Float`/`REAL` sütun sayısı 0; para ve miktar sütunlarının
+        # hepsi `NUMERIC`, sürücü onları `Decimal` verir). Ayrıca
+        # `test_v2_9_decimal_contract.py::test_runtime_financial_code_does_not_use_binary_float_types`
+        # `app/` içinde `float` ADININ GEÇMESİNİ bile yasaklıyor — muafiyeti de
+        # yok. Yani ikili kayan sayı dalı hem konusuz hem yasaktı.
+        if not deger.is_finite():
             raise HTTPException(
                 500,
                 f"Dışa aktarım durduruldu: {tablo}.{sutun} sonlu olmayan bir "
                 f"sayı taşıyor ({deger!r}); JSON bu değeri temsil edemez",
             )
-        return deger
+        # ``format(..., "f")`` bilimsel gösterimi ("1E+2") engeller.
+        return format(deger, "f")
     if isinstance(deger, datetime):
         # Naive damgalar veritabanında UTC olarak saklanır (``utcnow`` ile
         # yazılırlar); okuyucunun yerel saat varsayması diye açıkça işaretlenir.
