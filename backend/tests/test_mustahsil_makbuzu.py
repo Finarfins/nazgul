@@ -103,9 +103,11 @@ MUTASYONLAR = (
         "(YALNIZ o; öteki 15 yeşil kaldı — kapı DAR)",
     ),
     (
-        "`issue`daki `status != 'draft'` kapısı kaldırılınca",
-        "test_mustahsil_makbuzu_sqlite (senaryo 5: ikinci `issue` 200 döndü "
-        "ve İKİNCİ NUMARA üretildi)",
+        "`issue`daki `status='draft'` CAS kapısı kaldırılınca "
+        "(ya da `next_document_no` claim ÖNCESİNE taşınınca)",
+        "PG ikizi: test_eszamanli_issue_ayni_taslak_tek_kazanan "
+        "(iki 200 + sira delta>1) ve/veya test_mustahsil_makbuzu_sqlite "
+        "(senaryo 5: ikinci `issue` 200 + İKİNCİ NUMARA)",
     ),
     (
         "`create_producer_receipt` `status='issued'` yazınca",

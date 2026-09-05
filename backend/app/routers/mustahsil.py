@@ -46,6 +46,12 @@ kesilmeyen makbuzlar için seride DELİK bırakırdı. `issue` İDEMPOTENT
 DEĞİLDİR ama TEKRARI REDDEDER: ikinci çağrı 409 verir ve İKİNCİ BİR NUMARA
 ÜRETMEZ — sessizce geçseydi bir makbuz iki numara taşırdı.
 
+Eşzamanlı iki `issue` aynı taslağa çarptığında da TEK numara tüketilir:
+önce `draft` → `issuing` compare-and-set (kazanan rowcount==1), sonra
+`next_document_no`, sonra `issuing` → `issued` + `receipt_no`. Kaybeden
+409 `MAKBUZ_TASLAK_DEGIL` alır ve seriyi İLERLETMEZ. Hepsi tek işlemde;
+istisnada geri alınır ve taslak geri gelir.
+
 --- SİLME UCU YOKTUR -------------------------------------------------------
 
 Kesilmiş bir makbuz vergi belgesidir; `cancel` onu `cancelled` yapar ve
@@ -472,11 +478,30 @@ def get_producer_receipt(
     )
 
 
+def _taslak_degil_409(db: Session, cid: int, receipt_id: int) -> None:
+    """CAS kaybı / tekrar `issue`: 409; durum gövdesinde (varsa) gösterilir."""
+    satir = db.execute(
+        text(
+            "SELECT status FROM producer_receipts "
+            "WHERE company_id=:cid AND id=:rid"
+        ),
+        {"cid": cid, "rid": receipt_id},
+    ).mappings().first()
+    raise HTTPException(
+        409,
+        {
+            "code": "MAKBUZ_TASLAK_DEGIL",
+            "status": None if satir is None else satir["status"],
+            "message": "Yalnızca taslak makbuz kesilebilir.",
+        },
+    )
+
+
 @router.post("/producer-receipts/{receipt_id}/issue")
 def issue_producer_receipt(
     request: Request, receipt_id: int, db: Session = Depends(get_db)
 ):
-    """`draft` -> `issued`; numarayı `document_sequences`ten ALIR.
+    """`draft` -> `issuing` -> `issued`; numarayı `document_sequences`ten ALIR.
 
     TEKRAR REDDEDİLİR, SESSİZCE GEÇİLMEZ: zaten kesilmiş bir makbuza ikinci
     `issue` 409 verir ve İKİNCİ BİR NUMARA ÜRETMEZ. Sessizce geçseydi (ya da
@@ -484,38 +509,62 @@ def issue_producer_receipt(
     harcanmış ama hiçbir belgeye yazılmamış olurdu — seride açıklanamayan
     bir delik.
 
+    EŞZAMANLI İKİ `issue` AYNI TASLAĞA: okuma-sonra-yazma YETMEZ. Önce
+    `status='issuing' WHERE status='draft'` compare-and-set (kazanan
+    rowcount==1); numara YALNIZ kazanan tarafından tüketilir; sonra
+    `status='issued', receipt_no=... WHERE status='issuing'`. Kaybeden
+    409 `MAKBUZ_TASLAK_DEGIL` alır. Hepsi tek işlem; istisnada geri alınır
+    ve taslak geri gelir.
+
     KALEMSİZ MAKBUZ KESİLEMEZ: kalemsiz bir kağıt sıfır tutarlı bir vergi
     belgesi olurdu.
     """
     cid = company_id(request)
-    satir = _makbuz_satiri(db, cid, receipt_id)
-    if satir["status"] != "draft":
-        raise HTTPException(
-            409,
-            {
-                "code": "MAKBUZ_TASLAK_DEGIL",
-                "status": satir["status"],
-                "message": "Yalnızca taslak makbuz kesilebilir.",
-            },
+    # 404 kapısı: yoksa CAS'a girmeden reddet (başka firmanın makbuzu da 404).
+    _makbuz_satiri(db, cid, receipt_id)
+    try:
+        now = _simdi()
+        claim = db.execute(
+            text(
+                "UPDATE producer_receipts SET status='issuing',updated_at=:now "
+                "WHERE id=:rid AND company_id=:cid AND status='draft'"
+            ),
+            {"now": now, "cid": cid, "rid": receipt_id},
         )
-    if not _kalemler(db, cid, receipt_id):
-        raise HTTPException(
-            422,
-            {
-                "code": "MAKBUZ_KALEMSIZ",
-                "message": "Kalemsiz makbuz kesilemez.",
-            },
+        if claim.rowcount != 1:
+            db.rollback()
+            _taslak_degil_409(db, cid, receipt_id)
+
+        if not _kalemler(db, cid, receipt_id):
+            db.rollback()
+            raise HTTPException(
+                422,
+                {
+                    "code": "MAKBUZ_KALEMSIZ",
+                    "message": "Kalemsiz makbuz kesilemez.",
+                },
+            )
+
+        # Numara YALNIZ CAS kazananında tüketilir — kaybeden buraya gelmez.
+        numara = next_document_no(db, "producer_receipts", cid, MAKBUZ_ONEK)
+        now = _simdi()
+        final = db.execute(
+            text(
+                "UPDATE producer_receipts SET status='issued',receipt_no=:no,"
+                "issued_at=:now,updated_at=:now "
+                "WHERE id=:rid AND company_id=:cid AND status='issuing'"
+            ),
+            {"no": numara, "now": now, "cid": cid, "rid": receipt_id},
         )
-    numara = next_document_no(db, "producer_receipts", cid, MAKBUZ_ONEK)
-    now = _simdi()
-    db.execute(
-        text(
-            "UPDATE producer_receipts SET status='issued',receipt_no=:no,"
-            "issued_at=:now,updated_at=:now WHERE company_id=:cid AND id=:rid"
-        ),
-        {"no": numara, "now": now, "cid": cid, "rid": receipt_id},
-    )
-    db.commit()
+        if final.rowcount != 1:
+            db.rollback()
+            _taslak_degil_409(db, cid, receipt_id)
+        db.commit()
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        raise
     return _gorunum(
         _makbuz_satiri(db, cid, receipt_id), _kalemler(db, cid, receipt_id)
     )
@@ -530,26 +579,43 @@ def cancel_producer_receipt(
     Numara silinmez: iptal edilmiş bir belge de seride YERİNİ TUTAR, yoksa
     seri açıklanamaz biçimde atlardı. Taslak iptal EDİLEMEZ — hiç
     kesilmemiş bir kağıdın iptali yoktur.
+
+    Compare-and-set: `WHERE status='issued'`; kaybeden (zaten iptal /
+    taslak / eşzamanlı ikinci cancel) 409 `MAKBUZ_KESILMEMIS`.
     """
     cid = company_id(request)
-    satir = _makbuz_satiri(db, cid, receipt_id)
-    if satir["status"] != "issued":
-        raise HTTPException(
-            409,
-            {
-                "code": "MAKBUZ_KESILMEMIS",
-                "status": satir["status"],
-                "message": "Yalnızca kesilmiş makbuz iptal edilebilir.",
-            },
+    _makbuz_satiri(db, cid, receipt_id)
+    try:
+        result = db.execute(
+            text(
+                "UPDATE producer_receipts SET status='cancelled',updated_at=:now "
+                "WHERE id=:rid AND company_id=:cid AND status='issued'"
+            ),
+            {"now": _simdi(), "cid": cid, "rid": receipt_id},
         )
-    db.execute(
-        text(
-            "UPDATE producer_receipts SET status='cancelled',updated_at=:now "
-            "WHERE company_id=:cid AND id=:rid"
-        ),
-        {"now": _simdi(), "cid": cid, "rid": receipt_id},
-    )
-    db.commit()
+        if result.rowcount != 1:
+            db.rollback()
+            satir = db.execute(
+                text(
+                    "SELECT status FROM producer_receipts "
+                    "WHERE company_id=:cid AND id=:rid"
+                ),
+                {"cid": cid, "rid": receipt_id},
+            ).mappings().first()
+            raise HTTPException(
+                409,
+                {
+                    "code": "MAKBUZ_KESILMEMIS",
+                    "status": None if satir is None else satir["status"],
+                    "message": "Yalnızca kesilmiş makbuz iptal edilebilir.",
+                },
+            )
+        db.commit()
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        raise
     return _gorunum(
         _makbuz_satiri(db, cid, receipt_id), _kalemler(db, cid, receipt_id)
     )
