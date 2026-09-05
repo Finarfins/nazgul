@@ -665,5 +665,97 @@ with TestClient(app) as client:
     yl = client.get('/api/suppliers/%d/advances' % yabanci_ciftci, headers=h)
     assert yl.status_code == 404, yl.text
 
+    # === SENARYO 9: TEDARIKCI BAKIYESI — makbuz BORCTUR =================
+    # Kural: bakiye = acilis + SUM(alimlar) + SUM(makbuz net_payable)
+    #                 - SUM(odemeler)
+    # Kanit akisi: avans 100 -> makbuz net 300 (mahsup 100, cash_due 200)
+    # -> odeme 200  =>  bakiye 0. Borc terimi OLMASAYDI ayni akis -300
+    # okunurdu (yalnizca odemeler dusulur, karsiliginda hicbir borc yok).
+    with SessionLocal() as db:
+        db.execute(_sql(
+            "INSERT INTO suppliers(name,company_id,opening_balance,is_active)"
+            " VALUES('Bakiye Ciftcisi',:c,0,:a)"), {'c':cid,'a':True})
+        bakiye_ciftci = int(db.execute(_sql(
+            "SELECT id FROM suppliers WHERE company_id=:c AND "
+            "name='Bakiye Ciftcisi'"), {'c':cid}).scalar_one())
+        db.commit()
+
+    pano_once = Decimal(str(client.get('/api/dashboard', headers=h)
+                            .json()['supplier_payables']))
+
+    av = client.post('/api/suppliers/%d/advances' % bakiye_ciftci, headers=h,
+                     json={'amount':'100.00','payment_method':'cash',
+                           'payment_date':'2026-09-10'})
+    assert av.status_code == 201, av.text
+
+    # 16 KG * 25.00 = 400 brut; stopaj %20 = 80.00; sgk %5 = 20.00
+    # -> net_payable = 300.00.  BRUT ile NET burada AYRISIYOR: borc terimi
+    # yanlislikla brutu toplasaydi bakiye 100 fazla cikardi.
+    mb = makbuz_kur(client, h, bakiye_ciftci, '16', '25.00', '20', '5')
+    kb = client.post('/api/producer-receipts/%d/issue' % mb, headers=h)
+    assert kb.status_code == 200, kb.text
+    gb = kb.json()
+    assert gb['net_payable'] == '300.00', gb
+    assert gb['gross_amount'] == '400.00', gb
+    assert gb['advance_applied_total'] == '100.00', gb
+    assert gb['cash_due'] == '200.00', gb
+
+    pb = client.post('/api/producer-receipts/%d/pay' % mb, headers=h, json={
+        'amount':'200.00','payment_method':'cash','payment_date':'2026-09-11'})
+    assert pb.status_code == 200, pb.text
+    assert pb.json()['remaining'] == '0.00', pb.text
+
+    # (a) finance.py GET /suppliers -> current_balance
+    liste = client.get('/api/suppliers?q=Bakiye', headers=h)
+    assert liste.status_code == 200, liste.text
+    satirlar = [x for x in liste.json() if x['id'] == bakiye_ciftci]
+    assert len(satirlar) == 1, liste.text
+    assert Decimal(str(satirlar[0]['current_balance'])) == Decimal('0'), (
+        'finance.py bakiyesi 0 degil: %s (borc terimi dustu mu?)'
+        % satirlar[0]['current_balance'])
+
+    # (b) statement.py build_statement -> kapanis
+    # PENCERE ACIKCA VERILIYOR: varsayilan donem AY BASI -> BUGUN'dur ve
+    # yukaridaki odemeler ileri tarihli oldugu icin disarida kalirdi;
+    # o zaman ekstre makbuzu (bugun kesildi) sayar, odemeleri saymaz ve
+    # kapanis 300 okunurdu. Kusur TESTTEydi: pencere test tarihine gore
+    # KAYIYORDU.
+    ekstre = client.get(
+        '/api/suppliers/%d/statement?date_from=2026-01-01&date_to=2026-12-31'
+        % bakiye_ciftci, headers=h)
+    assert ekstre.status_code == 200, ekstre.text
+    e = ekstre.json()
+    assert Decimal(str(e['closing_balance'])) == Decimal('0'), (
+        'statement.py kapanisi 0 degil: %s' % e['closing_balance'])
+    # SATIRLAR TOPLAMLA TUTUYOR: makbuz ekstrede GORUNUYOR ve BORC tarafinda.
+    makbuz_satirlari = [x for x in e['lines']
+                        if x['kind'] == 'producer_receipt']
+    assert len(makbuz_satirlari) == 1, e['lines']
+    assert Decimal(str(makbuz_satirlari[0]['debit'])) == Decimal('300'),         makbuz_satirlari
+    assert Decimal(str(makbuz_satirlari[0]['credit'])) == Decimal('0'),         makbuz_satirlari
+
+    # (c) dashboard.py supplier_payables -> akis SIFIR toplamli
+    pano_sonra = Decimal(str(client.get('/api/dashboard', headers=h)
+                             .json()['supplier_payables']))
+    assert pano_sonra - pano_once == Decimal('0'), (
+        'dashboard.py supplier_payables deltasi %s; +300 borc ve -300 odeme '
+        'birbirini goturmeliydi' % (pano_sonra - pano_once))
+
+    # IPTAL BORCU KALDIRIR: cancelled makbuz bakiyeye GIRMEZ.
+    mi = makbuz_kur(client, h, bakiye_ciftci, '4', '25.00', '0', '0')
+    ki = client.post('/api/producer-receipts/%d/issue' % mi, headers=h)
+    assert ki.status_code == 200, ki.text
+    ara = client.get('/api/suppliers?q=Bakiye', headers=h).json()
+    ara_bakiye = Decimal(str([x for x in ara
+                              if x['id'] == bakiye_ciftci][0]['current_balance']))
+    assert ara_bakiye == Decimal('100'), ara_bakiye
+    ii = client.post('/api/producer-receipts/%d/cancel' % mi, headers=h)
+    assert ii.status_code == 200, ii.text
+    son = client.get('/api/suppliers?q=Bakiye', headers=h).json()
+    son_bakiye = Decimal(str([x for x in son
+                              if x['id'] == bakiye_ciftci][0]['current_balance']))
+    assert son_bakiye == Decimal('0'), (
+        'iptal edilen makbuz bakiyeden DUSMEDI: %s' % son_bakiye)
+
 print('D2 AVANS TESCIL TAMAM')
 '''

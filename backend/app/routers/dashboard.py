@@ -117,6 +117,13 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         ), supplier_summary AS (
           SELECT COALESCE(SUM(opening_balance),0) AS supplier_opening
           FROM suppliers WHERE company_id=:cid
+        ), producer_receipt_summary AS (
+          -- Kesilmiş müstahsil makbuzları tedarikçi BORCUDUR; NET ödenecek
+          -- toplanır, brüt DEĞİL (stopaj/SGK vergi dairesine borçtur).
+          -- YALNIZ `issued`: taslak borç doğurmamıştır, `cancelled` doğmuş
+          -- borcu kaldırır, `issuing` ise CAS'ın ARA DURUMUDUR.
+          SELECT COALESCE(SUM(net_payable),0) AS issued_receipts
+          FROM producer_receipts WHERE company_id=:cid AND status='issued'
         )
         SELECT sales.today_sales,sales.month_sales,purchases_summary.month_purchases,
                payment_summary.today_collections,payment_summary.month_collections,
@@ -124,10 +131,13 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
                product_summary.stock_value,product_summary.critical_stock_count,
                customer_summary.customer_count,
                customer_summary.customer_opening+sales.active_sales-payment_summary.customer_payments AS customer_receivables,
-               supplier_summary.supplier_opening+purchases_summary.active_purchases-payment_summary.supplier_payments AS supplier_payables,
+               supplier_summary.supplier_opening+purchases_summary.active_purchases
+                 +producer_receipt_summary.issued_receipts
+                 -payment_summary.supplier_payments AS supplier_payables,
                sales.overdue_count,sales.overdue_total
         FROM sales,purchases_summary,payment_summary,expense_summary,
-             product_summary,customer_summary,supplier_summary
+             product_summary,customer_summary,supplier_summary,
+             producer_receipt_summary
         """,
         params,
     )

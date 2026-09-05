@@ -25,7 +25,32 @@ def _create_auxiliary_tables(db: Session) -> None:
 
     ``entity_detail`` bunları koşulsuz sorguluyor; seed eden her testin kurması
     gerekiyor, yoksa "no such table" ile düşüyor.
+
+    ``producer_receipts`` de aynı sebeple BURADA: D2'den beri tedarikçi
+    bakiyesi kesilmiş müstahsil makbuzunu BORÇ olarak sayıyor
+    (``statement.py:_makbuz_borcu``) ve o sorgu da KOŞULSUZDUR. Sorguyu
+    "tablo varsa" diye sarmalamak, tablo bir gün gerçekten eksik olduğunda
+    borcu SESSİZCE sıfırlardı — eksik tablo gürültülü düşmelidir.
     """
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS producer_receipts(
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              company_id INTEGER NOT NULL,
+              supplier_id INTEGER NOT NULL,
+              receipt_no TEXT,
+              issued_at TEXT,
+              gross_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+              withholding_total NUMERIC(18,2) NOT NULL DEFAULT 0,
+              social_security_total NUMERIC(18,2) NOT NULL DEFAULT 0,
+              net_payable NUMERIC(18,2) NOT NULL DEFAULT 0,
+              advance_applied_total NUMERIC(18,2) NOT NULL DEFAULT 0,
+              status TEXT NOT NULL DEFAULT 'draft'
+            )
+            """
+        )
+    )
     db.execute(
         text(
             """
