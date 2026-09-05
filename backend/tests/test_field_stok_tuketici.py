@@ -785,6 +785,60 @@ def test_oturum_siniri_KONAMAZSA_istisna_YUKARI_cikar() -> None:
     tuketici._oturumu_sinirla(SqliteOturum())
 
 
+def test_hasat_serilestirme_SQLITE_NOOP_FOR_UPDATE_KOSMAZ() -> None:
+    """SQLite tek yazardır; hasat kilidi no-op ve SQL KOSMAZ.
+
+    PG dalı `SELECT id FROM field_harvests ... FOR UPDATE` taşır. O ifade
+    SQLite'ta sözdizimi hatasıdır. Mercek (25/25 +2400) yalnız READ COMMITTED
+    + eşzamanlı oturumda oluşur; SQLite yazmaları veritabanı düzeyinde zaten
+    seri, kilit gereksiz. Bu test o no-op dalını çiviler: lehçe sqlite iken
+    `execute` HİÇ çağrılmaz. PG SQL'i bu dala taşınırsa kırmızı.
+    """
+    from types import SimpleNamespace
+
+    from app import field_stok_tuketici as tuketici
+
+    class SqliteOturum:
+        def get_bind(self):
+            return SimpleNamespace(dialect=SimpleNamespace(name="sqlite"))
+
+        def execute(self, *_a, **_k):
+            raise AssertionError(
+                "SQLite tek yazardır; hasat kilidi no-op, SQL KOSMAMALI"
+            )
+
+    tuketici._hasati_serilestir(SqliteOturum(), 1, 1)
+
+    class PgOturum:
+        """PG lehcesi: önce harvest_id, sonra FOR UPDATE. İkisi de sabit metin."""
+
+        def __init__(self) -> None:
+            self.sql: list[str] = []
+
+        def get_bind(self):
+            return SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        def execute(self, ifade, *_a, **_k):
+            self.sql.append(getattr(ifade, "text", str(ifade)))
+
+            class _Sonuc:
+                def scalar(self):
+                    return 42
+
+                def first(self):
+                    return (42,)
+
+            return _Sonuc()
+
+    pg = PgOturum()
+    tuketici._hasati_serilestir(pg, 1, 7)
+    assert len(pg.sql) == 2, pg.sql
+    assert "field_harvest_tickets" in pg.sql[0], pg.sql[0]
+    assert "FOR UPDATE" in pg.sql[1], pg.sql[1]
+    assert "field_harvests" in pg.sql[1], pg.sql[1]
+    assert "company_id" in pg.sql[1], pg.sql[1]
+
+
 def test_ust_KONAMAYINCA_yazim_HIC_denenmiyor(tmp_path: Path) -> None:
     """FAIL CLOSED'un ETKİSİ: sınır kurulamazsa YAZIM OLMAZ.
 

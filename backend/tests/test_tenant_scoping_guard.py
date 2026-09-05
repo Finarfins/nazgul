@@ -1689,8 +1689,12 @@ print("TENANT_TABLES_JSON=" + json.dumps(tables))
 #   SQLAlchemy Core insert/select ifadeleridir (HAM SQL DEGIL) ve
 #   tohumun kendi verisini yazar; kiraci yuklemi tasimalari gerekmez.
 #   Sayilar bu turda YENIDEN OLCULDU, devralinmadi.
+# 108/172 -> 108/175 (hasat fiş serileştirme, mercek +2400): +0 DOSYA, +3
+#   metin, hepsi `test_field_stok_tuketici_postgresql.py` içinde — kurulum,
+#   bariyerli işçi, rapor. Yeni `*_postgresql.py` AÇILMADI (PG popülasyonu
+#   102'de SABİT). app/ altında yine SIFIR.
 BEKLENEN_ALT_SUREC_SQL_DOSYA = 108
-BEKLENEN_ALT_SUREC_SQL_METIN = 172
+BEKLENEN_ALT_SUREC_SQL_METIN = 175
 
 
 def _alt_surecte_sql() -> tuple[list[str], int]:

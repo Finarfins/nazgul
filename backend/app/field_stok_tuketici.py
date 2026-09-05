@@ -638,6 +638,48 @@ def _taban_miktar(miktar, birim, taban_birim) -> Decimal:
     return birim_coz(Decimal(str(miktar)), str(birim or ""), taban_birim)[0]
 
 
+def _hasati_serilestir(db: Session, firma: int, fis_id: int) -> None:
+    """Aynı hasadın fiş olaylarını HASAT SATIRINDA serileştirir.
+
+    ÖLÇÜLEN KUSUR (mercek, READ COMMITTED): iki fiş olayı aynı hasat için
+    eşzamanlı işlendiğinde ikisi de `_zaten_duzeltilmis`i 0 okudu ve 25/25
+    koşum +2400 yazdı; doğru fark +1200 idi. `_talep_et` OLAYI serileştirir,
+    HASADI değil — iki ayrı olay, iki ayrı talep, tek hasat.
+
+    ÇAĞRI YERİ: `_bir_olayi_isle` içinde, `_fis_kalemleri` / `_zaten_duzeltilmis`
+    OKUNMADAN ÖNCE. Kilit commit'e kadar tutulur (talep + hareket + sonlandırma
+    tek işlem).
+
+    PostgreSQL: `SELECT id FROM field_harvests WHERE id=:hid AND company_id=:cid
+    FOR UPDATE` — ikinci oturum birincinin commit'ini bekler, sonra `zaten`'i
+    görür.
+
+    SQLite: tek yazar — yazmalar veritabanı düzeyinde zaten seri. `FOR UPDATE`
+    sözdizimi reddedilir ve kilit zaten gereksizdir; bu dal no-op (SQL
+    KOSMAZ). İki AYRI sabit ifade; SQL çalışma zamanında KURULMAZ — bu
+    modülde dinamik SQL yoktur ve `test_every_dynamic_text_call_is_exactly_
+    reviewed` onu haklı olarak reddeder.
+    """
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    hid = db.execute(
+        text(
+            """SELECT harvest_id FROM field_harvest_tickets
+            WHERE id = :tid AND company_id = :cid"""
+        ),
+        {"tid": int(fis_id), "cid": int(firma)},
+    ).scalar()
+    if hid is None:
+        return
+    db.execute(
+        text(
+            """SELECT id FROM field_harvests
+            WHERE id = :hid AND company_id = :cid FOR UPDATE"""
+        ),
+        {"hid": int(hid), "cid": int(firma)},
+    ).first()
+
+
 def _fis_kalemleri(db: Session, firma: int, fis_id: int) -> list[dict]:
     """Fişin defterde açtığı FARK. Miktar DEĞİL, DELTA döner.
 
@@ -1137,6 +1179,14 @@ def _bir_olayi_isle(
                 "%s#%s" % (tablo, olay["source_id"]), deneme)
             db.commit()
             return DURUM_GORUNMEZ
+
+        # HASAT KİLİDİ — yalnız fiş olayları. Olay talebi OLAYI serileştirir;
+        # aynı hasadın iki fişi ayrı olaylardır ve READ COMMITTED altında
+        # ikisi de `_zaten_duzeltilmis`i 0 okur (mercek: 25/25 +2400, doğru
+        # +1200). PG'de hasat satırı FOR UPDATE; SQLite tek yazar, no-op.
+        # `_fis_kalemleri` / `_zaten_duzeltilmis` bu kilitten SONRA okunur.
+        if tip == KAYNAK_FIS:
+            _hasati_serilestir(db, firma, int(olay["source_id"]))
 
         kalem_oku = _KALEM_OKUYUCU.get(tip)
         # BİRİM REDDİ ADI KONMUŞ BİR KOVADIR, BEKLENMEYEN BİR İSTİSNA DEĞİL.
