@@ -557,6 +557,99 @@ def test_avans_tutarinin_OLCEGI_18_2(motor) -> None:
             )
 
 
+def test_tedarikci_bakiyesi_makbuz_BORCUNU_sayiyor(motor) -> None:
+    """Ekstre PostgreSQLde de makbuzu BORC sayar ve gun suzgeci PATLAMAZ.
+
+    BU IKIZ ZORUNLU cunku iddia YALNIZ uretim diyalektinde sinanabilir:
+    `issued_at` bir `timestamptz`tir ve oteki tarih sutunlari GUN
+    dizgisidir; pencere karsilastirmasini onlarla ayni bicimde yazmak
+    (`COALESCE(issued_at, '')`) PostgreSQLde TIP HATASI verir, SQLitede
+    ise SESSIZCE gecer. Yani `SUBSTR(CAST(... AS TEXT),1,10)` cozumunun
+    dogrulugu SQLite kosumunda GORUNMEZ.
+
+    Akis, SQLite ikizindekiyle AYNI: avans 100 + makbuz net 300
+    (brut 400, stopaj 80, sgk 20) + odeme 200 -> bakiye 0.
+    """
+    from sqlalchemy.orm import Session as _Session
+
+    from app.statement import build_statement
+
+    with motor.begin() as baglanti:
+        cid, tedarikci = _firma_kur(baglanti, FIRMA_ADI)
+        makbuz = _makbuz_yaz(
+            baglanti, cid, tedarikci,
+            no="MM-PG-1", durum="issued",
+            brut=Decimal("400.00"), stopaj=Decimal("80.00"),
+            sgk=Decimal("20.00"), net=Decimal("300.00"),
+            mahsup=Decimal("100.00"),
+        )
+        baglanti.execute(
+            text(
+                "UPDATE producer_receipts SET issued_at=:t "
+                "WHERE company_id=:cid AND id=:rid"
+            ),
+            {"t": datetime(2026, 9, 10, 12, 0, tzinfo=timezone.utc),
+             "cid": cid, "rid": makbuz},
+        )
+        # Avans 100 + makbuz odemesi 200 = 300 alacak.
+        _odeme_yaz(baglanti, cid, tedarikci, tutar=Decimal("100.00"),
+                   tarih="2026-09-09", rtype="supplier_advance")
+        _odeme_yaz(baglanti, cid, tedarikci, tutar=Decimal("200.00"),
+                   tarih="2026-09-11", rtype="producer_receipt", rid=makbuz)
+
+    with _Session(motor) as oturum:
+        ekstre = build_statement(
+            oturum, cid, "supplier", tedarikci,
+            date(2026, 1, 1), date(2026, 12, 31),
+        )
+    assert Decimal(str(ekstre.closing_balance)) == Decimal("0"), (
+        ekstre.closing_balance
+    )
+    satirlar = [x for x in ekstre.lines if x.kind == "producer_receipt"]
+    assert len(satirlar) == 1, [x.kind for x in ekstre.lines]
+    # NET, BRUT DEGIL: brut sayilsaydi kapanis 100 fazla cikardi.
+    assert Decimal(str(satirlar[0].debit)) == Decimal("300"), satirlar[0]
+    assert Decimal(str(satirlar[0].credit)) == Decimal("0"), satirlar[0]
+
+
+def test_TASLAK_ve_IPTAL_makbuz_bakiyeye_GIRMEZ(motor) -> None:
+    """Yalniz `issued` borc dogurur; `draft`/`cancelled`/`issuing` GIRMEZ.
+
+    Olumsuz liste (`NOT IN ('draft','cancelled')`) `issuing` ARA DURUMUNU
+    sessizce borc sayardi; olumlu liste onu da diser.
+    """
+    from sqlalchemy.orm import Session as _Session
+
+    from app.statement import build_statement
+
+    with motor.begin() as baglanti:
+        cid, tedarikci = _firma_kur(baglanti, FIRMA_ADI)
+        for i, durum in enumerate(("draft", "issuing", "cancelled")):
+            no = None if durum in ("draft", "issuing") else "MM-PG-C%d" % i
+            rid = _makbuz_yaz(
+                baglanti, cid, tedarikci, no=no, durum=durum,
+                net=Decimal("500.00"),
+            )
+            baglanti.execute(
+                text(
+                    "UPDATE producer_receipts SET issued_at=:t "
+                    "WHERE company_id=:cid AND id=:rid"
+                ),
+                {"t": datetime(2026, 9, 10, tzinfo=timezone.utc),
+                 "cid": cid, "rid": rid},
+            )
+
+    with _Session(motor) as oturum:
+        ekstre = build_statement(
+            oturum, cid, "supplier", tedarikci,
+            date(2026, 1, 1), date(2026, 12, 31),
+        )
+    assert Decimal(str(ekstre.closing_balance)) == Decimal("0"), (
+        "borc dogurmayan makbuzlar bakiyeye girdi: %s" % ekstre.closing_balance
+    )
+    assert [x for x in ekstre.lines if x.kind == "producer_receipt"] == []
+
+
 def test_kurus_UCUNCU_basamagi_OLCEGE_oturur(motor) -> None:
     """Üç basamaklı kuruş `NUMERIC(18,2)`de İKİYE yuvarlanır.
 
