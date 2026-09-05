@@ -1135,6 +1135,10 @@ def create_activity(payload: ActivityWrite, request: Request, db: Session = Depe
     # çözmek ikinci bir UPDATE gerektirir ve arada kesilme, kökeni boş ama
     # süresi dolu bir satır bırakırdı.
     katalog_gun, etkin_gun, koken = _phi_coz(db, cid, payload, sezon)
+    # GİRİŞ YASAĞI DA BURADA ÇÖZÜLÜYOR — aynı gerekçe: süre faaliyet
+    # BAŞLIĞINDA, girdiler satırlarda. PHI'den farklı olarak köken
+    # YAZILMIYOR; sütunu yok ve açmak göç olurdu (bkz. `_giris_yasagi_coz`).
+    etkin_giris = _giris_yasagi_coz(db, cid, payload, sezon)
     yeni = db.execute(
         text(
             """INSERT INTO field_activities(company_id,season_id,activity_type,performed_at,
@@ -1157,6 +1161,9 @@ def create_activity(payload: ActivityWrite, request: Request, db: Session = Depe
             "preharvest_interval_days": etkin_gun,
             "preharvest_source": koken,
             "catalogue_preharvest_days": katalog_gun,
+            # Giriş yasağı da ham değil ÇÖZÜLMÜŞ yazılıyor: operatör
+            # boş bıraktıysa katalogun süresi buraya düşer.
+            "reentry_interval_days": etkin_giris,
             # Saatler de normalize ediliyor: istemci "2" de "2.0000" da
             # gönderebilir, sütun 18,4 ve iki diyalekt aynı değeri saklamalı.
             "labor_hours": (
@@ -2780,6 +2787,92 @@ def _phi_coz(
     if operator == katalog:
         return katalog, operator, _PHI_KOKEN_OPERATOR
     return katalog, operator, _PHI_KOKEN_USTUNE_YAZMA
+
+
+def _katalog_giris_yasagi(
+    db: Session, cid: int, product_id: int, bitki: str
+) -> int | None:
+    """Ürün için katalogdaki tarlaya giriş yasağı; bitkiye ÖZEL satır önce.
+
+    ``_katalog_phi`` ile AYNI çözüm sırası, TEK farkla: katalogda
+    ``reentry_interval_days`` NULL KABUL EDER, ``preharvest_interval_days``
+    ETMEZ (göç 0063 — PHI kataloğun VAR OLMA sebebi, giriş yasağı ise
+    isteğe bağlı taşınıyor).
+
+    NULL bir SÜRE DEĞİL, SÜRE HAKKINDA SUSMAKTIR. Bu yüzden NULL taşıyan satır
+    çözüme HİÇ girmez: bitkiye özel satırın giriş yasağı boşsa o satır
+    bitkiden bağımsız satırı GÖLGELEMEZ. Gölgeleseydi, hiç kimsenin yazmadığı
+    bir boşluk firmanın gerçekten girdiği genel süreyi sessizce silerdi — ve
+    0064'ten beri bu sayı gerçek bir kilit besliyor, yani silinen süre
+    tarlaya erken girişe izin verirdi.
+    """
+    satirlar = db.execute(
+        text(
+            """SELECT crop,reentry_interval_days
+            FROM plant_protection_products
+            WHERE company_id=:cid AND product_id=:pid AND status='ACTIVE'"""
+        ),
+        {"cid": cid, "pid": int(product_id)},
+    ).mappings().all()
+
+    genel: int | None = None
+    for r in satirlar:
+        gun = r["reentry_interval_days"]
+        if gun is None:
+            # Satır var ama giriş yasağı hakkında bir şey SÖYLEMİYOR.
+            continue
+        katalog_bitki = (r["crop"] or "").strip()
+        if katalog_bitki and _bitki_esit(katalog_bitki, bitki):
+            # Bitkiye ÖZEL ve DOLU satır; yedeğe bakmaya gerek yok.
+            return int(gun)
+        if not katalog_bitki:
+            genel = int(gun)
+    return genel
+
+
+def _giris_yasagi_coz(
+    db: Session, cid: int, payload: ActivityWrite, sezon: dict[str, Any],
+) -> int | None:
+    """Faaliyete yazılacak ETKİN tarlaya giriş yasağı süresi.
+
+    ``_phi_coz``un KARARLARINI birebir yansıtıyor:
+
+    * Birden çok girdi varsa EN UZUN yasak kazanır. Kısa olanı seçmek, uzun
+      olanın süresi dolmadan tarlaya girişe izin verirdi; ``_giris_ihlalleri``
+      bu sayıyı okuyor.
+    * Operatörün yazdığı değer KAZANIR — katalog yalnız BOŞ bırakılanı
+      doldurur. Etiketi elinde tutan kişi sistemi düzeltebilmeli.
+    * ``product_id`` taşımayan serbest metin girdinin etiketi yoktur ve
+      çözülmez; süre boş kalır, boş da ihlal değildir.
+
+    KÖKEN SÜTUNU YOK — BİLEREK VE ÖLÇÜLEREK. PHI kökeni ``field_activities``te
+    İKİ sütunla tutuluyor (``preharvest_source``, ``catalogue_preharvest_days``;
+    göç 0063). Giriş yasağının bu sütunlardaki karşılığı ARANDI: ``0044``,
+    ``0046``, ``0053``, ``0063`` ve ``0064``ün açtığı sütunların tamamı
+    tarandı, ``reentry_source``/``catalogue_reentry_days`` diye bir şey YOK.
+    Onları açmak bir GÖÇTÜR ve bu dilim göçsüzdür; kökeni bu yüzden bu PR
+    KAYDETMİYOR ve iddia da etmiyor.
+
+    Mevcut bir sütuna sıkıştırmak bir çözüm DEĞİLDİR: ``reentry_warning``
+    SİSTEMİN bulduğu uyarıdır (göç 0064) ve kökeni oraya yazmak, 0048 ile
+    0063'ün ikisinin de açıkça reddettiği şeyi yapardı — kullanıcının
+    söylediğiyle sistemin bulduğunu aynı sütunda toplamak, denetimde kimin ne
+    dediğini ayırt edilemez kılar.
+    """
+    bitki = str(sezon.get("crop") or "").strip()
+    katalog: int | None = None
+    for girdi in payload.inputs or []:
+        if girdi.product_id is None:
+            continue
+        gun = _katalog_giris_yasagi(db, cid, girdi.product_id, bitki)
+        if gun is not None and (katalog is None or gun > katalog):
+            katalog = gun
+
+    if payload.reentry_interval_days is not None:
+        # Operatör yazdı: katalog ONU DEĞİŞTİRMEZ. Aynısını söylüyor olsalar
+        # bile etkin değer operatörün değeridir; fark varsa da öyle.
+        return payload.reentry_interval_days
+    return katalog
 
 
 @router.get("/plant-protection-products")
