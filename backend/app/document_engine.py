@@ -32,8 +32,18 @@ DOCUMENT_TABLES = {
     "delivery_notes",
     "returns",
     "work_orders",
+    # Müstahsil makbuzu (0070). Numara TASLAKTA atanmaz; yalnız
+    # `/producer-receipts/{id}/issue` bu seriden çeker (önek "MM").
+    "producer_receipts",
 }
-DOCUMENT_NUMBER_COLUMNS = {"work_orders": "work_order_no"}
+DOCUMENT_NUMBER_COLUMNS = {
+    "work_orders": "work_order_no",
+    # Bu tablonun numara sütunu `document_no` DEĞİL: makbuzun kağıt üstündeki
+    # adı "makbuz no"dur ve sütun adını belgeye uydurmak, tekrar denetiminin
+    # (`next_document_no` içindeki LOWER(...) sorgusu) DOĞRU sütuna bakmasını
+    # sağlar. Burada bildirilmeseydi sorgu olmayan `document_no`ya bakardı.
+    "producer_receipts": "receipt_no",
+}
 _PREFIX_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 
 
