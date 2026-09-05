@@ -307,6 +307,45 @@ def create(payload: ProductCreate, request: Request, db: Session = Depends(get_d
     values = payload.model_dump()
     values["company_id"] = cid
     initial = quantity(values.pop("stock", 0))
+    # --- TABAN BİRİM: OLUŞTURMADA DA YAZILIR (C2) -------------------------
+    # ÖLÇÜLEN KUSUR: `ProductCreate` `ProductUpdate`ten türediği için
+    # `base_unit` gövdede KABUL EDİLİYORDU, ama INSERT'in sütun listesinde
+    # YOKTU — değer sessizce DÜŞÜYORDU. İstemci 201 alıyor, kart taban
+    # birimsiz doğuyor ve o ürünün İLK kantar fişi `TABAN_BILDIRILMEMIS` ile
+    # reddediliyordu. Hiçbir yerde kırmızı yok; yalnız bir red, sebebi bir
+    # önceki istekte.
+    #
+    # KURALLAR PUT İLE AYNI, VE BİLEREK AYNI:
+    #   * `turkce_katla` ile kanonikleşir ("kg" -> "KG"); çözücü kapalı
+    #     kümeyi BÜYÜK harfle arar, katlanmamış bir "kg" BIRIM_TANIMSIZ alır.
+    #   * Katlanınca BOŞA düşen dizgi ("   ") ile açık `null` AYNI şeydir ve
+    #     ikisi de 422 `TABAN_BIRIM_SILINEMEZ`. "Oluştururken silinecek bir
+    #     şey yok" diye bunu GEÇİRMEK, sütuna boş dizgi yazan bir yol açardı
+    #     ve o ürün sonsuza kadar `BIRIM_TANIMSIZ` alırdı.
+    #   * ALAN HİÇ GÖNDERİLMEZSE sütun NULL doğar. `unit`ten KOPYALANMAZ:
+    #     `unit` satış/görüntü birimi, `base_unit` stoğun TUTULDUĞU birimdir
+    #     ve 0066 ikisini bilerek ayırdı. Kopyalamak, hiç bildirilmemiş bir
+    #     olguyu bildirilmiş göstermek olurdu (`test_kantar_fisi_sozlesme`
+    #     bunu ölçüyor: taban birimsiz ürünün fişi 422 almalı).
+    #
+    # ETKİNLİK KAYDI YOK, VE BU PUT'TAN FARKI: PUT bir DEĞİŞİKLİKTİR ("kim,
+    # ne zaman değiştirdi" sorulabilir olmalı); oluşturmada önceki bir değer
+    # YOKTUR ve kaydın taşıyacağı bir fark da yoktur.
+    taban_birim_yazildi = "base_unit" in payload.model_fields_set
+    ham_taban = values.pop("base_unit", None)
+    yeni_taban = (turkce_katla(ham_taban) or None) if ham_taban is not None else None
+    if taban_birim_yazildi and yeni_taban is None:
+        raise HTTPException(
+            422,
+            {
+                "code": "TABAN_BIRIM_SILINEMEZ",
+                "message": (
+                    "Ürünün taban birimi boş olamaz; alanı göndermemek "
+                    "sütunu NULL bırakır."
+                ),
+            },
+        )
+    values["base_unit"] = yeni_taban
     policies = get_policy_settings(db, cid)
     override = override_context(request)
     override_policies: set[str] = set()
@@ -324,10 +363,10 @@ def create(payload: ProductCreate, request: Request, db: Session = Depends(get_d
             text(
                 """INSERT INTO products(
                 name,product_code,barcode,purchase_price,sale_price,vat_rate,
-                stock,unit,category,location,oem_number,alternative_oem,brand,manufacturer,compatible_models,technical_notes,company_id
+                stock,unit,category,location,oem_number,alternative_oem,brand,manufacturer,compatible_models,technical_notes,company_id,base_unit
                 ) VALUES(
                 :name,:product_code,:barcode,:purchase_price,:sale_price,:vat_rate,
-                0,:unit,:category,:location,:oem_number,:alternative_oem,:brand,:manufacturer,:compatible_models,:technical_notes,:company_id) RETURNING id"""
+                0,:unit,:category,:location,:oem_number,:alternative_oem,:brand,:manufacturer,:compatible_models,:technical_notes,:company_id,:base_unit) RETURNING id"""
             ),
             values,
         )

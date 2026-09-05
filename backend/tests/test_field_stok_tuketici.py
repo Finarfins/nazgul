@@ -60,9 +60,13 @@ BEKLENEN_TERMINAL_DURUMLAR = (
     "SENT",
     "SKIPPED_SOURCE_NOT_VISIBLE",
     "SKIPPED_NO_PRODUCT",
+    # C2: ürün BELLİ ama `products.base_unit` bildirilmemiş. `SKIPPED_NO_PRODUCT`
+    # ile AYNI KOVAYA konmadı çünkü çareleri FARKLI: orada SEZONA ürün
+    # bildirilir, burada ÜRÜN KARTINA taban birim yazılır.
+    "SKIPPED_TABAN_BILDIRILMEMIS",
     "DEAD",
 )
-BEKLENEN_TERMINAL_SAYISI = 4
+BEKLENEN_TERMINAL_SAYISI = 5
 
 
 _KURULUM = r'''
@@ -109,8 +113,9 @@ def kur(db):
     for pid, ad, acilis in ((10, 'Bugday Tohumu', '200.0000'),
                             (11, 'Gubre', '1000.0000')):
         _yaz(db, "INSERT INTO products (id,name,purchase_price,sale_price,vat_rate,"
-                 "stock,unit,price_per,active,critical_stock,minimum_stock,company_id) "
-                 "VALUES (:i,:n,0,0,0,:s,'kg','unit',1,0,0,:c)",
+                 "stock,unit,price_per,active,critical_stock,minimum_stock,company_id,"
+                 "base_unit) "
+                 "VALUES (:i,:n,0,0,0,:s,'kg','unit',1,0,0,:c,'KG')",
              i=pid, n=ad, s=acilis, c=FIRMA)
         _yaz(db, "INSERT INTO warehouse_stocks (company_id,warehouse_id,product_id,"
                  "quantity,critical_stock,reserved_quantity) "

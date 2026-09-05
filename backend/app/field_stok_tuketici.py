@@ -51,12 +51,19 @@ import logging
 import time
 from decimal import Decimal
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from .auth import utcnow
 from .inventory import adjust_warehouse_stock, default_warehouse, sync_product_stock
 from .money import quantity as normalize_quantity
+# NET FORMÜLÜ İTHAL EDİLİYOR, KOPYALANMIYOR. `_turetilmis_net` okuma
+# yüzeyinin (`derived_net_quantity`) de kaynağıdır; iki kopya bir gün ayrışır
+# ve ayrışma "ekranda başka, defterde başka net" demek olurdu. Yönlendirici
+# modülünden içe bağ TERS YÖNDE YOKTUR (ölçüldü: hiçbir router bu modülü
+# içe aktarmıyor), yani döngü kurmuyor.
+from .routers.farm import _turetilmis_net
+from .units import BirimCozulemedi, UrunTemsilEdilemez, resolve as birim_coz
 
 logger = logging.getLogger("yerel_hesap.field_stok_tuketici")
 
@@ -79,11 +86,23 @@ DURUM_UYGULANDI = "SENT"            # stok hareketi yazıldı
 DURUM_GORUNMEZ = "SKIPPED_SOURCE_NOT_VISIBLE"  # kaynak bu kiracıda YOK
 DURUM_URUNSUZ = "SKIPPED_NO_PRODUCT"  # taşınacak ürün yok (hasat, ürünsüz girdi)
 DURUM_OLU = "DEAD"                  # deneme hakkı bitti ya da tanınmayan kaynak
+#: Ürün BELLİ ama ürünün TABAN BİRİMİ bildirilmemiş: `units.resolve`
+#: `TABAN_BILDIRILMEMIS` ile durdu. `SKIPPED_NO_PRODUCT`TAN AYRI BİR KOVADIR
+#: ve ayrılığı bir KARARDIR (`units.py` sahip kararı 2): iki kova FARKLI iş
+#: gerektirir — ürünsüzde SEZONA ürün bildirilir, burada ÜRÜN KARTINA taban
+#: birim yazılır (`PUT /api/products/{id}`). İkisini tek kovaya atmak,
+#: `last_error` okuyan kişiyi hangi kaydı düzelteceğini bilmeden bırakırdı.
+#:
+#: SESSİZ BİR VARSAYIM YERİNE KOVA: girileni taban SAYMAK bir olgu uydurmak
+#: olurdu ve "1 ton" ile "1 kg"ı aynı deftere yazardı — 1000× bir hata,
+#: hiçbir yerde kırmızı olmadan.
+DURUM_TABANSIZ = "SKIPPED_TABAN_BILDIRILMEMIS"
 
 TERMINAL_DURUMLAR = (
     DURUM_UYGULANDI,
     DURUM_GORUNMEZ,
     DURUM_URUNSUZ,
+    DURUM_TABANSIZ,
     DURUM_OLU,
 )
 
@@ -115,12 +134,45 @@ def _hasat_kaynagi(db: Session, firma: int, sid: int):
     ).mappings().first()
 
 
+#: Fiş kaynağının ADI, TEK YERDE. Hem `_KAYNAK` anahtarı hem de
+#: `_zaten_duzeltilmis`in `source_type` süzgeci bu sabiti kullanır: ikisi
+#: ayrışırsa düzeltme toplamı SIFIR okunur ve her fiş bir öncekini TEKRAR
+#: sayar — sessizce, hiçbir kapı kırılmadan.
+KAYNAK_FIS = "field_harvest_ticket"
+
+
+def _fis_kaynagi(db: Session, firma: int, sid: int):
+    return db.execute(
+        text(
+            """SELECT id, company_id FROM field_harvest_tickets
+            WHERE company_id = :company_id AND id = :sid"""
+        ),
+        {"company_id": int(firma), "sid": int(sid)},
+    ).mappings().first()
+
+
 #: Kaynak tipi -> (tablo, YÖN, okuyucu).
 #: Yön +1 ÜRETİM, -1 TÜKETİM; bu sözlük yönün TEK kaynağıdır.
+#:
+#: FİŞİN YÖNÜ +1'DİR AMA MİKTARI İŞARETSİZ DEĞİLDİR. Fiş yolu bir MİKTAR
+#: değil bir FARK yazar (`_fis_kalemleri`) ve fark EKSİ olabilir: kantar
+#: hasadın bildirdiğinden az tartarsa düzeltme stoğu DÜŞÜRÜR. Yön yine de
+#: +1 kalıyor çünkü işaret farkın KENDİSİNDEDİR; buraya -1 koymak farkı bir
+#: kez daha ters çevirirdi.
 _KAYNAK = {
     "field_activity": ("field_activities", Decimal("-1"), _faaliyet_kaynagi),
     "field_harvest": ("field_harvests", Decimal("1"), _hasat_kaynagi),
+    KAYNAK_FIS: ("field_harvest_tickets", Decimal("1"), _fis_kaynagi),
 }
+
+#: FARK YAZAN KAYNAKLAR: farkı SIFIR çıkan olay TERMİNAL biter (`SENT`) ve
+#: HİÇBİR SATIR YAZMAZ. Sıfırlık bir hata değil bir CEVAPTIR — "defterde
+#: düzeltilecek bir şey yok".
+#:
+#: NİYE SADECE BU KAYNAKLAR: `field_harvest`/`field_activity` yollarında
+#: sıfır miktar GERÇEK bir sıfırdır (sıfır hasat, sıfır girdi) ve onların
+#: satırı bugün yazılıyor; o davranışı bu dilim DEĞİŞTİRMİYOR.
+_FARK_KAYNAKLARI = frozenset({KAYNAK_FIS})
 
 #: Hareket defterinde bu tüketicinin izi.
 HAREKET_REFERANSI = "field_integration_event"
@@ -567,6 +619,193 @@ def _hareket_yaz(
     sync_product_stock(db, int(firma), int(urun))
 
 
+def _taban_miktar(miktar, birim, taban_birim) -> Decimal:
+    """Girilen miktarı ürünün TABAN birimine çevirir. Çeviremezse ATAR.
+
+    Tek satırlık bir sarmalayıcı ama TEK KAPI olması önemli: hasat yolu ve
+    fiş yolu AYNI çeviriyi kullanmak zorunda, yoksa fişin farkı hasadın
+    miktarından FARKLI bir ölçekte çıkar ve fark sessizce anlamsızlaşır.
+
+    `units.resolve` bir demet döndürür (`(base_quantity, factor_used)`);
+    burada yalnız ÜRÜN kullanılıyor. `factor_used` ATILIYOR ve bu bilinçli:
+    katsayı bir KANITTIR ve kanıtın durduğu yer fişin SATIRIDIR
+    (`field_harvest_tickets.entered_factor`), hareket defteri değil — defter
+    birim taşımıyor, katsayıyı orada saklamak taşınıyormuş izlenimi verirdi.
+
+    İSTİSNA YUTULMAZ: `BirimCozulemedi` ailesi çağırana kadar çıkar ve
+    `_bir_olayi_isle` onu `.sebep`e göre ADI KONMUŞ kovalara ayırır.
+    """
+    return birim_coz(Decimal(str(miktar)), str(birim or ""), taban_birim)[0]
+
+
+def _fis_kalemleri(db: Session, firma: int, fis_id: int) -> list[dict]:
+    """Fişin defterde açtığı FARK. Miktar DEĞİL, DELTA döner.
+
+    --- NİYE FARK, NİYE MİKTAR DEĞİL ------------------------------------
+
+    Hasat yazıldığında deftere hasadın BİLDİRDİĞİ miktar girdi. Kantar
+    sonradan başka bir sayı söylüyor. Doğru cevap "fişin netini de yaz"
+    DEĞİLDİR — o, aynı ürünü iki kez üretirdi. Doğru cevap defteri o hasat
+    için fişlerin netine GETİREN farktır:
+
+        delta = Σ(fiş netleri, taban birimde)
+              − hasadın taban miktarı
+              − BU HASAT İÇİN daha önce yazılmış fiş düzeltmeleri
+
+    Üçüncü terim (`zaten_duzeltilmis`) OLMADAN ikinci fiş birinciyi TEKRAR
+    sayardı: iki fişten sonra defter netin iki katına giderdi. Terim
+    ölçülüyor, varsayılmıyor — `stock_movements`tan OKUNUYOR.
+
+    --- NET NEREDEN GELİYOR ---------------------------------------------
+
+    `routers.farm._turetilmis_net` ile, İTHAL EDİLEREK. Formül orada tek
+    yerde duruyor (`net = brüt − Σ(brüt × oran/100)`, TOPLAMSAL, tek
+    yuvarlama, ROUND_HALF_UP). Burada KOPYALANSAYDI iki formül bir gün
+    ayrışırdı ve ayrışma, okuma yüzeyi (`derived_net_quantity`) ile defterin
+    FARKLI net söylemesi demek olurdu — hiçbir yerde kırmızı vermeden.
+
+    Uygulandığı sayı `base_quantity`dir, `gross_entered_quantity` DEĞİL:
+    oranlar yüzdedir ve yüzde ölçekten bağımsızdır, ama defter TABAN
+    birimde tutulur.
+
+    --- KOVALAR ----------------------------------------------------------
+
+    * Fişin hasadının sezonunda ürün YOKSA -> boş liste -> `SKIPPED_NO_PRODUCT`
+      (hasat yolunun kardeşi; ürün UYDURULMAZ).
+    * Ürün var, `base_unit` yoksa -> `_taban_miktar` `TABAN_BILDIRILMEMIS`
+      atar -> `SKIPPED_TABAN_BILDIRILMEMIS`.
+    * Fark SIFIR -> liste DOLU ama miktar 0 -> `SENT`, satır YAZILMAZ
+      (`_FARK_KAYNAKLARI`).
+
+    BÜTÜN OKUMALAR KİRACI KAPSAMLI ve birleştirmeler kiracı İÇİNDE.
+    """
+    fis = db.execute(
+        text(
+            """SELECT t.harvest_id AS harvest_id, s.product_id AS product_id,
+                   h.quantity AS harvest_quantity, h.unit AS harvest_unit,
+                   u.base_unit AS base_unit
+            FROM field_harvest_tickets t
+            JOIN field_harvests h
+              ON h.id = t.harvest_id AND h.company_id = t.company_id
+            JOIN crop_seasons s
+              ON s.id = h.season_id AND s.company_id = h.company_id
+            LEFT JOIN products u
+              ON u.id = s.product_id AND u.company_id = h.company_id
+            WHERE t.company_id = :company_id AND t.id = :tid
+              AND s.product_id IS NOT NULL"""
+        ),
+        {"company_id": int(firma), "tid": int(fis_id)},
+    ).mappings().first()
+    if fis is None:
+        # Ürünsüz sezon ya da (kısıtın engellediği) kopuk zincir: ürün
+        # UYDURULMAZ, olay `SKIPPED_NO_PRODUCT` kovasına düşer.
+        return []
+
+    hasat_id = int(fis["harvest_id"])
+    taban_birim = fis["base_unit"]
+    hasat_taban = _taban_miktar(
+        fis["harvest_quantity"], fis["harvest_unit"], taban_birim
+    )
+
+    # O HASADIN BÜTÜN FİŞLERİ. Bu olayın fişi de dahil — fark hasat başına
+    # hesaplanır, fiş başına değil. `entered_unit`/`entered_factor` burada
+    # OKUNMUYOR çünkü `base_quantity` fiş yazılırken ZATEN çözülmüş ve
+    # satırda duruyor; ikinci kez çözmek o günün katsayısını BUGÜNÜN
+    # katsayısıyla değiştirmek olurdu (`units.py` sahip kararı 1).
+    fisler = db.execute(
+        text(
+            """SELECT id, base_quantity FROM field_harvest_tickets
+            WHERE company_id = :company_id AND harvest_id = :hid"""
+        ),
+        {"company_id": int(firma), "hid": hasat_id},
+    ).mappings().all()
+    kesintiler = _fis_kesinti_oranlari(db, firma, [int(f["id"]) for f in fisler])
+    fis_neti = sum(
+        (
+            _turetilmis_net(
+                normalize_quantity(f["base_quantity"]), kesintiler.get(int(f["id"]), [])
+            )
+            for f in fisler
+        ),
+        Decimal("0"),
+    )
+
+    zaten = _zaten_duzeltilmis(db, firma, hasat_id, int(fis["product_id"]))
+    return [
+        {
+            "id": int(fis_id),
+            "product_id": int(fis["product_id"]),
+            "quantity": normalize_quantity(fis_neti - hasat_taban - zaten),
+        }
+    ]
+
+
+def _fis_kesinti_oranlari(
+    db: Session, firma: int, fis_kimlikleri: list[int]
+) -> dict[int, list[dict]]:
+    """Fiş -> kesinti satırları. `_turetilmis_net`in beklediği biçimde.
+
+    Boş listeyle çağrılabilir ve o zaman SQL'e HİÇ inmez: `IN ()` diyalekte
+    göre ya sözdizimi hatası ya da sessizce boş küme olurdu.
+    """
+    if not fis_kimlikleri:
+        return {}
+    satirlar = db.execute(
+        text(
+            """SELECT ticket_id, rate_percent
+            FROM field_harvest_ticket_deductions
+            WHERE company_id = :company_id AND ticket_id IN :ids"""
+        ).bindparams(bindparam("ids", expanding=True)),
+        {"company_id": int(firma), "ids": [int(i) for i in fis_kimlikleri]},
+    ).mappings().all()
+    gruplar: dict[int, list[dict]] = {int(i): [] for i in fis_kimlikleri}
+    for satir in satirlar:
+        gruplar[int(satir["ticket_id"])].append(
+            {"rate_percent": satir["rate_percent"]}
+        )
+    return gruplar
+
+
+def _zaten_duzeltilmis(
+    db: Session, firma: int, hasat_id: int, urun_id: int
+) -> Decimal:
+    """BU HASAT için daha önce yazılmış FİŞ düzeltmelerinin toplamı.
+
+    HAREKET OLAYA `reference_id` İLE BAĞLI, kaynağa DEĞİL: `stock_movements`
+    fişin ya da hasadın kimliğini taşımıyor, taşıdığı tek şey OLAY kimliği
+    (`reference_type='field_integration_event'`, `reference_id=<olay id>`).
+    Bu yüzden hasada varmak için `field_integration_events` ÜZERİNDEN
+    geçiliyor — ölçüldü, başka yol yok.
+
+    SÜZGEÇ `source_type='field_harvest_ticket'`: hasadın KENDİ olayının
+    yazdığı asıl hareket bu toplama GİRMEZ. Girseydi hasat miktarı iki kez
+    çıkarılırdı (`hasat_taban` zaten ayrı bir terim).
+
+    `source_id` fişlerin kimlikleridir ve hasada `field_harvest_tickets`
+    üzerinden bağlanır; ÜÇ tablo da KİRACI KAPSAMLI okunuyor.
+    """
+    toplam = db.execute(
+        text(
+            """SELECT COALESCE(SUM(m.quantity), 0)
+            FROM stock_movements m
+            JOIN field_integration_events e
+              ON e.id = m.reference_id AND e.company_id = m.company_id
+            JOIN field_harvest_tickets t
+              ON t.id = e.source_id AND t.company_id = e.company_id
+            WHERE m.company_id = :company_id
+              AND m.reference_type = :ref_tip
+              AND m.product_id = :urun
+              AND e.source_type = :kaynak_tipi
+              AND t.harvest_id = :hid"""
+        ),
+        {
+            "company_id": int(firma), "ref_tip": HAREKET_REFERANSI,
+            "urun": int(urun_id), "kaynak_tipi": KAYNAK_FIS, "hid": int(hasat_id),
+        },
+    ).scalar()
+    return normalize_quantity(toplam or 0)
+
+
 def _faaliyet_kalemleri(db: Session, firma: int, faaliyet_id: int) -> list[dict]:
     """Faaliyetin ÜRÜNE BAĞLI girdileri. Ürünsüz girdi stok taşıyamaz."""
     satirlar = db.execute(
@@ -592,10 +831,17 @@ def _hasat_kalemleri(db: Session, firma: int, hasat_id: int) -> list[dict]:
     bir hasat satırı ise TEK kalemdir. Liste yine de dönüyor, çünkü sözleşme
     çağıranda tek: liste boşsa olay `SKIPPED_NO_PRODUCT` kovasına düşer.
 
-    `field_harvests.unit` OKUNMUYOR — kardeşi `field_activity_inputs.unit`i
-    okumadığı gibi. Hareket defteri birimi taşımıyor; miktar ürünün KENDİ
-    biriminde yazılıyor. Birimi burada okuyup görmezden gelmek, taşınıyormuş
-    izlenimi verirdi.
+    `field_harvests.unit` ARTIK OKUNUYOR VE ÇEVRİLİYOR (C2). ÖNCEDEN HAM
+    yazılıyordu ve bu ÖLÇÜLMÜŞ bir 1000× riskiydi: `unit="ton"` giren bir
+    hasat deftere `quantity` kadar KİLO yazıyordu, çünkü hareket defteri
+    birim TAŞIMIYOR ve miktarın ürünün TABAN biriminde olduğu VARSAYILIYOR.
+    Varsayım hiçbir yerde sınanmadığı için hata kırmızı vermez, CEVAP verir.
+
+    Bayrak ürette prod'da KAPALI olduğu için CANLI VERİ YOK — yani bu bir
+    düzeltme değil, bir KAPI: `units.resolve` çevirmeyi yapar ve çeviremediği
+    yerde ADI KONMUŞ bir kovaya düşer (`SKIPPED_TABAN_BILDIRILMEMIS`).
+    Sessizce ham yazmaya dönüş, testte `unit="ton"`/`base_unit="KG"` ile
+    1000× olarak çivilendi.
 
     `product_id IS NOT NULL` KOŞULU KARDEŞİYLE AYNI GEREKÇEDEDİR ve
     KALDIRILAMAZ: sütun NULL kabul eder (kabul etmek zorunda — bkz. göç
@@ -611,17 +857,29 @@ def _hasat_kalemleri(db: Session, firma: int, hasat_id: int) -> list[dict]:
     satirlar = db.execute(
         text(
             """SELECT h.id AS id, s.product_id AS product_id,
-                   h.quantity AS quantity
+                   h.quantity AS quantity, h.unit AS unit,
+                   u.base_unit AS base_unit
             FROM field_harvests h
             JOIN crop_seasons s
               ON s.id = h.season_id AND s.company_id = h.company_id
+            LEFT JOIN products u
+              ON u.id = s.product_id AND u.company_id = h.company_id
             WHERE h.company_id = :company_id AND h.id = :hid
               AND s.company_id = :company_id
               AND s.product_id IS NOT NULL"""
         ),
         {"company_id": int(firma), "hid": int(hasat_id)},
     ).mappings().all()
-    return [dict(s) for s in satirlar]
+    return [
+        {
+            "id": satir["id"],
+            "product_id": satir["product_id"],
+            "quantity": _taban_miktar(
+                satir["quantity"], satir["unit"], satir["base_unit"]
+            ),
+        }
+        for satir in satirlar
+    ]
 
 
 #: Kaynak tipi -> stok taşıyacak KALEMLERİ okuyan işlev.
@@ -633,6 +891,7 @@ def _hasat_kalemleri(db: Session, firma: int, hasat_id: int) -> list[dict]:
 _KALEM_OKUYUCU = {
     "field_activity": _faaliyet_kalemleri,
     "field_harvest": _hasat_kalemleri,
+    KAYNAK_FIS: _fis_kalemleri,
 }
 
 #: `SKIPPED_NO_PRODUCT` kovasının GEREKÇESİ, kaynak tipine göre.
@@ -647,7 +906,20 @@ _URUNSUZ_GEREKCE = {
         "(%s -> crop_seasons.product_id NULL)"
     ),
     "field_activity": "ürüne bağlı girdi yok; faaliyet stok taşıyamaz (%s)",
+    KAYNAK_FIS: (
+        "fişin hasadının sezonunda ürün bildirilmemiş; fiş stok taşıyamaz "
+        "(%s -> crop_seasons.product_id NULL)"
+    ),
 }
+
+#: `SKIPPED_TABAN_BILDIRILMEMIS` kovasının GEREKÇESİ. Kova tek, çare tek:
+#: ürün kartına taban birim yazmak. Kaynak tipi metne giriyor ki hangi
+#: olayın düştüğü `last_error`dan okunabilsin.
+_TABANSIZ_GEREKCE = (
+    "ürünün taban birimi bildirilmemiş; miktar tabana çevrilemedi (%s). "
+    "Çare ürün kartındadır: PUT /api/products/{id} ile base_unit yazın. "
+    "Girileni taban SAYMAK bir olgu uydurmak olurdu (units.py, sahip kararı 2)."
+)
 
 
 def _taze_oturumda_kurtar(
@@ -867,7 +1139,42 @@ def _bir_olayi_isle(
             return DURUM_GORUNMEZ
 
         kalem_oku = _KALEM_OKUYUCU.get(tip)
-        kalemler = kalem_oku(db, firma, int(olay["source_id"])) if kalem_oku else []
+        # BİRİM REDDİ ADI KONMUŞ BİR KOVADIR, BEKLENMEYEN BİR İSTİSNA DEĞİL.
+        # Aşağıdaki genel `except` bu ailenin ÜSTÜNDEN geçseydi red
+        # `RECOVERY_*`/yeniden deneme yoluna düşerdi ve olay üç kez daha
+        # denenip `DEAD` olurdu — oysa taban birimin bildirilmemesi bir
+        # ARIZA değil bir VERİ OLGUSUDUR: aynı olay yarın da aynı sebeple
+        # duracak, denemek onu düzeltmez. Düzeltecek olan ÜRÜN KARTIDIR ve
+        # kova tam olarak bunu söyler.
+        try:
+            kalemler = (
+                kalem_oku(db, firma, int(olay["source_id"])) if kalem_oku else []
+            )
+        except UrunTemsilEdilemez as red:
+            # Birim ÇÖZÜLDÜ, sayı SIĞMADI. `DEAD` çünkü çare veri girişinde
+            # (temsil edilebilir bir birimle yeniden girmek) ve tekrar
+            # denemek aynı sayıyı aynı yere sığdırmayı dener.
+            _olayi_sonlandir(db, firma, olay_id, DURUM_OLU, str(red), deneme)
+            db.commit()
+            return DURUM_OLU
+        except BirimCozulemedi as red:
+            # HER KOL KENDİ SABİTİNİ DÖNDÜRÜR, ORTAK BİR DEĞİŞKEN DEĞİL.
+            # Korunum denklemi (`test_field_stok_korunum_denklemi.py`) dönüş
+            # ADLARINI statik çözer; `return kova` gibi bir yerel ad kovayı
+            # denklemin GÖRÜŞ ALANINDAN çıkarır ve o kova sessizce
+            # sayılmayabilir hâle gelirdi.
+            if red.sebep == BirimCozulemedi.TABAN_BILDIRILMEMIS:
+                _olayi_sonlandir(
+                    db, firma, olay_id, DURUM_TABANSIZ,
+                    _TABANSIZ_GEREKCE % tablo, deneme)
+                db.commit()
+                return DURUM_TABANSIZ
+            # Kalan sebepler (BIRIM_TANIMSIZ, BOYUT_UYUSMAZLIGI,
+            # KATSAYI_GECERSIZ, MIKTAR_SONLU_DEGIL) de VERİ OLGUSUDUR ve
+            # yeniden denemek onları düzeltmez.
+            _olayi_sonlandir(db, firma, olay_id, DURUM_OLU, str(red), deneme)
+            db.commit()
+            return DURUM_OLU
         # ÜRÜNSÜZ KOVA — KALDIRILMADI, KAÇINILABİLİR YAPILDI.
         # Buraya üç yoldan düşülür ve ÜÇÜ DE ADI KONMUŞ bir karardır:
         #   * ürünü BİLDİRİLMEMİŞ sezonun hasadı (`crop_seasons.product_id`
@@ -892,8 +1199,15 @@ def _bir_olayi_isle(
             db.commit()
             return DURUM_OLU
 
+        fark_kaynagi = tip in _FARK_KAYNAKLARI
         for kalem in kalemler:
             miktar = normalize_quantity(Decimal(str(kalem["quantity"])) * yon)
+            # SIFIR FARK = SATIR YOK. Defterde düzeltilecek bir şey olmadığı
+            # hâlde sıfırlık bir hareket yazmak, defteri anlamsız satırlarla
+            # şişirir ve "bu fiş bir şey değiştirdi" izlenimi verirdi. Olay
+            # yine de TERMİNAL biter (`SENT`): iş yapıldı, sonucu sıfır.
+            if fark_kaynagi and miktar == 0:
+                continue
             _hareket_yaz(
                 db, firma, int(kalem["product_id"]), depo, miktar, olay_id,
                 "tarla olayı #%d (%s)" % (olay_id, tip),

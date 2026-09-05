@@ -1,21 +1,32 @@
-"""Kantar fişi — DEFTER DEĞİŞMEDİ. Beş senaryo, tek iddia.
+"""Kantar fişi — DEFTER **SENKRON** YOLDA DEĞİŞMEDİ. Beş senaryo, tek iddia.
 
-Konu: göç 20260904_0069 (kantar fişi v2). Bu dosya `claude/weighbridge-pr1`
-dalındaki (87db66a, göç 0064 sözlüğü) aynı adlı dosyanın 0069 sözlüğüne
-TAŞINMIŞ hâlidir: `gross_quantity` -> `gross_entered_quantity` + `entered_unit`,
-özet `gross_quantity_total` -> `base_quantity_total`. İddia ve beş senaryo
-DEĞİŞMEDİ.
+Konu: göç 20260904_0069 (kantar fişi v2), C2'de (kantar neti stoğa) DARALTILDI.
 
---- BU DOSYANIN TEK İDDİASI --------------------------------------------------
+--- İDDİA C2'DE DARALDI, KALDIRILMADI ---------------------------------------
 
-**Kantar fişi yazmak STOK DEFTERİNDE HİÇBİR ŞEYİ DEĞİŞTİRMEZ.** Hareketin
-miktarı fişten ÖNCE de SONRA da `field_harvests.quantity`dir; fişin brütü de,
-türetilen neti de, kağıdın neti de, TABAN BİRİMDEKİ karşılığı da deftere
-GİRMEZ.
+ESKİ (C1): "Kantar fişi yazmak stok defterinde HİÇBİR ŞEYİ değiştirmez."
+YENİ (C2): **Kantar fişi yazmak stok defterini SENKRON OLARAK değiştirmez.**
 
-Bu iddia sınanabilir olduğu için dilim böyle kesildi: `field_stok_tuketici`ye
-dokunmuyor ve outbox'a olay YAZMIYOR. Sınanmasaydı "dokunmadık" bir NİYET
-beyanı olurdu; burada ÖLÇÜLÜYOR.
+POST'un DÖNDÜĞÜ AN `stock_movements` sayısı DEĞİŞMEMİŞTİR — fişin brütü de,
+türetilen neti de, kağıdın neti de, taban birimdeki karşılığı da o istekte
+deftere GİRMEZ. Değişen tek sayı `field_integration_events`tir: fiş TAM BİR
+outbox olayı doğurur (`field_harvest_ticket:<fiş id>:stock`).
+
+Defteri oynatan, o olayı SONRADAN tüketen `field_stok_tuketici`dir ve
+yazdığı şey bir MİKTAR değil bir DÜZELTMEDİR. Farkın SAYISI bu dosyanın
+konusu değil — `test_kantar_neti_stoga.py`in konusu; burada ölçülen, SENKRON
+yolun sessiz kaldığıdır.
+
+--- NİYE İDDİA DARALTILDI DA SİLİNMEDİ --------------------------------------
+
+Fişi deftere SENKRON bağlamak (POST'un içinde hareket yazmak) hâlâ YANLIŞ
+olurdu ve C2 onu yapmadı. Sebep: fiş ile hasat AYNI işlemde değil; POST'un
+içinde yazılan bir hareket, hasadın kendi olayı HENÜZ TÜKETİLMEMİŞKEN
+düzeltme yazardı ve düzelttiği satır ortada olmazdı. Sıra outbox'a
+bırakıldığı için tüketici her iki olayı da GÖRDÜKTEN sonra hesaplıyor.
+
+Bu yüzden "POST hareket yazmıyor" hâlâ SINANMASI GEREKEN bir iddia ve bu
+dosya onu ölçmeye devam ediyor.
 
 --- NİYE BU KADAR ÖNEMLİ ----------------------------------------------------
 
@@ -24,7 +35,7 @@ hiçbir yerde kırmızı çıkmaz; çiftçinin ambarında olmayan ürün görün
 ancak aylar sonra bir sayımda fark eder. `field_stok_tuketici`nin başlığındaki
 ölçülmüş kusurun (yön hatası) tam olarak aynı sınıfı.
 
---- NİYE `_hasat_kalemleri`YE LEFT JOIN EKLENMEDİ ---------------------------
+--- NİYE `_hasat_kalemleri`YE HÂLÂ LEFT JOIN EKLENMEDİ ----------------------
 
 Fişi deftere bağlamanın "bariz" yolu `_hasat_kalemleri`ye
 `LEFT JOIN field_harvest_tickets` eklemekti. YANLIŞ OLURDU ve sebebi bir SIRA
@@ -34,35 +45,39 @@ Birleştirme çalıştığı anda fiş HENÜZ YOKTUR — sorgu her seferinde NUL
 "fişi varsa netini kullan" kuralı hiç ateşlenmez ve kod DOĞRU GÖRÜNÜR ama
 davranış hiç değişmez.
 
-SENARYO 4 bunu tersinden de ölçüyor: fiş tüketiciden ÖNCE girilse bile hareket
-değişmiyor. Yani bu dilim "fiş geç geliyor" diye şanslı değil; fişi HİÇ
-OKUMUYOR.
+C2'nin cevabı bu yüzden birleştirme DEĞİL, İKİNCİ BİR OLAY: fişin kendi
+olayı, kendi zamanında tüketilir ve farkı o an hesaplar. SENARYO 4 bunu
+tersinden ölçmeye devam ediyor — fiş tüketiciden ÖNCE girilse bile SENKRON
+yol yine sessiz.
 
 --- BEŞ SENARYO -------------------------------------------------------------
 
 1. FİŞSİZ HASAT — TABAN. Bir olay, bir hareket, miktar = hasat miktarı.
-2. FİŞ YAZILDI — SAYILAR ARTMIYOR. Fiş yazımı `field_integration_events`e ve
-   `stock_movements`a SIFIR satır ekler.
-3. KESİNTİLİ FİŞ — MİKTAR DEĞİŞMİYOR. Brüt hasat miktarından FARKLI ve %5
-   kesinti var; hareket yine hasat miktarı.
-4. FİŞ ÖNCE, TÜKETİCİ SONRA. LEFT JOIN'in "çalışacağı" sıra; hareket yine
-   değişmiyor.
-5. BAYRAK YANARKEN DEFTER SESSİZ. `net_mismatch` VE `sold_exceeds_net` ikisi
-   de `true` iken fişli hasadın defter satırı, fişsiz hasadınkiyle alan alan
-   AYNI (kimlik ve referans sütunları hariç — onlar zaten satır başına farklı).
+2. FİŞ YAZILDI — HAREKET ARTMIYOR, OLAY ARTIYOR. Fiş yazımı
+   `stock_movements`a SIFIR satır, `field_integration_events`e TAM BİR satır
+   ekler ve o satırın anahtarı `field_harvest_ticket:<id>:stock`tur.
+3. KESİNTİLİ FİŞ — SENKRON MİKTAR DEĞİŞMİYOR. Brüt hasat miktarından FARKLI
+   ve %5 kesinti var; POST sonrası defter kımıldamıyor.
+4. FİŞ ÖNCE, TÜKETİCİ SONRA. LEFT JOIN'in "çalışacağı" sıra; SENKRON yol yine
+   sessiz.
+5. BAYRAK YANARKEN DE SENKRON YOL SESSİZ. `net_mismatch` VE
+   `sold_exceeds_net` ikisi de `true` iken de POST defteri oynatmıyor; HASAT
+   olaylarının yazdığı satırlar fişli/fişsiz hasatta alan alan AYNI kalıyor
+   (düzeltme satırı AYRI bir olayın ürünüdür ve karşılaştırmaya girmez).
 
---- 0069 EKİ: BİRİM DÖNÜŞÜMÜ DE DEFTERE GİRMEZ -----------------------------
+--- 0069 EKİ: BİRİM DÖNÜŞÜMÜ DE SENKRON YOLDAN GİRMEZ -----------------------
 
 Fiş TON ile girildiğinde `base_quantity` KG'ye çevrilip fişin SATIRINDA
-saklanır (kanıt: `entered_factor`). Bu türev de deftere girmez: SENARYO 3'ün
-fişi bilerek TON ile giriliyor ki "taban birimdeki karşılık defteri
-oynatmıyor" da aynı ölçümün içinde kalsın.
+saklanır (kanıt: `entered_factor`). Bu türev POST'ta deftere girmez: SENARYO
+3'ün fişi bilerek TON ile giriliyor.
 
 --- STATİK KAPI BURADA DEĞİL, KARDEŞ DOSYADA --------------------------------
 
-"Tüketici fiş tablosunun ADINI bile geçirmiyor" ve "fiş yazımı outbox
-yazıcısını ÇAĞIRMIYOR" kapıları `test_kantar_fisi_sozlesme.py`de: davranış
-testinden ÖNCE ve SEBEBİYLE kırılsınlar diye veritabanısız duruyorlar.
+"Fiş yazımı outbox yazıcısını TAM BİR KEZ çağırıyor" kapısı
+`test_kantar_fisi_sozlesme.py`de: davranış testinden ÖNCE ve SEBEBİYLE
+kırılsın diye veritabanısız duruyor. (C1'in "tüketici fişin adını bile
+geçirmiyor" çiti C2'de SİLİNDİ — o çit bu dilimin yapmadığı işi koruyordu ve
+C2 tam olarak o işi yaptı.)
 
 --- PG İKİZİ: AYRI DOSYA YOK -------------------------------------------------
 
@@ -141,6 +156,14 @@ def sayilar(db, cid):
         "SELECT COUNT(*) FROM stock_movements WHERE company_id = :c"),
         {'c': cid}).scalar_one()
     return int(olay), int(hareket)
+
+
+def fis_olay_anahtarlari(db, cid):
+    """Bu kiracidaki FIS kaynakli outbox olaylarinin anahtarlari."""
+    return [r[0] for r in db.execute(_sql(
+        """SELECT idempotency_key FROM field_integration_events
+           WHERE company_id = :c AND source_type = 'field_harvest_ticket'
+           ORDER BY id"""), {'c': cid}).all()]
 
 
 def hareket_satirlari(db, cid):
@@ -238,10 +261,9 @@ with TestClient(app) as client:
     assert (olay0, hareket0) == (taban_olay + 2, taban_hareket), (
         olay0, hareket0, taban_olay, taban_hareket)
 
-    # --- SENARYO 2: FIS YAZILDI — SAYILAR ARTMIYOR ------------------------
+    # --- SENARYO 2: FIS YAZILDI — HAREKET ARTMIYOR, OLAY ARTIYOR ----------
     # SENARYO 4 ile ayni yazim: fis TUKETICIDEN ONCE giriliyor, yani LEFT
-    # JOIN'in "calisacagi" sira. Asagida hareket miktarinin yine hasat
-    # miktari oldugu olculuyor.
+    # JOIN'in "calisacagi" sira.
     #
     # KESINTILI (SENARYO 3): brut 1.2 TON hasat miktarindan FARKLI ve BASKA
     # BIRIMDE, kesinti toplami %5, turetilen net 1.1400 TON. Kagidin neti
@@ -262,10 +284,16 @@ with TestClient(app) as client:
     assert Decimal(fis['entered_factor']) == Decimal('1000'), fis
     assert fis['net_mismatch'] is True, fis
 
+    # SENKRON YOL: hareket sayisi DEGISMEDI. Olay sayisi TAM BIR arttI.
     with SessionLocal() as db:
         olay1, hareket1 = sayilar(db, cid)
-    assert (olay1, hareket1) == (olay0, hareket0), (
-        'FIS YAZIMI DEFTERE/OUTBOXA SATIR EKLEDI', (olay0, hareket0), (olay1, hareket1))
+        anahtarlar = fis_olay_anahtarlari(db, cid)
+    assert hareket1 == hareket0, (
+        'FIS YAZIMI SENKRON OLARAK DEFTERE SATIR EKLEDI', hareket0, hareket1)
+    assert olay1 == olay0 + 1, (
+        'FIS TAM BIR OUTBOX OLAYI URETMEDI', olay0, olay1)
+    # Anahtar KAYNAK SATIRDAN TEK BASINA turetilir; tekrar korumasi budur.
+    assert anahtarlar == ['field_harvest_ticket:%d:stock' % fis['id']], anahtarlar
 
     # SENARYO 5'in okuma tarafi. Satilan 980 (hasadin birimi KG), turetilen
     # net toplami 1.1400 (fisin birimi TON): `sold_exceeds_net` bu iki sayiyi
@@ -278,25 +306,37 @@ with TestClient(app) as client:
     assert okuma['summary']['sold_exceeds_net'] is True, okuma
 
     # --- TUKETICI KOSUYOR: SENARYO 1, 3, 4 -------------------------------
+    # UC olay bekliyor: IKI hasat + BIR fis. Fisin olayi da TUKETILIR ve
+    # yazdigi sey bir DUZELTMEDIR; bu dosyanin konusu o farkin SAYISI degil
+    # (o `test_kantar_neti_stoga.py`de), SENKRON yolun sessizligi.
     with SessionLocal() as db:
         sayac = olaylari_isle(db, cid)
         db.commit()
-    assert sayac['girdi'] == 2, sayac
-    assert sayac['SENT'] == 2, sayac
+    assert sayac['girdi'] == 3, sayac
+    assert sayac['SENT'] == 3, sayac
 
     with SessionLocal() as db:
         satirlar = hareket_satirlari(db, cid)
-    assert len(satirlar) == 2, satirlar
-    for satir in satirlar:
+    # HASAT satirlari ile FIS DUZELTMESI ayrilir: ikisi FARKLI olaylarin
+    # urunudur ve karsilastirilacak olan HASAT satirlaridir.
+    hasat_satirlari = [s for s in satirlar if '(field_harvest)' in (s['note'] or '')]
+    fis_satirlari = [
+        s for s in satirlar if '(field_harvest_ticket)' in (s['note'] or '')
+    ]
+    assert len(hasat_satirlari) == 2, satirlar
+    assert len(fis_satirlari) == 1, satirlar
+    for satir in hasat_satirlari:
         assert Decimal(str(satir['quantity'])) == Decimal('1000'), (
-            'DEFTERE HASAT MIKTARI DISINDA BIR SEY YAZILDI', satir)
+            'HASAT SATIRINA HASAT MIKTARI DISINDA BIR SEY YAZILDI', satir)
         assert satir['product_id'] == URUN_ID, satir
 
-    # --- SENARYO 5: FISLI VE FISSIZ SATIR ALAN ALAN AYNI ------------------
+    # --- SENARYO 5: FISLI VE FISSIZ HASAT SATIRI ALAN ALAN AYNI -----------
     # Iki bayrak da yaniyor (`net_mismatch` True, `sold_exceeds_net` True) ve
-    # fisli hasadin satiri fissiz hasadinkiyle AYNI.
-    fissiz, fisli = (karsilastirilabilir(s) for s in satirlar)
-    assert fissiz == fisli, ('FISIN VARLIGI DEFTER SATIRINI DEGISTIRDI', fissiz, fisli)
+    # fisli hasadin HASAT satiri fissiz hasadinkiyle AYNI: fis, hasadin kendi
+    # satirini GERIYE DONUP DEGISTIRMEDI. Duzeltme AYRI bir satirdir ve bu
+    # bir karardir — hareket ASLA UPDATE edilmez (sahip kurali 1).
+    fissiz, fisli = (karsilastirilabilir(s) for s in hasat_satirlari)
+    assert fissiz == fisli, ('FISIN VARLIGI HASAT SATIRINI DEGISTIRDI', fissiz, fisli)
 
     # --- SENARYO 5 (devami): AYNI BIRIMDE `sold_exceeds_net` YANARKEN DE ---
     # Ayri bir hasat: satilan miktar turetilen neti AYNI BIRIMDE asiyor.
@@ -306,7 +346,7 @@ with TestClient(app) as client:
                            'revenue_amount':'25000.00'}).json()
     with SessionLocal() as db:
         olay2, hareket2 = sayilar(db, cid)
-    assert (olay2, hareket2) == (taban_olay + 3, taban_hareket + 2), (
+    assert (olay2, hareket2) == (taban_olay + 4, taban_hareket + 3), (
         olay2, hareket2, taban_olay, taban_hareket)
 
     # Bu fis TUKETICIDEN SONRA girilecek (gercek sira). Once tuketici kossun.
@@ -329,25 +369,46 @@ with TestClient(app) as client:
                         params={'harvest_id':h3['id']}).json()
     assert okuma3['summary']['sold_exceeds_net'] is True, okuma3
 
+    # SENARYO 4'UN ASIL OLCUMU: fis TUKETICIDEN SONRA girildi ve POST
+    # deftere HICBIR SATIR eklemedi. Olay sayisi arttI, hareket sayisi
+    # DEGISMEDI — "senkron yol sessiz" tam olarak bu.
     with SessionLocal() as db:
         olay3, hareket3 = sayilar(db, cid)
-        satirlar3 = hareket_satirlari(db, cid)
-    assert (olay3, hareket3) == (taban_olay + 3, taban_hareket + 3), (
-        'TUKETICIDEN SONRA GIRILEN FIS DEFTERE SATIR EKLEDI', olay3, hareket3,
-        taban_olay, taban_hareket)
-    (son,) = [s for s in satirlar3 if s['id'] not in {satirlar[0]['id'], satirlar[1]['id']}]
-    assert Decimal(str(son['quantity'])) == Decimal('500'), (
-        'BAYRAK YANARKEN DEFTERE NET YAZILDI', son)
+    assert hareket3 == taban_hareket + 4, (
+        'TUKETICIDEN SONRA GIRILEN FIS SENKRON OLARAK DEFTERE SATIR EKLEDI',
+        hareket3, taban_hareket)
+    assert olay3 == taban_olay + 5, (olay3, taban_olay)
 
-    # Tuketiciyi bir kez daha kosturmak da hicbir sey uretmemeli: fis PENDING
-    # bir olay dogurmadi.
+    # BAYRAK YANARKEN DE HASADIN KENDI SATIRI NET DEGIL MIKTAR TASIYOR.
+    with SessionLocal() as db:
+        satirlar3 = hareket_satirlari(db, cid)
+    h3_hasat = [
+        s for s in satirlar3
+        if '(field_harvest)' in (s['note'] or '')
+        and s['id'] not in {hasat_satirlari[0]['id'], hasat_satirlari[1]['id']}
+    ]
+    assert len(h3_hasat) == 1, satirlar3
+    assert Decimal(str(h3_hasat[0]['quantity'])) == Decimal('500'), (
+        'BAYRAK YANARKEN DEFTERE NET YAZILDI', h3_hasat[0])
+
+    # Tuketiciyi bir kez daha kosturmak fis3'un olayini tuketir: TAM BIR
+    # duzeltme satiri daha. Bu dosya sayiyi degil VARLIGINI olcuyor.
     with SessionLocal() as db:
         sayac = olaylari_isle(db, cid)
         db.commit()
         olay4, hareket4 = sayilar(db, cid)
-    assert sayac['girdi'] == 0, sayac
-    assert (olay4, hareket4) == (taban_olay + 3, taban_hareket + 3), (
+    assert sayac['girdi'] == 1 and sayac['SENT'] == 1, sayac
+    assert (olay4, hareket4) == (taban_olay + 5, taban_hareket + 5), (
         olay4, hareket4, taban_olay, taban_hareket)
+
+    # UCUNCU KOSUM: bekleyen olay YOK, yeni satir YOK. Tuketici kendi
+    # yazdigini TEKRAR uygulamiyor.
+    with SessionLocal() as db:
+        sayac = olaylari_isle(db, cid)
+        db.commit()
+        olay5, hareket5 = sayilar(db, cid)
+    assert sayac['girdi'] == 0, sayac
+    assert (olay5, hareket5) == (olay4, hareket4), (olay5, hareket5)
 
     print('KANTAR FISI DEFTER TAMAM')
 '''

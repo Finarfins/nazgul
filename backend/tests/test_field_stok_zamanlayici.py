@@ -243,6 +243,7 @@ BEKLENEN = {
     'SENT': 0,
     'SKIPPED_SOURCE_NOT_VISIBLE': 0,
     'SKIPPED_NO_PRODUCT': 0,
+    'SKIPPED_TABAN_BILDIRILMEMIS': 0,
     'DEAD': 0,
     # OLAY kovasi degil FIRMA sayaci; korunum denkleminin DISINDA durur ama
     # kova satirinda GORUNUR, yani ac kalan bir dongu cikarilmaz, SAYILIR.
@@ -288,7 +289,8 @@ line = normal_lines[0]
 for expected in (
     'girdi=1', 'CLAIM_LOST=1', 'RETRY_SCHEDULED=0', 'RECOVERY_FAILED=0',
     'RECOVERY_ESCALATED=0', 'SENT=0',
-    'SKIPPED_SOURCE_NOT_VISIBLE=0', 'SKIPPED_NO_PRODUCT=0', 'DEAD=0',
+    'SKIPPED_SOURCE_NOT_VISIBLE=0', 'SKIPPED_NO_PRODUCT=0',
+    'SKIPPED_TABAN_BILDIRILMEMIS=0', 'DEAD=0',
     'COMPANY_FAILED=0',
 ):
     assert expected in line, line
@@ -532,6 +534,7 @@ assert counts == {
     'SENT': 1,
     'SKIPPED_SOURCE_NOT_VISIBLE': 0,
     'SKIPPED_NO_PRODUCT': 0,
+    'SKIPPED_TABAN_BILDIRILMEMIS': 0,
     'DEAD': 0,
     'COMPANY_FAILED': 0,
 }, counts

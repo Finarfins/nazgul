@@ -107,12 +107,18 @@ class OlayYuzeyi:
 
 
 #: Tüketicinin (`app/field_stok_tuketici.py`) YAZDIĞI terminal durumlar.
-#: `SENT` başarıdır; kalan üçü başarısızlıktır. `PENDING` ve `CLAIMED`
+#: `SENT` başarıdır; kalan DÖRDÜ başarısızlıktır. `PENDING` ve `CLAIMED`
 #: terminal DEĞİLDİR ve bu demette YOKTUR — `CLAIMED` zaten bir işlemin
 #: dışında hiç görünmez.
+#:
+#: `SKIPPED_TABAN_BILDIRILMEMIS` C2'de eklendi: ürün BELLİ ama taban birimi
+#: bildirilmemiş. Kümeye GİRMESİ şart — girmeseydi o olay `failed_only`
+#: ekranında GÖRÜNMEZ olurdu ve düzeltilmesi gereken ürün kartı hiç
+#: bulunmazdı; yani olay yeşil bir kapıdan geçerek kaybolurdu.
 _TARLA_BASARISIZ = (
     "SKIPPED_SOURCE_NOT_VISIBLE",
     "SKIPPED_NO_PRODUCT",
+    "SKIPPED_TABAN_BILDIRILMEMIS",
     "DEAD",
 )
 

@@ -44,6 +44,7 @@ BACKEND = Path(__file__).resolve().parents[1]
 BEKLENEN_BASARISIZ_KOVALAR = (
     "SKIPPED_SOURCE_NOT_VISIBLE",
     "SKIPPED_NO_PRODUCT",
+    "SKIPPED_TABAN_BILDIRILMEMIS",
     "DEAD",
 )
 
@@ -139,7 +140,8 @@ ADMIN_PW = 'OlayYuzey!12345'
 # `girdi` islenen olay sayisi; kalanlar dongu sonuclaridir ve satira yazilmaz.
 SAYAC_ALANLARI = ('girdi', 'CLAIM_LOST', 'RECOVERY_FAILED',
                   'RECOVERY_ESCALATED', 'COMPANY_FAILED')
-BASARISIZ = ('SKIPPED_SOURCE_NOT_VISIBLE', 'SKIPPED_NO_PRODUCT', 'DEAD')
+BASARISIZ = ('SKIPPED_SOURCE_NOT_VISIBLE', 'SKIPPED_NO_PRODUCT',
+              'SKIPPED_TABAN_BILDIRILMEMIS', 'DEAD')
 
 
 def admin_headers(client):
