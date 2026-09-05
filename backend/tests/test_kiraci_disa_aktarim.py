@@ -623,3 +623,97 @@ def test_okuma_tek_islemde_yapilir(tmp_path: Path) -> None:
     ``begin`` sayısını 100'ün üstüne çıkarır → KIRMIZI."""
     tamam = _kos(_ISLEM, tmp_path / "i.db", tmp_path)
     assert tamam.returncode == 0, tamam.stdout[-3000:] + tamam.stderr[-3000:]
+
+
+# --------------------------------------------------------------------------
+# 11) SONLU OLMAYAN SAYI — ADI KONMUŞ DURUŞ
+# --------------------------------------------------------------------------
+def test_sonlu_olmayan_sayi_adi_konmus_hata_firlatir() -> None:
+    """MUTASYON: ``_seri``deki ``if not deger.is_finite()`` dalını silmek bunu
+    KIRMIZI yapar (NaN sessizce ``json.dumps``a gider ve standart DIŞI ``NaN``
+    sözcüğü yazılır)."""
+    sys.path.insert(0, str(BACKEND))
+    from decimal import Decimal
+
+    from app.disa_aktarim_errors import DisaAktarimError, SonluOlmayanSayiError
+    from app.routers.kiraci_disa_aktarim import _seri
+
+    for bozuk in (Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")):
+        with pytest.raises(SonluOlmayanSayiError) as yakalanan:
+            _seri(bozuk, "stock_movements", "quantity")
+        hata = yakalanan.value
+        # KOD SÖZLEŞMEDİR: istemci METNİ ayrıştırmak zorunda değil.
+        assert hata.kod == "EXPORT_NON_FINITE_NUMBER"
+        # Aile: çıplak bir RuntimeError değil, dışa aktarım ailesinden.
+        assert isinstance(hata, DisaAktarimError)
+        # Hangi sütun olduğu mesajda ADIYLA duruyor.
+        assert "stock_movements.quantity" in str(hata)
+
+    # SONLU değerler bu daldan ETKİLENMEZ.
+    assert _seri(Decimal("12.3456"), "stock_movements", "quantity") == "12.3456"
+
+
+def test_sonlu_olmayan_sayi_500_ve_kararli_kod_dondurur() -> None:
+    """MUTASYON: ``main.py``deki ``@app.exception_handler(DisaAktarimError)``
+    kaydını silmek bunu KIRMIZI yapar (hata çıplak biçimde yukarı sızar,
+    gövdede kod kalmaz)."""
+    import asyncio
+    from decimal import Decimal
+
+    sys.path.insert(0, str(BACKEND))
+    from app.disa_aktarim_errors import DisaAktarimError, SonluOlmayanSayiError
+    from app.main import app
+
+    isleyici = app.exception_handlers.get(DisaAktarimError)
+    assert isleyici is not None, "adı konmuş hata için işleyici KAYITLI DEĞİL"
+
+    hata = SonluOlmayanSayiError("stock_movements", "quantity", Decimal("NaN"))
+    yanit = asyncio.run(isleyici(None, hata))
+    assert yanit.status_code == 500
+    govde = json.loads(bytes(yanit.body).decode("utf-8"))
+    assert govde["code"] == "EXPORT_NON_FINITE_NUMBER", govde
+    assert govde["detail"].strip(), govde
+
+
+_SQLITE_NAN = _ORTAK + r'''
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy import MetaData
+CIKTI = Path(os.environ["CIKTI_DIZINI"])
+with TestClient(app) as client:
+    h, govde = admin_headers(client)
+    cid = int(govde["companies"][0]["id"])
+    md = MetaData(); md.reflect(bind=engine)
+    with engine.begin() as conn:
+        urun = conn.execute(insert(md.tables["products"]).values(
+            company_id=cid, product_code="NAN-1", name="NaN Urunu",
+            unit="ADET")).inserted_primary_key[0]
+    # SQLite NaN'i SAKLAYAMAZ: surucu Decimal("NaN")i `nan`a cevirir, SQLite
+    # onu NULL yapar ve NOT NULL kisiti duser. Uctan uca NaN senaryosu bu
+    # yuzden YALNIZ PostgreSQL'de kurulabilir (`numeric` 'NaN' kabul eder).
+    hata = None
+    try:
+        with engine.begin() as conn:
+            conn.execute(insert(md.tables["stock_movements"]).values(
+                company_id=cid, product_id=urun, movement_type="IN",
+                quantity=Decimal("NaN"), movement_date="2026-09-05",
+                note="nan"))
+    except IntegrityError as exc:
+        hata = str(exc)
+    assert hata is not None, "SQLite NaN'i SAKLADI — olcum gecersiz"
+    assert "NOT NULL" in hata and "quantity" in hata, hata
+    print("SQLITE NAN TAMAM")
+'''
+
+
+def test_sqlite_nan_saklayamaz_bu_yuzden_uctan_uca_pg_isi(tmp_path: Path) -> None:
+    """SQLite'ta NaN yolunun neden ÖLÇÜLEMEDİĞİNİ kayda geçirir.
+
+    Bu bir mazeret değil, ÖLÇÜM: sürücü ``Decimal("NaN")``ı ``nan``a çevirir,
+    SQLite onu ``NULL`` yapar ve ``NOT NULL`` kısıtı düşer. Uçtan uca senaryo
+    ``numeric`` türü ``'NaN'`` kabul eden PostgreSQL'de kurulabilir ve o tur
+    ERTELENDİ (bkz. PR gövdesindeki ÖLÇÜLMEDİ listesi).
+
+    MUTASYON: SQLite bir gün NaN saklamaya başlarsa ``assert hata is not None``
+    KIRMIZI olur ve bu notun geçersizleştiği anda haber alırız."""
+    tamam = _kos(_SQLITE_NAN, tmp_path / "n.db", tmp_path)
+    assert tamam.returncode == 0, tamam.stdout[-3000:] + tamam.stderr[-3000:]

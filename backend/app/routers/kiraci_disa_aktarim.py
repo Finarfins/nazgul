@@ -38,6 +38,17 @@ Yanıt AKAR. Zip, bellekte kurulup sonra gönderilmez; ``zipfile`` konumlanamaya
 Satırlar ``stream_results`` + ``partitions`` ile parça parça çekilir, bu yüzden
 tek bir tablonun tamamı da belleğe alınmaz.
 
+HATA SINIRI — ÖLÇÜLEN PROTOKOL GERÇEĞİ
+--------------------------------------
+``SonluOlmayanSayiError`` ADI KONMUŞ bir hatadır ve ``main.py``de kayıtlı
+işleyici onu 500 + ``{"detail": ..., "code": "EXPORT_NON_FINITE_NUMBER"}``
+gövdesine çevirir. AMA bu çeviri yalnız yanıt BAŞLAMADAN ÖNCE mümkündür:
+Starlette ``StreamingResponse``ta ``http.response.start``ı üreteci
+DÖNDÜRMEDEN gönderir, yani durum kodu 200'de KİLİTLENİR. Akış başladıktan
+sonra doğan hata 500'e çevrilemez — istemci YARIM bir zip alır ve merkezi
+dizin yazılmadığı için o dosya AÇILAMAZ (sessizce geçerli görünen bir zip
+DEĞİL). Bu, HTTP'nin sınırıdır, kodun tercihi değil.
+
 ``manifest.json`` zip'in SONUNA yazılır. Satır sayıları ancak satırlar
 akıtıldıktan sonra bilinir; manifesti başa koymak, sayıları öğrenmek için tüm
 gövdeyi bellekte tutmayı gerektirirdi — yani akışı iptal ederdi. Zip'in merkezi
@@ -63,6 +74,7 @@ from ..activity_log import log_activity
 from ..auth import utcnow
 from ..config import settings
 from ..db import SessionLocal, engine
+from ..disa_aktarim_errors import SonluOlmayanSayiError
 from ..tenancy import company_id as aktif_firma
 
 router = APIRouter(prefix="/company/export", tags=["Kiracı Dışa Aktarımı"])
@@ -127,11 +139,7 @@ def _seri(deger: Any, tablo: str, sutun: str) -> Any:
         # `app/` içinde `float` ADININ GEÇMESİNİ bile yasaklıyor — muafiyeti de
         # yok. Yani ikili kayan sayı dalı hem konusuz hem yasaktı.
         if not deger.is_finite():
-            raise HTTPException(
-                500,
-                f"Dışa aktarım durduruldu: {tablo}.{sutun} sonlu olmayan bir "
-                f"sayı taşıyor ({deger!r}); JSON bu değeri temsil edemez",
-            )
+            raise SonluOlmayanSayiError(tablo, sutun, deger)
         # ``format(..., "f")`` bilimsel gösterimi ("1E+2") engeller.
         return format(deger, "f")
     if isinstance(deger, datetime):
