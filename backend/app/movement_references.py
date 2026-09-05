@@ -15,6 +15,11 @@ def validate_payment_reference(
         ("customer", "order"): ("orders", "customer_id"),
         ("customer", "late_fee"): ("receivable_charge_documents", "customer_id"),
         ("supplier", "purchase"): ("purchases", "supplier_id"),
+        # D2: avans ve müstahsil makbuzu ödemesi. İKİSİ DE `supplier_id`
+        # taşıyan tablolara bakar, yani doğrulama kalıbı DEĞİŞMEDİ — kapalı
+        # kümeye YALNIZ iki giriş eklendi.
+        ("supplier", "supplier_advance"): ("supplier_advances", "supplier_id"),
+        ("supplier", "producer_receipt"): ("producer_receipts", "supplier_id"),
     }.get((entity_type, reference_type))
     if config is None:
         raise HTTPException(422, "Ödeme ile belge türü uyuşmuyor")

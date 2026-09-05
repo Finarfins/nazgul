@@ -78,6 +78,10 @@ from ..units import BirimCozulemedi, resolve as birim_coz
 # bir kopyası, bileşim kuralı (toplamsal/sıralı) bir gün düzeltildiğinde
 # makbuzu fişten AYIRIRDI ve hangisinin doğru olduğu sorulamazdı.
 from .farm import _turetilmis_net
+# Avans mahsubu, vergi yükümlülüğü ve iptal engelleri D2'nin ÇEKİRDEĞİNDEN
+# gelir (`app/avans_engine.py`), buraya KOPYALANMAZ: iki kopya, biri
+# düzeltildiğinde ötekini sessizce eski hâlinde bırakırdı.
+from ..avans_engine import iptal_engelleri, makbuz_kesildi, makbuz_tescili
 
 router = APIRouter(tags=["producer-receipts"])
 
@@ -87,7 +91,8 @@ _ATLA = Query(default=0, ge=0, le=100_000)
 
 _MAKBUZ_SUTUNLARI = (
     "id,supplier_id,purchase_id,ticket_id,receipt_no,issued_at,gross_amount,"
-    "withholding_total,social_security_total,net_payable,status,note"
+    "withholding_total,social_security_total,net_payable,advance_applied_total,"
+    "status,note"
 )
 _KALEM_SUTUNLARI = (
     "id,product_id,description,entered_quantity,entered_unit,entered_factor,"
@@ -192,7 +197,19 @@ def _kalemler(db: Session, cid: int, makbuz_id: int) -> list[dict[str, Any]]:
     ]
 
 
-def _gorunum(satir: dict[str, Any], kalemler: list[dict[str, Any]]) -> dict[str, Any]:
+def _gorunum(
+    satir: dict[str, Any],
+    kalemler: list[dict[str, Any]],
+    tescil: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Makbuz görünümü. `cash_due` TÜRETİLİR, SÜTUN DEĞİLDİR.
+
+    `cash_due = net_payable − advance_applied_total`: çiftçiye HÂLÂ nakit
+    ödenecek olan. Sütun açmak, iki sayının bir gün AYRIŞMASINA izin
+    verirdi (biri güncellenir, öteki unutulur); türetilmiş hâli hep tutar.
+    """
+    mahsup = satir.get("advance_applied_total") or 0
+    nakit = Decimal(str(satir["net_payable"] or 0)) - Decimal(str(mahsup))
     return {
         "id": satir["id"],
         "supplier_id": satir["supplier_id"],
@@ -204,8 +221,11 @@ def _gorunum(satir: dict[str, Any], kalemler: list[dict[str, Any]]) -> dict[str,
         "withholding_total": _metin(satir["withholding_total"], _TUTAR_OLCEGI),
         "social_security_total": _metin(satir["social_security_total"], _TUTAR_OLCEGI),
         "net_payable": _metin(satir["net_payable"], _TUTAR_OLCEGI),
+        "advance_applied_total": _metin(mahsup, _TUTAR_OLCEGI),
+        "cash_due": _metin(nakit, _TUTAR_OLCEGI),
         "status": satir["status"],
         "note": satir["note"],
+        "exchange_registration": tescil,
         "items": [
             {
                 "id": k["id"],
@@ -473,8 +493,13 @@ def get_producer_receipt(
     request: Request, receipt_id: int, db: Session = Depends(get_db)
 ):
     cid = company_id(request)
+    # Borsa tescili TEKİL görünüme gömülür, LİSTEYE GÖMÜLMEZ: listede her
+    # satır için ayrı bir sorgu N+1 üretirdi ve liste zaten belgenin
+    # kimliğini veriyor.
     return _gorunum(
-        _makbuz_satiri(db, cid, receipt_id), _kalemler(db, cid, receipt_id)
+        _makbuz_satiri(db, cid, receipt_id),
+        _kalemler(db, cid, receipt_id),
+        makbuz_tescili(db, cid, receipt_id),
     )
 
 
@@ -559,6 +584,12 @@ def issue_producer_receipt(
         if final.rowcount != 1:
             db.rollback()
             _taslak_degil_409(db, cid, receipt_id)
+
+        # D2 KANCASI — AYNI İŞLEMİN İÇİNDE, `issued` YAZILDIKTAN SONRA.
+        # Vergi yükümlülüğü satırları ve avans mahsubu buradan doğar.
+        # Ayrı bir işleme alınsaydı, numarası verilmiş ama stopajı
+        # defterde olmayan bir makbuz ARA HÂL olarak var olabilirdi.
+        makbuz_kesildi(db, cid, receipt_id, _makbuz_satiri(db, cid, receipt_id))
         db.commit()
     except HTTPException:
         raise
@@ -566,7 +597,9 @@ def issue_producer_receipt(
         db.rollback()
         raise
     return _gorunum(
-        _makbuz_satiri(db, cid, receipt_id), _kalemler(db, cid, receipt_id)
+        _makbuz_satiri(db, cid, receipt_id),
+        _kalemler(db, cid, receipt_id),
+        makbuz_tescili(db, cid, receipt_id),
     )
 
 
@@ -610,12 +643,21 @@ def cancel_producer_receipt(
                     "message": "Yalnızca kesilmiş makbuz iptal edilebilir.",
                 },
             )
+
+        # ENGELLER CAS'TAN SONRA, COMMIT'TEN ÖNCE: iptal ancak dış dünyaya
+        # çıkmış hiçbir iz yoksa geçer, ve geçerken KAPANMAMIŞ vergi
+        # yükümlülüklerini AYNI İŞLEMDE siler. Engel takılırsa aşağıdaki
+        # `rollback` makbuzu `issued` hâline geri getirir.
+        iptal_engelleri(db, cid, receipt_id)
         db.commit()
     except HTTPException:
+        db.rollback()
         raise
     except Exception:
         db.rollback()
         raise
     return _gorunum(
-        _makbuz_satiri(db, cid, receipt_id), _kalemler(db, cid, receipt_id)
+        _makbuz_satiri(db, cid, receipt_id),
+        _kalemler(db, cid, receipt_id),
+        makbuz_tescili(db, cid, receipt_id),
     )
