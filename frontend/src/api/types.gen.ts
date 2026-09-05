@@ -3433,6 +3433,9 @@ export interface paths {
          *     Numara silinmez: iptal edilmiş bir belge de seride YERİNİ TUTAR, yoksa
          *     seri açıklanamaz biçimde atlardı. Taslak iptal EDİLEMEZ — hiç
          *     kesilmemiş bir kağıdın iptali yoktur.
+         *
+         *     Compare-and-set: `WHERE status='issued'`; kaybeden (zaten iptal /
+         *     taslak / eşzamanlı ikinci cancel) 409 `MAKBUZ_KESILMEMIS`.
          */
         post: operations["cancel_producer_receipt_api_producer_receipts__receipt_id__cancel_post"];
         delete?: never;
@@ -3452,13 +3455,20 @@ export interface paths {
         put?: never;
         /**
          * Issue Producer Receipt
-         * @description `draft` -> `issued`; numarayı `document_sequences`ten ALIR.
+         * @description `draft` -> `issuing` -> `issued`; numarayı `document_sequences`ten ALIR.
          *
          *     TEKRAR REDDEDİLİR, SESSİZCE GEÇİLMEZ: zaten kesilmiş bir makbuza ikinci
          *     `issue` 409 verir ve İKİNCİ BİR NUMARA ÜRETMEZ. Sessizce geçseydi (ya da
          *     "idempotent" diye ilk numarayı geri verseydi) seriden bir numara
          *     harcanmış ama hiçbir belgeye yazılmamış olurdu — seride açıklanamayan
          *     bir delik.
+         *
+         *     EŞZAMANLI İKİ `issue` AYNI TASLAĞA: okuma-sonra-yazma YETMEZ. Önce
+         *     `status='issuing' WHERE status='draft'` compare-and-set (kazanan
+         *     rowcount==1); numara YALNIZ kazanan tarafından tüketilir; sonra
+         *     `status='issued', receipt_no=... WHERE status='issuing'`. Kaybeden
+         *     409 `MAKBUZ_TASLAK_DEGIL` alır. Hepsi tek işlem; istisnada geri alınır
+         *     ve taslak geri gelir.
          *
          *     KALEMSİZ MAKBUZ KESİLEMEZ: kalemsiz bir kağıt sıfır tutarlı bir vergi
          *     belgesi olurdu.

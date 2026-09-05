@@ -1728,8 +1728,10 @@ print("TENANT_TABLES_JSON=" + json.dumps(tables))
 #   satiri GORMEDIGINI olcmektir.
 # app/ altinda yine SIFIR: bu tur da uretim kodu SQL'i alt surece VERMIYOR.
 # Sayilar bu turda YENIDEN OLCULDU, devralinmadi.
-BEKLENEN_ALT_SUREC_SQL_DOSYA = 0
-BEKLENEN_ALT_SUREC_SQL_METIN = 0
+# BIRLESIM (#46 develop'a indi): develop 108/175, bu dal +1 dosya / +1 metin
+#   getiriyor; toplam ARITMETIKLE DEGIL, birlesmis agacta YENIDEN OLCULDU.
+BEKLENEN_ALT_SUREC_SQL_DOSYA = 109
+BEKLENEN_ALT_SUREC_SQL_METIN = 176
 
 
 def _alt_surecte_sql() -> tuple[list[str], int]:
