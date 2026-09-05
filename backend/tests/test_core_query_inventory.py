@@ -867,10 +867,23 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     # --- app/work_order_stock.py
     ("app/work_order_stock.py", "issue_available_part_stock", "update",
      "1313db21c6eaf87716bbcc2ee6523406e85501f7aaaf6abcf07e1e93fd8461b3"): (1, "warehouse_stocks", "arg0"),  # satır [156]
+    # --- app/routers/kiraci_disa_aktarim.py
+    # HEDEF TABLO NEDEN `None`: bu üç sorgunun tablosu çalışma zamanında
+    # YANSITILIR (``MetaData.reflect``), yani modül düzeyinde
+    # ``X = Table("ad", ...)`` biçiminde YAZILI DEĞİL ve tarayıcı onu statik
+    # olarak çözemez. Bu, kiracı dışa aktarımının TASARIM GEREĞİ: elle yazılmış
+    # bir tablo listesi yeni göçlerde sessizce eksik kalırdı. Üçü de
+    # ``UNRESOLVED_ALLOWLIST``te ayrıca gerekçelendirildi.
+    ("app/routers/kiraci_disa_aktarim.py", "_sirali", "select",
+     "0c66287d1ca1c6ba04ef4851ccdcf470092c7d4010cfe82e4d50d1a5c80b5fff"): (1, None, "unresolved"),  # satır [184]
+    ("app/routers/kiraci_disa_aktarim.py", "_sema_seviyesi", "select",
+     "cd50bebcd58d7320694fa287dd30cd8b9bd4599f558d97f225c68932c351763f"): (1, None, "unresolved"),  # satır [225]
+    ("app/routers/kiraci_disa_aktarim.py", "_uret", "select",
+     "22146e8f2b8865b09df07eb95d99700ca20acb0071dc458f749716f9457560f1"): (1, None, "unresolved"),  # satır [282]
 }
 
-TOTAL_CORE_QUERIES = 137
-EXPECTED_OP_COUNTS = {"select": 89, "update": 41, "delete": 7}
+TOTAL_CORE_QUERIES = 140
+EXPECTED_OP_COUNTS = {"select": 92, "update": 41, "delete": 7}
 # 2026-08-12: iki sorgu bilerek değişti — `ensure_company_default_warehouse`
 # depo adı taramasına kiracı kapsamı eklendi (şema ölçümü: warehouses.name
 # üzerinde ne küresel ne kiracı kapsamlı UNIQUE var) ve `_finalize` opak
@@ -883,10 +896,39 @@ EXPECTED_OP_COUNTS = {"select": 89, "update": 41, "delete": 7}
 # 787d65cf SABİT. Dilimin bütün SQL'i text() ile yazıldı (farm.py kantar bloğu,
 # products.py `base_unit` UPDATE'i); hiçbir Core sorgunun yüklemi ya da hedef
 # tablosu değişmedi. Bu satır bir yeniden çivileme DEĞİL, ölçümün kaydıdır.
-INVENTORY_FINGERPRINT = "787d65cfb7a0fd30b6b1a3208cb54e053fd5a76e68b145603efc4becd3d6c73b"
+# 20260905 kiracı dışa aktarımı: +3 select — app/routers/kiraci_disa_aktarim.py.
+# Üçü de hedefi ÇÖZÜLEMEYEN sorgulardır ve bu bilinçlidir: dışa aktarım
+# tabloları çalışma zamanında yansıtır, çünkü elle yazılmış bir liste yeni bir
+# göç kiracı tablosu eklediğinde sessizce eksik kalır ve o tablonun satırları
+# dosyaya HİÇ girmezdi. Kiracı yüklemi statik olarak GÖRÜNÜR durumdadır
+# (``.where(tablo.c.company_id == cid)``), yalnız tablo NESNESİ değişkendir.
+INVENTORY_FINGERPRINT = "36bbb1cff255c211c6b26a5b616a79f5e0e1e54384f43e1d1dcfaace2bd0322b"
 
-#: Çözülemeyen hedefler için dar, gerekçeli muafiyet. Bugün boş.
-UNRESOLVED_ALLOWLIST: dict[Kimlik, str] = {}
+#: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
+#:
+#: MUAFİYETİN SINIRI: bu liste yalnız "hedef tablo statik olarak çözülemiyor"
+#: der. Kiracı yükleminin varlığını KANITLAMAZ — onu
+#: ``tests/test_kiraci_disa_aktarim.py::test_hicbir_dosyada_baska_firmanin_satiri_yok``
+#: çalışma zamanında, iki firmalık gerçek veriyle ve HER tabloyu tek tek
+#: gezerek doğrular. Statik kapının göremediği yeri dinamik kapı kapatıyor.
+UNRESOLVED_ALLOWLIST: dict[Kimlik, str] = {
+    ("app/routers/kiraci_disa_aktarim.py", "_sirali", "select",
+     "0c66287d1ca1c6ba04ef4851ccdcf470092c7d4010cfe82e4d50d1a5c80b5fff"):
+        "Kiracı dışa aktarımının satır okuması. Tablo `MetaData.reflect` ile "
+        "çalışma zamanında gelir; birincil anahtar sırası da o tablodan "
+        "türetilir. Kiracı yüklemi çağıranda (`_satirlar`) AÇIKÇA eklenir: "
+        "`.where(tablo.c.company_id == cid)`.",
+    ("app/routers/kiraci_disa_aktarim.py", "_sema_seviyesi", "select",
+     "cd50bebcd58d7320694fa287dd30cd8b9bd4599f558d97f225c68932c351763f"):
+        "`alembic_version.version_num` okuması. Bu tablo KİRACI TABLOSU "
+        "DEĞİL (company_id sütunu yok) ve tek satır taşır; şema seviyesini "
+        "koda gömmemek için veritabanından okunur.",
+    ("app/routers/kiraci_disa_aktarim.py", "_uret", "select",
+     "22146e8f2b8865b09df07eb95d99700ca20acb0071dc458f749716f9457560f1"):
+        "Dışa aktarılan firmanın KENDİ satırı: `companies` tablosundan "
+        "`.where(firmalar.c.id == cid)` ile TEK satır. Kiracı sınırı burada "
+        "birincil anahtar eşitliğidir.",
+}
 
 #: Metot biçimi kullanımlar için dar, gerekçeli muafiyet. Bugün boş.
 METHOD_FORM_ALLOWLIST: dict[tuple[str, str, int], str] = {}
@@ -979,10 +1021,26 @@ def test_no_unresolved_targets(app_scan):
 
 def test_no_unsupported_expressions(app_scan):
     _, _, desteksiz = app_scan
+    # ``unresolved-target`` AYNI olayı iki kapıya birden düşürür: hem burası
+    # hem ``test_no_unresolved_targets``. O kapı muafiyeti
+    # ``UNRESOLVED_ALLOWLIST``ten (dosya, bağlam, işlem, parmak izi) okuyor;
+    # burası ise yalnız SATIR NUMARASINA bakan ``METHOD_FORM_ALLOWLIST``i
+    # biliyordu. Aynı kayıt için iki ayrı muafiyet listesi istemek gereksiz
+    # bir ikinci giriş üretir ve satır numarası kimliğe girdiği için araya bir
+    # satır eklendiğinde SEBEPSİZ kırılır. Gerekçesi zaten yazılmış bir
+    # çözülemeyen hedef burada tekrar istenmez; muafiyet DAR kalır, çünkü
+    # kayıt hâlâ dosya + PARMAK İZİ ile eşleşmek zorundadır.
+    izinli_parmaklar = {(dosya, parmak)
+                        for dosya, _, _, parmak in UNRESOLVED_ALLOWLIST}
     kalan = [
         f"{u.dosya}:{u.satir} [{u.baglam or '<modül>'}] [{u.tur}] {u.aciklama}"
         for u in desteksiz
         if (u.dosya, u.tur, u.satir) not in METHOD_FORM_ALLOWLIST
+        and not (
+            u.tur == "unresolved-target"
+            and any(parmak in u.aciklama
+                    for dosya, parmak in izinli_parmaklar if dosya == u.dosya)
+        )
     ]
     assert not kalan, (
         "bu tarayıcının çözümleyemediği ifadeler var; sessizce güvenli sayılmaz:\n  "

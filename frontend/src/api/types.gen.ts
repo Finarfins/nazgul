@@ -576,6 +576,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/company/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Disa Aktar
+         * @description Aktif firmanın tüm verisini akan bir zip olarak döndürür.
+         *
+         *     ÜYELİK ve ROL kapıları BU FONKSİYONDA DEĞİL, ara katmandadır ve ikisi
+         *     ayrı ayrı düşer: üye olmayan ``resolve_company`` ile
+         *     (``COMPANY_ACCESS_DENIED``), yetkisi yeten rolü olmayan ise
+         *     ``required_permission`` → ``has_permission`` ile (``PERMISSION_DENIED``).
+         *     İzin adı ``__admin_only__``: dosyanın sonundaki deny-by-default
+         *     nöbetçisiyle AYNI ad. Hiçbir rol tablosunda yazılı değildir; yalnız
+         *     ``admin`` rolünün ``"*"`` jokeri onu taşır — yani var olan EN YÜKSEK rol
+         *     (``ROLE_RANK``: admin=100).
+         */
+        get: operations["disa_aktar_api_company_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/cost-rates": {
         parameters: {
             query?: never;
@@ -10306,6 +10335,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disa_aktar_api_company_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

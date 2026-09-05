@@ -3114,7 +3114,39 @@ def test_alternatif_anahtar_sozlugu_CAPALI() -> None:
 # pozitif üretirdi. Bu yüzden her modülde `Table`ın SQLAlchemy'den gelip
 # gelmediği İMPORTTAN çözülüyor, `as` takma adları dahil.
 YANSIMA_ANAHTARLARI = frozenset({"autoload", "autoload_with"})
-BEKLENEN_YANSIMA_SAYISI = 0
+#: YANSIMA MUAFİYETİ DOSYA ADIYLA VERİLİR, SAYIYLA DEĞİL.
+#:
+#: Yalnız bir SAYI çapalansaydı iki açık kalırdı: (a) ikinci bir modül
+#: yansımaya başladığında kapı "1 bekleniyordu, 2 bulundu" derdi ama HANGİ
+#: dosyanın suçlu olduğunu söylemezdi; (b) daha kötüsü, muaf dosyadaki
+#: yansıma silinip BAŞKA bir dosyaya yansıma eklendiğinde sayı 1'de KALIR ve
+#: kapı SESSİZCE geçerdi. Yol kümesi ikisini de kapatır: muafiyet BU dosyaya
+#: aittir, sayıya değil.
+#:
+#: 20260905, KİRACI DIŞA AKTARIMI — kümenin BOŞ olmadığı ilk tur. Bu, kapının
+#: kendi öngördüğü "ayrı bir karar"dır ve sessizce alınmadı.
+#:
+#: NEDEN YANSIMA, ELLE LİSTEDEN İYİ: dışa aktarım 102 kiracı tablosunun
+#: HEPSİNİ yazmak zorunda. Elle yazılmış bir tablo listesi, yeni bir göç
+#: 103'üncü kiracı tablosunu eklediğinde SESSİZCE eski kalır ve o tablonun
+#: satırları kiracıya teslim edilen dosyaya HİÇ GİRMEZDİ — hiçbir statik kapı
+#: bunu yakalamaz, kiracı da eksildiğini bilmez. Eksik veri teslim etmek,
+#: gürültülü bir hatadan kötüdür. Yansıtılan şema yeni tabloyu kendiliğinden
+#: yerine koyar.
+#:
+#: KAPININ ASIL KORKUSU ÇALIŞMA ZAMANINDA KARŞILANIYOR: kapı, "yansıma tablo
+#: adını çalışma zamanına taşır ve STATİK OLARAK görülemeyen bir kiracı yüzeyi
+#: açar" diyor — doğru. O yüzey şurada kapatılıyor:
+#:   * `tests/test_kiraci_disa_aktarim.py::test_hicbir_dosyada_baska_firmanin_satiri_yok`
+#:     iki firmayı da veriyle tohumlar, üretilen zip'teki HER tablonun HER
+#:     satırını gezer ve `company_id`yi doğrular; tek bir tabloda yüklem
+#:     düşerse test o tablonun ADINI söyleyerek kırılır.
+#:   * `test_yuz_iki_tablo_dosyasi_tam` yansımayla türetilen kümenin
+#:     `TENANT_TABLES` ile BİREBİR aynı olduğunu doğrular (102 = 102), yani
+#:     yansıma kapının bildiği evrenin dışına çıkamaz.
+YANSIMA_DOSYA_MUAFIYETI: frozenset[str] = frozenset(
+    {"app/routers/kiraci_disa_aktarim.py"}
+)
 
 
 def _sqlalchemy_table_adlari(agac: ast.Module) -> set[str]:
@@ -3184,12 +3216,24 @@ def test_yansimayla_tablo_kurulamaz() -> None:
     çalışan bir MALİYET olarak kabul edildi.
     """
     bulgular = yansima_ornekleri()
-    assert len(bulgular) == BEKLENEN_YANSIMA_SAYISI, (
-        f"yansımayla kurulan tablo sayısı {BEKLENEN_YANSIMA_SAYISI} değil "
-        f"({len(bulgular)}). Yansıma, tablo adını çalışma zamanına taşır ve "
-        "bu kapının statik olarak göremeyeceği bir kiracı yüzeyi açar.\n  "
-        + "\n  ".join(bulgular)
+    # Suçlu DOSYA ADIYLA aranır: sayı değil, YOL. Muaf dosyanın dışındaki her
+    # yansıma, kaç tane olursa olsun, kendi yolunu söyleyerek kırar.
+    disarida = sorted(
+        {b.split(":", 1)[0] for b in bulgular} - YANSIMA_DOSYA_MUAFIYETI
     )
+    ayirac = '\n  '
+    assert not disarida, (
+        "muafiyet listesinde OLMAYAN dosyalar yansımayla tablo kuruyor: "
+        f"{disarida}. Yansıma, tablo adını çalışma zamanına taşır ve bu "
+        "kapının statik olarak göremeyeceği bir kiracı yüzeyi açar; yeni bir "
+        "yansıma eklemek AYRI bir karardır ve gerekçesiyle birlikte "
+        "`YANSIMA_DOSYA_MUAFIYETI`ne yazılmalıdır." + ayirac
+        + ayirac.join(bulgular)
+    )
+    # ÖLÜ MUAFİYET DE KIRAR: muaf dosya yansımayı bıraktıysa satır kalkmalı,
+    # yoksa liste zamanla anlamını yitirir ve gerçek bir yansımayı örtebilir.
+    olu = sorted(YANSIMA_DOSYA_MUAFIYETI - {b.split(":", 1)[0] for b in bulgular})
+    assert not olu, f"muafiyet ÖLÜ — bu dosyalar artık yansıtmıyor: {olu}"
 
 
 def test_yansima_kapisi_reportlab_Table_ile_KARISMIYOR() -> None:

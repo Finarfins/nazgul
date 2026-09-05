@@ -281,6 +281,10 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/history/{entity_type}/{entity_id}"): "users",
     ("GET", "/api/policy-overrides"): "users",
     ("GET", "/api/users"): "users",
+    # KİRACI DIŞA AKTARIMI. Deny-by-default nöbetçisiyle AYNI ad: yalnız
+    # `admin` ("*" jokeri) taşır, yani var olan EN YÜKSEK rol. `read` olsaydı
+    # HER rol firmanın tüm defterini indirebilirdi.
+    ("GET", "/api/company/export"): "__admin_only__",
 }
 
 #: Toplu kaymayı tek satırda görünür kılan drift kontrolü.
@@ -293,9 +297,11 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # 166 -> 167: kantar fişi listesi (GET /api/field-harvest-tickets, göç
 # 20260904_0069). Başka hiçbir ucun izni değişmedi; drift raporu ÖLÇÜLDÜ:
 # `changed` ve `stale` BOŞ — artış YALNIZ ekleme.
-GET_INVENTORY_COUNT = 167
+# 167 -> 168: kiracı dışa aktarımının TEK GET ucu (/api/company/export).
+# Drift raporu ÖLÇÜLDÜ: `changed` ve `stale` BOŞ — artış YALNIZ ekleme.
+GET_INVENTORY_COUNT = 168
 GET_INVENTORY_FINGERPRINT = (
-    "0789829a4578491203d02726628be0d4d3de9a593aad47b4e742ebe435791de7"
+    "e04367442abc972c8ccf20b73eb7fab15ae2a348d95322466b2d7e870a8a4994"
 )
 
 

@@ -32,6 +32,7 @@ from .sure_butcesi import KontenjanDolu, sureli_kos
 from .db import SessionLocal, engine
 from .backup_errors import MaintenanceActiveError
 from .bootstrap_data import seed_bootstrap_data
+from .disa_aktarim_errors import DisaAktarimError
 from .request_limits import RequestBodyLimitMiddleware
 from .runtime_migrations import (
     database_bootstrap_lock,
@@ -67,6 +68,7 @@ from .routers import (
     payment_allocations,
     part_supersessions,
     platform_audit,
+    kiraci_disa_aktarim,
     platform_backups,
     pos,
     products,
@@ -554,6 +556,21 @@ app.include_router(supplier_price_import.router, prefix="/api")
 app.include_router(supplier_price_bridge.router, prefix="/api")
 app.include_router(part_supersessions.router, prefix="/api")
 app.include_router(platform_backups.router, prefix="/api")
+app.include_router(kiraci_disa_aktarim.router, prefix="/api")
+
+
+@app.exception_handler(DisaAktarimError)
+async def _disa_aktarim_hatasi(_request: Request, exc: DisaAktarimError) -> JSONResponse:
+    """Adı konmuş dışa aktarım hatasını KARARLI kodlu 500'e çevirir.
+
+    Kod gövdededir ve sözleşmedir; istemci hata METNİNİ ayrıştırmak zorunda
+    değildir. Akış BAŞLADIKTAN sonra doğan hata buraya ulaşamaz (durum kodu
+    o noktada 200'de kilitlidir) — sınırın gerekçesi
+    ``routers/kiraci_disa_aktarim.py`` başlığında yazılı.
+    """
+    return JSONResponse(
+        status_code=500, content={"detail": str(exc), "code": exc.kod}
+    )
 app.include_router(transactions.router, prefix="/api")
 
 

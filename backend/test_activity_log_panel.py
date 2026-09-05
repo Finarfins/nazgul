@@ -95,6 +95,7 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
         "allocation.manual", "allocation.reversal", "allocation.reallocation",
         "user.create", "user.role_change", "user.status_change",
         "activity_log.archive", "activity_log.unarchive",
+        "company.exported",
         "backup.created", "backup.downloaded",
         "backup.restore_started", "backup.restore_completed", "backup.restore_failed",
         "backup.restore_rollback_started", "backup.restore_rollback_completed",
@@ -116,7 +117,11 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
     }
     assert set(ACTION_TYPES) == expected
     # 58 -> 59: product.base_unit_update (kantar fişi v2).
-    assert len(ACTION_TYPES) == 59, sorted(ACTION_TYPES)
+    # 59 -> 60: KIRACI DISA AKTARIMI (`company.exported`). Ayri bir eylem adi
+    # gerekli cunku `backup.*` PLATFORM yedegidir (kumenin tamami); bu ise TEK
+    # firmanin verisini o firmaya teslim eder. Ayni ad altinda toplansalardi
+    # panelde birbirinden ayirt edilemezlerdi.
+    assert len(ACTION_TYPES) == 60, sorted(ACTION_TYPES)
     assert all(ACTION_TYPES.values()), ACTION_TYPES
     assert "activity_log" in RESOURCE_TYPES
     # POS fişi de bir ``orders`` satırıdır: ayrı bir kaynak tipi eklenmez,

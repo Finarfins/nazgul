@@ -243,8 +243,13 @@ DYNAMIC_PERMISSION_CASES = {
 # BAŞLAMADIĞI için öneke ayrıca yazıldı, yazılmasaydı `field_service`e düşerdi
 # (ölçüldü: önek silinince `test_every_farm_endpoint_is_covered_by_the_farm_
 # permission_prefixes` kırmızı). Başka hiçbir ucun sözleşmesi değişmedi.
-EXPECTED_OPERATION_COUNT = 349
-EXPECTED_PATH_COUNT = 269
+# 349/269 -> 350/270: kiracı dışa aktarımının TEK ucu (GET
+# /api/company/export). Ayrı bir `review_reason` GEREKMİYOR: uç kiracı
+# kapsamlıdır (aktif firmanın satırlarını verir) ve izni `__admin_only__`,
+# yani deny-by-default nöbetçisiyle aynı addır — platform yedeği gibi router
+# düzeyinde ek bir operatör listesi kullanmaz.
+EXPECTED_OPERATION_COUNT = 350
+EXPECTED_PATH_COUNT = 270
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -341,7 +346,9 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # 20260905 kantar fişi v2 (göç 20260904_0069): GET/POST
     # /api/field-harvest-tickets eklendi (farm.view / farm.manage, öneke
     # yazılarak). Parmak izi 45a56fbd -> adb27fb5; başka sözleşme değişmedi.
-    "adb27fb57b3d1aa740364b8ae5ee62d004cc69d241aee22e5eb672cb081834c8"
+    # 20260905 kiracı dışa aktarımı: GET /api/company/export eklendi
+    # (`__admin_only__`). Parmak izi adb27fb5 -> yeniden türetildi.
+    "43d9e7d847dbcf63d0a5cfdba0ca5d46e8d4f70eaf8ed04b3715e4a615a34256"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 
