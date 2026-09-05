@@ -19,6 +19,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .units import turkce_katla
+
 # Sahadaki `field.py` ile birebir aynı biçim — bkz. `_KuyrukKimligi`.
 _OPERATION_ID = re.compile(r"[A-Za-z0-9_-]{8,64}")
 
@@ -398,7 +400,17 @@ class HarvestTicketWrite(_Taban):
     @field_validator("entered_unit")
     @classmethod
     def girilen_birim(cls, value: str) -> str:
-        return _metin(value)
+        """KANONİK biçimde saklanır: "Ton"/"ton"/"TON" TEK değerdir.
+
+        Sahip kararı (kantar fişi v2 incelemesi): ham dizgi HİÇBİR yerde
+        tutulmaz. `products.base_unit` ile AYNI katlama (`units.turkce_katla`)
+        ki iki sütun aynı birimi iki biçimde yazmasın; çözücü zaten katlanmış
+        biçimi arar, katlamayı buraya taşımak yalnız SAKLANAN değeri de o
+        biçime bağlar. Ölçüldü: katlama kaldırılınca
+        `tests/test_kantar_fisi_sozlesme.py` senaryo 5 kırmızı ("Ton" olduğu
+        gibi geri okunur).
+        """
+        return turkce_katla(_metin(value))
 
     @field_validator("ticket_no", "buyer_name", "plate")
     @classmethod

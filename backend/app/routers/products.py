@@ -423,7 +423,29 @@ def update_product(
     # yazmak olurdu (`app/units.py`, sahip kararı 1).
     taban_birim_yazildi = "base_unit" in payload.model_fields_set
     ham_taban = values.pop("base_unit", None)
-    yeni_taban = turkce_katla(ham_taban) if ham_taban else None
+    # Katlanınca BOŞA düşen dizgi ("   ") None ile AYNI şeydir: aşağıdaki
+    # açık-null kapısına düşer, sütuna '' YAZILMAZ (ölçüldü: `or None`
+    # olmadan "   " 200 dönüyor ve sütuna boş dizgi yazıyordu).
+    yeni_taban = (turkce_katla(ham_taban) or None) if ham_taban is not None else None
+    # AÇIK NULL REDDEDİLİR, SESSİZCE YAZILMAZ (sahip kararı, #40'taki açık-null
+    # kapısıyla AYNI ŞEKİL): alanı GÖNDERMEMEK "dokunma" demektir ve sütun
+    # olduğu gibi kalır; `null` (ya da katlanınca boşa düşen bir dizgi)
+    # GÖNDERMEK ise etkileşimli bir SİLME isteğidir ve bu yol taban birimi
+    # silmez — silinen taban, ondan sonraki her fişi TABAN_BILDIRILMEMIS ile
+    # düşürür ve bunun kaydı "kim, ne zaman" diye sorulabilir olmalı. Red
+    # HER SQL'DEN ÖNCE: hiçbir sütun (stok dahil) yazılmadan. AİLE İÇİ 4xx,
+    # `code` gövdede.
+    if taban_birim_yazildi and yeni_taban is None:
+        raise HTTPException(
+            422,
+            {
+                "code": "TABAN_BIRIM_SILINEMEZ",
+                "message": (
+                    "Ürünün taban birimi bu uçtan silinemez; alanı göndermemek "
+                    "mevcut değeri korur."
+                ),
+            },
+        )
     values.update({"id": product_id, "cid": cid})
     try:
         db.execute(

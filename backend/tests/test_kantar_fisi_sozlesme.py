@@ -29,10 +29,14 @@ hâlidir.
    (`app/units.py`, sahip kararı 2). İKİ BACAK da ölçülüyor: taban birim
    `PUT /api/products/{id}` ile yazılmadan ÖNCE 4xx, yazıldıktan SONRA 201.
    Alanı GÖNDERMEYEN bir PUT sütuna DOKUNMAZ — eski bir istemci her
-   kaydetmede taban birimi silmesin diye.
+   kaydetmede taban birimi silmesin diye. AÇIK `null` GÖNDEREN bir PUT ise
+   REDDEDİLİR (422, `code: TABAN_BIRIM_SILINEMEZ`, sütun dokunulmamış):
+   #40'taki açık-null kapısıyla aynı şekil, burada ölçülüyor.
 7. **TOPLAMLAR TABAN BİRİMDE.** (0069) 2 TON + 500 KG = 2500.0000 KG'dir,
    502 DEĞİL. `gross_entered_quantity` toplamı anlamsız olduğu için özet onu
-   HİÇ vermez; toplanabilir tek sütun `base_quantity`dir.
+   HİÇ vermez; toplanabilir tek sütun `base_quantity`dir. Girilen birim
+   KANONİK saklanır: "Ton" gönderilir, "TON" okunur — `base_unit` ile aynı
+   katlama, ham dizgi hiçbir yerde tutulmaz.
 
 --- STATİK KAPILAR NİYE VAR -------------------------------------------------
 
@@ -56,6 +60,10 @@ Her mutasyon tek tek uygulandı, adı geçen test KIRMIZI oldu, geri alındı:
   düşer (KD-1 fişinde türetilen 1.1400 yerine kağıdın 1.1000'i görünür).
 * `create_harvest_ticket`ta `taban_birim or payload.entered_unit` (taban
   yoksa girileni taban say) -> BACAK 1 (`TABAN YOKKEN FIS YAZILDI`).
+* `HarvestTicketWrite.girilen_birim`den `turkce_katla` kaldırılınca
+  -> senaryo 5 (`GIRILEN BIRIM KATLANMADI`: "Ton" olduğu gibi geri okunur).
+* `update_product`taki açık-null kapısı kaldırılınca
+  -> BACAK 1 devamı (`ACIK NULL SESSIZCE YAZILDI`: PUT 200, sütun NULL).
 * `auth._FARM_PATH_PREFIXES`ten `/api/field-harvest-tickets` silinince
   -> `test_fis_ucu_farm_iznine_bagli` VE
   `test_farm_management_api.py::test_every_farm_endpoint_is_covered_by_the_farm_permission_prefixes`.
@@ -325,6 +333,23 @@ with TestClient(app) as client:
                ticket_no='B-2')
     assert yine.status_code == 201, yine.text
 
+    # ACIK NULL REDDEDILIR (sahip karari; #40'taki acik-null kapisiyla ayni
+    # sekil): `base_unit: null` GONDERMEK "sil" demektir ve bu yol silmez —
+    # AILE ICI 422, `code` govdede, sutun ve stok DOKUNULMAMIS, gunluk
+    # BUYUMEMIS, fis yazilmaya devam ediyor. Katlaninca bosa dusen bir dizgi
+    # ("  ") de ayni kapiya dusuyor. MUTASYON (olculdu): kapi kaldirilinca
+    # burasi kirmizi (PUT 200 doner ve sutun NULL olur).
+    for bos in (None, '   '):
+        sil = client.put(f'/api/products/{urun_id}', headers=h,
+                         json={**URUN_GOVDE, 'base_unit': bos})
+        assert sil.status_code == 422, ('ACIK NULL SESSIZCE YAZILDI', bos, sil.status_code, sil.text)
+        assert sil.json()['detail']['code'] == 'TABAN_BIRIM_SILINEMEZ', sil.text
+        assert taban_birim_kaydi(cid, urun_id) == 'KG', ('ACIK NULL SUTUNU SILDI', bos)
+    assert len(taban_birim_gunlugu(cid, urun_id)) == 1, 'RED LOGLANDI'
+    hala = fis(client, h, harvest_id=h0['id'], gross_entered_quantity='10',
+               ticket_no='B-3')
+    assert hala.status_code == 201, hala.text
+
     # --- 1) BILESIM TOPLAMSAL, SIRALI DEGIL --------------------------------
     h1 = hasat(harvested_on='2026-07-11')
     f1 = fis(client, h, harvest_id=h1['id'], gross_entered_quantity='1000',
@@ -401,16 +426,22 @@ with TestClient(app) as client:
     # durur ve YUVARLANMAZ.
     h6 = hasat(harvested_on='2026-07-16', quantity='2500')
     c1 = fis(client, h, harvest_id=h6['id'], ticket_no='C-1',
-             gross_entered_quantity='2', entered_unit='ton',
+             gross_entered_quantity='2', entered_unit='Ton',
              deductions=[{'label':'Fire','rate_percent':'10'}])
     assert c1.status_code == 201, c1.text
     c1 = c1.json()
-    # GIRILEN BIRIM GIRILDIGI GIBI SAKLANIR ("ton"), KATLANMAZ: sutun bir
-    # TANIKTIR (kagitta ne yaziyorsa o). Cozucu KENDI kopyasini katlar ve
-    # bunun kaniti katsayidir — "ton" katlanmasaydi BIRIM_TANIMSIZ alirdi,
-    # 1000 alamazdi. `products.base_unit` ise PUT'ta kanonik BUYUK yazilir;
-    # iki sutunun sozlesmesi farkli ve ikisi de burada CIVILI.
-    assert c1['entered_unit'] == 'ton', c1
+    # GIRILEN BIRIM KANONIK SAKLANIR: "Ton" gonderildi, "TON" geri okunur.
+    # Sahip karari: ham dizgi HICBIR yerde tutulmaz, `products.base_unit` ile
+    # AYNI katlama (`units.turkce_katla`); "Ton"/"ton"/"TON" TEK degerdir.
+    # MUTASYON (olculdu): semadaki katlama kaldirilinca burasi kirmizi olur
+    # ("Ton" oldugu gibi geri okunur; katsayi yine 1000 gelir cunku cozucu
+    # kendi kopyasini katlar — yani bu iddia YALNIZ burada olculuyor).
+    assert c1['entered_unit'] == 'TON', ('GIRILEN BIRIM KATLANMADI', c1)
+    with SessionLocal() as db:
+        saklanan = db.execute(_sql(
+            "SELECT entered_unit FROM field_harvest_tickets WHERE id=:i AND company_id=:c"),
+            {'i': c1['id'], 'c': cid}).scalar_one()
+    assert saklanan == 'TON', ('HAM DIZGI SAKLANDI', saklanan)
     assert Decimal(c1['entered_factor']) == Decimal('1000'), c1
     assert c1['base_quantity'] == '2000.0000', c1
     assert c1['derived_net_quantity'] == '1.8000', c1  # net FISIN biriminde
