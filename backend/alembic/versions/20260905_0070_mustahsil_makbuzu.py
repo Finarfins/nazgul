@@ -110,7 +110,10 @@ KATSAYI = sa.Numeric(24, 10)
 ORAN = sa.Numeric(7, 4)
 TUTAR = sa.Numeric(18, 2)
 
-DURUMLAR = ("draft", "issued", "cancelled")
+# `issuing` geçici bir CAS durumudur: `issue` önce taslağı `issuing`e
+# çeker, numarayı alır, sonra `issued` yazar. İki eşzamanlı `issue`nin
+# ikisinin de numara tüketmesini engeller (bkz. routers/mustahsil.py).
+DURUMLAR = ("draft", "issuing", "issued", "cancelled")
 
 
 def _tablolar(inspector) -> set[str]:
@@ -184,15 +187,17 @@ def upgrade() -> None:
                 name="fk_producer_receipts_ticket_same_company",
             ),
             sa.CheckConstraint(
-                "status IN ('draft', 'issued', 'cancelled')",
+                "status IN ('draft', 'issuing', 'issued', 'cancelled')",
                 name="ck_producer_receipts_status",
             ),
-            # Numara ve tarih DURUMLA birlikte hareket eder: taslakta numara
-            # OLMAZ, kesilmiş bir makbuzda numarasızlık OLMAZ. Bunu şemada
-            # tutmak, `issue` yolundaki bir hatanın numarasız "issued" satır
-            # bırakmasını ENGELLER.
+            # Numara ve tarih DURUMLA birlikte hareket eder: taslakta ve
+            # `issuing` (CAS ara durumu) aşamasında numara OLMAZ; kesilmiş
+            # bir makbuzda numarasızlık OLMAZ. Bunu şemada tutmak, `issue`
+            # yolundaki bir hatanın numarasız "issued" satır bırakmasını
+            # ENGELLER. `issuing` numarasızdır çünkü numara henüz
+            # tüketilmemiştir — yalnız kazanan `issued` yazar.
             sa.CheckConstraint(
-                "(status = 'draft' AND receipt_no IS NULL) "
+                "(status IN ('draft', 'issuing') AND receipt_no IS NULL) "
                 "OR (status IN ('issued', 'cancelled') AND receipt_no IS NOT NULL)",
                 name="ck_producer_receipts_no_follows_status",
             ),
