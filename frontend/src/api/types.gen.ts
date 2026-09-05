@@ -1329,9 +1329,20 @@ export interface paths {
          * Create Harvest Ticket
          * @description Kantar fişini ve kesintilerini TEK işlemde yazar.
          *
-         *     OUTBOX OLAYI YAZILMIYOR — bilerek. Hasat olayı hasat yazılırken üretildi ve
-         *     tüketildi; buradan ikinci bir olay yazmak, aynı hasadı defterde İKİ KEZ
-         *     üretirdi.
+         *     OUTBOX OLAYI YAZILIYOR (C2) — fiş, kesintileri VE olay TEK işlemde.
+         *     Kaynak tipi `field_harvest_ticket`, anahtar
+         *     `field_harvest_ticket:<fiş id>:stock`. Olay FİŞ BAŞINADIR, hasat başına
+         *     değil: iki fiş iki olay üretir ve tüketici her birinde farkı YENİDEN
+         *     hesaplar.
+         *
+         *     "AYNI HASAT İKİ KEZ ÜRETİLİR Mİ" — HAYIR, VE BU BİR NİYET DEĞİL YAPIDIR.
+         *     Tüketicinin fiş yolu miktarı DEĞİL FARKI yazar: hasadın taban miktarı ve
+         *     O HASADIN daha önce yazılmış fiş düzeltmeleri hesabın İÇİNDEDİR
+         *     (`field_stok_tuketici._fis_kalemleri`). Yani ikinci olay ilkini tekrar
+         *     etmez, ÜZERİNE fark koyar; toplam her zaman fişlerin netidir.
+         *
+         *     OLAY YAZIMI COMMIT'İN İÇİNDE: fiş geri alınırsa yetim olay kalmaz, olay
+         *     yazılamazsa fiş de yazılmaz. `_entegrasyon_olayi_yaz` commit ÇAĞIRMAZ.
          *
          *     Fiş ile kesintileri aynı işlemde: yarım bir fiş (kesintileri yazılmamış)
          *     türetilen neti brüte EŞİT gösterirdi — sessiz ve yanlış bir cevap.
