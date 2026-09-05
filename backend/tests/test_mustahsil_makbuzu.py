@@ -323,6 +323,27 @@ def test_kaynak_defterin_ADINI_bile_gecirmiyor() -> None:
 
     NE İDDİA ETMEZ: dolaylı bir yoldan (başka modül üzerinden) yazılmadığını.
     Ölçtüğü şey, eklemenin pratikte aldığı biçim olan doğrudan referanstır.
+
+    --- D2 GELDİ VE BU KAPI HÂLÂ YEŞİL: SEBEBİ ADIYLA YAZILIYOR ---------
+
+    Aşağıdaki hata metni "ödeme yazmak D2'dir" diyordu. D2 (göç
+    `20260906_0071`) İNDİ ve ödeme defterine GERÇEKTEN YAZIYOR — ama
+    `routers/avans.py`den, buradan DEĞİL. Kapı bu yüzden yeşil kaldı ve
+    yeşilliği artık ŞUNU ölçüyor, daha azını değil:
+
+      * `issue` hâlâ ödeme satırı YAZMIYOR. Doğurduğu şey vergi
+        yükümlülüğü (`tax_liabilities`) ve avans mahsubudur; para
+        hareketi DEĞİL. Bu, D1'in "makbuz kesmek BORÇ doğurur, borcun
+        kapanması AYRI bir olaydır" duruşunun hâlâ geçerli olduğu
+        anlamına gelir.
+      * `cancel`ın ödeme denetimi `avans_engine.iptal_engelleri`
+        üzerinden OKUR; bu kapı böyle bir dolaylı okumayı ZATEN iddia
+        dışı bırakıyor (yukarıdaki "NE İDDİA ETMEZ").
+
+    YANLIŞ OKUNMASIN: bu kapının yeşil olması "müstahsil makbuzu ödeme
+    defterine dokunmuyor" DEMEK DEĞİLDİR. `/producer-receipts/{id}/pay`
+    ve `/suppliers/{id}/advances` `payments`a YAZAR. Kapının koruduğu
+    şey, D1 router'ının kendi yaşam döngüsü dışına TAŞMAMASIDIR.
     """
     # Başlıktaki gerekçe bölümü bu adları ANLATIYOR; kapı KOD satırlarına
     # bakmalı, yoksa kendi belgesiyle kırmızı olurdu.
@@ -330,8 +351,9 @@ def test_kaynak_defterin_ADINI_bile_gecirmiyor() -> None:
     gecenler = [ad for ad in DEFTER_ADLARI if ad in kod]
     assert gecenler == [], (
         f"Müstahsil router'ı deftere değiniyor: {gecenler}. D1'in tek iddiası "
-        "defterin DEĞİŞMEMESİYDİ; ödeme yazmak D2'dir (avans mahsubuyla "
-        "birlikte), stok yazmak ise ayrı bir karardır."
+        "defterin DEĞİŞMEMESİYDİ. Ödeme yazmak D2'dir ve D2 İNDİ — ama "
+        "yazma yeri `routers/avans.py`dir, BURASI değil (bkz. başlık). "
+        "Stok yazmak ise hâlâ ayrı ve verilmemiş bir karardır."
     )
 
 
