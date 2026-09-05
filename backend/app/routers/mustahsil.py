@@ -204,8 +204,8 @@ def _gorunum(
 ) -> dict[str, Any]:
     """Makbuz görünümü. `cash_due` TÜRETİLİR, SÜTUN DEĞİLDİR.
 
-    `cash_due = net_payable − advance_applied_total`: çiftçiye HÂLÂ nakit
-    ödenecek olan. Sütun açmak, iki sayının bir gün AYRIŞMASINA izin
+    `cash_due = net_payable − advance_applied_total`: çiftçiye hâlâ nakit
+    olarak ödenecek olan. Sütun açmak, iki sayının bir gün AYRIŞMASINA izin
     verirdi (biri güncellenir, öteki unutulur); türetilmiş hâli hep tutar.
     """
     mahsup = satir.get("advance_applied_total") or 0
@@ -588,7 +588,7 @@ def issue_producer_receipt(
         # D2 KANCASI — AYNI İŞLEMİN İÇİNDE, `issued` YAZILDIKTAN SONRA.
         # Vergi yükümlülüğü satırları ve avans mahsubu buradan doğar.
         # Ayrı bir işleme alınsaydı, numarası verilmiş ama stopajı
-        # defterde olmayan bir makbuz ARA HÂL olarak var olabilirdi.
+        # defterde olmayan bir makbuz ARA DURUM olarak var olabilirdi.
         makbuz_kesildi(db, cid, receipt_id, _makbuz_satiri(db, cid, receipt_id))
         db.commit()
     except HTTPException:
