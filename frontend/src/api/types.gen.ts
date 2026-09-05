@@ -1275,6 +1275,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/field-harvest-tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Harvest Tickets
+         * @description Bir hasadın kantar fişleri ve HASAT BAŞINA türetilmiş özet.
+         *
+         *     ``harvest_id`` ZORUNLU. Firma genelinde fiş listelemek bu dilimin işi
+         *     değil; zorunlu olması ayrıca sorguyu SABİT METİN tutuyor.
+         *
+         *     MEVCUT UÇLARIN HİÇBİRİ DEĞİŞMEDİ. `GET /api/field-harvests`,
+         *     `/api/field-dashboard` ve parsel zaman çizelgesi bu dilimden SONRA da
+         *     birebir aynı gövdeyi döndürüyor — türetilen bayraklar YALNIZ burada
+         *     görünür. Bu, "defter bugünküyle aynı" iddiasının okuma tarafındaki eşi.
+         */
+        get: operations["list_harvest_tickets_api_field_harvest_tickets_get"];
+        put?: never;
+        /**
+         * Create Harvest Ticket
+         * @description Kantar fişini ve kesintilerini TEK işlemde yazar.
+         *
+         *     OUTBOX OLAYI YAZILMIYOR — bilerek. Hasat olayı hasat yazılırken üretildi ve
+         *     tüketildi; buradan ikinci bir olay yazmak, aynı hasadı defterde İKİ KEZ
+         *     üretirdi.
+         *
+         *     Fiş ile kesintileri aynı işlemde: yarım bir fiş (kesintileri yazılmamış)
+         *     türetilen neti brüte EŞİT gösterirdi — sessiz ve yanlış bir cevap.
+         *
+         *     BİRİM ÇÖZÜMÜ HER SQL'DEN ÖNCE. `units.resolve` reddederse hiçbir satır
+         *     yazılmamış olur; red AİLE İÇİNDEDİR (`BirimCozulemedi`) ve 422'ye
+         *     çevrilir. Taban birim bildirilmemişse buradan bir varsayılan UYDURULMAZ —
+         *     `units.py`in sahip kararı 2 bunu açıkça reddediyor.
+         */
+        post: operations["create_harvest_ticket_api_field_harvest_tickets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/field-harvests": {
         parameters: {
             query?: never;
@@ -6381,6 +6425,74 @@ export interface components {
             /** Scope */
             scope: number;
         };
+        /**
+         * HarvestTicketDeductionWrite
+         * @description Kantar fişindeki TEK bir kalite kesintisi satırı.
+         *
+         *     ``label`` SERBEST METİN: kesinti adları alıcıdan alıcıya değişiyor ve bir
+         *     enum uydurmak kağıtta yazan adı kaybedip yerine bizim sınıflandırmamızı
+         *     koyardı (bkz. göç 0069).
+         *
+         *     ``rate_percent`` YÜZDEDİR, miktar değil. Miktar olarak girilseydi brütten
+         *     bağımsız olurdu ve brüt düzeltildiğinde net sessizce yanlış kalırdı.
+         *
+         *     SONLULUK: `ge=0, le=100` sınırları sonlu olmayan bir girdiyi (NaN, sNaN,
+         *     ±Infinity) Pydantic katmanında 422 yapıyor — ÖLÇÜLDÜ, varsayılmadı
+         *     (`tests/test_kantar_fisi_sonluluk.py`). Oranın da brüt kadar korunması
+         *     şart: sonsuz bir oran türetilen neti eksi sonsuza götürürdü.
+         */
+        HarvestTicketDeductionWrite: {
+            /** Label */
+            label: string;
+            /** Rate Percent */
+            rate_percent: number | string;
+        };
+        /**
+         * HarvestTicketWrite
+         * @description Kantar fişi — kağıtta ne yazıyorsa o.
+         *
+         *     ``derived_net_quantity`` BİLEREK YOK: net sunucuda brütten ve oranlardan
+         *     türetilir (aynı kural: ``ActivityInputWrite.total_cost``). İstemciden
+         *     alınsaydı, hesabın kaynağı istemci olurdu.
+         *
+         *     ``ticket_net_quantity`` İSTEMCİDEN GELİR ama TÜRETİME GİRMEZ — kağıdın
+         *     kendi neti bir TANIKTIR ve yalnız karşılaştırılır (``net_mismatch``).
+         *
+         *     ``base_quantity`` ve ``entered_factor`` DA İSTEMCİDEN ALINMAZ: ikisini de
+         *     ``app/units.py``in ``resolve``ı üretir. İstemcinin gönderdiği bir katsayı,
+         *     "o gün neye inanıldığının kanıtı" olmaktan çıkıp istemcinin iddiası
+         *     olurdu.
+         *
+         *     ``operation_id`` YOK — bu şema ``_KuyrukKimligi``den TÜREMİYOR ve bu bir
+         *     karar: yeni bir kuyruk türü ``ck_farm_operations_kind`` CHECK'ini yeniden
+         *     yazmayı gerektirirdi ve kantar fişi SAHA değil DEPO yolundan girilir.
+         *     Tekrar koruması kağıdın kendi kimliğinden geliyor:
+         *     ``UNIQUE(company_id, harvest_id, ticket_no)``. Numarasız fiş iki kez
+         *     girilebilir; bedel göç 0069 başlığında adı konmuş hâliyle kabul
+         *     edilmiştir.
+         */
+        HarvestTicketWrite: {
+            /** Buyer Name */
+            buyer_name?: string | null;
+            /** Deductions */
+            deductions?: components["schemas"]["HarvestTicketDeductionWrite"][];
+            /** Entered Unit */
+            entered_unit: string;
+            /** Gross Entered Quantity */
+            gross_entered_quantity: number | string;
+            /** Harvest Id */
+            harvest_id: number;
+            /** Notes */
+            notes?: string | null;
+            /** Plate */
+            plate?: string | null;
+            /** Ticket Net Quantity */
+            ticket_net_quantity?: number | string | null;
+            /** Ticket No */
+            ticket_no?: string | null;
+            /** Weighed At */
+            weighed_at?: string | null;
+        };
         /** HarvestWrite */
         HarvestWrite: {
             /** Harvested Area Decare */
@@ -7548,6 +7660,8 @@ export interface components {
             alternative_oem?: string | null;
             /** Barcode */
             barcode?: string | null;
+            /** Base Unit */
+            base_unit?: string | null;
             /** Brand */
             brand?: string | null;
             /** Category */
@@ -7643,6 +7757,8 @@ export interface components {
             alternative_oem?: string | null;
             /** Barcode */
             barcode?: string | null;
+            /** Base Unit */
+            base_unit?: string | null;
             /** Brand */
             brand?: string | null;
             /** Category */
@@ -11755,6 +11871,70 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_harvest_tickets_api_field_harvest_tickets_get: {
+        parameters: {
+            query: {
+                harvest_id: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_harvest_ticket_api_field_harvest_tickets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HarvestTicketWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -19,6 +19,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .units import turkce_katla
+
 # Sahadaki `field.py` ile birebir aynı biçim — bkz. `_KuyrukKimligi`.
 _OPERATION_ID = re.compile(r"[A-Za-z0-9_-]{8,64}")
 
@@ -317,6 +319,135 @@ class HarvestWrite(_KuyrukKimligi):
     @classmethod
     def birim(cls, value: str) -> str:
         return _metin(value)
+
+
+class HarvestTicketDeductionWrite(_Taban):
+    """Kantar fişindeki TEK bir kalite kesintisi satırı.
+
+    ``label`` SERBEST METİN: kesinti adları alıcıdan alıcıya değişiyor ve bir
+    enum uydurmak kağıtta yazan adı kaybedip yerine bizim sınıflandırmamızı
+    koyardı (bkz. göç 0069).
+
+    ``rate_percent`` YÜZDEDİR, miktar değil. Miktar olarak girilseydi brütten
+    bağımsız olurdu ve brüt düzeltildiğinde net sessizce yanlış kalırdı.
+
+    SONLULUK: `ge=0, le=100` sınırları sonlu olmayan bir girdiyi (NaN, sNaN,
+    ±Infinity) Pydantic katmanında 422 yapıyor — ÖLÇÜLDÜ, varsayılmadı
+    (`tests/test_kantar_fisi_sonluluk.py`). Oranın da brüt kadar korunması
+    şart: sonsuz bir oran türetilen neti eksi sonsuza götürürdü.
+    """
+
+    label: str = Field(min_length=1, max_length=120)
+    rate_percent: Decimal = Field(ge=0, le=100)
+
+    @field_validator("label")
+    @classmethod
+    def etiket(cls, value: str) -> str:
+        return _metin(value)
+
+
+class HarvestTicketWrite(_Taban):
+    """Kantar fişi — kağıtta ne yazıyorsa o.
+
+    ``derived_net_quantity`` BİLEREK YOK: net sunucuda brütten ve oranlardan
+    türetilir (aynı kural: ``ActivityInputWrite.total_cost``). İstemciden
+    alınsaydı, hesabın kaynağı istemci olurdu.
+
+    ``ticket_net_quantity`` İSTEMCİDEN GELİR ama TÜRETİME GİRMEZ — kağıdın
+    kendi neti bir TANIKTIR ve yalnız karşılaştırılır (``net_mismatch``).
+
+    ``base_quantity`` ve ``entered_factor`` DA İSTEMCİDEN ALINMAZ: ikisini de
+    ``app/units.py``in ``resolve``ı üretir. İstemcinin gönderdiği bir katsayı,
+    "o gün neye inanıldığının kanıtı" olmaktan çıkıp istemcinin iddiası
+    olurdu.
+
+    ``operation_id`` YOK — bu şema ``_KuyrukKimligi``den TÜREMİYOR ve bu bir
+    karar: yeni bir kuyruk türü ``ck_farm_operations_kind`` CHECK'ini yeniden
+    yazmayı gerektirirdi ve kantar fişi SAHA değil DEPO yolundan girilir.
+    Tekrar koruması kağıdın kendi kimliğinden geliyor:
+    ``UNIQUE(company_id, harvest_id, ticket_no)``. Numarasız fiş iki kez
+    girilebilir; bedel göç 0069 başlığında adı konmuş hâliyle kabul
+    edilmiştir.
+    """
+
+    harvest_id: int = Field(gt=0)
+    # KALİTE KESİNTİLERİNDEN ÖNCEKİ ÜRÜN AĞIRLIĞI — araç+yük DEĞİL.
+    # Bkz. göç 0069 başlığı: karıştırılması hata değil CEVAP üretir.
+    #
+    # `gt=0, le=MAX_MIKTAR` sınırları AYRICA sonluluk kapısıdır ve bu
+    # ÖLÇÜLDÜ: Pydantic 2.13.5 bu sınırlarla "NaN"/"sNaN"/"Infinity"/
+    # "-Infinity" girdilerinin DÖRDÜNÜ DE 422 yapıyor. Koruma kırılgandır
+    # (bkz. `tests/test_kantar_fisi_sonluluk.py`): `_Taban`a
+    # `allow_inf_nan=True` konsa "Infinity" `gt=0`ı GEÇERDİ. İkinci katman
+    # `units.resolve`un kendi sonluluk kapısıdır.
+    gross_entered_quantity: Decimal = Field(gt=0, le=MAX_MIKTAR)
+    # GİRİLEN BİRİM — 0066'nın sözlüğü. Fişin miktarı hasadın biriminde
+    # OLMAK ZORUNDA DEĞİL: kantar tonla tartar, hasat kilo tutulabilir.
+    entered_unit: str = Field(min_length=1, max_length=40)
+    ticket_net_quantity: Decimal | None = Field(default=None, ge=0, le=MAX_MIKTAR)
+    ticket_no: str | None = Field(default=None, max_length=60)
+    buyer_name: str | None = Field(default=None, max_length=180)
+    plate: str | None = Field(default=None, max_length=20)
+    weighed_at: datetime | None = None
+    notes: str | None = None
+    # Fiş ve kesintileri TEK istekte gelir: "toplam oran <= 100" SATIRLAR ARASI
+    # bir kuraldır ve ancak hepsi bir aradayken doğrulanabilir. Kesintileri
+    # tek tek ekleyen bir uç, aradaki her anda YARIM bir fiş bırakırdı.
+    deductions: list[HarvestTicketDeductionWrite] = Field(
+        default_factory=list, max_length=20
+    )
+
+    @field_validator("entered_unit")
+    @classmethod
+    def girilen_birim(cls, value: str) -> str:
+        """KANONİK biçimde saklanır: "Ton"/"ton"/"TON" TEK değerdir.
+
+        Sahip kararı (kantar fişi v2 incelemesi): ham dizgi HİÇBİR yerde
+        tutulmaz. `products.base_unit` ile AYNI katlama (`units.turkce_katla`)
+        ki iki sütun aynı birimi iki biçimde yazmasın; çözücü zaten katlanmış
+        biçimi arar, katlamayı buraya taşımak yalnız SAKLANAN değeri de o
+        biçime bağlar. Ölçüldü: katlama kaldırılınca
+        `tests/test_kantar_fisi_sozlesme.py` senaryo 5 kırmızı ("Ton" olduğu
+        gibi geri okunur).
+        """
+        return turkce_katla(_metin(value))
+
+    @field_validator("ticket_no", "buyer_name", "plate")
+    @classmethod
+    def serbest_metin(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        temiz = " ".join(value.split())
+        # Boş metin ile "girilmemiş" AYNI ŞEY DEĞİL — ama boş bir dizgi de
+        # bilgi taşımıyor. Boşluktan ibaret girdi None'a düşer ki
+        # `ticket_no` tekilliği bir boşluk karakterine bağlanmasın.
+        return temiz or None
+
+    @field_validator("plate")
+    @classmethod
+    def plaka(cls, value: str | None) -> str | None:
+        return None if value is None else value.upper()
+
+    @model_validator(mode="after")
+    def kesinti_toplami(self) -> "HarvestTicketWrite":
+        """Kesinti toplamı %100'ü AŞAMAZ.
+
+        Aşsaydı türetilen net NEGATİF olurdu. Negatif bir neti KIRPMAK (0'a
+        çekmek) daha kötü olurdu: kırpma, veri girişi hatasını sessizce
+        "sıfır ürün geldi" diye kaydeder.
+
+        Etiketler de benzersiz olmalı: kağıtta aynı kesinti iki satırda
+        yazmaz ve yazıyorsa hangisinin geçerli olduğu BİLİNMEZ.
+        """
+        toplam = sum((k.rate_percent for k in self.deductions), Decimal("0"))
+        if toplam > 100:
+            raise ValueError(
+                f"Kesinti oranlarının toplamı %100'ü aşamaz (gelen: %{toplam})"
+            )
+        etiketler = [k.label.casefold() for k in self.deductions]
+        if len(set(etiketler)) != len(etiketler):
+            raise ValueError("Aynı kesinti adı bir fişte iki kez yazılamaz")
+        return self
 
 
 class TaskWrite(_Taban):

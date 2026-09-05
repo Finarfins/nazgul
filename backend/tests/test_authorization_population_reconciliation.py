@@ -121,9 +121,20 @@ from app.main import PUBLIC_API, app  # noqa: E402
 #   * bu yüzden EXPECTED_UNDENIABLE 99'da ve ÇIPLAK read 67'de SABİT
 # Bu üç sabitten biri kımıldasaydı, niyet edilmemiş bir OKUMA yüzeyi
 # eklendiği anlamına gelirdi.
-EXPECTED_AUTHENTICATED = 337
+# 337 -> 339 ve 99 -> 100: kantar fişi v2 (göç 20260904_0069), GET ve POST
+# /api/field-harvest-tickets. TABAN DEVELOP'UN 337'SİDİR (PR #43 indikten
+# sonra) ve bu satır o tabanda ÖLÇÜLDÜ. Hangi sayaç NİYE kımıldadı:
+#   * KİMLİKLENMİŞ +2: iki işlem de kimlik ister.
+#   * `read` 93'te SABİT: ikisi de middleware'de `read`e DEĞİL, `/api/field-
+#     harvest-tickets` öneki üzerinden `farm.view`/`farm.manage`e çözülüyor.
+#   * UNDENIABLE +1: GET `farm.view` ister ve sevk edilen altı rolün altısı da
+#     `farm.view` taşıdığı için BUGÜN TANIMLI HİÇBİR ROLÜ REDDEDEMEZ — hasat
+#     listesiyle aynı sınıf; bu yüzden FARM_HERD_VIEW_OPERATIONS'a girer.
+#     POST `farm.manage` ister, reddedilebilir, UNDENIABLE'a GİRMEZ.
+#   * ÇIPLAK read farkı (67) kımıldamadı: yeni bir çıplak okuma yüzeyi YOK.
+EXPECTED_AUTHENTICATED = 339
 EXPECTED_READ = 93
-EXPECTED_UNDENIABLE = 99
+EXPECTED_UNDENIABLE = 100
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
 #: sonra kendi kapılarına takılırlar. 89'a dahil, 94'e DEĞİL.
@@ -185,6 +196,9 @@ FARM_HERD_VIEW_OPERATIONS = {
     ("GET", "/api/field-dashboard"),
     ("GET", "/api/field-harvest-decision"),
     ("GET", "/api/field-harvests"),
+    # Kantar fişi listesi (göç 20260904_0069): hasat listesiyle AYNI role
+    # bağlı okuma; `farm.view` bugün altı rolde de var, yani reddedemez.
+    ("GET", "/api/field-harvest-tickets"),
     ("GET", "/api/field-integration-events"),
     ("GET", "/api/field-integration-events/summary"),
     ("GET", "/api/field-safety"),
@@ -403,7 +417,9 @@ def test_farm_and_herd_view_membership_not_just_magnitude() -> None:
     # 28 -> 30: outbox okuma yüzeyinin iki ucu (bkz. SAYAÇ HAREKETİ notu).
     # 30 -> 32: BKÜ kataloğunun iki OKUMA ucu (göç 20260901_0063). Yazma
     # uçları (POST/PUT) bu kümede DEĞİL — onlar `farm.manage` istiyor.
-    assert len(farm_herd) == 32
+    # 32 -> 33: GET /api/field-harvest-tickets (kantar fişi v2, göç
+    # 20260904_0069) — hasat listesiyle aynı role bağlı, reddedilemez okuma.
+    assert len(farm_herd) == 33
 
 
 def test_eightynine_partitions_into_sixtysix_and_twentythree() -> None:

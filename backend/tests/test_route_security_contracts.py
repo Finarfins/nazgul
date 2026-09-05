@@ -237,8 +237,14 @@ DYNAMIC_PERMISSION_CASES = {
     },
 }
 
-EXPECTED_OPERATION_COUNT = 347
-EXPECTED_PATH_COUNT = 268
+# 347/268 -> 349/269 (kantar fişi v2, göç 20260904_0069): TEK yol, İKİ işlem —
+# GET ve POST /api/field-harvest-tickets. İzin `_FARM_PATH_PREFIXES`ten gelir
+# (GET farm.view, POST farm.manage); yol `/api/field-harvests` ile
+# BAŞLAMADIĞI için öneke ayrıca yazıldı, yazılmasaydı `field_service`e düşerdi
+# (ölçüldü: önek silinince `test_every_farm_endpoint_is_covered_by_the_farm_
+# permission_prefixes` kırmızı). Başka hiçbir ucun sözleşmesi değişmedi.
+EXPECTED_OPERATION_COUNT = 349
+EXPECTED_PATH_COUNT = 269
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -332,7 +338,10 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # TABAN DEVELOP'UN 346/267'SİDİR (PR #22 indikten sonra): 346 -> 347 işlem,
     # 267 -> 268 yol. Önceki turdaki 344 -> 345 / 265 -> 266 ölçümü, tabanı
     # değiştiği anda GEÇERSİZ oldu; bu satırlar yeniden ÖLÇÜLDÜ.
-    "45a56fbd314bb19aa314cec70d5fdead5dee73e0410435c98fb8c4911c4b2827"
+    # 20260905 kantar fişi v2 (göç 20260904_0069): GET/POST
+    # /api/field-harvest-tickets eklendi (farm.view / farm.manage, öneke
+    # yazılarak). Parmak izi 45a56fbd -> adb27fb5; başka sözleşme değişmedi.
+    "adb27fb57b3d1aa740364b8ae5ee62d004cc69d241aee22e5eb672cb081834c8"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

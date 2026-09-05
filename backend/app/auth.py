@@ -734,6 +734,13 @@ _FARM_PATH_PREFIXES = (
     "/api/field-activities",
     "/api/field-harvest-decision",
     "/api/field-harvests",
+    # Kantar fişi (göç 20260904_0069). "/api/field-harvest-tickets" öneki
+    # "/api/field-harvests" ile EŞLEŞMEZ ("...harvests" ile "...harvest-t"
+    # daha 's'/'t' harfinde ayrılıyor), yani listede olmasaydı yukarıdaki
+    # DİKKAT notunun anlattığı yola düşer ve SESSİZCE `field_service` iznine
+    # inerdi: fişi saha kullanıcısı yazabilirdi. Okuması `farm.view`,
+    # yazması `farm.manage`.
+    "/api/field-harvest-tickets",
     "/api/field-tasks",
     "/api/field-dashboard",
     # DİKKAT: buraya eklenmeyen her `/api/field-...` ucu SESSİZCE

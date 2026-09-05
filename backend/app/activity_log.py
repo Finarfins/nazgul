@@ -77,6 +77,12 @@ ACTION_TYPES: dict[str, str] = {
     "return.create": "İade oluşturma",
     # Fiyatlandırma
     "product.bulk_price_update": "Toplu fiyat güncelleme",
+    # Taban birim (sütun göç 20260902_0066, yazma yolu kantar fişi v2):
+    # bütün gelecek birim çözümlerinin kaynağı sessizce değişemez; eski ve
+    # yeni değer `details`ta durur. Kataloğa GİRMEDEN çağrılamaz — ilk yazım
+    # "UPDATE" ile çağırıyordu ve uç 4xx veriyordu (ÖLÇÜLDÜ,
+    # `tests/test_kantar_fisi_sozlesme.py` BACAK 1/2 ile).
+    "product.base_unit_update": "Ürün taban birimi güncelleme",
     # Stok
     "stock.adjust": "Stok düzeltme",
     "stock.transfer": "Stok transferi",

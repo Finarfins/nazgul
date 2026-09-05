@@ -127,16 +127,29 @@ karşılaştırma Türkçe katlanmak ZORUNDA:
     "litre".upper() -> "LITRE"    ama Türkçe "LİTRE" ister
     "i".upper()     -> "I"        ama Türkçe "İ" ister
 
-DİKKAT — BU KATLAMANIN İKİNCİ BİR KOPYASI VARDIR VE BU DURUM GEÇİCİDİR.
-`claude/bitki-esitligi-tr` dalı (`f1e8ca4`, PR #25) AYNI katlamayı
-`_bitki_esit` için kuruyor. O dal bu iş başlarken `origin/develop`e
-BİRLEŞMEMİŞTİ (ölçüldü: `git log --oneline origin/develop | grep -i bitki`
-BOŞ döndü), bu yüzden burada en küçük doğru katlama yazıldı.
+DİKKAT — BU KATLAMANIN BİR KARDEŞİ VARDIR VE İKİSİ BİLEREK AYRIDIR.
+`claude/bitki-esitligi-tr` dalı (`f1e8ca4`, PR #25) `_bitki_katla`yı
+`routers/farm.py`de kurdu ve o dal `origin/develop`e BİRLEŞTİ (ölçüldü:
+`caf4114`, "Merge pull request #25"). Bu dosyanın ilk hâli "o dal indiğinde
+bu kopya silinir, ortak olan çağrılır" diyordu. ÖLÇÜLDÜ VE YANLIŞ ÇIKTI:
+iki katlama AYNI DENKLİĞİ ÜRETMİYOR, dolayısıyla BİRLEŞTİRİLEMEZ.
 
-O dal indiğinde BU KOPYA SİLİNMELİ ve ortak olan çağrılmalıdır. Gerekçe
-tarihseldir ve bu deponun KENDİ hatasıdır: İ/ı katlaması üç katmanda
-BİRBİRİNDEN AYRIŞTI ve ayrışmanın başlangıcı tam olarak "ikinci bir kopya"
-idi.
+  * Bu fonksiyon YUKARI katlar (`.replace("i", "İ")` + `.upper()`):
+    KAPALI bir kümedeki BİRİM KODU aramasıdır, sözleşmesi kanonik BÜYÜK
+    biçimdir.
+  * `_bitki_katla` AŞAĞI katlar (`.lower()`, `I`+U+0307 ve `İ` özel
+    işlemiyle): SERBEST METİN bitki adı EŞİTLİĞİDİR, sözleşmesi ön yüzün
+    `toLocaleLowerCase('tr')`ıyla İKİZ kalmaktır.
+  * Ayrıştıkları iki çift ölçüldü (bkz. `routers/farm.py`, `_bitki_katla`
+    üstündeki yorum): "Weißkohl"/"weisskohl" YUKARIDA eşit, AŞAĞIDA değil
+    (`.upper()` ß'yi "SS"e açar); "I"+U+0307+"stanbul"/"İstanbul" AŞAĞIDA
+    eşit, YUKARIDA değil. "İncir"/"incir" gibi örtüşen çiftlere bakıp
+    "aynılar" demek MÜMKÜN ve YANLIŞTIR.
+
+Birini diğerine çağırtmak ya da ortak bir yardımcıda toplamak DAVRANIŞ
+DEĞİŞİKLİĞİDİR ve kendi PR'ını, kendi kayıp analizini gerektirir. Tarihsel
+gerekçe yine geçerli — İ/ı katlaması bu depoda üç katmanda AYRIŞMIŞTI — ama
+çare "tek kopya" değil, "iki kopyanın FARKI adıyla ve ölçümüyle kayıtlı".
 """
 from __future__ import annotations
 
@@ -238,8 +251,10 @@ class UrunTemsilEdilemez(BirimCozulemedi):
 def turkce_katla(metin: str) -> str:
     """Türkçe büyütme: `i -> İ`, `ı -> I`, gerisi standart.
 
-    GEÇİCİ KOPYA — bkz. başlıktaki "TÜRKÇE KATLAMA" bölümü. `f1e8ca4`
-    indiğinde bu fonksiyon SİLİNİR ve ortak olan çağrılır.
+    KARDEŞİ VAR, BİRLEŞTİRİLMEZ — bkz. başlıktaki "TÜRKÇE KATLAMA" bölümü.
+    `f1e8ca4` (PR #25) `origin/develop`e İNDİ ve ölçüm "ortak olan
+    çağrılır" planını çürüttü: `routers/farm.py`deki `_bitki_katla` AŞAĞI
+    katlar ve iki katlama aynı denkliği üretmiyor. Bu fonksiyon KALIR.
 
     `"ı".upper()` zaten `"I"` verdiği için tek düzeltilmesi gereken `i`dir;
     değişim `.upper()`tan ÖNCE yapılır, çünkü sonra yapılsaydı `i` çoktan
