@@ -73,3 +73,19 @@ geçerli kalan iki ölçülmüş gerçektir.
   yeniden kuyruklama yolunun ise seçeceği bir işaret yoktur. Bu sınıfın tek
   izi süreç günlüğündeki `logger.exception` satırları ve döngü kova
   sayacıdır.
+- **KUYRUKTA ARTIK KANTAR FİŞİ OLAYLARI DA VAR (C2).** `POST
+  /api/field-harvest-tickets` her fiş için TAM BİR olay yazıyor (kaynak tipi
+  `field_harvest_ticket`, anahtar `field_harvest_ticket:<fiş id>:stock`).
+  Anahtar kapalıyken bunlar da `PENDING` birikiyor, yani yukarıdaki birikim
+  ölçümü artık iki değil ÜÇ kaynak tipini kapsıyor. Fiş olayının tüketimi bir
+  MİKTAR değil bir FARK yazar (`Σ fiş netleri − hasadın taban miktarı −
+  o hasat için daha önce yazılmış fiş düzeltmeleri`); farkı sıfır çıkan olay
+  `SENT` biter ve HİÇBİR SATIR yazmaz.
+- **YENİ TERMİNAL KOVA: `SKIPPED_TABAN_BILDIRILMEMIS` (C2).** Ürünü belli ama
+  `products.base_unit`i bildirilmemiş olay bu kovaya düşer ve SAYILIR; çaresi
+  ürün kartıdır (`PUT /api/products/{id}`). C2 aynı çeviriyi `field_harvest`
+  yoluna da uyguladı — o yol miktarı daha önce HAM yazıyordu ve `unit="ton"`
+  giren bir hasat için bu 1000× bir sapma demekti. Anahtar üretimde hiç
+  açılmadığı için CANLI VERİ YOKTUR ve geriye dönük düzeltilecek bir hareket
+  de yoktur; açmadan önce `SELECT count(*) FROM products WHERE company_id = ?
+  AND base_unit IS NULL` ile kaç ürünün bu kovaya düşeceğini ölç.

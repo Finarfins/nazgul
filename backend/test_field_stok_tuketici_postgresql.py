@@ -1520,8 +1520,9 @@ with SessionLocal() as db:
     assert depo is not None, 'KURULUM: aktif depo yok'
     db.execute(_sql(
         "INSERT INTO products (id,name,purchase_price,sale_price,vat_rate,"
-        "stock,unit,price_per,active,critical_stock,minimum_stock,company_id) "
-        "VALUES (960301,'A Bugdayi',0,0,0,'0.0000','kg','unit',true,0,0,1)"))
+        "stock,unit,price_per,active,critical_stock,minimum_stock,company_id,"
+        "base_unit) "
+        "VALUES (960301,'A Bugdayi',0,0,0,'0.0000','kg','unit',true,0,0,1,'KG')"))
     db.execute(_sql(
         "INSERT INTO warehouse_stocks (company_id,warehouse_id,product_id,"
         "quantity,critical_stock,reserved_quantity) "
@@ -1640,3 +1641,198 @@ def test_hasat_URUNSUZ_sezonda_PG_de_SKIPPED_NO_PRODUCT_kovasina_dusuyor() -> No
         "Ürünsüz hasat için envanter OYNAMIŞ: ürün uydurulmuş olabilir. "
         f"çıktı={cikti!r}"
     )
+
+
+# --- MERCEK: İKİ FİŞ OLAYI, AYNI HASAT, READ COMMITTED, zaten=0 --------------
+#
+# ÖLÇÜLEN KUSUR: iki fiş olayı aynı hasat için eşzamanlı işlendiğinde ikisi
+# de `_zaten_duzeltilmis`i 0 okudu ve 25/25 koşum +2400 yazdı; doğru fark
+# +1200 idi. Olay talebi (`_talep_et`) OLAYI serileştirir, HASADI değil —
+# iki ayrı PENDING olay, iki ayrı talep kazanır, tek hasat, tek `zaten`.
+#
+# Aritmetik (C2 senaryo 2+3, ikisi de ORTADA iken):
+#   hasat 1000 KG; fiş 2 TON %10+%5 net 1700; fiş 500 KG %0 net 500
+#   Σ net = 2200; delta = 2200 − 1000 − zaten
+#   sıralı: birinci +1200, ikinci 0  → Σ düzeltme 1200
+#   yarış (zaten=0, zaten=0): +1200 ve +1200 → Σ 2400
+#
+# SQLite'ta bu yarış OLUŞAMAZ (tek yazar). İkizin varlık sebebi budur.
+#
+# İŞÇİ BAŞINA BİR OLAY: her süreç `_bir_olayi_isle` ile KENDİ fişini yer;
+# `olaylari_isle` bir işçinin ikisini de sırayla yemesine izin verirdi ve
+# yarış HİÇ oluşmadan yeşil kalırdı. Bariyer + ×10, kilidin yokluğunda
+# kırmızının GÖRÜNMESİ içindir (mutasyon: FOR UPDATE düşür → PG kırmızı).
+_ASIRI_KURULUM = r'''
+import os, sys
+sys.path.insert(0, os.environ["BACKEND"])
+from sqlalchemy import text as _sql
+from app.db import SessionLocal
+import app.main
+Z = '2026-08-01T00:00:00'
+with SessionLocal() as db:
+    db.execute(_sql("DELETE FROM stock_movements WHERE company_id=1 AND "
+                    "product_id=961301"))
+    db.execute(_sql("DELETE FROM field_integration_events WHERE id IN "
+                    "(961701,961702)"))
+    db.execute(_sql("DELETE FROM field_harvest_ticket_deductions WHERE "
+                    "ticket_id IN (961601,961602)"))
+    db.execute(_sql("DELETE FROM field_harvest_tickets WHERE id IN "
+                    "(961601,961602)"))
+    db.execute(_sql("DELETE FROM field_harvests WHERE id=961401"))
+    db.execute(_sql("DELETE FROM crop_seasons WHERE id=961201"))
+    db.execute(_sql("DELETE FROM farm_parcels WHERE id=961101"))
+    db.execute(_sql("DELETE FROM farms WHERE id=961101"))
+    db.execute(_sql("DELETE FROM warehouse_stocks WHERE product_id=961301"))
+    db.execute(_sql("DELETE FROM products WHERE id=961301"))
+    depo = db.execute(_sql(
+        "SELECT id FROM warehouses WHERE company_id=1 AND is_active "
+        "ORDER BY is_default DESC, id")).scalars().first()
+    assert depo is not None, 'KURULUM: aktif depo yok'
+    db.execute(_sql(
+        "INSERT INTO products (id,name,purchase_price,sale_price,vat_rate,"
+        "stock,unit,price_per,active,critical_stock,minimum_stock,company_id,"
+        "base_unit) VALUES (961301,'Asiri Bugday',0,0,0,'0.0000','kg',"
+        "'unit',true,0,0,1,'KG')"))
+    db.execute(_sql(
+        "INSERT INTO warehouse_stocks (company_id,warehouse_id,product_id,"
+        "quantity,critical_stock,reserved_quantity) "
+        "VALUES (1,:w,961301,'0.0000',0,0)"), {"w": depo})
+    db.execute(_sql(
+        "INSERT INTO farms (id,company_id,code,name,status,created_at,"
+        "updated_at) VALUES (961101,1,'f961101','Asiri Ciftlik','ACTIVE',"
+        ":z,:z)"), {"z": Z})
+    db.execute(_sql(
+        "INSERT INTO farm_parcels (id,company_id,farm_id,code,name,"
+        "area_decare,status,created_at,updated_at) VALUES (961101,1,961101,"
+        "'p961101','Asiri Parsel','40.0000','ACTIVE',:z,:z)"), {"z": Z})
+    db.execute(_sql(
+        "INSERT INTO crop_seasons (id,company_id,parcel_id,season_year,crop,"
+        "product_id,status,created_at,updated_at) VALUES (961201,1,961101,"
+        "2026,'Bugday',961301,'ACTIVE',:z,:z)"), {"z": Z})
+    db.execute(_sql(
+        "INSERT INTO field_harvests (id,company_id,season_id,harvested_on,"
+        "quantity,unit,status,created_at,updated_at) VALUES (961401,1,961201,"
+        "'2026-08-15','1000.0000','kg','RECORDED',:z,:z)"), {"z": Z})
+    db.execute(_sql(
+        "INSERT INTO field_harvest_tickets (id,company_id,harvest_id,"
+        "ticket_no,gross_entered_quantity,entered_unit,entered_factor,"
+        "base_quantity,created_at,updated_at) VALUES (961601,1,961401,'ASIRI-1',"
+        "'2.0000','TON','1000.0000000000','2000.0000',:z,:z)"), {"z": Z})
+    db.execute(_sql(
+        "INSERT INTO field_harvest_tickets (id,company_id,harvest_id,"
+        "ticket_no,gross_entered_quantity,entered_unit,entered_factor,"
+        "base_quantity,created_at,updated_at) VALUES (961602,1,961401,'ASIRI-2',"
+        "'500.0000','KG','1.0000000000','500.0000',:z,:z)"), {"z": Z})
+    db.execute(_sql(
+        "INSERT INTO field_harvest_ticket_deductions (company_id,ticket_id,"
+        "label,rate_percent,created_at,updated_at) VALUES "
+        "(1,961601,'rutubet','10.0000',:z,:z),"
+        "(1,961601,'yabanci','5.0000',:z,:z)"), {"z": Z})
+    for oid, tid in ((961701, 961601), (961702, 961602)):
+        db.execute(_sql(
+            "INSERT INTO field_integration_events (id,company_id,source_type,"
+            "source_id,target,idempotency_key,status,attempts,created_at,"
+            "updated_at) VALUES (:i,1,'field_harvest_ticket',:t,'stock',:k,"
+            "'PENDING',0,:z,:z)"),
+            {"i": oid, "t": tid, "k": "field_harvest_ticket:%d:stock" % tid,
+             "z": Z})
+    db.commit()
+print("ASIRI-KURULUM-TAMAM")
+'''
+
+_ASIRI_ISCI = r'''
+import os, sys, time
+sys.path.insert(0, os.environ["BACKEND"])
+from sqlalchemy import text as _sql
+from app.db import SessionLocal
+from app.field_stok_tuketici import AZAMI_DENEME, _bir_olayi_isle
+hedef = float(os.environ["BASLA"])
+olay_id = int(os.environ["OLAY"])
+while time.time() < hedef:
+    time.sleep(0.001)
+with SessionLocal() as db:
+    olay = db.execute(_sql(
+        "SELECT id, company_id, source_type, source_id, attempts "
+        "FROM field_integration_events WHERE id=:i AND company_id=1"
+    ), {"i": olay_id}).mappings().one()
+    print("KOVA %s OLAY %d" % (_bir_olayi_isle(db, 1, olay, AZAMI_DENEME), olay_id))
+'''
+
+_ASIRI_RAPOR = r'''
+import os, sys
+from decimal import Decimal
+sys.path.insert(0, os.environ["BACKEND"])
+from sqlalchemy import text as _sql
+from app.db import SessionLocal
+with SessionLocal() as db:
+    toplam = db.execute(_sql(
+        "SELECT COALESCE(SUM(m.quantity), 0) FROM stock_movements m "
+        "JOIN field_integration_events e ON e.id=m.reference_id "
+        " AND e.company_id=m.company_id "
+        "WHERE m.company_id=1 AND m.reference_type='field_integration_event' "
+        "  AND e.source_type='field_harvest_ticket' "
+        "  AND e.id IN (961701,961702)")).scalar_one()
+    satir = db.execute(_sql(
+        "SELECT COUNT(*) FROM stock_movements m "
+        "JOIN field_integration_events e ON e.id=m.reference_id "
+        " AND e.company_id=m.company_id "
+        "WHERE m.company_id=1 AND m.reference_type='field_integration_event' "
+        "  AND e.source_type='field_harvest_ticket' "
+        "  AND e.id IN (961701,961702)")).scalar_one()
+    d1 = db.execute(_sql(
+        "SELECT status FROM field_integration_events WHERE id=961701"
+    )).scalar_one()
+    d2 = db.execute(_sql(
+        "SELECT status FROM field_integration_events WHERE id=961702"
+    )).scalar_one()
+print("DUZELTME %s SATIR %d DURUM %s %s" % (
+    format(Decimal(str(toplam)), ".4f"), satir, d1, d2))
+'''
+
+
+def test_mercek_iki_fis_olayi_ayni_hasatta_eszamanli_zaten_0_ASIRI_DUZELTME_yazmiyor() -> None:
+    """Mercek: iki fiş, aynı hasat, zaten=0 → Σ düzeltme 1200, 2400 değil.
+
+    25/25 koşumda kilitsiz her iki işçi +1200 yazdı. Hasat satırı FOR UPDATE
+    ile kilitlenince ikinci `zaten`'i görür; ×10 her seferinde doğru delta.
+    """
+    import time
+
+    for kosum in range(10):
+        # İlk koşum göç/tohum için `app.main` yükler; sonrakiler aynı şemaya
+        # yazar. 10× import, 30 dk'lık PG shard bütçesini şişirirdi.
+        kaynak = _ASIRI_KURULUM if kosum == 0 else _ASIRI_KURULUM.replace(
+            "import app.main\n", "", 1
+        )
+        assert "ASIRI-KURULUM-TAMAM" in _kos(kaynak), kosum
+        basla = str(time.time() + 2.0)
+        surecler = [
+            subprocess.Popen(
+                [sys.executable, "-c", _ASIRI_ISCI], cwd=BACKEND,
+                env=_ortam({"BASLA": basla, "OLAY": str(olay_id)}),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding="utf-8", errors="replace",
+            )
+            for olay_id in (961701, 961702)
+        ]
+        ciktilar = []
+        for surec in surecler:
+            cikti, hata = surec.communicate(timeout=600)
+            assert surec.returncode == 0, (
+                "kosum=%d cikti=%r hata=%r" % (kosum, cikti, hata)
+            )
+            ciktilar.append(cikti.strip())
+        rapor = _kos(_ASIRI_RAPOR).strip()
+        assert "DURUM SENT SENT" in rapor, (
+            "İki fiş olayı da SENT bitmeli. kosum=%d rapor=%r surecler=%r"
+            % (kosum, rapor, ciktilar)
+        )
+        assert "DUZELTME 1200.0000 " in rapor, (
+            "ASIRI DÜZELTME: Σ düzeltme doğru delta (+1200) değil. Kilitsiz "
+            "mercek 25/25 +2400 yazdı (ikisi de zaten=0). kosum=%d rapor=%r "
+            "surecler=%r" % (kosum, rapor, ciktilar)
+        )
+        assert all("KOVA SENT" in c for c in ciktilar), (
+            "Her işçi kendi olayını SENT bitirmeli. kosum=%d surecler=%r rapor=%r"
+            % (kosum, ciktilar, rapor)
+        )

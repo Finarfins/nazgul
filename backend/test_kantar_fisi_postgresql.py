@@ -371,8 +371,12 @@ def test_NUMARASIZ_fis_IKI_KEZ_girilebilir_NULL_CAKISMAZ(motor) -> None:
 def _smoke(dosya: str, ad: str):
     import importlib.util
 
+    # `dosya` ARTIK TAM AD. Önce `test_kantar_fisi_{dosya}` kalıbıydı; C2'nin
+    # dosyası (`test_kantar_neti_stoga.py`) kalıba uymuyor ve kalıbı zorlamak
+    # dosyayı yanlış ada göre yeniden adlandırmak olurdu. Tam ad geçmek,
+    # kalıbın taşıdığı tek bilgiyi (dizin) koruyup kısıtını kaldırıyor.
     spec = importlib.util.spec_from_file_location(
-        f"kantar_{dosya}", BACKEND / "tests" / f"test_kantar_fisi_{dosya}.py"
+        f"kantar_{dosya}", BACKEND / "tests" / f"{dosya}.py"
     )
     modul = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -383,16 +387,45 @@ def _smoke(dosya: str, ad: str):
 @pytest.mark.postgresql
 def test_kantar_fisi_defter_postgresql() -> None:
     """Beş senaryo, gerçek defter: PG'de de fiş stok hareketini oynatmıyor."""
-    _smoke("defter", "run_defter_smoke")(_url())
+    _smoke("test_kantar_fisi_defter", "run_defter_smoke")(_url())
 
 
 @pytest.mark.postgresql
 def test_kantar_fisi_sozlesme_postgresql() -> None:
     """Uç sözleşmesi + taban birim iki bacağı, gerçek NUMERIC ölçekleriyle."""
-    _smoke("sozlesme", "run_sozlesme_smoke")(_url())
+    _smoke("test_kantar_fisi_sozlesme", "run_sozlesme_smoke")(_url())
 
 
 @pytest.mark.postgresql
 def test_kantar_fisi_sonluluk_uc_postgresql() -> None:
     """Sonlu olmayan girdi: PG'de de 422 ve iki tabloda SIFIR satır."""
-    _smoke("sonluluk", "run_sonluluk_smoke")(_url())
+    _smoke("test_kantar_fisi_sonluluk", "run_sonluluk_smoke")(_url())
+
+
+# --------------------------------------------------------------- C2 -------
+#
+# YENİ İKİZ DOSYASI AÇILMADI. PG popülasyonu üç yerde 102'ye çivili ve C2 onu
+# oynatmıyor; C2'nin PG vakası bu dosyaya EKLENDİ.
+
+
+@pytest.mark.postgresql
+def test_kantar_neti_stoga_postgresql() -> None:
+    """Fişin FARKI gerçek PostgreSQL'de: sekiz senaryo, aynı sayılar.
+
+    SQLite'ta ÖLÇÜLEMEYEN üç şey burada ölçülüyor:
+
+    1. **`NUMERIC(18,4)` GERÇEKTEN DAYATILIYOR.** Fark bir ÇIKARMADIR
+       (`Σnet − hasat − zaten`) ve üç terimin de ölçeği aynı olmak zorunda.
+       SQLite ölçek dayatmadığı için orada yanlış ölçekli bir terim sessizce
+       geçer; PG'de `SUM(m.quantity)` gerçek NUMERIC döner.
+
+    2. **`uq_stock_movements_field_event` KISMİ İNDEKSİ.** Tekrar teslim
+       senaryosunun (SENARYO 4) veritabanı tarafındaki eşi. Uygulama katmanı
+       farkı sıfır hesapladığı için satır zaten yazılmıyor; indeks o
+       güvencenin uygulama mantığından BAĞIMSIZ durduğunu söylüyor.
+
+    3. **ÇAPRAZ KİRACI (SENARYO 7) BİLEŞİK YABANCI ANAHTARLARLA.** SQLite'ta
+       yabancı anahtar uygulaması varsayılan olarak KAPALI; kiracı sınırının
+       gerçekten ısırdığı yalnız burada görünür.
+    """
+    _smoke("test_kantar_neti_stoga", "run_neti_stoga_smoke")(_url())

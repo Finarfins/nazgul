@@ -82,33 +82,19 @@ from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
 
-FIS_TABLOLARI = ("field_harvest_tickets", "field_harvest_ticket_deductions")
-
 
 # ---------------------------------------------------------------------------
 # STATİK KAPILAR — veritabanı yok.
 # ---------------------------------------------------------------------------
 
 
-def test_tuketici_fisin_adini_bile_gecirmiyor() -> None:
-    """`field_stok_tuketici` fiş tablolarına HİÇBİR yerde değinmez.
-
-    Bu kapı, defter testinden ÖNCE ve SEBEBİYLE kırılır: biri
-    `_hasat_kalemleri`ye `LEFT JOIN field_harvest_tickets` eklediğinde burası
-    kırmızı olur ve hata mesajı ne yapıldığını söyler.
-
-    NE İDDİA ETMEZ: tüketicinin fişi DOLAYLI bir yoldan (başka bir modül
-    üzerinden) okumadığını. Ölçtüğü şey, unutmanın/eklemenin pratikte aldığı
-    biçim olan doğrudan referanstır.
-    """
-    kaynak = (BACKEND / "app" / "field_stok_tuketici.py").read_text(encoding="utf-8")
-    gecenler = [ad for ad in FIS_TABLOLARI if ad in kaynak]
-    assert gecenler == [], (
-        "Tüketici kantar fişine değiniyor: "
-        f"{gecenler}. Bu dilimin tek iddiası defterin DEĞİŞMEMESİYDİ; fişi "
-        "deftere bağlamak AYRI bir iştir ve o iş hasat olayının ÜRETİM ANINI "
-        "ya da düzeltici bir ikinci olayı gerektirir (bkz. göç 0069 başlığı)."
-    )
+# `test_tuketici_fisin_adini_bile_gecirmiyor` C2'DE SİLİNDİ. C1'in KAPSAM
+# ÇİTİYDİ ("bu dilim tüketiciye dokunmuyor") ve C2 tam olarak o işi yaptığı
+# için TASARIM GEREĞİ obsolet: tüketici artık fiş tablosunu okuyor
+# (`_fis_kalemleri`). Yerine bir şey KONMADI, çünkü çitin koruduğu şey
+# (yanlışlıkla `LEFT JOIN` eklenmesi) artık davranış testleriyle ölçülüyor —
+# `test_kantar_neti_stoga.py` farkın SAYISINI çiviliyor, bir adın geçip
+# geçmediğini değil.
 
 
 def _fonksiyon(kaynak: str, ad: str) -> ast.FunctionDef:
@@ -119,22 +105,36 @@ def _fonksiyon(kaynak: str, ad: str) -> ast.FunctionDef:
     raise AssertionError(f"{ad} bulunamadı")
 
 
-def test_fis_yazimi_outbox_olayi_uretmiyor() -> None:
-    """`create_harvest_ticket` outbox yazıcısını ÇAĞIRMAZ.
+def test_fis_yazimi_TAM_BIR_outbox_olayi_uretir() -> None:
+    """`create_harvest_ticket` outbox yazıcısını TAM BİR KEZ çağırır.
 
-    Çağırsaydı aynı hasat defterde İKİ KEZ üretilirdi: biri hasat yazılırken
-    doğan olaydan, biri fişten.
+    C2'DE TERSİNE DÖNDÜ. Eskiden bu kapı çağrının OLMADIĞINI ölçüyordu
+    (`test_fis_yazimi_outbox_olayi_uretmiyor`); C1'in iddiası "fiş defteri
+    HİÇ oynatmaz"dı. C2 fişi deftere bağladı, yani çağrı artık ŞART.
+
+    KAPI YÖN DEĞİŞTİRDİ AMA KALDIRILMADI, ÇÜNKÜ ASIL RİSK SAYIDADIR.
+    "Çağrı var mı" sorusunun cevabı bugün evet; tehlikeli olan İKİ KEZ
+    çağrılmasıdır — ikinci olay aynı fiş için ikinci bir düzeltme yazardı ve
+    fark iki kez uygulanırdı. `== 1` bunu ölçer, `in cagrilar` ölçmezdi.
+
+    DAVRANIŞ EŞİ AYRI DOSYADA: olayın gerçekten TAM BİR satır olduğunu ve
+    anahtarının `field_harvest_ticket:<id>:stock` olduğunu
+    `test_kantar_fisi_defter.py` veritabanıyla ölçüyor. Bu kapı statik ve
+    ondan ÖNCE kırılsın diye burada.
     """
     kaynak = (BACKEND / "app" / "routers" / "farm.py").read_text(encoding="utf-8")
     govde = _fonksiyon(kaynak, "create_harvest_ticket")
-    cagrilar = {
+    cagrilar = [
         dugum.func.id
         for dugum in ast.walk(govde)
         if isinstance(dugum, ast.Call) and isinstance(dugum.func, ast.Name)
-    }
-    assert "_entegrasyon_olayi_yaz" not in cagrilar, (
-        "Fiş yazımı outbox olayı üretiyor: aynı hasat defterde İKİ KEZ "
-        "üretilir (biri hasat olayından, biri fişten)."
+    ]
+    sayi = cagrilar.count("_entegrasyon_olayi_yaz")
+    assert sayi == 1, (
+        f"Fiş yazımı outbox yazıcısını {sayi} kez çağırıyor, 1 bekleniyordu. "
+        "Sıfır: fiş deftere hiç bağlanmaz ve kantar neti stoğa GİRMEZ. "
+        "İkiden çok: aynı fiş için iki düzeltme olayı doğar ve fark İKİ KEZ "
+        "uygulanır."
     )
 
 

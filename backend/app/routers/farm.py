@@ -1062,6 +1062,7 @@ def list_activities(
 # imkânsız kılmıyor.
 _ENTEGRASYON_KAYNAGI_FAALIYET = "field_activity"
 _ENTEGRASYON_KAYNAGI_HASAT = "field_harvest"
+_ENTEGRASYON_KAYNAGI_FIS = "field_harvest_ticket"
 _ENTEGRASYON_HEDEFI_STOK = "stock"
 
 
@@ -1959,16 +1960,25 @@ def create_harvest(payload: HarvestWrite, request: Request, db: Session = Depend
 
 # ------------------------------------------------------------ kantar fişi ---
 #
-# BU DİLİM DEFTERE HİÇBİR ŞEY YAZMAZ. `_entegrasyon_olayi_yaz` BURADA
-# ÇAĞRILMIYOR ve `field_stok_tuketici`ye dokunulmadı; stok hareketi hâlâ
-# `field_harvests.quantity` üzerinden yazılıyor. Sınanabilir iddia budur ve
-# `tests/test_kantar_fisi_defter.py` beş senaryoda ölçüyor.
+# FİŞ YAZIMI DEFTERİ **SENKRON** OLARAK OYNATMAZ (C2). POST'un kendisi
+# `stock_movements`a HİÇBİR satır yazmaz; yazdığı tek şey `field_harvests`in
+# yanındaki outbox satırıdır (`_entegrasyon_olayi_yaz`, kaynak tipi
+# `field_harvest_ticket`). Defteri oynatan, o olayı SONRADAN tüketen
+# `field_stok_tuketici`dir ve yazdığı şey bir DÜZELTME hareketidir.
 #
-# Fişin defteri BUGÜN oynatamamasının sebebi ölçülmüş bir SIRA sorunudur: hasat
-# olayı hasat YAZILIRKEN üretilir ve tüketici onu ilk döngüsünde tüketir; fiş
-# ise kamyon depoya VARDIKTAN sonra girilir. `_hasat_kalemleri`ye bir LEFT JOIN
-# eklemek bu yüzden yanlış olurdu — birleştirme çalıştığı anda fiş HENÜZ YOKTUR
-# ve sorgu her seferinde NULL görür.
+# İDDİA C2'DE DARALDI, KALDIRILMADI: eskiden "fiş defteri HİÇ oynatmaz"dı ve
+# `tests/test_kantar_fisi_defter.py` bunu beş senaryoda ölçüyordu. Bugün
+# ölçülen "fiş yazımı SENKRON yolda hiçbir hareketi değiştirmez" — aynı
+# senaryolar, daraltılmış cümleyle. Fark ÖLÇÜLÜYOR, ilan edilmiyor: POST
+# sonrası hareket sayısı DEĞİŞMEZ, tüketici koştuktan sonra TAM BİR düzeltme
+# satırı belirir.
+#
+# `_hasat_kalemleri`ye LEFT JOIN EKLENMEDİ ve eklenemez; sebep ölçülmüş bir
+# SIRA sorunudur: hasat olayı hasat YAZILIRKEN üretilir ve tüketici onu ilk
+# döngüsünde tüketir, fiş ise kamyon depoya VARDIKTAN sonra girilir.
+# Birleştirme çalıştığı anda fiş HENÜZ YOKTUR ve sorgu her seferinde NULL
+# görür — kod DOĞRU GÖRÜNÜR, davranış hiç değişmez. C2'nin cevabı bu yüzden
+# birleştirme değil, İKİNCİ BİR OLAY ve onun yazdığı DÜZELTME hareketidir.
 
 _YUZDE = Decimal("100")
 
@@ -2206,9 +2216,20 @@ def create_harvest_ticket(
 ):
     """Kantar fişini ve kesintilerini TEK işlemde yazar.
 
-    OUTBOX OLAYI YAZILMIYOR — bilerek. Hasat olayı hasat yazılırken üretildi ve
-    tüketildi; buradan ikinci bir olay yazmak, aynı hasadı defterde İKİ KEZ
-    üretirdi.
+    OUTBOX OLAYI YAZILIYOR (C2) — fiş, kesintileri VE olay TEK işlemde.
+    Kaynak tipi `field_harvest_ticket`, anahtar
+    `field_harvest_ticket:<fiş id>:stock`. Olay FİŞ BAŞINADIR, hasat başına
+    değil: iki fiş iki olay üretir ve tüketici her birinde farkı YENİDEN
+    hesaplar.
+
+    "AYNI HASAT İKİ KEZ ÜRETİLİR Mİ" — HAYIR, VE BU BİR NİYET DEĞİL YAPIDIR.
+    Tüketicinin fiş yolu miktarı DEĞİL FARKI yazar: hasadın taban miktarı ve
+    O HASADIN daha önce yazılmış fiş düzeltmeleri hesabın İÇİNDEDİR
+    (`field_stok_tuketici._fis_kalemleri`). Yani ikinci olay ilkini tekrar
+    etmez, ÜZERİNE fark koyar; toplam her zaman fişlerin netidir.
+
+    OLAY YAZIMI COMMIT'İN İÇİNDE: fiş geri alınırsa yetim olay kalmaz, olay
+    yazılamazsa fiş de yazılmaz. `_entegrasyon_olayi_yaz` commit ÇAĞIRMAZ.
 
     Fiş ile kesintileri aynı işlemde: yarım bir fiş (kesintileri yazılmamış)
     türetilen neti brüte EŞİT gösterirdi — sessiz ve yanlış bir cevap.
@@ -2271,6 +2292,15 @@ def create_harvest_ticket(
                     **kesinti.model_dump(),
                 },
             )
+        # C2 OUTBOX. Fiş, kesintileri ve olay TEK işlemde. Olay KESİNTİLERDEN
+        # SONRA yazılıyor ve bu sıra önemli: tüketici neti kesintilerden
+        # türetir, yarım bir fiş (kesintileri yazılmamış) tüketilseydi net
+        # brüte EŞİT çıkardı. Tek işlem bunu zaten imkânsız kılıyor; sıra
+        # okuyana da aynı şeyi söylesin diye böyle.
+        _entegrasyon_olayi_yaz(
+            db, cid, _ENTEGRASYON_KAYNAGI_FIS, int(yeni),
+            _ENTEGRASYON_HEDEFI_STOK, now,
+        )
     except IntegrityError as exc:
         # `uq_field_harvest_tickets_paper`: aynı hasada aynı fiş numarası.
         # Kağıdın kendi kimliği tekrar korumasıdır; NUMARASIZ fiş bu korumanın
