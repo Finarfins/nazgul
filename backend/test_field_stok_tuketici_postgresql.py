@@ -1520,8 +1520,9 @@ with SessionLocal() as db:
     assert depo is not None, 'KURULUM: aktif depo yok'
     db.execute(_sql(
         "INSERT INTO products (id,name,purchase_price,sale_price,vat_rate,"
-        "stock,unit,price_per,active,critical_stock,minimum_stock,company_id) "
-        "VALUES (960301,'A Bugdayi',0,0,0,'0.0000','kg','unit',true,0,0,1)"))
+        "stock,unit,price_per,active,critical_stock,minimum_stock,company_id,"
+        "base_unit) "
+        "VALUES (960301,'A Bugdayi',0,0,0,'0.0000','kg','unit',true,0,0,1,'KG')"))
     db.execute(_sql(
         "INSERT INTO warehouse_stocks (company_id,warehouse_id,product_id,"
         "quantity,critical_stock,reserved_quantity) "

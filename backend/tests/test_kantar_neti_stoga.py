@@ -216,16 +216,26 @@ with TestClient(app) as client:
     urun_yaz(cid, URUN_TABANSIZ, None)
     urun_yaz(cid, URUN_TON, 'KG')
 
+    # KODLAR AILE ICINDE BENZERSIZ OLMAK ZORUNDA. PG ikizinde dort kantar
+    # smoke'u AYNI veritabanini ve AYNI firmayi paylasir; SQLite'ta ise her
+    # test kendi tmp_path veritabanini alir. Yani bir kod cakismasi SQLite'ta
+    # GORUNMEZ, PG'de kirmizi olur — ILK YAZIMDA tam olarak bu oldu:
+    # 'kn'/'knp' `test_kantar_fisi_sonluluk.py`nin kodlariydi ve
+    # `uq_farms_company_code` PG'de patladi. Onek 'knet' bu dosyaya ozel.
     ciftlik = client.post('/api/farms', headers=h,
-                          json={'code':'kn','name':'Kantar Net'}).json()
-    parsel = client.post('/api/farm-parcels', headers=h,
-                         json={'farm_id':ciftlik['id'],'code':'knp','name':'P',
-                               'area_decare':'100.0000'}).json()
+                          json={'code':'knet','name':'Kantar Net'})
+    assert ciftlik.status_code == 201, ciftlik.text
+    ciftlik = ciftlik.json()
 
     def sezon_ac(kod, urun_id, yil):
+        # DURUM KODU DOGRULANIYOR. Once dogrulanmiyordu ve 409 donen bir
+        # istek `KeyError: 'id'` olarak patliyordu — hata kendi adini
+        # SOYLEMIYORDU. Kimlik okumadan once durum kodu.
         p = client.post('/api/farm-parcels', headers=h,
                         json={'farm_id':ciftlik['id'],'code':kod,'name':kod,
-                              'area_decare':'100.0000'}).json()
+                              'area_decare':'100.0000'})
+        assert p.status_code == 201, p.text
+        p = p.json()
         cevap = client.post('/api/crop-seasons', headers=h,
                             json={'parcel_id':p['id'],'season_year':yil,
                                   'crop':'Bugday','product_id':urun_id,
@@ -254,7 +264,7 @@ with TestClient(app) as client:
         return cevap.json()
 
     # ================= SENARYO 1: FISSIZ HASAT -> +1000 ===================
-    sezon = sezon_ac('kn1', URUN, 2026)
+    sezon = sezon_ac('knet1', URUN, 2026)
     hasat = hasat_ac(sezon, '1000')
     sayac = tuket(cid)
     assert sayac['SENT'] == 1, sayac
@@ -314,7 +324,7 @@ with TestClient(app) as client:
     assert olay(cid, fis2['id'])['status'] == 'SENT', olay(cid, fis2['id'])
 
     # ================= SENARYO 5: TABAN BIRIM YOK -> ADI KONMUS KOVA ======
-    sezon_t = sezon_ac('kn5', URUN_TABANSIZ, 2026)
+    sezon_t = sezon_ac('knet5', URUN_TABANSIZ, 2026)
     # Hasat olayi da ayni kovaya duser: taban birim yoksa hasat da cevrilemez.
     hasat_t = hasat_ac(sezon_t, '1000')
     sayac = tuket(cid)
@@ -331,7 +341,7 @@ with TestClient(app) as client:
 
     # ================= SENARYO 6: HASAT "ton", TABAN "kg" -> 1000x ========
     # HAM YAZILSAYDI 2 cikardi. Cikan 2000 ise cevrildi.
-    sezon_ton = sezon_ac('kn6', URUN_TON, 2026)
+    sezon_ton = sezon_ac('knet6', URUN_TON, 2026)
     hasat_ton = hasat_ac(sezon_ton, '2', 'ton')
     sayac = tuket(cid)
     assert sayac['SENT'] == 1, sayac
