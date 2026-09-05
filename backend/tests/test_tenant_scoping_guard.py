@@ -225,7 +225,7 @@ ALLOWLIST_FINGERPRINTS: dict[tuple[str, str], str] = {
 # ``python-version: "3.12"`` ile aynı). Yerelde başka bir sürümle koşuluyorsa
 # bu kapı ölçüm yapmıyor demektir; 3.12 kurup tekrar koşun.
 DYNAMIC_SQL_FILE_ALLOWLIST: dict[str, tuple[int, str, str]] = {
-    "backend/app/activity_log.py": (3, "PARMAK_IZI_TURETILECEK", "fixed filters after tenant_text-enforced company scope. Parmak izi 2026-09-05te yenilendi: ACTION_TYPES katalog sozlugune TEK giris eklendi (`product.base_unit_update`, kantar fisi v2 / goc 20260902_0066 taban birim yazma yolu). Eklenen sey bir SOZLUK SABITIDIR, text() cagrisi DEGIL: dinamik text() sayisi 3te SABIT ve ucunun de argumanlari develop ile BIREBIR ayni; parmak izi f7e01786->6da9d10e kimildadi cunku dosya AST'sinin TAMAMINDAN turuyor. Parmak izi 2026-09-05te YENIDEN turetildi: KIRACI DISA AKTARIMI dilimi ACTION_TYPES sozluguna ikinci bir giris ekledi ('company.exported') ve dosya artik HEM kantar fisi HEM disa aktarim girdilerini tasiyor. SQL METNINE HIC DOKUNULMADI: dinamik text() cagrisi 3te SABIT, metinler BIREBIR ayni. Parmak izi yalnizca ACTION_TYPES bir sozluk LITERALI oldugu ve dosya AST'sinin TAMAMINDAN turedigi icin kimildadi."),
+    "backend/app/activity_log.py": (3, "567f6d1d257af17584c8c1777ea787d079cc31ea7519e09c409694d91117f30c", "fixed filters after tenant_text-enforced company scope. Parmak izi 2026-09-05te yenilendi: ACTION_TYPES katalog sozlugune TEK giris eklendi (`product.base_unit_update`, kantar fisi v2 / goc 20260902_0066 taban birim yazma yolu). Eklenen sey bir SOZLUK SABITIDIR, text() cagrisi DEGIL: dinamik text() sayisi 3te SABIT ve ucunun de argumanlari develop ile BIREBIR ayni; parmak izi f7e01786->6da9d10e kimildadi cunku dosya AST'sinin TAMAMINDAN turuyor. Parmak izi 2026-09-05te YENIDEN turetildi: KIRACI DISA AKTARIMI dilimi ACTION_TYPES sozluguna ikinci bir giris ekledi ('company.exported') ve dosya artik HEM kantar fisi HEM disa aktarim girdilerini tasiyor. SQL METNINE HIC DOKUNULMADI: dinamik text() cagrisi 3te SABIT, metinler BIREBIR ayni. Parmak izi yalnizca ACTION_TYPES bir sozluk LITERALI oldugu ve dosya AST'sinin TAMAMINDAN turedigi icin kimildadi."),
     "backend/app/allocation_reconciliation.py": (1, "93f03e612ba84b11d2b60fc33777bc87375080de70a004532969364a56aa8875", "internal fixed company-scoped aggregate callers"),
     "backend/app/billing_service.py": (1, "3442e191e4713a297adcc9fc6e9c6003a360e663db7db17271a2052fbb920bef", "dialect lock suffix; work-order root and joins tenant-scoped"),
     "backend/app/change_history.py": (3, "bdef8b48f40d5f03678750aedecb4fb077323ffb496e50fe48aedc38f44f2fad", "closed restore table map after same-company source check"),
@@ -1689,8 +1689,8 @@ print("TENANT_TABLES_JSON=" + json.dumps(tables))
 #   SQLAlchemy Core insert/select ifadeleridir (HAM SQL DEGIL) ve
 #   tohumun kendi verisini yazar; kiraci yuklemi tasimalari gerekmez.
 #   Sayilar bu turda YENIDEN OLCULDU, devralinmadi.
-BEKLENEN_ALT_SUREC_SQL_DOSYA = 0  # TURETILECEK
-BEKLENEN_ALT_SUREC_SQL_METIN = 0  # TURETILECEK
+BEKLENEN_ALT_SUREC_SQL_DOSYA = 107
+BEKLENEN_ALT_SUREC_SQL_METIN = 171
 
 
 def _alt_surecte_sql() -> tuple[list[str], int]:

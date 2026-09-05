@@ -902,7 +902,7 @@ EXPECTED_OP_COUNTS = {"select": 92, "update": 41, "delete": 7}
 # göç kiracı tablosu eklediğinde sessizce eksik kalır ve o tablonun satırları
 # dosyaya HİÇ girmezdi. Kiracı yüklemi statik olarak GÖRÜNÜR durumdadır
 # (``.where(tablo.c.company_id == cid)``), yalnız tablo NESNESİ değişkendir.
-INVENTORY_FINGERPRINT = "PARMAK_IZI_TURETILECEK"
+INVENTORY_FINGERPRINT = "36bbb1cff255c211c6b26a5b616a79f5e0e1e54384f43e1d1dcfaace2bd0322b"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:

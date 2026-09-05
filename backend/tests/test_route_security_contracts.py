@@ -348,7 +348,7 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # yazılarak). Parmak izi 45a56fbd -> adb27fb5; başka sözleşme değişmedi.
     # 20260905 kiracı dışa aktarımı: GET /api/company/export eklendi
     # (`__admin_only__`). Parmak izi adb27fb5 -> yeniden türetildi.
-    "PARMAK_IZI_TURETILECEK"
+    "43d9e7d847dbcf63d0a5cfdba0ca5d46e8d4f70eaf8ed04b3715e4a615a34256"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

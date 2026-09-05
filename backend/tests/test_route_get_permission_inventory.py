@@ -301,7 +301,7 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # Drift raporu ÖLÇÜLDÜ: `changed` ve `stale` BOŞ — artış YALNIZ ekleme.
 GET_INVENTORY_COUNT = 168
 GET_INVENTORY_FINGERPRINT = (
-    "PARMAK_IZI_TURETILECEK"
+    "e04367442abc972c8ccf20b73eb7fab15ae2a348d95322466b2d7e870a8a4994"
 )
 
 
