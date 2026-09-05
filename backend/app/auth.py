@@ -924,6 +924,14 @@ def required_permission(method: str, path: str) -> str:
         or path.endswith("/supplier-prices")
     ):
         return "purchases"
+    # Müstahsil makbuzu (D1) bir ALIM belgesidir: çiftçiye ödenen birim
+    # fiyatı, brüt tutarı ve stopaj kesintisini taşır. Bu, tedarikçi
+    # maliyetinin ta kendisidir, yani OKUMASI da ticari olarak hassastır —
+    # bu yüzden kural aşağıdaki temel ``read`` kuralının ÜSTÜNDE duruyor ve
+    # GET dahil TÜM yöntemleri ``purchases`` iznine bağlıyor. Aynı gerekçe
+    # hemen yukarıdaki alım-karşılaştırma bloğununkidir.
+    if path.startswith("/api/producer-receipts"):
+        return "purchases"
     if method in {"GET", "HEAD", "OPTIONS"}:
         return "read"
     # Machine card writes require the dedicated ``machines`` permission (reads

@@ -3352,6 +3352,113 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/producer-receipts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Producer Receipts
+         * @description Makbuz listesi. Tarih aralığı `issued_at` üzerindedir.
+         *
+         *     Taslakların `issued_at`i NULL'dur, yani bir tarih aralığı verildiğinde
+         *     taslaklar DÜŞER. Bu bilinçli: "şu iki tarih arasında kesilen makbuzlar"
+         *     sorusunun cevabında hiç kesilmemiş bir kağıt olamaz.
+         */
+        get: operations["list_producer_receipts_api_producer_receipts_get"];
+        put?: never;
+        /**
+         * Create Producer Receipt
+         * @description Makbuzu ve kalemlerini TEK İŞLEMDE yazar. HER ZAMAN `draft`.
+         *
+         *     BİRİM ÇÖZÜMÜ VE ARİTMETİK HER SQL'DEN ÖNCE: `units.resolve` ya da
+         *     `mustahsil.satir_hesapla` reddederse hiçbir satır yazılmamış olur.
+         *
+         *     Taban birim bildirilmemişse buradan bir varsayılan UYDURULMAZ — girileni
+         *     taban SAYMAK bir olgu uydurmak olurdu (`units.py`, sahip kararı 2). Bu
+         *     yüzden ürün kartı OLMAYAN ya da `base_unit`i boş olan bir kalem 422 ile
+         *     reddedilir; `product_id` sütununun NULL kabul etmesi FK'nın isteğe bağlı
+         *     olmasındandır, yazma yolunun taban birimden VAZGEÇMESİNDEN değil.
+         */
+        post: operations["create_producer_receipt_api_producer_receipts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/producer-receipts/{receipt_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Producer Receipt */
+        get: operations["get_producer_receipt_api_producer_receipts__receipt_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/producer-receipts/{receipt_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Producer Receipt
+         * @description `issued` -> `cancelled`. SATIRLAR DURUR, numara KORUNUR.
+         *
+         *     Numara silinmez: iptal edilmiş bir belge de seride YERİNİ TUTAR, yoksa
+         *     seri açıklanamaz biçimde atlardı. Taslak iptal EDİLEMEZ — hiç
+         *     kesilmemiş bir kağıdın iptali yoktur.
+         */
+        post: operations["cancel_producer_receipt_api_producer_receipts__receipt_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/producer-receipts/{receipt_id}/issue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue Producer Receipt
+         * @description `draft` -> `issued`; numarayı `document_sequences`ten ALIR.
+         *
+         *     TEKRAR REDDEDİLİR, SESSİZCE GEÇİLMEZ: zaten kesilmiş bir makbuza ikinci
+         *     `issue` 409 verir ve İKİNCİ BİR NUMARA ÜRETMEZ. Sessizce geçseydi (ya da
+         *     "idempotent" diye ilk numarayı geri verseydi) seriden bir numara
+         *     harcanmış ama hiçbir belgeye yazılmamış olurdu — seride açıklanamayan
+         *     bir delik.
+         *
+         *     KALEMSİZ MAKBUZ KESİLEMEZ: kalemsiz bir kağıt sıfır tutarlı bir vergi
+         *     belgesi olurdu.
+         */
+        post: operations["issue_producer_receipt_api_producer_receipts__receipt_id__issue_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/products": {
         parameters: {
             query?: never;
@@ -7677,6 +7784,44 @@ export interface components {
             start_date: string;
             /** Unrounded Interest */
             unrounded_interest: string;
+        };
+        /**
+         * ProducerReceiptItemWrite
+         * @description Bir makbuz kalemi. TÜREV TUTAR ALANI YOKTUR (bkz. başlık, kural 1).
+         */
+        ProducerReceiptItemWrite: {
+            /** Base Quantity Override */
+            base_quantity_override?: number | string | null;
+            /** Description */
+            description?: string | null;
+            /** Entered Quantity */
+            entered_quantity: number | string;
+            /** Entered Unit */
+            entered_unit: string;
+            /** Product Id */
+            product_id?: number | null;
+            /** Social Security Rate */
+            social_security_rate: number | string;
+            /** Unit Price */
+            unit_price: number | string;
+            /** Withholding Rate */
+            withholding_rate: number | string;
+        };
+        /**
+         * ProducerReceiptWrite
+         * @description Yeni makbuz. HER ZAMAN `draft` doğar; numara `issue` ile gelir.
+         */
+        ProducerReceiptWrite: {
+            /** Items */
+            items?: components["schemas"]["ProducerReceiptItemWrite"][];
+            /** Note */
+            note?: string | null;
+            /** Purchase Id */
+            purchase_id?: number | null;
+            /** Supplier Id */
+            supplier_id: number;
+            /** Ticket Id */
+            ticket_id?: number | null;
         };
         /** ProductCreate */
         ProductCreate: {
@@ -16123,6 +16268,168 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PosSaleResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_producer_receipts_api_producer_receipts_get: {
+        parameters: {
+            query?: {
+                supplier_id?: number | null;
+                status?: string | null;
+                date_from?: string | null;
+                date_to?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_producer_receipt_api_producer_receipts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProducerReceiptWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_producer_receipt_api_producer_receipts__receipt_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_producer_receipt_api_producer_receipts__receipt_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    issue_producer_receipt_api_producer_receipts__receipt_id__issue_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
