@@ -140,6 +140,11 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 
     # --- purchases — `/api/purchase-comparison` ve tedarikçi fiyat okuma önekleri.
     ("GET", "/api/products/{product_id}/supplier-prices"): "purchases",
+    # MÜSTAHSİL MAKBUZU (göç 0070). Okuma da `purchases`: makbuz çiftçiye
+    # ödenen birim fiyatı ve stopajı taşır, yani tedarikçi MALİYETİDİR.
+    # `read` olsaydı her rol alım fiyatlarını görürdü.
+    ("GET", "/api/producer-receipts"): "purchases",
+    ("GET", "/api/producer-receipts/{receipt_id}"): "purchases",
     ("GET", "/api/purchase-comparison"): "purchases",
     ("GET", "/api/purchase-comparison/dashboard"): "purchases",
     ("GET", "/api/purchase-comparison/products/{product_id}/analysis"): "purchases",
@@ -299,9 +304,12 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # `changed` ve `stale` BOŞ — artış YALNIZ ekleme.
 # 167 -> 168: kiracı dışa aktarımının TEK GET ucu (/api/company/export).
 # Drift raporu ÖLÇÜLDÜ: `changed` ve `stale` BOŞ — artış YALNIZ ekleme.
-GET_INVENTORY_COUNT = 168
+# 168 -> 170: müstahsil makbuzunun İKİ GET ucu (liste + tekil, göç
+# 20260905_0070). Başka hiçbir ucun izni değişmedi; drift raporu ÖLÇÜLDÜ:
+# `changed` ve `stale` BOŞ — artış YALNIZ ekleme.
+GET_INVENTORY_COUNT = 170
 GET_INVENTORY_FINGERPRINT = (
-    "e04367442abc972c8ccf20b73eb7fab15ae2a348d95322466b2d7e870a8a4994"
+    "d64b5cb325803622b9579bb3f6385e59659235dd7be9148a1d34a1df3392b35d"
 )
 
 
