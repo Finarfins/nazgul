@@ -58,6 +58,7 @@ from .routers import (
     harvest_scheduling,
     history,
     imports,
+    mustahsil,
     invoices,
     late_fees,
     machines,
@@ -517,6 +518,9 @@ app.include_router(finance.router, prefix="/api")
 # Tarla Yönetimi V1 (mobil-erp#2). Öneksiz: uçlar /api/farms,
 # /api/farm-parcels, /api/field-activities … olarak issue'da sabitlendi.
 app.include_router(farm.router, prefix="/api")
+# Müstahsil makbuzu (D1). Öneksiz include: uçlar /api/producer-receipts
+# olarak router'ın kendi yollarında sabit.
+app.include_router(mustahsil.router, prefix="/api")
 # Outbox okuma yuzeyi (FIELD_STOK_OUTBOX acilis kosulu 2). AYRI router:
 # alan bir PARAMETREDIR (bkz. `OlayYuzeyi`), yani ikinci outbox tablosu
 # (`herd_integration_events`) icin ayni modulde bir betimleyici eklemek

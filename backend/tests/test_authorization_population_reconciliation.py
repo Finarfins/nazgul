@@ -135,7 +135,18 @@ from app.main import PUBLIC_API, app  # noqa: E402
 # 339 -> 340: kiracı dışa aktarımı ucu (GET /api/company/export). Kimlik
 # doğrulaması ZORUNLU; izni `__admin_only__`, yani deny-by-default
 # nöbetçisiyle aynı ad — yalnız admin taşır.
-EXPECTED_AUTHENTICATED = 340
+# 340 -> 345: müstahsil makbuzunun BEŞ ucu (POST, GET liste, GET tekil,
+# POST issue, POST cancel; göç 20260905_0070). Hangi sayaç NİYE kımıldadı:
+#   * KİMLİKLENMİŞ +5: beşi de kimlik ister.
+#   * `read` 93'te SABİT: beşi de middleware'de `read`e DEĞİL,
+#     `/api/producer-receipts` öneki üzerinden `purchases`a çözülüyor —
+#     GET'ler DAHİL. Kural temel `read` kuralının ÜSTÜNE yazıldı; altında
+#     kalsalardı bu sayaç 93 -> 95 olurdu ve alım fiyatları her role
+#     açılırdı. Sayacın SABİT KALMASI o kararın tanığıdır.
+#   * UNDENIABLE 100'de SABİT: `purchases` reddedilebilir bir izindir
+#     (tanımlı roller arasında onu TAŞIMAYAN roller var), yani hiçbir uç
+#     "bugün hiçbir rolü reddedemez" sınıfına girmedi.
+EXPECTED_AUTHENTICATED = 345
 EXPECTED_READ = 93
 EXPECTED_UNDENIABLE = 100
 

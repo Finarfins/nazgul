@@ -248,8 +248,18 @@ DYNAMIC_PERMISSION_CASES = {
 # kapsamlıdır (aktif firmanın satırlarını verir) ve izni `__admin_only__`,
 # yani deny-by-default nöbetçisiyle aynı addır — platform yedeği gibi router
 # düzeyinde ek bir operatör listesi kullanmaz.
-EXPECTED_OPERATION_COUNT = 350
-EXPECTED_PATH_COUNT = 270
+# 350/270 -> 355/274: müstahsil makbuzu (göç 20260905_0070). DÖRT yol, BEŞ
+# işlem (ilk yol İKİ işlem taşır): POST + GET /api/producer-receipts, GET
+# /api/producer-receipts/{receipt_id}, POST .../issue, POST .../cancel.
+# İzin BEŞİNDE DE `purchases` ve GET'ler DAHİL öyle: kural auth.py'de temel
+# `read` kuralının ÜSTÜNE yazıldı, çünkü makbuz çiftçiye ödenen birim
+# fiyatı ve stopajı taşır — tedarikçi MALİYETİDİR. Altında kalsaydı okuma
+# `read`e düşer ve alım fiyatları her role açılırdı (ölçüldü: kural
+# silinince GET envanteri `read` sayısını 93 -> 95 gösteriyor). Ayrı bir
+# `review_reason` GEREKMİYOR: beş uç da kiracı kapsamlıdır ve izinleri
+# mevcut `purchases` ailesindendir. Başka hiçbir ucun sözleşmesi değişmedi.
+EXPECTED_OPERATION_COUNT = 355
+EXPECTED_PATH_COUNT = 274
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -348,7 +358,7 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # yazılarak). Parmak izi 45a56fbd -> adb27fb5; başka sözleşme değişmedi.
     # 20260905 kiracı dışa aktarımı: GET /api/company/export eklendi
     # (`__admin_only__`). Parmak izi adb27fb5 -> yeniden türetildi.
-    "43d9e7d847dbcf63d0a5cfdba0ca5d46e8d4f70eaf8ed04b3715e4a615a34256"
+    "647736cf07bf5825ad68524448faad74bf21cb66ac07003403d31ff90761514d"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

@@ -341,12 +341,14 @@ def test_yuz_iki_tablo_dosyasi_tam(hazir) -> None:
     gorulen = {a for a in hazir["adlar"] if a.startswith("tables/")}
     assert gorulen == beklenen, {
         "eksik": sorted(beklenen - gorulen), "fazla": sorted(gorulen - beklenen)}
+    # 104 -> 106: müstahsil makbuzu (göç 0070) İKİ kiracı tablosu daha
+    # ekledi (`producer_receipts`, `producer_receipt_items`). Bir öncesi
     # 102 -> 104: kantar fişi v2 (PR #45) İKİ kiracı tablosu ekledi. Sayı
     # burada ELLE güncellendi ama uygulama tarafı DOKUNULMADAN doğru
     # çalıştı: `_kiraci_tablolari` kümeyi ŞEMADAN türetiyor, yani yeni
     # tablolar dosyaya kendiliğinden girdi. Elle yazılmış bir liste
     # olsaydı bu iki tablo SESSİZCE dışarıda kalırdı.
-    assert len(gorulen) == 104
+    assert len(gorulen) == 106
     # Uygulamanın ŞEMADAN türettiği küme ile kapının listesi AYNI olmalı.
     assert set(hazir["sonuc"]["kiraci_tablolar"]) == set(TENANT_TABLES)
     assert f"companies/{hazir['sonuc']['a_id']}.json" in hazir["adlar"]
@@ -361,7 +363,7 @@ def test_tablo_sirasi_topolojik_ve_tam(hazir) -> None:
     değiştirmek (alfabetik sıra) bunu KIRMIZI yapar."""
     sonuc = hazir["sonuc"]
     sira = hazir["manifest"]["table_order"]
-    assert len(sira) == 104 and len(set(sira)) == 104
+    assert len(sira) == 106 and len(set(sira)) == 106
     assert set(sira) == set(sonuc["kiraci_tablolar"])
 
     # Testin KENDİ bağımsız Kahn tanığı: her bağımlılık, bağımlıdan ÖNCE.
@@ -369,10 +371,14 @@ def test_tablo_sirasi_topolojik_ve_tam(hazir) -> None:
     ihlal = [(ad, bagli) for ad, bagliar in sonuc["bagimlilik"].items()
              for bagli in bagliar if yer[bagli] > yer[ad]]
     assert not ihlal, ihlal
-    # 7 -> 8: kantar fişi v2 (PR #45) FK grafiğine bir katman daha ekledi
-    # (yeni tablolar mevcut kiracı tablolarına bağlanıyor). Sayı ÖLÇÜLDÜ,
+    # 8 -> 9: müstahsil makbuzu (göç 0070) FK grafiğine bir katman daha
+    # ekledi. Zinciri UZATAN şey `producer_receipt_items`tır:
+    # `producer_receipts`e bağlı, o da `field_harvest_tickets`e (0069'un
+    # tablosu, zaten en derin katmandaydı) bağlı — yani makbuz kalemleri
+    # fişin BİR ALTINA düşüyor.
+    # Bir öncesi 7 -> 8: kantar fişi v2 (PR #45). Sayı ÖLÇÜLDÜ,
     # devralınmadı; testin kendi bağımsız Kahn tanığından geliyor.
-    assert sonuc["katman_sayisi"] == 8, sonuc["katman_sayisi"]
+    assert sonuc["katman_sayisi"] == 9, sonuc["katman_sayisi"]
 
 
 # --------------------------------------------------------------------------
@@ -489,7 +495,7 @@ with TestClient(app) as client:
     zf = zipfile.ZipFile(io.BytesIO(r.content))
     man = json.loads(zf.read("manifest.json"))
     ndjson = [a for a in zf.namelist() if a.startswith("tables/")]
-    assert len(ndjson) == 104, len(ndjson)
+    assert len(ndjson) == 106, len(ndjson)
     # ÖLÇÜLDÜ: "tamamen boş" bir firma dışa AKTARILAMAZ. Dışa aktarımın
     # kendisi ÜYELİK ister ve üyelik satırı `user_company_memberships`
     # tablosundadır — yani erişilebilir HER firmada en az bir satır vardır.
