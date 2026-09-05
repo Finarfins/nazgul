@@ -115,7 +115,8 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
         "supplier_price.xref_created",
     }
     assert set(ACTION_TYPES) == expected
-    assert len(ACTION_TYPES) == 58, sorted(ACTION_TYPES)
+    # 58 -> 59: product.base_unit_update (kantar fişi v2).
+    assert len(ACTION_TYPES) == 59, sorted(ACTION_TYPES)
     assert all(ACTION_TYPES.values()), ACTION_TYPES
     assert "activity_log" in RESOURCE_TYPES
     # POS fişi de bir ``orders`` satırıdır: ayrı bir kaynak tipi eklenmez,
