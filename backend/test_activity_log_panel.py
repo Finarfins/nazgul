@@ -82,6 +82,11 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
         "pos.sale_created", "pos.sale_cancelled",
         "payment.create", "payment.update", "payment.delete",
         "return.create", "product.bulk_price_update",
+        # Taban birim yazma yolu (kantar fişi v2, sütun göç 20260902_0066):
+        # PUT /api/products/{id} `base_unit` değişince eski/yeni değerle
+        # kaydeder. Bu kapı `backend/` altında durduğu için `tests/` taraması
+        # onu görmedi; CI koşusu 33956592477 kırmızı ile buldu.
+        "product.base_unit_update",
         "stock.adjust", "stock.transfer",
         "work_order.create", "work_order.status_change", "work_order.cancel",
         "work_order.receivable.reverse",
