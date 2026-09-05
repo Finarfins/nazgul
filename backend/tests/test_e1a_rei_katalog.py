@@ -52,6 +52,27 @@ def test_rei_katalog_sqlite(tmp_path: Path) -> None:
     run_rei_katalog_smoke(f"sqlite:///{(tmp_path / 'rei-katalog.db').as_posix()}")
 
 
+def test_bitkiye_ozel_NULL_satir_genel_satiri_GOLGELEMEZ(tmp_path: Path) -> None:
+    """Bitkiye özel NULL satır genel satırı GÖLGELEMEZ — lens boşluğu.
+
+    Aynı ürün P için iki katalog satırı: ``crop='Domates'`` + REI NULL
+    (susan özel) ve ``crop=''`` + REI 5 (konuşan genel). Domates sezonunda
+    girdi P, payload ``reentry_interval_days`` OMIT — saklanan 5 olmalı.
+    Susan özel satır ``return int(gun or 0)`` ile 0 yazsaydı genel 5'i
+    bastırırdı; bu test o gölgelemeyi yakalar.
+    """
+    env = os.environ.copy()
+    env["DATABASE_URL"] = (
+        f"sqlite:///{(tmp_path / 'rei-golgeleme.db').as_posix()}"
+    )
+    env["PYTHONPATH"] = str(BACKEND)
+    completed = subprocess.run(
+        [sys.executable, "-c", _GOLGELEME_SMOKE],
+        cwd=BACKEND, env=env, capture_output=True, text=True, timeout=300,
+    )
+    assert completed.returncode == 0, completed.stdout + "\n" + completed.stderr
+
+
 def test_giris_yasagi_cozumu_en_uzunu_secer_ve_operatoru_yenmez() -> None:
     """`_giris_yasagi_coz`un KARARLARI, veritabanına inmeden çivilenir.
 
@@ -119,6 +140,75 @@ def test_giris_yasagi_cozumu_en_uzunu_secer_ve_operatoru_yenmez() -> None:
         assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) is None
     finally:
         farm_modulu._katalog_giris_yasagi = gercek
+
+
+_GOLGELEME_SMOKE = r"""
+from fastapi.testclient import TestClient
+from app.main import app
+
+ADMIN_PW = 'ReiGolge!12345'
+
+
+def admin_headers(client):
+    login = client.post('/api/auth/login', json={'username':'admin','password':'admin123'})
+    assert login.status_code == 200, login.text
+    body = login.json()
+    h = {'Authorization':'Bearer '+body['access_token'],
+         'X-Company-ID':str(body['companies'][0]['id'])}
+    ch = client.post('/api/auth/change-password', headers=h,
+                     json={'current_password':'admin123','new_password':ADMIN_PW})
+    assert ch.status_code == 200, ch.text
+    h['Authorization'] = 'Bearer '+ch.json()['access_token']
+    return h
+
+
+with TestClient(app) as client:
+    h = admin_headers(client)
+    # Kiraci A, urun P.
+    p = client.post('/api/products', headers=h,
+                    json={'name':'GOLGE ILAC','product_code':'GOLGE-P',
+                          'sale_price':'250.00','purchase_price':'150.00',
+                          'vat_rate':20,'unit':'LT'})
+    assert p.status_code == 201, p.text
+    pid = p.json()['id']
+
+    # Genel satir: crop='' , REI 5 (KONUSAN).
+    g = client.post('/api/plant-protection-products', headers=h,
+                    json={'product_id':pid,'preharvest_interval_days':14,
+                          'reentry_interval_days':5})
+    assert g.status_code == 201, g.text
+    assert g.json()['crop'] == '', g.json()
+    assert g.json()['reentry_interval_days'] == 5, g.json()
+
+    # Bitkiye ozel satir: crop='Domates', REI NULL (SUSAN).
+    o = client.post('/api/plant-protection-products', headers=h,
+                    json={'product_id':pid,'crop':'Domates',
+                          'preharvest_interval_days':21})
+    assert o.status_code == 201, o.text
+    assert o.json()['reentry_interval_days'] is None, o.json()
+
+    ciftlik = client.post('/api/farms', headers=h,
+                          json={'code':'g1','name':'Golge Ciftlik'}).json()
+    parsel = client.post('/api/farm-parcels', headers=h,
+                         json={'farm_id':ciftlik['id'],'code':'gp',
+                               'name':'Golge Parsel','area_decare':'30.0000'}).json()
+    sezon = client.post('/api/crop-seasons', headers=h,
+                        json={'parcel_id':parsel['id'],'season_year':2026,
+                              'crop':'Domates','started_on':'2026-03-01'})
+    assert sezon.status_code == 201, sezon.text
+
+    # Payload reentry_interval_days OMIT — susan ozel genel 5'i GOLGELEMEMELI.
+    # (return int(gun or 0) ozel dalda 0 yazardi.)
+    faal = client.post('/api/field-activities', headers=h, json={
+        'season_id':sezon.json()['id'],'activity_type':'SPRAYING',
+        'performed_at':'2026-06-01T09:00:00+03:00','applied_area_decare':'30.0000',
+        'inputs':[{'product_id':pid,'input_name':'GOLGE ILAC','quantity':'10',
+                   'unit':'LT','dose':'2','dose_unit':'LT/DA'}],
+    })
+    assert faal.status_code == 201, faal.text
+    assert faal.json()['reentry_interval_days'] == 5, faal.json()
+    print('GOLGELEME DEGISMEZI TAMAM')
+"""
 
 
 _SMOKE = r"""
