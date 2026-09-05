@@ -20,8 +20,8 @@ CALL_SITE_GATE = REPO_ROOT / "deploy" / "ci-verify-cagri-kapisi.py"
 BACKEND = REPO_ROOT / "backend"
 
 
-def test_pg_test_population_exact_103() -> None:
-    """PostgreSQL test population must be exactly 103 files.
+def test_pg_test_population_exact_104() -> None:
+    """PostgreSQL test population must be exactly 104 files.
 
     95 -> 97: tarla yazma kilitleri ikizleri (`test_farm_monoculture_postgresql.py`,
     `test_farm_reentry_enforcement_postgresql.py`, göç 20260901_0064). İkizler
@@ -65,7 +65,22 @@ def test_pg_test_population_exact_103() -> None:
     `ls backend/test_*postgresql*.py | wc -l` -> 101 (yeni dosya DAHİL),
     yani 101 `postgresql`-adlı + 2 özel = 103.
 
-    İKİZ ZORUNLU: bu dilimin BEŞ bileşik yabancı anahtarının TEK işi çapraz
+    103 -> 104: bu PR'ın D2 ikizi (`test_d2_avans_tescil_postgresql.py`,
+    göç 20260906_0071). SAYIM YİNE ÖLÇÜLDÜ, önceki ölçümün ÜZERİNE ARİTMETİK
+    YAPILARAK DEĞİL: bu dalda `ls backend/test_*postgresql*.py | wc -l` ->
+    102 (yeni dosya DAHİL), yani 102 `postgresql`-adlı + 2 özel = 104.
+
+    İKİZ ZORUNLU ve gerekçesi ÜÇ tanedir, üçü de yalnız üretim diyalektinde
+    görünür: (a) D2'nin YEDİ bileşik yabancı anahtarının TEK işi çapraz
+    kiracı referansı engellemektir ve SQLite'ta yabancı anahtar uygulaması
+    varsayılan olarak KAPALIDIR; (b) `uq_payments_company_id` olmadan
+    PostgreSQL göçü REDDEDER ("there is no unique constraint matching given
+    keys") ama SQLite SESSİZCE geçirir, yani şemaların AYRIŞMASI yalnız
+    burada görünür; (c) `NUMERIC(18,2)` ölçeği ve
+    `0 <= remaining_amount <= amount` aralığı SQLite'ta DAYATILMAZ — yanlış
+    ölçekli ya da aşırı mahsup edilmiş bir avans orada SESSİZCE geçerdi.
+
+    İKİZ ZORUNLU: 0070'in BEŞ bileşik yabancı anahtarının TEK işi çapraz
     kiracı referansı engellemektir ve SQLite'ta yabancı anahtar uygulaması
     varsayılan olarak KAPALIDIR — yani ana kiracı iddiası SQLite koşusunda
     YEŞİL KALIR. `NUMERIC` ölçeği ve kısmi benzersiz indeks de yalnız
@@ -106,23 +121,23 @@ def test_pg_test_population_exact_103() -> None:
         BACKEND / "tests" / "test_ci_playwright_hazirlik.py",
     ]
     all_files = pg_glob + [p for p in named if p.exists()]
-    assert len(all_files) == 103, (
-        f"PostgreSQL test population changed: expected 103, got {len(all_files)}"
+    assert len(all_files) == 104, (
+        f"PostgreSQL test population changed: expected 104, got {len(all_files)}"
     )
 
 
 def test_ci_workflow_has_frozen_pg_population_constant() -> None:
-    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=103 and strict equality.
+    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=104 and strict equality.
 
     ÜÇÜNCÜ ÇİVİ. Sayı bu depoda ÜÇ yerde yaşıyor: `ci.yml`in sabiti,
-    `test_pg_test_population_exact_103`in adı/iddiası, ve BURASI. Üçü aynı
+    `test_pg_test_population_exact_104`in adı/iddiası, ve BURASI. Üçü aynı
     popülasyonu sayıyor; biri güncellenip öteki unutulursa kapı KENDİ
-    KENDİSİYLE ÇELİŞİR — ve bu tam olarak `test_pg_test_population_exact_103`
+    KENDİSİYLE ÇELİŞİR — ve bu tam olarak `test_pg_test_population_exact_104`
     düzyazısının anlattığı tuzaktır (bir tur boyunca ad `_99`, iddia `100`,
     `ci.yml` yorumu `97 + 2 = 99` idi).
     """
     content = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BEKLENEN_PG_DOSYA_SAYISI=103" in content
+    assert "BEKLENEN_PG_DOSYA_SAYISI=104" in content
     assert '[ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]' in content
 
 
