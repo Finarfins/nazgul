@@ -145,6 +145,12 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     # `read` olsaydı her rol alım fiyatlarını görürdü.
     ("GET", "/api/producer-receipts"): "purchases",
     ("GET", "/api/producer-receipts/{receipt_id}"): "purchases",
+    # D2 (göç 20260906_0071). İKİSİ DE `purchases` ve bu BİLİNÇLİDİR:
+    # avans listesi çiftçiye ne ödendiğini, vergi defteri makbuzun stopaj
+    # kesintisini gösterir. `/api/suppliers` öneki `read`in ALTINDA
+    # olduğundan avans ucu ayrıca yazıldı — yazılmasaydı `read`e düşerdi.
+    ("GET", "/api/suppliers/{supplier_id}/advances"): "purchases",
+    ("GET", "/api/tax-liabilities"): "purchases",
     ("GET", "/api/purchase-comparison"): "purchases",
     ("GET", "/api/purchase-comparison/dashboard"): "purchases",
     ("GET", "/api/purchase-comparison/products/{product_id}/analysis"): "purchases",
@@ -307,9 +313,12 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # 168 -> 170: müstahsil makbuzunun İKİ GET ucu (liste + tekil, göç
 # 20260905_0070). Başka hiçbir ucun izni değişmedi; drift raporu ÖLÇÜLDÜ:
 # `changed` ve `stale` BOŞ — artış YALNIZ ekleme.
-GET_INVENTORY_COUNT = 170
+# 170 -> 172: D2'nin İKİ GET ucu (avans listesi + vergi defteri, göç
+# 20260906_0071). Drift raporu ÖLÇÜLDÜ: `missing`/`stale`/`changed` ÜÇÜ DE
+# BOŞ — artış YALNIZ eklemedir, hiçbir ucun izni DEĞİŞMEDİ.
+GET_INVENTORY_COUNT = 172
 GET_INVENTORY_FINGERPRINT = (
-    "d64b5cb325803622b9579bb3f6385e59659235dd7be9148a1d34a1df3392b35d"
+    "bd1b5dd14d34f09f29cef60a12e6493584d35c85f2b68d0ffccf4446d3703e7b"
 )
 
 

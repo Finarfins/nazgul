@@ -88,6 +88,12 @@ TENANT_TABLES = frozenset({
     # yabancı anahtarla kiracıya bağlıdır; her okuma/yazma kiracı yüklemli.
     "producer_receipts",
     "producer_receipt_items",
+    # D2 (göç 20260906_0071): avans defteri, vergi yükümlülüğü ve borsa
+    # tescili. Üçü de `company_id` TAŞIR ve bileşik yabancı anahtarla
+    # kiracıya bağlıdır.
+    "producer_receipt_exchange_registrations",
+    "supplier_advances",
+    "tax_liabilities",
     # Parti/SKT defteri (göç 20260903_0067). company_id taşır ve ürüne
     # BİLEŞİK yabancı anahtarla bağlıdır (0062'nin kuralı), yani bir
     # kiracının partisi BAŞKA kiracının ürününü işaret edemez; ayrıca
@@ -245,7 +251,7 @@ DYNAMIC_SQL_FILE_ALLOWLIST: dict[str, tuple[int, str, str]] = {
     "backend/app/inventory.py": (1, "a9d2246c50037de031cc8707b86ed120ebb2910f6a8760656924f7a46e20eefb", "schema DDL from internal fixed identifiers; transfer line tenant column and composite parent key. Parmak izi 2026-08-12de guncellendi: ensure_company_default_warehouse depo adi taramasi kiraci kapsamina alindi (sema olcumu: warehouses.name uzerinde UNIQUE yok). Dosyadaki dinamik text() cagrisi ve argumanlari DEGISMEDI."),
     "backend/app/late_fee_charge_engine.py": (7, "3f96f5d377ad88b4b8990ffa5245ab68f8e4bd6ca68f83c5e2b952599d2f76c6", "closed lock/installment fragments; every root binds company_id"),
     "backend/app/maintenance.py": (1, "02ce8076a29cb3ffe6ddfb06fe4b61b0e4db877ebb218ec0a98e7651dbb5aff7", "PostgreSQL catalog query with fixed lock-mode constants"),
-    "backend/app/movement_references.py": (1, "2d8c02a5727a43be7607d58b5eee06f523eced75c97799cf22895c278f979a5e", "closed reference map with canonical tenant predicate"),
+    "backend/app/movement_references.py": (1, "4ca0a7fc40a877ff338a42b19e6e9bc5282a52cae4fd7bbf213dd7eaa6d0ebe8", "closed reference map with canonical tenant predicate. Parmak izi 2026-09-06da yeniden turetildi: D2 (goc 20260906_0071) KAPALI HARITAYA IKI giris ekledi — (supplier, supplier_advance) -> (supplier_advances, supplier_id) ve (supplier, producer_receipt) -> (producer_receipts, supplier_id). Eklenen sey bir SOZLUK LITERALIDIR, text() cagrisi DEGIL: dinamik text() sayisi 1de SABIT ve o tek cagrinin argumani develop ile BIREBIR ayni (OLCULDU, CPython 3.12). Interpolasyona giren iki identifier (tablo adi ve cari sutunu) hala YALNIZ bu kapali haritadan cikiyor, yani KOD SABITIDIR; kullanici girdisi haritaya ANAHTAR olarak giriyor ve eslesmezse 422 ile reddediliyor. Parmak izi 2d8c02a5->4ca0a7fc KIMILDADI cunku dosya AST'sinin TAMAMINDAN turuyor."),
     "backend/app/notifications/archive.py": (3, "0805e49398f75be912764525bb6f5a1009d90bc929eb85fb3da5b1504410357f", "fixed columns and tenant-selected bound id placeholders"),
     "backend/app/notifications/consents.py": (2, "2e7b3605b52f27e2c78d56e5a1edbeb8a610cd8e0dab31ac31a193f3a6e4400b", "fixed projections with company_id predicates"),
     "backend/app/notifications/rules.py": (2, "ed10bd5eb98db186e017981539376ef17bc5194518839db0dd0e77b2f9a36e9f", "validated scope filters; explicit scheduler global-or-tenant mode"),
@@ -323,7 +329,7 @@ DYNAMIC_SQL_FILE_ALLOWLIST: dict[str, tuple[int, str, str]] = {
     #     parametredir (`:sid`, `:status`, `:df`, `:dt`, `:limit`,
     #     `:offset`). Süzgeç DEĞERLERİ hiçbir noktada metne GİRMEZ.
     # Tablo adları hiçbir yerde değişkenden gelmiyor; ikisi de literal.
-    "backend/app/routers/mustahsil.py": (3, "7020cd85fefa05c2898e59adca244162ed5d99b8dd65d95ffd7aeafb94993c32", "producer receipt reads/writes; tenant predicate is LITERAL in all three, interpolation is limited to module-level constant column lists and to append-only fixed filter clauses whose values are BOUND parameters. Parmak izi 2026-09-05te YENIDEN turetildi: issue/cancel compare-and-set (draft->issuing->issued; WHERE status='issued' cancel). Dinamik text() sayisi 3te SABIT — eklenen UPDATE/SELECT'ler SABIT metin; AST parmak izi dosyanin tamamindan turdugu icin kimildadi (1e8e6cd4->7020cd85)."),
+    "backend/app/routers/mustahsil.py": (3, "ce05a0b2c7422d1f87106ab031f0cffef9f5f5ab653ae7f7043b8315124f1730", "producer receipt reads/writes; tenant predicate is LITERAL in all three, interpolation is limited to module-level constant column lists and to append-only fixed filter clauses whose values are BOUND parameters. Parmak izi 2026-09-05te YENIDEN turetildi: issue/cancel compare-and-set (draft->issuing->issued; WHERE status='issued' cancel). Dinamik text() sayisi 3te SABIT — eklenen UPDATE/SELECT'ler SABIT metin; AST parmak izi dosyanin tamamindan turdugu icin kimildadi (1e8e6cd4->7020cd85). Parmak izi 2026-09-06da YENIDEN turetildi: D2 (goc 20260906_0071) iki KANCA ekledi — issue'in CAS islemi icinde avans_engine.makbuz_kesildi, cancel'in CAS islemi icinde avans_engine.iptal_engelleri — artiri _MAKBUZ_SUTUNLARI sabitine advance_applied_total sutunu ve _gorunum'e ucuncu (tescil) parametresi. Dinamik text() sayisi 3te SABIT: eklenen SQL'in TAMAMI avans_engine.py ve routers/avans.py icinde SABIT METINDIR ve o iki dosya bu envantere HIC giris DUSURMEDI (OLCULDU: kapinin bildirdigi tek degisiklik bu iki parmak izidir, yeni dosya YOK). Ucunun de argumanlari develop ile BIREBIR ayni. Parmak izi 7020cd85->ce05a0b2 KIMILDADI cunku dosya AST'sinin TAMAMINDAN turuyor."),
     "backend/app/routers/products.py": (6, "5cd5fdfdb95ffb65e950d7abb509a4ba899a9a34cdb75a62193f23c7694ea24b","closed sort/filter/column maps and integer-only id lists. Parmak izi 2026-09-05te yenilendi: TABAN BIRIM YAZMA YOLU (kantar fisi v2; sutun goc 20260902_0066). `update_product`a iki sey girdi: SABIT metinli bir UPDATE (`UPDATE products SET base_unit=:bu WHERE id=:id AND company_id=:cid` — deger `turkce_katla` ile kanoniklestirilmis BAGLI parametre, alan `model_fields_set`te yoksa sorgu HIC kosmaz) ve `product.base_unit_update` tipli aktivite kaydi. OLCULDU: dinamik text() sayisi 6da SABIT ve altisinin da argumanlari develop ile BIREBIR ayni; eklenen SQL sabit metindir ve dinamik yuzeye girmez. Parmak izi dec8ff78->09c36634 kimildadi cunku dosya AST'sinin TAMAMINDAN turuyor. Ayni gun ikinci kez: ACIK-NULL KAPISI (sahip karari; #40'taki kapiyla ayni sekil) — `base_unit: null` ya da katlaninca bosa dusen dizgi HER SQL'DEN ONCE 422 `TABAN_BIRIM_SILINEMEZ` ile reddedilir; SAF Python dali, SQL metni DEGISMEDI, dinamik text() 6da SABIT. Parmak izi 09c36634->99e57d37. Parmak izi 2026-09-05te C2 ile yeniden turetildi. Dinamik cagri sayisi 6da SABIT. Degisen: `create`in SABIT INSERT metnine `base_unit` sutunu ve `:base_unit` yer tutucusu eklendi — deger BAGLI PARAMETRE, metne girmiyor; kok yuklem (company_id) DEGISMEDI. Gerekce: `ProductCreate` `ProductUpdate`ten turedigi icin alan gövdede KABUL EDILIYOR ama sutun listesinde YOKTU ve deger SESSIZCE dusuyordu. Ek olarak PUT'takiyle AYNI kanoniklestirme (`turkce_katla`) ve ayni 422 kapisi eklendi; ikisinin de SQL'i YOK. Parmak izi 99e57d37->5cd5fdfd."),
     "backend/app/routers/quick_pick.py": (1, "53fbdcd9d0ea6951b8fa701ea9693339e000258cb1911321d2840d31674c2e22", "fixed optional customer filter; roots and joins tenant-scoped"),
     "backend/app/routers/reports.py": (5, "8bec3fd70e7c086ebcd7ed591b2a64f4a24ab48bc60b91e89591741a3a1b2eeb", "literal table choices and tenant-first date conditions"),
@@ -1730,8 +1736,8 @@ print("TENANT_TABLES_JSON=" + json.dumps(tables))
 # Sayilar bu turda YENIDEN OLCULDU, devralinmadi.
 # BIRLESIM (#46 develop'a indi): develop 108/175, bu dal +1 dosya / +1 metin
 #   getiriyor; toplam ARITMETIKLE DEGIL, birlesmis agacta YENIDEN OLCULDU.
-BEKLENEN_ALT_SUREC_SQL_DOSYA = 109
-BEKLENEN_ALT_SUREC_SQL_METIN = 176
+BEKLENEN_ALT_SUREC_SQL_DOSYA = 110
+BEKLENEN_ALT_SUREC_SQL_METIN = 177
 
 
 def _alt_surecte_sql() -> tuple[list[str], int]:
