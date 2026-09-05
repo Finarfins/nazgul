@@ -3444,6 +3444,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/producer-receipts/{receipt_id}/exchange-registration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register Producer Receipt On Exchange
+         * @description Makbuzun borsa tescili. BİR makbuz BİR kez; ikincisi 409.
+         *
+         *     Tekillik UYGULAMADA DA, ŞEMADA DA duruyor
+         *     (`uq_receipt_exchange_registrations_receipt`): uygulama kontrolü iki
+         *     eşzamanlı isteği ayırt edemez, şema kısıtı ise kullanıcıya ANLAŞILIR
+         *     bir hata veremez. İkisi birlikte gerekiyor.
+         */
+        post: operations["register_producer_receipt_on_exchange_api_producer_receipts__receipt_id__exchange_registration_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/producer-receipts/{receipt_id}/issue": {
         parameters: {
             query?: never;
@@ -3474,6 +3499,31 @@ export interface paths {
          *     belgesi olurdu.
          */
         post: operations["issue_producer_receipt_api_producer_receipts__receipt_id__issue_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/producer-receipts/{receipt_id}/pay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pay Producer Receipt
+         * @description Makbuzun NAKİT BORCUNA ödeme. Avans mahsubu ZATEN DÜŞÜLMÜŞTÜR.
+         *
+         *     Tavan `net_payable − advance_applied_total − o ana kadar ödenen`dir.
+         *     AŞMA 422 İLE REDDEDİLİR, kırpılarak KABUL EDİLMEZ: sessizce kırpmak,
+         *     kullanıcının yazdığından farklı bir tutarı onun adına yazmak olurdu ve
+         *     kasa mutabakatı iki taraftan da doğrulanamaz hâle gelirdi.
+         */
+        post: operations["pay_producer_receipt_api_producer_receipts__receipt_id__pay_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4418,6 +4468,36 @@ export interface paths {
         patch: operations["set_supplier_active_api_suppliers__supplier_id__active_patch"];
         trace?: never;
     };
+    "/api/suppliers/{supplier_id}/advances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Supplier Advances
+         * @description Tedarikçinin avansları; `open_only` yalnız KALANI OLANLARI verir.
+         *
+         *     Süzgeç iki SABİT metin arasından SEÇİLİR, birleştirilerek KURULMAZ:
+         *     kullanıcı girdisi hiçbir yolla SQL'e giremez.
+         */
+        get: operations["list_supplier_advances_api_suppliers__supplier_id__advances_get"];
+        put?: never;
+        /**
+         * Create Supplier Advance
+         * @description Çiftçiye avans: `payments` satırı + `supplier_advances` satırı.
+         *
+         *     `remaining_amount` avansın TAMAMI olarak doğar: henüz hiçbir makbuza
+         *     mahsup edilmemiştir. Mahsup `issue` anında FIFO ile olur.
+         */
+        post: operations["create_supplier_advance_api_suppliers__supplier_id__advances_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/suppliers/{supplier_id}/contacts": {
         parameters: {
             query?: never;
@@ -4573,6 +4653,30 @@ export interface paths {
         head?: never;
         /** Update Supplier Task Status */
         patch: operations["update_supplier_task_status_api_suppliers__supplier_id__tasks__task_id__patch"];
+        trace?: never;
+    };
+    "/api/tax-liabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Tax Liabilities
+         * @description Dönem bazlı yükümlülük listesi. YAZMA UCU YOKTUR (bkz. başlık).
+         *
+         *     `period` düzeni ŞEMADA zorlanıyor, sorguda değil: çözülemeyen bir dönem
+         *     422 alır ve `due_period` sütunuyla hiç KARŞILAŞTIRILMAZ. Süzgeç iki
+         *     SABİT metin arasından seçilir, birleştirilerek KURULMAZ.
+         */
+        get: operations["list_tax_liabilities_api_tax_liabilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/technician-profiles": {
@@ -5994,6 +6098,36 @@ export interface components {
             note?: string | null;
             /** Rate To Try */
             rate_to_try: number | string;
+        };
+        /**
+         * ExchangeRegistrationWrite
+         * @description Makbuzun borsa tescili. Bir makbuz için EN FAZLA BİR kez.
+         *
+         *     `fee_amount` SIFIR OLABİLİR (`ge=0`): tescil ücreti alınmayan hâller
+         *     vardır ve sıfır ücreti YASAKLAMAK, ücretsiz tescili kaydedilemez
+         *     yapardı. Yukarıdaki iki şemanın `gt=0` duruşundan BİLEREK ayrılıyor.
+         *
+         *     `registered_on` bir `date`tir, `datetime` DEĞİL: borsa tescili GÜN
+         *     hassasiyetinde bir olgudur ve saat uydurmak, saat dilimi taşımayan bir
+         *     değere yerel saat ATFETMEK olurdu.
+         */
+        ExchangeRegistrationWrite: {
+            /** Exchange Name */
+            exchange_name: string;
+            /**
+             * Fee Amount
+             * @default 0
+             */
+            fee_amount: number | string;
+            /** Note */
+            note?: string | null;
+            /**
+             * Registered On
+             * Format: date
+             */
+            registered_on: string;
+            /** Registration No */
+            registration_no: string;
         };
         /** FarmUpdate */
         FarmUpdate: {
@@ -7829,6 +7963,27 @@ export interface components {
             withholding_rate: number | string;
         };
         /**
+         * ProducerReceiptPaymentWrite
+         * @description Kesilmiş makbuzun NAKİT BORCUNA yapılan ödeme.
+         *
+         *     Tutarın ÜST SINIRI şemada YOKTUR ve olamaz: sınır
+         *     `net_payable − advance_applied_total − o ana kadar ödenen` olup
+         *     VERİTABANINDAN okunur. Şemaya sabit bir tavan yazmak, sınırı iki yerde
+         *     tutup birini eskitirdi.
+         */
+        ProducerReceiptPaymentWrite: {
+            /** Account Id */
+            account_id?: number | null;
+            /** Amount */
+            amount: number | string;
+            /** Note */
+            note?: string | null;
+            /** Payment Date */
+            payment_date: string;
+            /** Payment Method */
+            payment_method: string;
+        };
+        /**
          * ProducerReceiptWrite
          * @description Yeni makbuz. HER ZAMAN `draft` doğar; numara `issue` ile gelir.
          */
@@ -8565,6 +8720,26 @@ export interface components {
             note?: string | null;
             /** Old Product Id */
             old_product_id: number;
+        };
+        /**
+         * SupplierAdvanceWrite
+         * @description Çiftçiye verilen avans. Bir `payments` satırı DOĞURUR.
+         *
+         *     `amount` KESİN OLARAK POZİTİFTİR: sıfır tutarlı bir avans, kasadan
+         *     hiçbir şey çıkmadan defterde bir satır bırakırdı; negatifi ise avansın
+         *     TERSİ (bir tahsilat) olurdu ve o bu ucun işi DEĞİLDİR.
+         */
+        SupplierAdvanceWrite: {
+            /** Account Id */
+            account_id?: number | null;
+            /** Amount */
+            amount: number | string;
+            /** Note */
+            note?: string | null;
+            /** Payment Date */
+            payment_date: string;
+            /** Payment Method */
+            payment_method: string;
         };
         /** SupplierPriceCreate */
         SupplierPriceCreate: {
@@ -16433,6 +16608,41 @@ export interface operations {
             };
         };
     };
+    register_producer_receipt_on_exchange_api_producer_receipts__receipt_id__exchange_registration_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExchangeRegistrationWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     issue_producer_receipt_api_producer_receipts__receipt_id__issue_post: {
         parameters: {
             query?: never;
@@ -16443,6 +16653,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pay_producer_receipt_api_producer_receipts__receipt_id__pay_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProducerReceiptPaymentWrite"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -18330,6 +18575,76 @@ export interface operations {
             };
         };
     };
+    list_supplier_advances_api_suppliers__supplier_id__advances_get: {
+        parameters: {
+            query?: {
+                open_only?: boolean;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                supplier_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_supplier_advance_api_suppliers__supplier_id__advances_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supplier_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierAdvanceWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_supplier_contact_api_suppliers__supplier_id__contacts_post: {
         parameters: {
             query?: never;
@@ -18643,6 +18958,39 @@ export interface operations {
                 "application/json": components["schemas"]["EntityTaskStatusUpdate"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tax_liabilities_api_tax_liabilities_get: {
+        parameters: {
+            query?: {
+                period?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
