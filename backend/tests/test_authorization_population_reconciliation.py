@@ -200,7 +200,19 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 #     sınıfına GİRMEZ. Koşul 2 kaydı UNDENIABLE'ı 95 -> 97 yaparken bedelini
 #     açıkça yazmıştı ("tarla verisini görebilen HERKES kuyruğu da görür");
 #     bu uç o bedeli BÜYÜTMÜYOR — kuyruğu OYNATMAK ayrı ve dar bir izindir.
-EXPECTED_AUTHENTICATED = 355
+# 355 -> 356: kiracı yumuşak imhasının TEK ucu (POST /api/company/erase;
+# 5.1b, GÖÇ YOK). Hangi sayaç NİYE kımıldadı:
+#   * KİMLİKLENMİŞ +1: uç kimlik ister.
+#   * `read` 93'te SABİT: uç `__admin_only__`e çözülür (dışa aktarımla AYNI
+#     ad) ve bu sayaca GİRMEZ. SABİT KALMASI o kararın tanığıdır — kural
+#     `read`e düşseydi bu sayaç 93 -> 94 olurdu ve HER rol firmayı
+#     kapatabilirdi.
+#   * UNDENIABLE 102'de SABİT: `__admin_only__` admin dışındaki HER rolü
+#     reddeder, yani uç UNDENIABLE'a GİRMEZ; ÇIPLAK read farkı da (67)
+#     kımıldamadı, dilim yeni bir çıplak okuma yüzeyi AÇMIYOR.
+# TABAN `a2c5f61` (E1b #53 + yeniden kuyruklama #55 indikten sonra); önceki
+# turun 350 -> 351 ölçümü GEÇERSİZ oldu ve bu satır YENİDEN ÖLÇÜLDÜ.
+EXPECTED_AUTHENTICATED = 356
 EXPECTED_READ = 93
 EXPECTED_UNDENIABLE = 102
 

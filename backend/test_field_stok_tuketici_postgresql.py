@@ -2130,3 +2130,90 @@ def test_iki_yeniden_kuyruklama_yarisirken_TEK_kazanan_pg(
         "TEK geçiş için TEK denetim satırı olmalı; iki satır, iki isteğin de "
         f"kazandığı anlamına gelir. rapor={rapor!r} surecler={ciktilar!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# KAPATILMIS FIRMA (5.1b kiraci yumusak imhasi)
+# ---------------------------------------------------------------------------
+# NEDEN PG IKIZI GEREKLI: `tum_firmalari_isle`nin firma secimi HAM `text()`
+# SQL'dir ve yuklem `WHERE is_active = :aktif` biciminde BAGLI bir parametre
+# tasir. SQLite `is_active`i 0/1 TAMSAYI saklar, PostgreSQL ise gercek
+# `boolean`. Bagli parametre yerine `= TRUE` ya da `= 1` METNI yazilsaydi
+# lehcelerden BIRI sessizce yanlis kumeyi dondururdu: `= 1` PG'de tip hatasi,
+# `= TRUE` eski SQLite'ta sozdizimi hatasi. Yani "kapatilmis firma islenmez"
+# iddiasi ancak HER IKI lehcede de olculdugunde dogrulanmis olur; SQLite
+# ikizi `tests/test_kiraci_imha.py::test_zamanlayici_kapatilmis_firmayi_atlar`.
+#
+# BU DONGU HTTP'DEN GECMEZ ve kiraci cozumunu HIC gormez: yumusak imhanin
+# kilidi orada oldugu icin, yuklem olmadan kapatilmis bir kiracinin bekleyen
+# outbox olaylari islenmeye DEVAM eder ve `stock_movements`e YENI satir
+# yazardi.
+_KAPALI_FIRMA = r"""
+import os, sys
+sys.path.insert(0, os.environ["BACKEND"])
+from sqlalchemy import text as _sql
+from app.db import SessionLocal
+from app.field_stok_tuketici import tum_firmalari_isle
+import app.main
+
+
+def durum(db):
+    return db.execute(_sql(
+        "SELECT status FROM field_integration_events WHERE id = 1")).scalar_one()
+
+
+def hareket(db):
+    return db.execute(_sql(
+        "SELECT COUNT(*) FROM stock_movements WHERE company_id = 1")).scalar_one()
+
+
+with SessionLocal() as db:
+    try:
+        # --- FIRMA KAPALI: olay ALINMAMALI --------------------------------
+        db.execute(_sql("UPDATE companies SET is_active = false WHERE id = 1"))
+        db.commit()
+        kapali_sonuc = tum_firmalari_isle(db)
+        db.commit()
+        print("KAPALI DURUM %s HAREKET %d GIRDI %d"
+              % (durum(db), hareket(db), kapali_sonuc.get("girdi", -1)))
+
+        # --- FIRMA ACIK: AYNI olay bu kez ISLENMELI ------------------------
+        db.execute(_sql("UPDATE companies SET is_active = true WHERE id = 1"))
+        db.commit()
+        acik_sonuc = tum_firmalari_isle(db)
+        db.commit()
+        print("ACIK DURUM %s HAREKET %d GIRDI %d"
+              % (durum(db), hareket(db), acik_sonuc.get("girdi", -1)))
+    finally:
+        # BAYRAK HER HALUKARDA GERI ALINIR: ayni veritabanini paylasan
+        # sonraki testler kapatilmis bir firmayla baslamamali.
+        db.rollback()
+        db.execute(_sql("UPDATE companies SET is_active = true WHERE id = 1"))
+        db.commit()
+"""
+
+
+def test_kapatilmis_firma_PG_de_HIC_secilmiyor_ve_acilinca_isleniyor() -> None:
+    """MUTASYON: `tum_firmalari_isle`deki `WHERE is_active = :aktif` yuklemini
+    kaldirmak bu testi KIRMIZI yapar (kapali turda olay SENT olur ve hareket
+    1'e cikar).
+
+    IKI TUR, TEK OLAY: ayni PENDING olay once KAPALI firmayla, sonra ACIK
+    firmayla kosuluyor. Tek tur yetmezdi — "hicbir sey islenmedi" bulgusu,
+    kurulumun bozuk olmasiyla da aciklanabilirdi; ikinci tur ayni olayin
+    ISLENEBILIR oldugunu kanitliyor, yani ilk turdaki sessizlik YUKLEMDEN
+    geliyor.
+    """
+    assert "KURULUM-TAMAM" in _kos(_KURULUM)
+    cikti = _kos(_KAPALI_FIRMA)
+
+    assert "KAPALI DURUM PENDING HAREKET 0 GIRDI 0" in cikti, (
+        "KAPATILMIS FIRMA ISLENDI: yumusak imha `companies.is_active`i false "
+        "yapar ama bu dongu HTTP'den gecmedigi icin kiraci cozumunu gormez; "
+        f"yuklem dusmus olabilir. cikti={cikti!r}"
+    )
+    assert "ACIK DURUM SENT HAREKET 1 GIRDI 1" in cikti, (
+        "IKINCI TUR ISLEMEDI: ayni olay firma acilinca islenmeliydi. Bu tur "
+        "kirmizi ise ilk turdaki sessizlik yuklemden DEGIL bozuk kurulumdan "
+        f"geliyor demektir. cikti={cikti!r}"
+    )

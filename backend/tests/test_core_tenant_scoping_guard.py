@@ -1787,7 +1787,14 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # artık kapıya GÖRÜNÜYOR. Artış tam olarak +16'dır ve bu, eski donmuş körlüğün
 # bildirdiği sayının ta kendisidir (BEKLENEN_ZORLANMAYAN_IFADE = 16). Yani
 # görünmez yüzey kaybolmadı, GÖRÜNÜR yüzeye taşındı; sayı bunu doğruluyor.
-BEKLENEN_CORE_IFADE_SAYISI = 120
+# 120 -> 122: KIRACI YUMUSAK IMHASI (5.1b). `app/routers/kiraci_imha.py`de
+# `user_company_memberships`e dokunan İKİ ifade: firma kapsamlı ÜYELİK SAYIMI
+# ve firma kapsamlı ÜYELİK SİLME. İKİSİ DE kendi kiracı yüklemini AÇIKÇA
+# taşır (`.where(memberships.c.company_id == cid)`) — yüklem düşerse kümedeki
+# HER kullanıcı HER firmasını kaybederdi. `companies` üzerindeki okuma ve
+# UPDATE bu sayaca GİRMEZ: `companies` KİRACI TABLOSU DEĞİL (company_id
+# sütunu yok, ölçüldü), kiracı KÖKÜDÜR.
+BEKLENEN_CORE_IFADE_SAYISI = 122
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
     "branches",

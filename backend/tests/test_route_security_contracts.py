@@ -282,8 +282,16 @@ DYNAMIC_PERMISSION_CASES = {
 # GET envanteri o ucu `read` gösteriyor). Ayrı bir `review_reason`
 # GEREKMİYOR: beş uç da kiracı kapsamlıdır ve izinleri mevcut `purchases`
 # ailesindendir. Başka hiçbir ucun sözleşmesi değişmedi.
-EXPECTED_OPERATION_COUNT = 365
-EXPECTED_PATH_COUNT = 281
+# 365/281 -> 366/282: kiracı yumuşak imhası (5.1b). TEK yol, TEK işlem:
+# POST /api/company/erase. İzni `__admin_only__` — dışa aktarımla AYNI ad,
+# yani ayrı bir `review_reason` GEREKMİYOR (aynı gerekçe: deny-by-default
+# nöbetçisiyle aynı ad, router düzeyinde ek operatör listesi yok). GET
+# envanteri KIMILDAMIYOR: dilim hiçbir GET ucu getirmiyor. TABAN, E1b (#53)
+# ve YENİDEN KUYRUKLAMA (#55) indikten SONRAKİ `a2c5f61`dir; önceki turun
+# 360/278 -> 361/279 ölçümü tabanı değiştiği anda GEÇERSİZ oldu ve bu
+# satırlar YENİDEN ÖLÇÜLDÜ, aritmetikle türetilmedi.
+EXPECTED_OPERATION_COUNT = 366
+EXPECTED_PATH_COUNT = 282
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -403,7 +411,10 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # yalnız terminal (`SENT` OLMAYAN) satırda; göç EKLEMEDİ ve tüketici
     # davranışı ile `FIELD_STOCK_OUTBOX_ENABLED` varsayılanı DEĞİŞMEDİ.
     # Parmak izi a49f58e6 -> d11a83eb.
-    "d11a83eba1d6e5d703dac68a80865a3f37367a871196c2c21ef35c6f9fe5efcf"
+    # 20260906 kiracı yumuşak imhası (5.1b): POST /api/company/erase
+    # (`__admin_only__`) eklendi — TEK uç. Parmak izi d11a83eb -> yeniden
+    # türetildi (TABAN `a2c5f61`); başka hiçbir ucun sözleşmesi değişmedi.
+    "cec015e059a53e2f19b82aff9a58c4292092214942b26056af2cdf1cddf1bdc3"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

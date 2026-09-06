@@ -576,6 +576,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/company/erase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Firmayi Imha Et
+         * @description Aktif firmayı kapatır ve üyeliklerini kaldırır — TEK İŞLEMDE.
+         *
+         *     ÜYELİK ve ROL kapıları BU FONKSİYONDA DEĞİL, ara katmandadır ve dışa
+         *     aktarımla AYNI kapılardır (``required_permission`` → ``__admin_only__``,
+         *     ``resolve_company`` → üyelik). Burada yalnız İSİM ONAYI ve
+         *     TEKRARLANABİLİRLİK denetlenir.
+         *
+         *     İŞLEM SIRASI RASTGELE DEĞİL: bayrak, üyelikler ve aktivite satırı TEK
+         *     ``db`` işlemindedir ve commit BİR KEZ, hepsinden SONRA atılır. ``get_db``
+         *     commit ETMEZ (ölçüldü: yalnız ``close()`` çağırır), ``log_activity`` de
+         *     etmez — yani üç yazma da bu tek ``commit()``e bağlıdır: bayrak dönüp
+         *     kayıt düşerse denetim izi yalan söylerdi, kayıt yazılıp bayrak dönmezse
+         *     firma kapanmamış görünürken kapanmış sayılırdı.
+         *
+         *     TEKRAR ÇAĞRI 409. İmha ÜYELİKLERİ SİLDİĞİ için ikinci çağrının ara
+         *     katmandan geçmesi normalde imkânsızdır (çağıran artık üye değil, üstelik
+         *     firma kapalı). 409 yine de yazılıdır: kilit bir gün gevşerse bu uç
+         *     sessizce ikinci bir "imha edildi" kaydı yazmasın.
+         */
+        post: operations["firmayi_imha_et_api_company_erase_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/company/export": {
         parameters: {
             query?: never;
@@ -6956,6 +6993,20 @@ export interface components {
             /** Target Calving Interval Days */
             target_calving_interval_days: number;
         };
+        /**
+         * ImhaTalebi
+         * @description Onay, firmanın adının BİREBİR yazılmasıdır.
+         *
+         *     ``turkce_katla`` UYGULANMAZ ve bu bilinçlidir: bu alanın işi arama
+         *     yapmak değil, kullanıcının doğru firmada olduğunu KANITLAMASIDIR.
+         *     Büyük/küçük harf ya da Türkçe katlama gevşetilseydi "Ada Tarım" ile
+         *     "ADA TARIM" aynı sayılırdı — oysa ikisi AYRI iki kiracı adı olabilir ve
+         *     yanlış olanı kapatmak geri alınması pahalı bir hatadır.
+         */
+        ImhaTalebi: {
+            /** Confirm Name */
+            confirm_name: string;
+        };
         /** ImportReport */
         ImportReport: {
             /** After Digest */
@@ -10799,6 +10850,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    firmayi_imha_et_api_company_erase_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImhaTalebi"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

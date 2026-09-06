@@ -71,6 +71,7 @@ from .routers import (
     part_supersessions,
     platform_audit,
     kiraci_disa_aktarim,
+    kiraci_imha,
     platform_backups,
     pos,
     products,
@@ -566,6 +567,22 @@ app.include_router(supplier_price_bridge.router, prefix="/api")
 app.include_router(part_supersessions.router, prefix="/api")
 app.include_router(platform_backups.router, prefix="/api")
 app.include_router(kiraci_disa_aktarim.router, prefix="/api")
+app.include_router(kiraci_imha.router, prefix="/api")
+
+
+@app.exception_handler(kiraci_imha.FirmaZatenKapaliError)
+async def _firma_zaten_kapali(
+    _request: Request, exc: kiraci_imha.FirmaZatenKapaliError
+) -> JSONResponse:
+    """İkinci imha denemesini KARARLI kodlu 409'a çevirir.
+
+    Dışa aktarım hatalarıyla AYNI biçim: kod gövdededir ve sözleşmedir.
+    Bu yolun bugün HTTP'den erişilemez olduğu — ve neden yine de yazılı
+    olduğu — ``routers/kiraci_imha.py``daki sınıfın kendisinde açıklanmıştır.
+    """
+    return JSONResponse(
+        status_code=409, content={"detail": str(exc), "code": exc.kod}
+    )
 
 
 @app.exception_handler(DisaAktarimError)
