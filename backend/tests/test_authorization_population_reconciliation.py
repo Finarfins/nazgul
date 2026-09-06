@@ -219,9 +219,9 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 # bir yetki kapısı YOK, yani ÇIPLAK read'e düşüyor (67 -> 68) ve çıplak read
 # `undeniable`ın alt kümesi olduğu için o da bir artıyor.
 # `FARM_HERD_VIEW_OPERATIONS` KIMILDAMADI: uç tarla/sürü ailesinden değil.
-EXPECTED_AUTHENTICATED = 0
-EXPECTED_READ = 0
-EXPECTED_UNDENIABLE = 0
+EXPECTED_AUTHENTICATED = 356
+EXPECTED_READ = 94
+EXPECTED_UNDENIABLE = 103
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
 #: sonra kendi kapılarına takılırlar. 89'a dahil, 94'e DEĞİL.
