@@ -1436,6 +1436,16 @@ export interface paths {
          *     * ``reentry_blocks`` — tarlaya giriş yasağı sürmekte olan PARSELLER. Bu,
          *       hasatla ilgisi olmayan bir iş için tarlaya girecek kişiyi de ilgilendirir
          *       (sulama, gübreleme); tek listede birleştirmek onu gizlerdi.
+         *     * ``plantback_blocks`` — ekim-arası bekleme süren PARSELLER (göç 0072).
+         *       ÜÇÜNCÜ liste, çünkü ÜÇÜNCÜ kişiyi ilgilendiriyor: ekim planını yapan
+         *       kişi. Hasat ya da tarlaya giriş serbestken ekim yasak olabilir.
+         *
+         *     PLANT-BACK LİSTESİ ADAY BİTKİ SORMUYOR ve bu bir sadeleştirme DEĞİL, bu
+         *     ucun sözleşmesi: rapor "şu anda yürürlükte olan kısıtlar"dır, "şunu eksem
+         *     olur mu" değil. Bu yüzden her satır kendi ``next_crop``unu TAŞIYOR
+         *     (boş dize = ardından ne ekilirse ekilsin) ve okuyucu hangi ekimin
+         *     kesildiğini satırın kendisinden görüyor. Aday bitki başına tekil bir cevap
+         *     ``POST /api/crop-seasons``un işidir; kilit oradadır.
          *
          *     Kısıtlar BUGÜNE göre hesaplanıyor; süresi geçmiş olanlar listede yok.
          */
@@ -3156,6 +3166,42 @@ export interface paths {
         post?: never;
         /** Delete */
         delete: operations["delete_api_payments__payment_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plant-protection-plantbacks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Plantbacks */
+        get: operations["list_plantbacks_api_plant_protection_plantbacks_get"];
+        put?: never;
+        /** Create Plantback */
+        post: operations["create_plantback_api_plant_protection_plantbacks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plant-protection-plantbacks/{plantback_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Plantback */
+        get: operations["get_plantback_api_plant_protection_plantbacks__plantback_id__get"];
+        /** Update Plantback */
+        put: operations["update_plantback_api_plant_protection_plantbacks__plantback_id__put"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -5876,6 +5922,8 @@ export interface components {
             farm_early_harvest_policy?: ("warn" | "require_reason" | "block") | null;
             /** Farm Monoculture Policy */
             farm_monoculture_policy?: ("warn" | "require_reason" | "block") | null;
+            /** Farm Plantback Policy */
+            farm_plantback_policy?: ("warn" | "require_reason" | "block") | null;
             /** Farm Reentry Policy */
             farm_reentry_policy?: ("warn" | "require_reason" | "block") | null;
             /** Farm Spraying Dose Required */
@@ -7791,6 +7839,66 @@ export interface components {
             /** Reference Type */
             reference_type?: string | null;
         };
+        /** PlantProtectionPlantbackUpdate */
+        PlantProtectionPlantbackUpdate: {
+            /**
+             * Crop
+             * @default
+             */
+            crop: string;
+            /**
+             * Expected Updated At
+             * Format: date-time
+             */
+            expected_updated_at: string;
+            /** Interval Days */
+            interval_days: number;
+            /**
+             * Next Crop
+             * @default
+             */
+            next_crop: string;
+            /** Notes */
+            notes?: string | null;
+            /** Product Id */
+            product_id: number;
+            /**
+             * Status
+             * @default ACTIVE
+             */
+            status: string;
+        };
+        /**
+         * PlantProtectionPlantbackWrite
+         * @description Bir BKÜ'nün ARDINDAN ekilecek bitkiyi ne kadar beklettiği.
+         *
+         *     AYRI ŞEMA VE AYRI TABLO, ``PlantProtectionProductWrite``a sütun DEĞİL:
+         *     ``plant_protection_products``ın tekilliği ``(company_id, product_id,
+         *     crop)``tır ve aynı ilaç ardından ekilecek HER bitki için AYRI bir süre
+         *     taşıyabilir (ayçiçeği 12 ay, mercimek 4 ay). Ölçüldü: sütun tercihinde
+         *     ikinci satır ``IntegrityError`` alıyordu (göç 0072 başlığı).
+         *
+         *     ``crop`` BOŞ = ilaç hangi bitkide atılırsa atılsın.
+         *     ``next_crop`` BOŞ = ardından ne ekilirse ekilsin.
+         */
+        PlantProtectionPlantbackWrite: {
+            /**
+             * Crop
+             * @default
+             */
+            crop: string;
+            /** Interval Days */
+            interval_days: number;
+            /**
+             * Next Crop
+             * @default
+             */
+            next_crop: string;
+            /** Notes */
+            notes?: string | null;
+            /** Product Id */
+            product_id: number;
+        };
         /** PlantProtectionProductUpdate */
         PlantProtectionProductUpdate: {
             /**
@@ -8520,6 +8628,8 @@ export interface components {
             notes?: string | null;
             /** Parcel Id */
             parcel_id: number;
+            /** Plantback Override Reason */
+            plantback_override_reason?: string | null;
             /** Planted Area Decare */
             planted_area_decare?: number | string | null;
             /** Product Id */
@@ -8548,6 +8658,8 @@ export interface components {
             notes?: string | null;
             /** Parcel Id */
             parcel_id: number;
+            /** Plantback Override Reason */
+            plantback_override_reason?: string | null;
             /** Planted Area Decare */
             planted_area_decare?: number | string | null;
             /** Product Id */
@@ -16034,6 +16146,139 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_plantbacks_api_plant_protection_plantbacks_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                product_id?: number | null;
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_plantback_api_plant_protection_plantbacks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlantProtectionPlantbackWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_plantback_api_plant_protection_plantbacks__plantback_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plantback_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_plantback_api_plant_protection_plantbacks__plantback_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plantback_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlantProtectionPlantbackUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
             };
             /** @description Validation Error */
             422: {

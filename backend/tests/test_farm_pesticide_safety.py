@@ -154,7 +154,11 @@ with TestClient(app) as client:
     guvenlik = client.get('/api/field-safety', headers=h)
     assert guvenlik.status_code == 200, guvenlik.text
     g = guvenlik.json()
-    assert set(g) == {'as_of', 'harvest_blocks', 'reentry_blocks'}, g
+    # ÜÇÜNCÜ LİSTE: `plantback_blocks` (ekim-arası bekleme, göç
+    # 20260907_0072). Bu kapı ucun ANAHTAR KÜMESİNİ donduruyor, yani
+    # yeni liste buraya BİLİNÇLİ olarak yazıldı — sessizce eklenemezdi.
+    assert set(g) == {'as_of', 'harvest_blocks', 'reentry_blocks',
+                      'plantback_blocks'}, g
     # Geçmiş tarihli ilaçlama olduğu için bugün itibarıyla kısıt kalmamalı.
     assert g['harvest_blocks'] == [], g
     assert g['reentry_blocks'] == [], g

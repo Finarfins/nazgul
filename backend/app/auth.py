@@ -730,6 +730,11 @@ _FARM_PATH_PREFIXES = (
     # olmasaydı genel `read` iznine düşerdi ve bekleme sürelerini okuma yetkisi
     # olan herkes değiştirebilirdi.
     "/api/plant-protection-products",
+    # Ekim-arası bekleme kataloğu (göç 20260907_0072). ÖNEK EŞLEŞMESİ ÖLÇÜLDÜ:
+    # "...-plantbacks" yukarıdaki "...-products" öneki ile EŞLEŞMEZ ('l'/'r'
+    # harfinde ayrılıyor), yani bu satır olmasaydı uç genel `read` iznine
+    # düşer ve bekleme sürelerini okuma yetkisi olan herkes değiştirebilirdi.
+    "/api/plant-protection-plantbacks",
     "/api/crop-seasons",
     "/api/field-activities",
     "/api/field-harvest-decision",

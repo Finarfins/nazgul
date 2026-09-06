@@ -779,8 +779,13 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     # eklendi (göç 20260904_0068, FİRMA PROFİLİ). Sorgunun YÜKLEMİ ve hedefi
     # DEĞİŞMEDİ — `where(companies.c.id == cid)` aynen duruyor ve `cid`
     # `company_id(request)`ten geliyor; değişen tek şey OKUNAN SÜTUN kümesidir.
+    # Parmak izi 2026-09-07de yenilendi: projeksiyona
+    # `companies.c.farm_plantback_policy` eklendi (göç 20260907_0072,
+    # EKİM-ARASI BEKLEME). Sorgunun YÜKLEMİ ve hedefi DEĞİŞMEDİ —
+    # `where(companies.c.id == cid)` aynen duruyor; değişen tek şey OKUNAN
+    # SÜTUN kümesidir.
     ("app/routers/companies.py", "get_company_settings", "select",
-     "5525fded9c47466a0b93a6e7f27c6c519b6d21ec527e1039044f12737f2119ab"): (1, "companies", "arg0"),  # satır [115]
+     "2a91c7d87b53075fdcbebdf0c0589ba3dc9618ad55e8a78b38b730643e6c248a"): (1, "companies", "arg0"),  # satır [115]
     ("app/routers/companies.py", "list_branches", "select",
      "a1e5782db98e816f1960a283e2827acf34c2f7f89add2c976e5c8d680863b69b"): (1, "branches", "arg0"),  # satır [183]
     ("app/routers/companies.py", "list_policy_overrides", "select",
@@ -902,7 +907,7 @@ EXPECTED_OP_COUNTS = {"select": 92, "update": 41, "delete": 7}
 # göç kiracı tablosu eklediğinde sessizce eksik kalır ve o tablonun satırları
 # dosyaya HİÇ girmezdi. Kiracı yüklemi statik olarak GÖRÜNÜR durumdadır
 # (``.where(tablo.c.company_id == cid)``), yalnız tablo NESNESİ değişkendir.
-INVENTORY_FINGERPRINT = "36bbb1cff255c211c6b26a5b616a79f5e0e1e54384f43e1d1dcfaace2bd0322b"
+INVENTORY_FINGERPRINT = "16f1e9549abe06b0cdd1ab80c533a8c643cbf5c260cb534220aa82ea7dfa5aec"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:

@@ -47,6 +47,8 @@ from ..farm_schemas import (
     ParcelUpdate,
     ParcelWrite,
     PlantProtectionProductUpdate,
+    PlantProtectionPlantbackUpdate,
+    PlantProtectionPlantbackWrite,
     PlantProtectionProductWrite,
     SeasonUpdate,
     SeasonWrite,
@@ -107,6 +109,7 @@ _TABLOLAR = frozenset({
     "farms", "farm_parcels", "crop_seasons", "field_activities",
     "field_activity_inputs", "field_harvests", "field_harvest_tickets",
     "field_tasks", "plant_protection_products",
+    "plant_protection_plantbacks",
 })
 
 
@@ -871,7 +874,8 @@ def list_seasons(
             f"""SELECT id,parcel_id,season_year,crop,product_id,variety,
             started_on,ended_on,
             status,planted_area_decare,notes,
-            monoculture_override_reason,monoculture_warning,updated_at
+            monoculture_override_reason,monoculture_warning,
+            plantback_override_reason,plantback_warning,updated_at
             FROM crop_seasons WHERE company_id=:cid{kosul}
             ORDER BY season_year DESC,id DESC LIMIT :limit OFFSET :offset"""
         ),
@@ -892,19 +896,29 @@ def create_season(payload: SeasonWrite, request: Request, db: Session = Depends(
         db, cid, payload.parcel_id, payload.season_year, payload.crop,
         kurallar["farm_monoculture_policy"], payload.monoculture_override_reason,
     )
+    # EKİM-ARASI BEKLEME (göç 0072). Parselin ÖNCEKİ sezonlarındaki
+    # ilaçlamalar bu ekimi kesebilir; sezon henüz yok, dolayısıyla dışlanacak
+    # bir sezon da yok.
+    plantback_uyari = _plantback_dogrula(
+        db, cid, payload.parcel_id, payload.crop, payload.started_on,
+        kurallar["farm_plantback_policy"], payload.plantback_override_reason,
+    )
     now = _simdi()
     yeni = db.execute(
         text(
             """INSERT INTO crop_seasons(company_id,parcel_id,season_year,crop,product_id,
             variety,
             started_on,ended_on,status,planted_area_decare,notes,
-            monoculture_override_reason,monoculture_warning,created_at,updated_at)
+            monoculture_override_reason,monoculture_warning,
+            plantback_override_reason,plantback_warning,created_at,updated_at)
             VALUES(:cid,:parcel_id,:season_year,:crop,:product_id,:variety,
             :started_on,:ended_on,
             'PLANNED',:planted_area_decare,:notes,
-            :monoculture_override_reason,:monoculture_warning,:now,:now) RETURNING id"""
+            :monoculture_override_reason,:monoculture_warning,
+            :plantback_override_reason,:plantback_warning,:now,:now) RETURNING id"""
         ),
-        {"cid": cid, "now": now, "monoculture_warning": uyari, **payload.model_dump()},
+        {"cid": cid, "now": now, "monoculture_warning": uyari,
+         "plantback_warning": plantback_uyari, **payload.model_dump()},
     ).scalar_one()
     db.commit()
     return _satir(db, cid, "crop_seasons", int(yeni))
@@ -971,6 +985,26 @@ def update_season(season_id: int, payload: SeasonUpdate, request: Request, db: S
     else:
         veri["monoculture_override_reason"] = mevcut.get("monoculture_override_reason")
         veri["monoculture_warning"] = mevcut.get("monoculture_warning")
+    # PLANT-BACK'İN KENDİ TETİKLEYİCİSİ VAR ve monokültürünkiyle AYNI DEĞİL:
+    # o yıl+bitki+parsele bakar, bu EKİM GÜNÜNE de bakar. `started_on`
+    # değiştiğinde monokültür kırılımı KIMILDAMAZ ama ekim günü öne çekilmiş
+    # bir sezon plant-back'i YENİDEN ihlal edebilir; tek bir "kırılım değişti"
+    # bayrağına bağlamak o değişikliği SESSİZ geçirirdi.
+    plantback_degisti = (
+        int(mevcut["parcel_id"]) != payload.parcel_id
+        or not _urun_esit(str(mevcut["crop"]), payload.crop)
+        or not _gun_esit(mevcut.get("started_on"), payload.started_on)
+    )
+    if plantback_degisti:
+        kurallar = _firma_kurallari(db, cid)
+        veri["plantback_warning"] = _plantback_dogrula(
+            db, cid, payload.parcel_id, payload.crop, payload.started_on,
+            kurallar["farm_plantback_policy"], payload.plantback_override_reason,
+            haric_sezon_id=season_id,
+        )
+    else:
+        veri["plantback_override_reason"] = mevcut.get("plantback_override_reason")
+        veri["plantback_warning"] = mevcut.get("plantback_warning")
     sonuc = db.execute(
         text(
             """UPDATE crop_seasons SET parcel_id=:parcel_id,season_year=:season_year,
@@ -979,6 +1013,8 @@ def update_season(season_id: int, payload: SeasonUpdate, request: Request, db: S
             status=:status,planted_area_decare=:planted_area_decare,notes=:notes,
             monoculture_override_reason=:monoculture_override_reason,
             monoculture_warning=:monoculture_warning,
+            plantback_override_reason=:plantback_override_reason,
+            plantback_warning=:plantback_warning,
             updated_at=:now WHERE id=:id AND company_id=:cid
             AND updated_at=:expected_updated_at"""
         ),
@@ -1018,6 +1054,7 @@ def list_activities(
             f"""SELECT id,season_id,activity_type,performed_at,applied_area_decare,
             operator_user_id,machine_id,reentry_interval_days,preharvest_interval_days,
             preharvest_source,catalogue_preharvest_days,
+            reentry_source,catalogue_reentry_days,
             notes,area_override_reason,reentry_override_reason,reentry_warning,status,
             labor_hours,labor_hourly_rate,machine_hours,machine_hourly_rate,
             updated_at
@@ -1136,20 +1173,25 @@ def create_activity(payload: ActivityWrite, request: Request, db: Session = Depe
     # süresi dolu bir satır bırakırdı.
     katalog_gun, etkin_gun, koken = _phi_coz(db, cid, payload, sezon)
     # GİRİŞ YASAĞI DA BURADA ÇÖZÜLÜYOR — aynı gerekçe: süre faaliyet
-    # BAŞLIĞINDA, girdiler satırlarda. PHI'den farklı olarak köken
-    # YAZILMIYOR; sütunu yok ve açmak göç olurdu (bkz. `_giris_yasagi_coz`).
-    etkin_giris = _giris_yasagi_coz(db, cid, payload, sezon)
+    # BAŞLIĞINDA, girdiler satırlarda. KÖKENİ DE YAZILIYOR: göç 0072 iki
+    # sütunu açtı ve asimetri (PHI'nin kökeni var, giriş yasağının yok)
+    # KAPANDI.
+    katalog_giris, etkin_giris, giris_koken = _giris_yasagi_coz(
+        db, cid, payload, sezon
+    )
     yeni = db.execute(
         text(
             """INSERT INTO field_activities(company_id,season_id,activity_type,performed_at,
             applied_area_decare,operator_user_id,machine_id,reentry_interval_days,
             preharvest_interval_days,preharvest_source,catalogue_preharvest_days,
+            reentry_source,catalogue_reentry_days,
             notes,area_override_reason,reentry_override_reason,reentry_warning,status,
             labor_hours,labor_hourly_rate,machine_hours,machine_hourly_rate,
             created_at,updated_at)
             VALUES(:cid,:season_id,:activity_type,:performed_at,:applied_area_decare,
             :operator_user_id,:machine_id,:reentry_interval_days,:preharvest_interval_days,
             :preharvest_source,:catalogue_preharvest_days,
+            :reentry_source,:catalogue_reentry_days,
             :notes,:area_override_reason,:reentry_override_reason,:reentry_warning,'RECORDED',
             :labor_hours,:labor_hourly_rate,:machine_hours,:machine_hourly_rate,
             :now,:now) RETURNING id"""
@@ -1164,6 +1206,9 @@ def create_activity(payload: ActivityWrite, request: Request, db: Session = Depe
             # Giriş yasağı da ham değil ÇÖZÜLMÜŞ yazılıyor: operatör
             # boş bıraktıysa katalogun süresi buraya düşer.
             "reentry_interval_days": etkin_giris,
+            # KÖKEN ÇİFTİ, PHI'dekiyle AYNI ANLAM: kim koydu, katalog ne demişti.
+            "reentry_source": giris_koken,
+            "catalogue_reentry_days": katalog_giris,
             # Saatler de normalize ediliyor: istemci "2" de "2.0000" da
             # gönderebilir, sütun 18,4 ve iki diyalekt aynı değeri saklamalı.
             "labor_hours": (
@@ -1463,6 +1508,238 @@ def _monokultur_dogrula(
     )
 
 
+# ---------------------------------------------------------------------------
+# EKİM-ARASI BEKLEME (PLANT-BACK) — göç 20260907_0072
+# ---------------------------------------------------------------------------
+#
+# ÜÇÜNCÜ BİR SÜRE ve öteki ikisiyle KARIŞTIRILMAMALI:
+#
+#   PHI          — ilaçtan sonra HASADA kaç gün var        (aynı sezon)
+#   giriş yasağı — ilaçtan sonra TARLAYA girmeye kaç gün    (aynı sezon)
+#   plant-back   — ilaçtan sonra YENİ EKİME kaç gün         (SONRAKİ sezon)
+#
+# Devir notunun cümlesi: "herbisit ekim-arası 10-18 ay". Süre GÜN cinsinden
+# tutuluyor (göç başlığı: takvim ayı sabit uzunlukta değil ve mevcut iki kilit
+# gün topluyor).
+#
+# KİLİT SEZON YAZMA YOLUNDA, faaliyet yolunda DEĞİL: plant-back'i ihlal eden
+# şey ilaçlama değil ONDAN SONRAKİ EKİMDİR. Faaliyet tarafına koymak, henüz
+# var olmayan bir sezonu yargılamak olurdu.
+
+
+def _gun_esit(a: Any, b: Any) -> bool:
+    """İki ekim gününü BİÇİMDEN BAĞIMSIZ karşılaştırır.
+
+    Gerekli çünkü aynı gün iki diyalektten İKİ TÜRDE geliyor: SQLite satırı
+    ``'2026-03-01'`` dizgisi, PostgreSQL satırı ``date`` nesnesi verir ve
+    ``payload.started_on`` her zaman ``date``tir. Düz ``!=`` karşılaştırması
+    SQLite'ta HER ZAMAN "değişti" derdi — plant-back yeniden hesabı orada
+    gereksiz yere çalışır, PostgreSQL'de çalışmazdı; yani diyalektler
+    AYRIŞIRDI.
+    """
+    def _coz(deger: Any) -> date | None:
+        if deger is None:
+            return None
+        if isinstance(deger, datetime):
+            return deger.date()
+        if isinstance(deger, date):
+            return deger
+        return date.fromisoformat(str(deger)[:10])
+
+    return _coz(a) == _coz(b)
+
+
+def _plantback_satirlari(
+    db: Session, cid: int, parcel_id: int, haric_sezon_id: int | None,
+) -> list[dict[str, Any]]:
+    """Parseldeki faaliyetlerin plant-back adaylarını ham hâlde döndürür.
+
+    Bitki eşleştirmesi BURADA YAPILMIYOR: ``_bitki_esit`` Türkçe'ye özgü bir
+    katlamadır ve SQL'in ``lower()``ı onu ÜRETMEZ (``I``/``ı`` çifti). Eşleşme
+    Python'da yapılıyor ki katalog çözümünün üç yerdeki (PHI, giriş yasağı,
+    plant-back) sözleşmesi TEK olsun.
+
+    ``haric_sezon_id`` sezonun KENDİ faaliyetlerini dışarıda bırakır. Bırakmasa
+    ne olurdu ÖLÇÜLDÜ: sezonun kendi ilaçlaması ekim gününden SONRA yapılmıştır,
+    yani ``ekim < yapıldığı + süre`` HER ZAMAN doğrudur ve sezon KENDİ KENDİNİ
+    bloke ederdi — ``PUT`` ile bitkisi düzeltilen her sezon 422 alırdı.
+    """
+    satirlar = db.execute(
+        _PLANTBACK_SORGU, {"cid": cid, "pid": int(parcel_id), "haric": haric_sezon_id},
+    ).mappings().all()
+    return [dict(r) for r in satirlar]
+
+
+#: ``haric`` PostgreSQL'de TİPLİ olmak ZORUNDA: ``:haric IS NULL``
+#: karşılaştırmasında sürücü tipi çıkaramaz (``42P08 AmbiguousParameter``) ve
+#: `POST` yolunda o parametre HER ZAMAN NULL'dır. `_GIRIS_SORGU`daki ``pid``
+#: ile AYNI ölçülmüş tuzak.
+_PLANTBACK_SORGU = text(
+    """SELECT a.id activity_id,a.activity_type,a.performed_at,
+    s.crop applied_crop,
+    b.crop rule_crop,b.next_crop rule_next_crop,b.interval_days,
+    b.product_id,u.name product_name
+    FROM field_activities a
+    JOIN crop_seasons s ON s.id=a.season_id AND s.company_id=a.company_id
+    JOIN field_activity_inputs i ON i.activity_id=a.id AND i.company_id=a.company_id
+    JOIN plant_protection_plantbacks b
+      ON b.product_id=i.product_id AND b.company_id=a.company_id
+     AND b.status='ACTIVE'
+    JOIN products u ON u.id=b.product_id AND u.company_id=b.company_id
+    WHERE a.company_id=:cid AND a.status='RECORDED'
+      AND s.parcel_id=:pid
+      AND i.product_id IS NOT NULL
+      AND (:haric IS NULL OR s.id <> :haric)"""
+).bindparams(
+    bindparam("haric", type_=Integer),
+)
+
+#: Eşleşen satırın ÖZGÜLLÜĞÜ. Aynı ürün+faaliyet için birden çok kural
+#: eşleşebilir (bitkiye özel + bitkiden bağımsız); 0063'ün çözüm sırası
+#: ÖZELİ tercih eder, yoksa GENELE düşer. Sıra burada SAYIYA çevriliyor.
+_PLANTBACK_OZGULLUK = {(True, True): 3, (True, False): 2, (False, True): 1,
+                       (False, False): 0}
+
+
+def _plantback_ihlalleri(
+    db: Session, cid: int, parcel_id: int, yeni_bitki: str | None, ekim_gunu: date,
+    haric_sezon_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """``ekim_gunu``nde ``yeni_bitki`` ekilirse ihlal edilecek plant-back'ler.
+
+    İKİ AYRI SEÇİM, karıştırılmamalı:
+
+    * TEK bir (faaliyet, ürün) çifti için birden çok kural eşleşirse EN ÖZEL
+      kural seçilir (``_PLANTBACK_OZGULLUK``) — firma "ayçiçeği için 12 ay"
+      yazmışsa, "her ürün için 6 ay" satırı onu GÖLGELEMEZ.
+    * FARKLI faaliyetler/ürünler arasında EN UZUN süre kazanır. Kısa olanı
+      seçmek, uzun olanın süresi dolmadan ekime izin verirdi — ``_phi_coz``
+      ve ``_giris_yasagi_coz`` ile AYNI kural.
+
+    ``yeni_bitki=None`` ADAY BİTKİ SORULMADI demektir (`GET /field-safety`
+    raporu): o durumda ardıl bitkiye BAKILMAZ, her kural eşleşir ve gölgeleme
+    yalnız ``crop`` ekseninde çalışır — çünkü farklı ``next_crop``lar farklı
+    SORULARIN cevabıdır ve birini ötekinin altında gizlemek raporu YANILTIRDI.
+    Kilit yolunda (`yeni_bitki` verili) tam tersi doğrudur: orada tek bir soru
+    vardır ve en özel cevap kazanır.
+    """
+    rapor_kipi = yeni_bitki is None
+    en_ozel: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for r in _plantback_satirlari(db, cid, parcel_id, haric_sezon_id):
+        kural_bitki = (r["rule_crop"] or "").strip()
+        kural_ardil = (r["rule_next_crop"] or "").strip()
+        if kural_bitki and not _bitki_esit(kural_bitki, str(r["applied_crop"] or "")):
+            continue
+        if not rapor_kipi and kural_ardil and not _bitki_esit(
+            kural_ardil, str(yeni_bitki)
+        ):
+            continue
+        derece = _PLANTBACK_OZGULLUK[
+            (bool(kural_bitki), False if rapor_kipi else bool(kural_ardil))
+        ]
+        anahtar: tuple[Any, ...] = (int(r["activity_id"]), int(r["product_id"]))
+        if rapor_kipi:
+            anahtar = anahtar + (_bitki_katla(kural_ardil),)
+        onceki = en_ozel.get(anahtar)
+        if onceki is None or derece > onceki["_derece"]:
+            en_ozel[anahtar] = {**r, "_derece": derece}
+
+    ihlaller: list[dict[str, Any]] = []
+    for r in en_ozel.values():
+        gun = int(r["interval_days"])
+        yapildigi = _yerel_gun(r["performed_at"])
+        izinli = yapildigi + timedelta(days=gun)
+        # SINIR GÜNÜ İZİNLİDİR: ``ekim == izinli`` ihlal DEĞİL. Süre "kaç gün
+        # BEKLENECEĞİ"dir; beklemenin dolduğu gün ekim serbesttir. ``<=``
+        # yazmak beklemeyi sessizce BİR GÜN uzatırdı.
+        if ekim_gunu < izinli:
+            ihlaller.append({
+                "activity_id": int(r["activity_id"]),
+                "activity_type": r["activity_type"],
+                "product_id": int(r["product_id"]),
+                "product_name": r["product_name"],
+                "performed_on": yapildigi.isoformat(),
+                "interval_days": gun,
+                "next_crop": (r["rule_next_crop"] or "").strip(),
+                "earliest_allowed": izinli.isoformat(),
+            })
+    # En geç biten kısıt en üstte: kullanıcının beklemesi gereken tarih o.
+    ihlaller.sort(key=lambda x: x["earliest_allowed"], reverse=True)
+    return ihlaller
+
+
+def _plantback_ihlal_metni(ihlaller: list[dict[str, Any]]) -> str:
+    ilk = ihlaller[0]
+    return (
+        f"{ilk['performed_on']} tarihli {ilk['product_name']} uygulaması "
+        f"{ilk['interval_days']} gün ekim-arası bekleme gerektiriyor, "
+        f"en erken ekim {ilk['earliest_allowed']}"
+    )
+
+
+_PLANTBACK_SEBEP = "PLANTBACK_SURESI_DOLMADI"
+
+
+def _plantback_dogrula(
+    db: Session, cid: int, parcel_id: int, crop: str, started_on: date | None,
+    politika: str = "require_reason", gerekce: str | None = None,
+    haric_sezon_id: int | None = None,
+) -> str | None:
+    """Ekim-arası bekleme dolmadan ekim: gerekçesiz GEÇMEZ.
+
+    Şekil `_monokultur_dogrula`/`_giris_guvenlik_dogrula` ile birebir: iki
+    raise (block, require_reason) ve iki dönüş (warn, gerekçe verilmiş). Dönen
+    metin `crop_seasons.plantback_warning` sütununa yazılır.
+
+    ``started_on`` BOŞSA SUSULUR: ekim günü bilinmeyen bir sezonun neyi
+    ihlal ettiği de bilinemez ve bilinmeyeni ihlal saymak, ``_bekleme_ihlalleri``
+    ile ``_giris_ihlalleri``in ikisinin de reddettiği şeydir.
+
+    Ret gövdesi SÖZLÜKTÜR (`BIRIM_COZULEMEDI` kalıbı): çağıranın yapacağı şey
+    HANGİ ilacın ve HANGİ tarihin kestiğine göre değişir, düz bir metin bunu
+    ayrıştırılabilir biçimde SÖYLEMEZ.
+    """
+    if started_on is None:
+        return None
+    ihlaller = _plantback_ihlalleri(
+        db, cid, parcel_id, crop, started_on, haric_sezon_id,
+    )
+    if not ihlaller:
+        return None
+    metin = _plantback_ihlal_metni(ihlaller)
+
+    if politika == "block":
+        raise HTTPException(
+            422,
+            {
+                "sebep": _PLANTBACK_SEBEP,
+                "message": (
+                    f"Ekim-arası bekleme dolmadı: {metin}. "
+                    "Firma ayarı bekleme dolmadan ekime izin vermiyor."
+                ),
+                "blocking": ihlaller,
+            },
+        )
+
+    if politika == "warn":
+        return metin
+
+    if gerekce:
+        return metin
+    raise HTTPException(
+        422,
+        {
+            "sebep": _PLANTBACK_SEBEP,
+            "message": (
+                f"Ekim-arası bekleme dolmadı: {metin}. "
+                "Yine de kaydetmek için gerekçe girin."
+            ),
+            "blocking": ihlaller,
+        },
+    )
+
+
+
 # PostgreSQL, `GET /field-safety` gibi pid=None çağrısında `$2 IS NULL`
 # karşılaştırması için parametre tipini çıkaramaz (AmbiguousParameter).
 # SQLite NULL'u yutar; üretim diyalekti yutmaz. `cid` integer sütunla
@@ -1607,6 +1884,12 @@ _VARSAYILAN_KURALLAR = {
     "farm_spraying_dose_required": True,
     "farm_monoculture_policy": "require_reason",
     "farm_reentry_policy": "require_reason",
+    # Ekim-arası bekleme (göç 0072). Varsayılan öteki tarla kurallarıyla AYNI
+    # ve MEVCUT davranışı korumuyor — DEĞİŞTİRİYOR, çünkü ortada korunacak bir
+    # davranış YOK: kural bu göçle doğuyor. Sıkı tarafta doğuyor (`warn`
+    # değil, `require_reason`) çünkü gevşek doğan bir kural, kimse ayarı
+    # açmadığı sürece hiçbir şey yapmaz ve kilidin var olma sebebi kaybolur.
+    "farm_plantback_policy": "require_reason",
 }
 
 
@@ -1619,7 +1902,8 @@ def _firma_kurallari(db: Session, cid: int) -> dict[str, Any]:
     row = db.execute(
         text(
             """SELECT farm_area_override_policy,farm_early_harvest_policy,
-            farm_spraying_dose_required,farm_monoculture_policy,farm_reentry_policy
+            farm_spraying_dose_required,farm_monoculture_policy,farm_reentry_policy,
+            farm_plantback_policy
             FROM companies WHERE id=:cid"""
         ),
         {"cid": cid},
@@ -1633,6 +1917,7 @@ def _firma_kurallari(db: Session, cid: int) -> dict[str, Any]:
         "farm_spraying_dose_required": bool(row["farm_spraying_dose_required"]),
         "farm_monoculture_policy": row["farm_monoculture_policy"] or "require_reason",
         "farm_reentry_policy": row["farm_reentry_policy"] or "require_reason",
+        "farm_plantback_policy": row["farm_plantback_policy"] or "require_reason",
     }
 
 
@@ -2455,6 +2740,16 @@ def field_safety(request: Request, db: Session = Depends(get_db)):
     * ``reentry_blocks`` — tarlaya giriş yasağı sürmekte olan PARSELLER. Bu,
       hasatla ilgisi olmayan bir iş için tarlaya girecek kişiyi de ilgilendirir
       (sulama, gübreleme); tek listede birleştirmek onu gizlerdi.
+    * ``plantback_blocks`` — ekim-arası bekleme süren PARSELLER (göç 0072).
+      ÜÇÜNCÜ liste, çünkü ÜÇÜNCÜ kişiyi ilgilendiriyor: ekim planını yapan
+      kişi. Hasat ya da tarlaya giriş serbestken ekim yasak olabilir.
+
+    PLANT-BACK LİSTESİ ADAY BİTKİ SORMUYOR ve bu bir sadeleştirme DEĞİL, bu
+    ucun sözleşmesi: rapor "şu anda yürürlükte olan kısıtlar"dır, "şunu eksem
+    olur mu" değil. Bu yüzden her satır kendi ``next_crop``unu TAŞIYOR
+    (boş dize = ardından ne ekilirse ekilsin) ve okuyucu hangi ekimin
+    kesildiğini satırın kendisinden görüyor. Aday bitki başına tekil bir cevap
+    ``POST /api/crop-seasons``un işidir; kilit oradadır.
 
     Kısıtlar BUGÜNE göre hesaplanıyor; süresi geçmiş olanlar listede yok.
     """
@@ -2486,10 +2781,34 @@ def field_safety(request: Request, db: Session = Depends(get_db)):
 
     giris_kisitlari = _giris_ihlalleri(db, cid, bugun)
 
+    # PARSEL BAŞINA: plant-back kilidi parsele bağlıdır (`crop_seasons.parcel_id`),
+    # sezona değil — ilaç toprakta durur, sezon biter.
+    parseller = db.execute(
+        text(
+            "SELECT id,name FROM farm_parcels "
+            "WHERE company_id=:cid AND status='ACTIVE'"
+        ),
+        {"cid": cid},
+    ).mappings().all()
+    plantback_kisitlari = []
+    for parsel in parseller:
+        # ``None`` = aday bitki SORULMADI: bitkiye özel kurallar da listede
+        # kalıyor ve her satır kendi ``next_crop``unu taşıyor.
+        ihlaller = _plantback_ihlalleri(db, cid, int(parsel["id"]), None, bugun)
+        if not ihlaller:
+            continue
+        plantback_kisitlari.append({
+            "parcel_id": int(parsel["id"]),
+            "parcel_name": parsel["name"],
+            "earliest_allowed": ihlaller[0]["earliest_allowed"],
+            "blocking": ihlaller,
+        })
+
     return {
         "as_of": bugun.isoformat(),
         "harvest_blocks": hasat_kisitlari,
         "reentry_blocks": giris_kisitlari,
+        "plantback_blocks": plantback_kisitlari,
     }
 
 
@@ -2832,8 +3151,8 @@ def _katalog_giris_yasagi(
 
 def _giris_yasagi_coz(
     db: Session, cid: int, payload: ActivityWrite, sezon: dict[str, Any],
-) -> int | None:
-    """Faaliyete yazılacak ETKİN tarlaya giriş yasağı süresi.
+) -> tuple[int | None, int | None, str | None]:
+    """``(katalogun_dediği, etkin_değer, köken)`` — ``_phi_coz``un İKİZİ.
 
     ``_phi_coz``un KARARLARINI birebir yansıtıyor:
 
@@ -2845,19 +3164,17 @@ def _giris_yasagi_coz(
     * ``product_id`` taşımayan serbest metin girdinin etiketi yoktur ve
       çözülmez; süre boş kalır, boş da ihlal değildir.
 
-    KÖKEN SÜTUNU YOK — BİLEREK VE ÖLÇÜLEREK. PHI kökeni ``field_activities``te
-    İKİ sütunla tutuluyor (``preharvest_source``, ``catalogue_preharvest_days``;
-    göç 0063). Giriş yasağının bu sütunlardaki karşılığı ARANDI: ``0044``,
-    ``0046``, ``0053``, ``0063`` ve ``0064``ün açtığı sütunların tamamı
-    tarandı, ``reentry_source``/``catalogue_reentry_days`` diye bir şey YOK.
-    Onları açmak bir GÖÇTÜR ve bu dilim göçsüzdür; kökeni bu yüzden bu PR
-    KAYDETMİYOR ve iddia da etmiyor.
+    KÖKEN ARTIK KAYITTA. Bu fonksiyonun ÖNCEKİ başlığı köken sütunlarının
+    YOKLUĞUNU adıyla yazıyordu — "``reentry_source``/``catalogue_reentry_days``
+    diye bir şey YOK. Onları açmak bir GÖÇTÜR ve bu dilim göçsüzdür." Göç
+    `20260907_0072` o iki sütunu AÇTI ve burası artık PHI ile AYNI çifti
+    yazıyor. Sözlük de AYNI (``CATALOGUE`` | ``OPERATOR`` |
+    ``OPERATOR_OVERRIDE``): giriş yasağına İKİNCİ bir sözlük uydurmak,
+    denetçiye aynı olguyu iki dilde okuturdu.
 
-    Mevcut bir sütuna sıkıştırmak bir çözüm DEĞİLDİR: ``reentry_warning``
-    SİSTEMİN bulduğu uyarıdır (göç 0064) ve kökeni oraya yazmak, 0048 ile
-    0063'ün ikisinin de açıkça reddettiği şeyi yapardı — kullanıcının
-    söylediğiyle sistemin bulduğunu aynı sütunda toplamak, denetimde kimin ne
-    dediğini ayırt edilemez kılar.
+    İKİSİ AYNI ŞEYİ SÖYLÜYORSA ÜSTÜNE YAZMA DEĞİLDİR — ``_phi_coz``un
+    kuralının aynısı: her uyuşmazlığı üstüne yazma saymak, denetimde GERÇEK
+    üstüne yazmaları görünmez kılardı.
     """
     bitki = str(sezon.get("crop") or "").strip()
     katalog: int | None = None
@@ -2868,11 +3185,17 @@ def _giris_yasagi_coz(
         if gun is not None and (katalog is None or gun > katalog):
             katalog = gun
 
-    if payload.reentry_interval_days is not None:
-        # Operatör yazdı: katalog ONU DEĞİŞTİRMEZ. Aynısını söylüyor olsalar
-        # bile etkin değer operatörün değeridir; fark varsa da öyle.
-        return payload.reentry_interval_days
-    return katalog
+    operator = payload.reentry_interval_days
+    if operator is None:
+        if katalog is None:
+            # Ne operatör ne katalog: süre BOŞ kalır ve boş ihlal değildir.
+            return None, None, None
+        return katalog, katalog, _PHI_KOKEN_KATALOG
+    if katalog is None:
+        return None, operator, _PHI_KOKEN_OPERATOR
+    if operator == katalog:
+        return katalog, operator, _PHI_KOKEN_OPERATOR
+    return katalog, operator, _PHI_KOKEN_USTUNE_YAZMA
 
 
 @router.get("/plant-protection-products")
@@ -2988,6 +3311,132 @@ def update_ppp(
         ) from exc
     db.commit()
     return _satir(db, cid, "plant_protection_products", ppp_id)
+
+
+# ---------------------------------------------------------------------------
+# EKİM-ARASI BEKLEME KATALOĞU (göç 20260907_0072)
+# ---------------------------------------------------------------------------
+#
+# AYRI UÇ AİLESİ, AYNI İZİN AİLESİ. `/api/plant-protection-plantbacks`
+# `auth.py`nin `_FARM_PATH_PREFIXES` listesine EKLENDİ: okuması `farm.view`,
+# yazması `farm.manage`. Yeni bir izin ailesi AÇILMADI — plant-back süresi de
+# PHI gibi BKÜ etiketinden gelen tarla verisidir ve ayrı bir izinle korumak,
+# aynı etiketi okuyan iki rol yaratırdı.
+#
+# ÖNEK EŞLEŞMESİ ÖLÇÜLDÜ, VARSAYILMADI: "/api/plant-protection-plantbacks"
+# "/api/plant-protection-products" öneki ile EŞLEŞMEZ (ikisi 'p' harfinden
+# sonra 'l'/'r' ile ayrılıyor), yani listeye yazılmasaydı genel `read` iznine
+# düşerdi ve ekim-arası beklemeleri OKUMA yetkisi olan herkes DEĞİŞTİREBİLİRDİ
+# — 0063'ün katalog için yazdığı tuzağın aynısı.
+
+
+@router.get("/plant-protection-plantbacks")
+def list_plantbacks(
+    request: Request,
+    limit: int = _SAYFA,
+    offset: int = _ATLA,
+    product_id: int | None = None,
+    status: str | None = None,
+    db: Session = Depends(get_db),
+):
+    cid = company_id(request)
+    kosul = ""
+    params: dict[str, Any] = {"cid": cid, "limit": limit, "offset": offset}
+    if product_id:
+        kosul += " AND b.product_id=:product_id"
+        params["product_id"] = product_id
+    if status:
+        kosul += " AND b.status=:status"
+        params["status"] = status.strip().upper()
+    toplam = db.execute(
+        text(
+            f"SELECT COUNT(*) FROM plant_protection_plantbacks b "
+            f"WHERE b.company_id=:cid{kosul}"
+        ),
+        params,
+    ).scalar()
+    # ÜRÜN ADI KİRACI İÇİNDE birleştiriliyor (`u.company_id=b.company_id`);
+    # `list_ppp` ile AYNI gerekçe.
+    rows = db.execute(
+        text(
+            f"""SELECT b.id,b.product_id,u.name AS product_name,b.crop,
+            b.next_crop,b.interval_days,b.notes,b.status,b.updated_at
+            FROM plant_protection_plantbacks b
+            JOIN products u ON u.id=b.product_id AND u.company_id=b.company_id
+            WHERE b.company_id=:cid{kosul}
+            ORDER BY u.name,b.crop,b.next_crop LIMIT :limit OFFSET :offset"""
+        ),
+        params,
+    ).mappings().all()
+    return {"items": [dict(r) for r in rows], "total": int(toplam or 0),
+            "limit": limit, "offset": offset}
+
+
+@router.post("/plant-protection-plantbacks", status_code=201)
+def create_plantback(
+    payload: PlantProtectionPlantbackWrite, request: Request,
+    db: Session = Depends(get_db),
+):
+    cid = company_id(request)
+    # Bileşik yabancı anahtar da bunu zorluyor; buradaki kapı 500 değil 404
+    # veriyor (`create_ppp` ile aynı desen).
+    _urun_dogrula(db, cid, payload.product_id)
+    now = _simdi()
+    try:
+        yeni = db.execute(
+            text(
+                """INSERT INTO plant_protection_plantbacks(company_id,product_id,
+                crop,next_crop,interval_days,notes,status,created_at,updated_at)
+                VALUES(:cid,:product_id,:crop,:next_crop,:interval_days,:notes,
+                'ACTIVE',:now,:now) RETURNING id"""
+            ),
+            {"cid": cid, "now": now, **payload.model_dump()},
+        ).scalar_one()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            409, "Bu ürün, bitki ve ardıl bitki için ekim-arası kayıt zaten var"
+        ) from exc
+    db.commit()
+    return _satir(db, cid, "plant_protection_plantbacks", int(yeni))
+
+
+@router.get("/plant-protection-plantbacks/{plantback_id}")
+def get_plantback(plantback_id: int, request: Request, db: Session = Depends(get_db)):
+    return _satir(
+        db, company_id(request), "plant_protection_plantbacks", plantback_id
+    )
+
+
+@router.put("/plant-protection-plantbacks/{plantback_id}")
+def update_plantback(
+    plantback_id: int, payload: PlantProtectionPlantbackUpdate, request: Request,
+    db: Session = Depends(get_db),
+):
+    cid = company_id(request)
+    mevcut = _satir(db, cid, "plant_protection_plantbacks", plantback_id)
+    beklenen_surum = _surum_dogrula(mevcut, payload.expected_updated_at)
+    _urun_dogrula(db, cid, payload.product_id)
+    veri = payload.model_dump(exclude={"expected_updated_at"})
+    try:
+        sonuc = db.execute(
+            text(
+                """UPDATE plant_protection_plantbacks SET product_id=:product_id,
+                crop=:crop,next_crop=:next_crop,interval_days=:interval_days,
+                notes=:notes,status=:status,updated_at=:now
+                WHERE id=:id AND company_id=:cid AND updated_at=:expected_updated_at"""
+            ),
+            {"id": plantback_id, "cid": cid, "now": _simdi(),
+             "expected_updated_at": beklenen_surum, **veri},
+        )
+        _cas_sonuc_dogrula(db, sonuc)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            409, "Bu ürün, bitki ve ardıl bitki için ekim-arası kayıt zaten var"
+        ) from exc
+    db.commit()
+    return _satir(db, cid, "plant_protection_plantbacks", plantback_id)
 
 
 # ---------------------------------------------------------------------------

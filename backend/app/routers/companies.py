@@ -51,6 +51,9 @@ class CompanyPolicyUpdate(BaseModel):
     # yazılır.
     farm_monoculture_policy: Literal["warn", "require_reason", "block"] | None = None
     farm_reentry_policy: Literal["warn", "require_reason", "block"] | None = None
+    # Ekim-arası bekleme (göç 0072). "allow" YOK — kardeşleriyle aynı sınır:
+    # kontrolü tamamen kapatabilen bir ayar sessiz bir güvenlik düğmesi olurdu.
+    farm_plantback_policy: Literal["warn", "require_reason", "block"] | None = None
     # Firma profilleri (Faz 5.2). `None` ile `[]` AYRI şeylerdir ve ayrım
     # `model_fields_set` ile korunur: alan hiç gönderilmezse mevcut değer
     # KORUNUR, boş liste gönderilirse seçim BİLİNÇLİ olarak temizlenir.
@@ -124,6 +127,7 @@ def get_company_settings(request: Request, db: Session = Depends(get_db)):
             companies.c.farm_spraying_dose_required,
             companies.c.farm_monoculture_policy,
             companies.c.farm_reentry_policy,
+            companies.c.farm_plantback_policy,
             companies.c.profiller,
         ).where(companies.c.id == cid)
     ).mappings().first()
@@ -158,6 +162,7 @@ def update_company_settings(
         "farm_spraying_dose_required",
         "farm_monoculture_policy",
         "farm_reentry_policy",
+        "farm_plantback_policy",
     ):
         if alan in payload.model_fields_set:
             values[alan] = getattr(payload, alan)
@@ -183,6 +188,7 @@ def update_company_settings(
         "farm_spraying_dose_required": values.get("farm_spraying_dose_required"),
         "farm_monoculture_policy": values.get("farm_monoculture_policy"),
         "farm_reentry_policy": values.get("farm_reentry_policy"),
+        "farm_plantback_policy": values.get("farm_plantback_policy"),
         "tax_number": values.get("tax_number"),
         "profiller": profilleri_coz(values.get("profiller")),
         "warning": warning,

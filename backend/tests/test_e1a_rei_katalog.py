@@ -80,6 +80,14 @@ def test_giris_yasagi_cozumu_en_uzunu_secer_ve_operatoru_yenmez() -> None:
     süreyi okuyor, burada karar fonksiyonunun kendisi sahte bir katalogla
     sınanıyor. `max` `min`e çevrilirse ya da operatör dalı kaldırılırsa
     aşağıdakiler DÜŞER.
+
+    E1b (göç 20260907_0072) İMZAYI GENİŞLETTİ: fonksiyon artık
+    ``(katalogun_dediği, etkin_değer, köken)`` döndürüyor ve bu testler o
+    üçlünün TAMAMINI ölçüyor. ETKİN DEĞER KARARLARI DEĞİŞMEDİ — aşağıdaki
+    her satırın orta terimi E1a'daki skaler beklentinin BİREBİR aynısıdır;
+    eklenen şey KÖKENDİR. Yalnız etkin değeri ölçüp kökeni ölçmemek, "katalog
+    21 dedi, operatör 7 yazdı" olayını yine görünmez bırakırdı — 0063'ün PHI
+    için reddettiği şeyin aynısı.
     """
     sys.path.insert(0, str(BACKEND))
     from app.routers import farm as farm_modulu
@@ -106,38 +114,57 @@ def test_giris_yasagi_cozumu_en_uzunu_secer_ve_operatoru_yenmez() -> None:
         sezon = {"crop": "Domates"}
         # EN UZUN kazanır: `min` olsaydı 2 dönerdi.
         p = _SahtePayload([_SahteGirdi(1), _SahteGirdi(2)], None)
-        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) == 9
+        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) == (9, 9, "CATALOGUE")
 
         # Sıra ÖNEMSİZ: uzun olan önce gelse de kazanır.
         p = _SahtePayload([_SahteGirdi(2), _SahteGirdi(1)], None)
-        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) == 9
+        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) == (9, 9, "CATALOGUE")
 
         # Operatör yazdıysa katalog ÜSTÜNE YAZAMAZ — hem büyük hem küçük yönde.
         p = _SahtePayload([_SahteGirdi(2)], 3)
-        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) == 3
+        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) == (
+            9, 3, "OPERATOR_OVERRIDE")
         p = _SahtePayload([_SahteGirdi(1)], 30)
-        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) == 30
+        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) == (
+            2, 30, "OPERATOR_OVERRIDE")
         # Operatörün SIFIRI da bir karardır; `if payload.reentry_interval_days:`
         # yazılsaydı sıfır boş sayılır ve katalog üstüne yazardı.
         p = _SahtePayload([_SahteGirdi(2)], 0)
-        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) == 0
+        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) == (
+            9, 0, "OPERATOR_OVERRIDE")
 
         # Katalog SUSUYORSA (satır var, süre NULL) süre BOŞ kalır.
         p = _SahtePayload([_SahteGirdi(3)], None)
-        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) is None
+        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) == (
+            None, None, None)
         # Susan satır, konuşan satırı da BASTIRMAZ.
         p = _SahtePayload([_SahteGirdi(3), _SahteGirdi(1)], None)
-        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) == 2
+        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) == (
+            2, 2, "CATALOGUE")
 
         # Serbest metin girdi (product_id YOK) kataloğa hiç SORULMAZ.
         cagrilan.clear()
         p = _SahtePayload([_SahteGirdi(None)], None)
-        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) is None
+        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) == (
+            None, None, None)
         assert cagrilan == []
+
+        # OPERATÖR KATALOGLA AYNI ŞEYİ SÖYLÜYORSA ÜSTÜNE YAZMA DEĞİLDİR.
+        # Her uyuşmazlığı üstüne yazma saymak, denetimde GERÇEK üstüne
+        # yazmaları görünmez kılardı (`_phi_coz`un kuralının aynısı).
+        p = _SahtePayload([_SahteGirdi(2)], 9)
+        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) == (
+            9, 9, "OPERATOR")
+        # Katalog SUSUYORKEN operatör yazdıysa köken OPERATOR'dur ve katalog
+        # terimi BOŞ kalır — "katalog ne demişti" sorusunun cevabı yoktur.
+        p = _SahtePayload([_SahteGirdi(3)], 4)
+        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) == (
+            None, 4, "OPERATOR")
 
         # Girdisiz faaliyet de çözülmez.
         p = _SahtePayload(None, None)
-        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) is None
+        assert farm_modulu._giris_yasagi_coz(None, 1, p, sezon) == (
+            None, None, None)
     finally:
         farm_modulu._katalog_giris_yasagi = gercek
 
