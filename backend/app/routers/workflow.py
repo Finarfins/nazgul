@@ -16,6 +16,7 @@ from ..company_policies import (
     record_policy_overrides,
     stock_policy_message,
 )
+from ..business_time import business_today
 from ..db import get_db
 from ..document_engine import next_document_no
 from ..inventory import adjust_warehouse_stock, default_warehouse, warehouses
@@ -29,6 +30,7 @@ from ..money import (
     quantity,
 )
 from ..movement_references import validate_return_reference
+from ..parti_defteri import _hareket_notu, _parti_geri_al, _parti_tuket
 from ..schemas import TransactionCreate, WorkflowDocumentCreate
 from ..tenancy import company_id
 from .transactions import _save
@@ -327,6 +329,13 @@ def _save_doc(
                 ),
                 {"id": doc_id, "cid": cid},
             )
+            # PARTİ BORCU HAREKETLERDEN ÖNCE DÜŞÜLÜR (1B-B) — `transactions.py`
+            # güncelleme/silme yollarındaki ikizin AYNI gerekçesi: aşağıdaki
+            # DELETE satırları yok ettikten sonra hangi partiden ne kadar
+            # düşüldüğü OKUNAMAZ. Sıra zorunludur, üslup değil.
+            _parti_geri_al(
+                db, cid, reference_type=config["head"], reference_id=doc_id
+            )
             db.execute(
                 text(
                     "DELETE FROM stock_movements WHERE company_id=:cid "
@@ -488,24 +497,67 @@ def _save_doc(
                 )
                 if new_stock < 0 and policies.negative_stock_policy == "manager_override":
                     override_policies.add("negative_stock")
-                db.execute(
-                    text(
-                        "INSERT INTO stock_movements(product_id,movement_type,quantity,"
-                        "movement_date,reference_type,reference_id,note,company_id,warehouse_id) "
-                        "VALUES(:pid,:mt,:q,:d,:rt,:rid,:n,:cid,:wid)"
-                    ),
-                    dict(
-                        pid=product["id"],
-                        mt=kind,
-                        q=delta,
-                        d=payload.document_date,
-                        rt=config["head"],
-                        rid=doc_id,
-                        n=f"{kind} #{doc_id}",
-                        cid=cid,
-                        wid=warehouse_id,
-                    ),
-                )
+                # PARTİ TÜKETİMİ (1B-B) — `transactions.py`nin satış yolunun
+                # İKİZİ ve aynı `parti_defteri` yazıcısını çağırıyor.
+                # STOKTAN DÜŞEN HER TÜR: `config["stock"] < 0` olan kinds
+                # `delivery` (irsaliye) ve `purchase_return` (alış iadesi).
+                # Koşul `kind` ADIYLA yazılmadı; işaret ÖLÇÜLÜYOR, çünkü
+                # CONFIG'e üçüncü bir çıkış türü eklendiği gün ad listesi onu
+                # SESSİZCE dışarıda bırakırdı. `sale_return` (`stock=+1`)
+                # parti AÇMAZ: iade edilen malın hangi partiden çıktığı bu
+                # dilimde ÖLÇÜLMEDİ ve uydurmak defteri yalan söyletirdi.
+                #
+                # SIRA: `adjust_warehouse_stock`un ARDINDA (gerekçe ve
+                # eşzamanlılık ölçümü `parti_defteri._parti_tuket` belgesinde).
+                paylar: list[tuple[int | None, Decimal]] = [(None, delta)]
+                suresi_gecmisler: frozenset[int] = frozenset()
+                defter_bosaldi = False
+                if config["stock"] < 0:
+                    tuketim = _parti_tuket(
+                        db,
+                        cid,
+                        product_id=int(product["id"]),
+                        warehouse_id=warehouse_id,
+                        miktar=item.quantity,
+                        bugun=business_today(),
+                        suresi_gecmise_izin=payload.allow_expired_lots,
+                    )
+                    defter_bosaldi = tuketim.defter_bosaldi
+                    if tuketim.dagitim:
+                        paylar = [(kimlik, -pay) for kimlik, pay in tuketim.dagitim]
+                        suresi_gecmisler = tuketim.suresi_gecmis_kimlikler
+                # BİR PAY = BİR HAREKET SATIRI (gerekçe satış yolunda).
+                # `lot_id` bu INSERT'e 1B-B'de EKLENDİ: 1B-A sütunu yalnız
+                # `transactions.py`de yazıyordu ve buradaki hareketler
+                # `lot_id`si NULL kalıyordu. Kalmaya devam etseydi geri alma
+                # (`_parti_geri_al`) bu belgelerin parti borcunu HİÇ göremez,
+                # stok geri alınır defter alınmazdı.
+                for hareket_lot, hareket_miktar in paylar:
+                    db.execute(
+                        text(
+                            "INSERT INTO stock_movements(product_id,movement_type,quantity,"
+                            "movement_date,reference_type,reference_id,note,company_id,"
+                            "warehouse_id,lot_id) "
+                            "VALUES(:pid,:mt,:q,:d,:rt,:rid,:n,:cid,:wid,:lot)"
+                        ),
+                        dict(
+                            pid=product["id"],
+                            mt=kind,
+                            q=hareket_miktar,
+                            d=payload.document_date,
+                            rt=config["head"],
+                            rid=doc_id,
+                            n=_hareket_notu(
+                                kind,
+                                int(doc_id),
+                                hareket_lot in suresi_gecmisler,
+                                defter_bosaldi,
+                            ),
+                            cid=cid,
+                            wid=warehouse_id,
+                            lot=hareket_lot,
+                        ),
+                    )
 
         record_policy_overrides(
             db,
@@ -676,6 +728,11 @@ def delete_doc(kind: str, doc_id: int, request: Request, db: Session = Depends(g
                 f"WHERE {config['fk']}=:id AND company_id=:cid"
             ),
             {"id": doc_id, "cid": cid},
+        )
+        # PARTİ BORCU HAREKETLERDEN ÖNCE (1B-B) — güncelleme yolundaki
+        # ikizin aynı gerekçesi: DELETE'ten sonra okunacak satır kalmaz.
+        _parti_geri_al(
+            db, cid, reference_type=config["head"], reference_id=doc_id
         )
         db.execute(
             text(

@@ -533,7 +533,7 @@ jobs:
           # anahtar SQLite'ta varsayılan olarak uygulanmaz. Taban develop'un
           # 98 glob dosyasıdır ve ÖLÇÜLDÜ (`ls backend/test_*postgresql*.py |
           # wc -l`), önceki ölçümün üzerine aritmetik yapılarak değil.
-          BEKLENEN_PG_DOSYA_SAYISI=107
+          BEKLENEN_PG_DOSYA_SAYISI=108
           if [ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]; then
             echo "FAIL: tam $BEKLENEN_PG_DOSYA_SAYISI PG dosyası bekleniyor, ${#all_files[@]} bulundu" >&2
             exit 1

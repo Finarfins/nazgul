@@ -156,6 +156,20 @@ class TransactionCreate(BaseModel):
     discount_percent: Decimal = Field(default=Decimal("0"), ge=0, le=100)
     discount_amount: Decimal | None = Field(default=None, ge=0)
     items: list[TransactionItem] = Field(min_length=1)
+    # PARTİ + SKT, 1B-B: SÜRESİ GEÇMİŞ PARTİDEN ÇIKIŞA AÇIK İZİN.
+    #
+    # VARSAYILAN `False` ve olmaması KARARDIR — `app/parti.py`nin başlığı
+    # gerekçeyi ADIYLA yazıyor: varsayılan `True` olsaydı kimse bayrağı
+    # yazmayacağı için süresi geçmiş mal SESSİZCE çıkardı ve bu, göçün
+    # ölçtüğü kusurun ta kendisi olurdu. Bayrağı yazan kişi ne yaptığını
+    # BEYAN etmiş olur ve beyan hareket notuna damgalanır
+    # (`parti_defteri._hareket_notu`).
+    #
+    # BELGE DÜZEYİNDE, kalem düzeyinde DEĞİL: izin operatörün o belge için
+    # verdiği tek bir karardır ve kalem başına dağıtmak, aynı belgede biri
+    # izinli biri değil iki satır üretip "bu belge ne karar verdi" sorusunu
+    # sorulamaz yapardı.
+    allow_expired_lots: bool = False
 
     @field_validator('transaction_date')
     @classmethod
@@ -336,6 +350,20 @@ class WorkflowDocumentCreate(BaseModel):
     source_type: str | None = None
     source_id: int | None = None
     items: list[TransactionItem] = Field(min_length=1)
+    # PARTİ + SKT, 1B-B: SÜRESİ GEÇMİŞ PARTİDEN ÇIKIŞA AÇIK İZİN.
+    #
+    # VARSAYILAN `False` ve olmaması KARARDIR — `app/parti.py`nin başlığı
+    # gerekçeyi ADIYLA yazıyor: varsayılan `True` olsaydı kimse bayrağı
+    # yazmayacağı için süresi geçmiş mal SESSİZCE çıkardı ve bu, göçün
+    # ölçtüğü kusurun ta kendisi olurdu. Bayrağı yazan kişi ne yaptığını
+    # BEYAN etmiş olur ve beyan hareket notuna damgalanır
+    # (`parti_defteri._hareket_notu`).
+    #
+    # BELGE DÜZEYİNDE, kalem düzeyinde DEĞİL: izin operatörün o belge için
+    # verdiği tek bir karardır ve kalem başına dağıtmak, aynı belgede biri
+    # izinli biri değil iki satır üretip "bu belge ne karar verdi" sorusunu
+    # sorulamaz yapardı.
+    allow_expired_lots: bool = False
 
 
 class FinancialAccountCreate(BaseModel):
