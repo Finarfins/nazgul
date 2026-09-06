@@ -656,7 +656,63 @@ RACE_ROUNDS = 20
 ADMIN_PW = "D2Race!123"
 
 
+@pytest.fixture()
+def acilis_sifresi():
+    """Admin şifresini AÇILIŞ DURUMUNA çeker; testten sonra GERİ KOYAR.
+
+    ÖLÇÜLEN KUSUR: PostgreSQL ikizleri AYNI veritabanını paylaşıyor ve her
+    biri girişten sonra admin şifresini KENDİ sabitine çeviriyor. İki ikiz
+    aynı shard'a düştüğünde giriş SIRAYA BAĞLI olarak kırılıyor ve kırılan
+    taraf 401 alıyor. ÖLÇÜLDÜ, İKİ YÖNDE DE: D2 önce koşarsa D1'in ÜÇ yarış
+    testi 401; D1 önce koşarsa D2'nin yarış testi 401.
+
+    Tek yönlü bir çare (yalnız teardown'da geri koymak) YETMEZ: dosyayı iyi
+    bir komşu yapar ama KENDİSİNİ korumaz, çünkü şifreyi bozan ÖNCEKİ dosya
+    olabilir. Bu yüzden fikstür İKİ UÇTAN da çalışıyor — testten ÖNCE açılış
+    durumunu (`admin123` + `must_change_password`) YAZIYOR, sonra GERİ
+    KOYUYOR. Böylece bu dosya hangi sırada koşarsa koşsun kendi girişini
+    garanti eder ve veritabanını BULDUĞU GİBİ bırakır.
+
+    Şifre uçtan değil SATIRDAN yazılıyor: `change-password` mevcut şifreyi
+    ister (bilmiyoruz) ve açılış durumunun ayırt edici yarısı
+    (`must_change_password`) uçtan yazılamaz. Tablo `app_users`tır,
+    `users` DEĞİL — ilk yazımda `users` denendi ve
+    `UndefinedTable: relation "users" does not exist` alındı.
+    """
+    def _acilisa_cek() -> None:
+        from app.auth import hash_password
+        from app.db import SessionLocal
+
+        with SessionLocal() as db:
+            varmi = db.execute(
+                text("SELECT to_regclass('public.app_users')")
+            ).scalar()
+            if varmi is None:
+                # Uygulama henüz açılış yapmadı; taze şemada zaten
+                # `admin123` doğacak.
+                return
+            db.execute(
+                text(
+                    "UPDATE app_users SET password_hash=:h, "
+                    "must_change_password=true WHERE username='admin'"
+                ),
+                {"h": hash_password("admin123")},
+            )
+            db.commit()
+
+    _acilisa_cek()
+    yield
+    _acilisa_cek()
+
+
 def _admin_headers(client):
+    """`acilis_sifresi` fikstürü sayesinde HER ZAMAN `admin123` bulur.
+
+    İki adaylı deneme yine de duruyor: fikstür tabloyu bulamazsa (taze şema,
+    uygulama henüz açılış yapmamış) hiçbir şey yazmaz ve ilk giriş zaten
+    `admin123` ile geçer; ikinci aday ise aynı dosyada birden çok testin
+    koştuğu bir gelecekte gerekir.
+    """
     for candidate in ("admin123", ADMIN_PW):
         login = client.post(
             "/api/auth/login",
@@ -681,7 +737,7 @@ def _admin_headers(client):
     return headers, int(body["companies"][0]["id"])
 
 
-def test_ayni_makbuza_eszamanli_odeme_TEK_kez_gecer(motor) -> None:
+def test_ayni_makbuza_eszamanli_odeme_TEK_kez_gecer(motor, acilis_sifresi) -> None:
     """`cash_due` kadar İKİ eşzamanlı `/pay` -> TAM BİR 200 ve BİR 422.
 
     ÖLÇÜLEN KUSUR (mercek, READ COMMITTED): kilit yokken İKİSİ DE 200
