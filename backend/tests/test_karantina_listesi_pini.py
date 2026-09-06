@@ -4,13 +4,16 @@
 Listeyi çivileyen bir kapı yoktu: yeni bir dosya adı eklemek testleri
 SESSİZCE her koşumdan çıkarırdı. Bu dosya o sessizliği kapatır.
 
-LEGACY_TEST_MIGRATION_PLAN.md karantinayı SINIF olarak anlatır; 21 dosya
-adından HİÇBİRİNİ anmaz. Dosya başına gerekçe uydurulmadı — hepsi
-`GEREKÇESİZ`. Plan ile liste ayrışması RAPOR edilir, belge DÜZELTİLMEZ.
+`backend/LEGACY_TEST_MIGRATION_PLAN.md` karantinayı SINIF olarak anlatır ve
+21 dosya adından HİÇBİRİNİ anmaz. Dosya-başı gerekçe
+`docs/LEGACY_TEST_MIGRATION_PLAN.md` ek tablosunda ÖLÇÜLDÜ (yalnız koşum,
+temiz ağaç). Pin'deki gerekçe o tablonun `measured failure class`
+sütunudur; boş ya da `GEREKÇESİZ` kırmızıdır.
 """
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
@@ -18,33 +21,35 @@ import pytest
 from run_isolated_tests import _collect_ignored_files, discover_active_test_files
 
 BACKEND = Path(__file__).resolve().parents[1]
+REPO = BACKEND.parent
 CONFTEST = BACKEND / "conftest.py"
 PLAN = BACKEND / "LEGACY_TEST_MIGRATION_PLAN.md"
+EK_PLAN = REPO / "docs" / "LEGACY_TEST_MIGRATION_PLAN.md"
 
-# Plan dosya adı ANMAZ. Gerekçe uydurulmadı.
+# Gerekçe = docs/LEGACY_TEST_MIGRATION_PLAN.md ek tablosunun measured class sütunu.
 PINLI_KARANTINA: frozenset[tuple[str, str]] = frozenset(
     {
-        ("test_detail_workflows.py", "GEREKÇESİZ"),
-        ("test_document_engine.py", "GEREKÇESİZ"),
-        ("test_e2e_browser.py", "GEREKÇESİZ"),
-        ("test_finance_core.py", "GEREKÇESİZ"),
-        ("test_imports.py", "GEREKÇESİZ"),
-        ("test_inventory_reports.py", "GEREKÇESİZ"),
-        ("test_operations.py", "GEREKÇESİZ"),
-        ("test_outputs.py", "GEREKÇESİZ"),
-        ("test_performance_filters.py", "GEREKÇESİZ"),
-        ("test_search_analytics.py", "GEREKÇESİZ"),
-        ("test_stabilization.py", "GEREKÇESİZ"),
-        ("test_stabilization2.py", "GEREKÇESİZ"),
-        ("test_tenancy_notifications.py", "GEREKÇESİZ"),
-        ("test_transaction_integrity.py", "GEREKÇESİZ"),
-        ("test_transaction_warehouse.py", "GEREKÇESİZ"),
-        ("test_v2_2_validations.py", "GEREKÇESİZ"),
-        ("test_v2_3_payment_lists.py", "GEREKÇESİZ"),
-        ("test_v2_4_dashboard.py", "GEREKÇESİZ"),
-        ("test_v2_5_cari_crm.py", "GEREKÇESİZ"),
-        ("test_v2_6_quick_actions.py", "GEREKÇESİZ"),
-        ("test_v2_7_tenant_security.py", "GEREKÇESİZ"),
+        ("test_detail_workflows.py", "executable smoke script"),
+        ("test_document_engine.py", "missing fixture"),
+        ("test_e2e_browser.py", "ImportError"),
+        ("test_finance_core.py", "missing fixture"),
+        ("test_imports.py", "missing fixture"),
+        ("test_inventory_reports.py", "missing fixture"),
+        ("test_operations.py", "missing fixture"),
+        ("test_outputs.py", "executable smoke script"),
+        ("test_performance_filters.py", "executable smoke script"),
+        ("test_search_analytics.py", "missing fixture"),
+        ("test_stabilization.py", "missing fixture"),
+        ("test_stabilization2.py", "missing fixture"),
+        ("test_tenancy_notifications.py", "missing fixture"),
+        ("test_transaction_integrity.py", "executable smoke script"),
+        ("test_transaction_warehouse.py", "executable smoke script"),
+        ("test_v2_2_validations.py", "missing fixture"),
+        ("test_v2_3_payment_lists.py", "missing fixture"),
+        ("test_v2_4_dashboard.py", "passes!"),
+        ("test_v2_5_cari_crm.py", "missing fixture"),
+        ("test_v2_6_quick_actions.py", "missing fixture"),
+        ("test_v2_7_tenant_security.py", "missing fixture"),
     }
 )
 PINLI_ADLAR: frozenset[str] = frozenset(ad for ad, _ in PINLI_KARANTINA)
@@ -96,6 +101,19 @@ def _iddia_capaya_bagli(adlar: set[str]) -> None:
     )
 
 
+def _iddia_gerekce_dolu(karantina: Iterable[tuple[str, str]]) -> None:
+    """Yeni ad gerekçesiz (boş / GEREKÇESİZ) eklenemez."""
+    bos = sorted(
+        ad
+        for ad, gerekce in karantina
+        if not str(gerekce).strip() or str(gerekce).strip() == "GEREKÇESİZ"
+    )
+    assert bos == [], (
+        "karantina adı gerekçesiz eklendi; boş ya da GEREKÇESİZ gerekçe "
+        f"kırmızıdır: {bos}"
+    )
+
+
 def _iddia_diskte_var(adlar: list[str], kok: Path = BACKEND) -> None:
     bayat = sorted(ad for ad in adlar if not (kok / ad).is_file())
     assert bayat == [], (
@@ -123,20 +141,46 @@ def test_karantina_kumesi_capaya_bagli() -> None:
     assert _collect_ignored_files() == PINLI_ADLAR
 
 
-def test_karantina_gerekceleri_uydurulmadi() -> None:
-    """Plandaki dosya-başı gerekçe yoktur; uydurulmaz, GEREKÇESİZ yazılır."""
+def test_karantina_gerekceleri_bos_olamaz() -> None:
+    """Her pin girdisinin gerekçesi dolu olmalı; GEREKÇESİZ artık kapı değil."""
+    _iddia_gerekce_dolu(PINLI_KARANTINA)
+
+
+def test_yeni_ad_gerekcesiz_kirmizi() -> None:
+    """Listeye gerekçesiz yeni ad eklemek, o ADI söyleyerek kırmızı olur."""
+    with pytest.raises(AssertionError) as bos:
+        _iddia_gerekce_dolu({*PINLI_KARANTINA, (GERCEK_EK_AD, "")})
+    assert GERCEK_EK_AD in str(bos.value)
+    with pytest.raises(AssertionError) as bosluk:
+        _iddia_gerekce_dolu({*PINLI_KARANTINA, (GERCEK_EK_AD, "   ")})
+    assert GERCEK_EK_AD in str(bosluk.value)
+    with pytest.raises(AssertionError) as placeholder:
+        _iddia_gerekce_dolu({*PINLI_KARANTINA, (GERCEK_EK_AD, "GEREKÇESİZ")})
+    assert GERCEK_EK_AD in str(placeholder.value)
+
+
+def test_sinif_plani_dosya_adi_anmaz() -> None:
+    """Sınıf planı hâlâ addan arınık; ölçüm ek belgededir."""
     plan = PLAN.read_text(encoding="utf-8")
     anilan = sorted(ad for ad in PINLI_ADLAR if ad in plan)
     assert anilan == [], (
-        "LEGACY_TEST_MIGRATION_PLAN.md dosya adı anıyor; gerekçe oradan "
-        f"alınmalı, GEREKÇESİZ bırakılmamalı: {anilan}"
+        "backend/LEGACY_TEST_MIGRATION_PLAN.md dosya adı anıyor; gerekçe "
+        f"docs/LEGACY_TEST_MIGRATION_PLAN.md ek tablosuna aittir: {anilan}"
     )
-    uydurma = sorted(
+
+
+def test_olculen_gerekceler_ek_tabloda() -> None:
+    """Pin gerekçesi ek tablonun measured-class sütunuyla aynı satırda durur."""
+    satirlar = EK_PLAN.read_text(encoding="utf-8").splitlines()
+    eksik = sorted(
         f"{ad}:{gerekce}"
         for ad, gerekce in PINLI_KARANTINA
-        if gerekce != "GEREKÇESİZ"
+        if not any(ad in satir and gerekce in satir for satir in satirlar)
     )
-    assert uydurma == [], f"plan anmadığı dosyaya gerekçe uydurulmuş: {uydurma}"
+    assert eksik == [], (
+        "docs/LEGACY_TEST_MIGRATION_PLAN.md ek tablosu pin gerekçesini "
+        f"taşımıyor: {eksik}"
+    )
 
 
 def test_karantina_dosyalari_diskte_var() -> None:
