@@ -30,6 +30,12 @@ from ..config import settings
 from ..payment_allocation_engine import allocate_payment, ensure_charge_allocation_enabled
 
 from ..db import get_db
+from ..parti_defteri import (
+    _hareket_notu,
+    _parti_ac,
+    _parti_geri_al,
+    _parti_tuket,
+)
 from ..schemas import TransactionCreate
 from ..tenancy import branches, company_id
 from ..inventory import warehouses, default_warehouse, adjust_warehouse_stock
@@ -117,156 +123,6 @@ def _warehouse(db: Session, cid: int, wid: int | None) -> int:
     if not exists:
         raise HTTPException(400, "Depo bulunamadı")
     return int(wid)
-
-
-# ---------------------------------------------------------------------------
-# PARTİ DEFTERİ — 1B-A: ALIŞ KALEMİ LOT AÇAR
-#
-# `product_lots` 0067'de kuruldu ve ÇAĞIRANI YOKTU. Bu iki fonksiyon o
-# defterin TEK yazıcısıdır ve bu dosyanın DIŞINDA bir yazıcı YOKTUR —
-# `tests/test_1b_a_alis_lot.py` bunu AST ile çiviliyor. Okuma tarafı
-# (`GET /api/products/{id}/lots`) defteri yalnız SEÇER.
-#
-# --- ÖLÇEK: PARTİ MİKTARI = HAREKET MİKTARI -------------------------------
-#
-# `units.resolve` BURADA ÇAĞRILMIYOR ve bu bir eksiklik değil, KAPSAM
-# kararıdır. Alış yolu bugün ham birimle çalışır: `purchase_items.quantity`
-# kullanıcının girdiği sayıdır ve `stock_movements.quantity` de aynı sayıyı
-# taşır. Parti defterine ÜÇÜNCÜ bir ölçek sokmak, üç sayının hangisinin
-# doğru olduğunu sorulamaz yapardı.
-#
-# Yani bu dilimde ÇİVİ ŞUDUR: parti miktarının ölçeği HAREKETİN ölçeğidir.
-# Alış yolu bir gün taban birime çekilirse (ÖLÇÜLMEDİ), parti defteri o
-# değişikliğin İÇİNDE kalır çünkü aynı sayıyı yazıyor.
-# ---------------------------------------------------------------------------
-def _parti_ac(
-    db: Session,
-    cid: int,
-    *,
-    product_id: int,
-    warehouse_id: int,
-    lot_code: str,
-    expiry_date: str | None,
-    miktar,
-) -> int:
-    """Partiyi AÇ ya da VAR OLANA EKLE; kimliğini döndür.
-
-    Tekillik `(company_id, product_id, lot_code, warehouse_id)`tır (göç
-    20260908_0073). Aynı kod BAŞKA bir depoda AYRI satırdır ve bu kasıtlıdır:
-    üretici bir partiyi iki şubeye bölebilir ve "hangi depoda ne kadar var"
-    sorusu sorulabilir kalmalıdır.
-
-    SKT ÇATIŞMASI 422'dir, sessiz kabul DEĞİL: var olan bir partinin SKT'si
-    ile yeni alışın söylediği SKT ayrışıyorsa iki cümleden biri YALANDIR ve
-    hangisi olduğunu depo bilemez. Var olanı ezmek geçmiş hareketleri
-    yeniden yorumlardı; yeni geleni yok saymak ise operatöre yazdığı şeyin
-    kaydedilmediğini SÖYLEMEZDİ.
-    """
-    varolan = db.execute(
-        text(
-            "SELECT id,expiry_date FROM product_lots "
-            "WHERE company_id=:cid AND product_id=:pid AND lot_code=:kod "
-            "AND warehouse_id=:wid"
-        ),
-        {"cid": cid, "pid": product_id, "kod": lot_code, "wid": warehouse_id},
-    ).mappings().first()
-    if varolan is None:
-        yeni = db.execute(
-            text(
-                "INSERT INTO product_lots("
-                "company_id,product_id,lot_code,expiry_date,quantity,"
-                "warehouse_id,created_at) "
-                "VALUES(:cid,:pid,:kod,:skt,:miktar,:wid,:now) RETURNING id"
-            ),
-            {
-                "cid": cid,
-                "pid": product_id,
-                "kod": lot_code,
-                "skt": expiry_date,
-                "miktar": miktar,
-                "wid": warehouse_id,
-                "now": utcnow(),
-            },
-        )
-        return int(yeni.scalar_one())
-
-    # KARŞILAŞTIRMA METİN ÜZERİNDE: `expiry_date` PostgreSQL'de `date`,
-    # SQLite'ta `str` olarak geri gelir ve ikisi doğrudan karşılaştırılamaz.
-    # ÖLÇÜLDÜ — iki diyalekt aynı satırda iki farklı tip verir.
-    mevcut_skt = varolan["expiry_date"]
-    mevcut_metin = mevcut_skt.isoformat() if hasattr(mevcut_skt, "isoformat") else mevcut_skt
-    if (mevcut_metin or None) != (expiry_date or None):
-        raise HTTPException(
-            422,
-            {
-                "code": "LOT_SKT_CELISKI",
-                "message": (
-                    f"`{lot_code}` partisi bu depoda "
-                    f"{mevcut_metin or 'SKT’siz'} olarak kayıtlı; alış "
-                    f"{expiry_date or 'SKT’siz'} diyor. İki tarihten hangisinin "
-                    "doğru olduğunu depo bilemez — partiyi ya da alışı düzeltin."
-                ),
-            },
-        )
-    db.execute(
-        text(
-            "UPDATE product_lots SET quantity=quantity+:miktar "
-            "WHERE company_id=:cid AND id=:id"
-        ),
-        {"miktar": miktar, "cid": cid, "id": int(varolan["id"])},
-    )
-    return int(varolan["id"])
-
-
-def _parti_geri_al(db: Session, cid: int, *, reference_type: str, reference_id: int) -> None:
-    """Silinmek ÜZERE olan hareketlerin parti borcunu defterden DÜŞ.
-
-    ÇAĞRILDIĞI YER ZORUNLUDUR: `DELETE FROM stock_movements`ten ÖNCE. Sonra
-    çağrılsaydı okunacak satır kalmazdı ve defter, artık var olmayan bir
-    hareketin miktarını sonsuza kadar taşırdı — stok geri alınır, parti
-    defteri alınmazdı ve ikisi SESSİZCE ayrışırdı.
-
-    EKSİYE DÜŞÜRMEZ, 409 ATAR. Parti sıfırın altına inecekse anlamı şudur:
-    o parti BAŞKA bir yerde tüketilmiştir (bugün böyle bir yol yok, dilim B
-    getirecek) ve alışı geri almak tüketimi de geri almak demektir. Depo bunu
-    kendi başına yapamaz; belgeyi geri alan insan önce tüketimi geri almalıdır.
-    """
-    hareketler = db.execute(
-        text(
-            "SELECT lot_id,quantity FROM stock_movements "
-            "WHERE company_id=:cid AND reference_type=:rt AND reference_id=:rid "
-            "AND lot_id IS NOT NULL"
-        ),
-        {"cid": cid, "rt": reference_type, "rid": reference_id},
-    ).mappings().all()
-    for hareket in hareketler:
-        lot_id = int(hareket["lot_id"])
-        dusecek = quantity(hareket["quantity"])
-        kalan = db.execute(
-            text(
-                "SELECT quantity FROM product_lots WHERE company_id=:cid AND id=:id"
-            ),
-            {"cid": cid, "id": lot_id},
-        ).scalar_one_or_none()
-        if kalan is None or quantity(kalan) < dusecek:
-            raise HTTPException(
-                409,
-                {
-                    "code": "LOT_MIKTARI_EKSIYE_DUSER",
-                    "message": (
-                        f"#{lot_id} partisinde geri alınacak {dusecek} birim "
-                        "YOK — parti başka bir yerde tüketilmiş. Belgeyi geri "
-                        "almadan önce o tüketimi geri alın."
-                    ),
-                },
-            )
-        db.execute(
-            text(
-                "UPDATE product_lots SET quantity=quantity-:miktar "
-                "WHERE company_id=:cid AND id=:id"
-            ),
-            {"miktar": dusecek, "cid": cid, "id": lot_id},
-        )
 
 
 def _branch(db: Session, cid: int, bid: int | None) -> int | None:
@@ -1183,27 +1039,69 @@ def _save(
                         expiry_date=item.expiry_date,
                         miktar=item.quantity,
                     )
-                db.execute(
-                    text(
-                        """INSERT INTO stock_movements(
-                        product_id,movement_type,quantity,movement_date,reference_type,
-                        reference_id,note,company_id,warehouse_id,lot_id
-                        ) VALUES(:product_id,:movement_type,:quantity,:movement_date,
-                        :reference_type,:reference_id,:note,:company_id,:warehouse_id,:lot_id)"""
-                    ),
-                    {
-                        "product_id": product["id"],
-                        "movement_type": kind,
-                        "quantity": config["stock_sign"] * item.quantity,
-                        "movement_date": payload.transaction_date,
-                        "reference_type": config["head"],
-                        "reference_id": transaction_id,
-                        "note": f"{kind} #{transaction_id}",
-                        "company_id": cid,
-                        "warehouse_id": warehouse_id,
-                        "lot_id": lot_id,
-                    },
-                )
+                # SATIŞ PARTİ TÜKETİR (1B-B). Yön `stock_sign`tan OKUNUYOR,
+                # `kind == "sale"` DİYE YAZILMADI: aynı çıkarma kuralı
+                # `workflow.py`nin irsaliye ve alış iadesi yollarında da
+                # geçerlidir ve tür adına bağlanmak, üçüncü bir çıkış yolu
+                # eklendiği gün onu SESSİZCE dışarıda bırakırdı.
+                #
+                # SIRA: `adjust_warehouse_stock` YUKARIDA çağrıldı; tüketim
+                # onun ARDINDADIR. Tersi olsaydı stok koruması belgeyi
+                # reddetse bile parti ZATEN düşülmüş olurdu. Eşzamanlılığın
+                # nasıl korunduğu (`FOR UPDATE` DEĞİL, korumalı atomik
+                # UPDATE) `parti_defteri._parti_tuket` başlığında ÖLÇÜLDÜ.
+                paylar: list[tuple[int | None, Decimal]] = [
+                    (lot_id, config["stock_sign"] * item.quantity)
+                ]
+                suresi_gecmisler: frozenset[int] = frozenset()
+                defter_bosaldi = False
+                if config["stock_sign"] < 0:
+                    tuketim = _parti_tuket(
+                        db,
+                        cid,
+                        product_id=int(product["id"]),
+                        warehouse_id=warehouse_id,
+                        miktar=item.quantity,
+                        bugun=business_today(),
+                        suresi_gecmise_izin=payload.allow_expired_lots,
+                    )
+                    defter_bosaldi = tuketim.defter_bosaldi
+                    if tuketim.dagitim:
+                        paylar = [(kimlik, -pay) for kimlik, pay in tuketim.dagitim]
+                        suresi_gecmisler = tuketim.suresi_gecmis_kimlikler
+                # BİR PAY = BİR HAREKET SATIRI. Tek satıra toplamak, hangi
+                # partiden ne kadar çıktığını GERİ ALINAMAZ yapardı: geri
+                # alma yolu (`_parti_geri_al`) borcu HAREKETLERDEN okuyor ve
+                # tek satır iki partinin borcunu tek `lot_id`ye yıkardı.
+                # Geri alma yine REFERANSTAN anahtarlandığı için N satır onu
+                # bozmaz — hepsi aynı `(reference_type, reference_id)`de.
+                for hareket_lot, hareket_miktar in paylar:
+                    db.execute(
+                        text(
+                            """INSERT INTO stock_movements(
+                            product_id,movement_type,quantity,movement_date,reference_type,
+                            reference_id,note,company_id,warehouse_id,lot_id
+                            ) VALUES(:product_id,:movement_type,:quantity,:movement_date,
+                            :reference_type,:reference_id,:note,:company_id,:warehouse_id,:lot_id)"""
+                        ),
+                        {
+                            "product_id": product["id"],
+                            "movement_type": kind,
+                            "quantity": hareket_miktar,
+                            "movement_date": payload.transaction_date,
+                            "reference_type": config["head"],
+                            "reference_id": transaction_id,
+                            "note": _hareket_notu(
+                                kind,
+                                int(transaction_id),
+                                hareket_lot in suresi_gecmisler,
+                                defter_bosaldi,
+                            ),
+                            "company_id": cid,
+                            "warehouse_id": warehouse_id,
+                            "lot_id": hareket_lot,
+                        },
+                    )
             if kind == "purchase" and apply_stock:
                 db.execute(
                     text("UPDATE products SET purchase_price=:price WHERE id=:id AND company_id=:cid"),

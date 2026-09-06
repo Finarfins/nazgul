@@ -20,8 +20,8 @@ CALL_SITE_GATE = REPO_ROOT / "deploy" / "ci-verify-cagri-kapisi.py"
 BACKEND = REPO_ROOT / "backend"
 
 
-def test_pg_test_population_exact_107() -> None:
-    """PostgreSQL test population must be exactly 107 files.
+def test_pg_test_population_exact_108() -> None:
+    """PostgreSQL test population must be exactly 108 files.
 
     106 -> 107: E2 veteriner ilaç / arınma ikizi
     (`test_e2_tedavi_arinma_postgresql.py`, göç 20260908_0074). SAYIM
@@ -43,6 +43,29 @@ def test_pg_test_population_exact_107() -> None:
     (d) `ck_vet_drugs_species` KAPALI KÜMESİ, tür çözümünün TAM EŞİTLİKLE
     (Türkçe katlama olmadan) çalışmasının DAYANAĞIDIR ve ısırmasaydı dayanak
     çürük olurdu; (e) `NUMERIC(14,4)` doz ölçeği SQLite'ta DAYATILMAZ.
+
+    107 -> 108: 1B-B satış/FEFO tüketimi ikizi
+    (`test_1b_b_satis_fefo_postgresql.py`, GÖÇ YOK). SAYIM ÖLÇÜLDÜ, önceki
+    ölçümün üzerine ARİTMETİK YAPILARAK DEĞİL: bu dalda
+    `ls backend/test_*postgresql*.py | wc -l` -> 106 (yeni dosya DAHİL), yani
+    106 `postgresql`-adlı + 2 özel = 108. Önceki turda 107 ölçülmüştü ve o
+    ölçüm E2 (#62) develop'a indiği anda GEÇERSİZ oldu; bu satır E2 SONRASI
+    tabanda yeniden ölçüldü.
+
+    İKİZ ZORUNLU ve gerekçesi BEŞ tanedir, beşi de yalnız üretim
+    diyalektinde görünür: (a) EŞZAMANLI iki satışın aynı partiyi iki kez
+    düşmesi SQLite'ta ÜRETİLEMEZ (tek yazar), yani hem kusur hem de
+    korumasının kaldırılması geliştirme diyalektinde GÖRÜNMEZ; (b)
+    `CHECK (quantity >= 0 AND quantity <> 'NaN')` tüketimin son savunmasıdır
+    ve SQLite'ta dayatılmaz (NaN yarısı zaten YALNIZ PostgreSQL'dedir); (c)
+    bölüştürülen payların `NUMERIC(18,4)` ölçeği SQLite'ta dayatılmaz, yani
+    yanlış ölçekli bir pay orada SESSİZCE geçerdi; (d) FEFO'nun birinci ve
+    üçüncü anahtarları (`expiry_date`, `created_at`) iki diyalektte İKİ
+    FARKLI TİP döner (`date`/`str`, tz-aware `timestamptz`/naive dizgi) ve
+    çevrim bozulursa sıra bir diyalektte takvimsel ötekinde alfabetik olur —
+    her biri KENDİ ikizinde yeşil kalarak; (e) kiracı yüklemi seçicide DEĞİL
+    çağıranın sorgusundadır ve gerçekten ısırdığı ancak iki kiracılı gerçek
+    bir şemada sorulabilir.
 
     105 -> 106: 1B-A alış-kalemi-parti ikizi
     (`test_1b_a_alis_lot_postgresql.py`, göç 20260908_0073). İkiz ZORUNLU:
@@ -146,6 +169,30 @@ def test_pg_test_population_exact_107() -> None:
     güvenip sayıyı "düzeltmeye" kalkar. Bu yüzden ad, düzyazı ve sayı ÜÇÜ
     BİRDEN güncellenir.
 
+
+    106 -> 107: 1B-B satış/FEFO tüketimi ikizi
+    (`test_1b_b_satis_fefo_postgresql.py`). GÖÇ YOKTUR ve ikiz YİNE ZORUNLU;
+    gerekçesi bir göç değil, DİYALEKT ASİMETRİSİDİR ve beş tanedir, hepsi
+    yalnız üretim diyalektinde görünür: (a) EŞZAMANLI iki satışın aynı
+    partiyi iki kez düşmesini engelleyen şey `warehouse_stocks` üzerindeki
+    `FOR UPDATE` kilididir ve SQLite TEK YAZARDIR — yarış orada ÜRETİLEMEZ,
+    `FOR UPDATE` sözdizimi bile reddedilir, yani kilit kaldırılırsa SQLite
+    süiti YEŞİL KALIR; (b) `CHECK (quantity >= 0 AND quantity <> 'NaN')`
+    tüketimin son savunmasıdır ve SQLite'ta dayatılmaz (NaN yarısı zaten
+    YALNIZ PostgreSQL'dedir); (c) bölüştürülen payların `NUMERIC(18,4)`
+    ölçeği SQLite'ta dayatılmaz, yani yanlış ölçekli bir pay orada SESSİZCE
+    geçerdi; (d) FEFO'nun birinci ve üçüncü anahtarları olan `expiry_date`
+    ve `created_at` iki diyalektte İKİ FARKLI TİP döner (`date`/`str`,
+    tz-aware `timestamptz`/naive dizgi) ve çevrim bozulursa sıra bir
+    diyalektte takvimsel, ötekinde alfabetik olur — her biri KENDİ ikizinde
+    yeşil kalarak; (e) kiracı yüklemi seçicide DEĞİL çağıranın sorgusundadır
+    ve tek yerde durduğu için gerçekten ısırdığı ancak iki kiracılı gerçek
+    bir şemada sorulabilir.
+
+    SAYIM ÖLÇÜLDÜ, ARİTMETİK YAPILARAK DEĞİL: bu dalda
+    `ls backend/test_*postgresql*.py | wc -l` -> 105 (yeni dosya DAHİL), yani
+    105 `postgresql`-adlı + 2 özel = 107.
+
     Bu sayaç ile `ci.yml`deki eşi birlikte artmak ZORUNDA — ikisi aynı
     popülasyonu sayıyor ve biri güncellenip diğeri unutulursa kapı kendi
     kendisiyle çelişir.
@@ -156,23 +203,23 @@ def test_pg_test_population_exact_107() -> None:
         BACKEND / "tests" / "test_ci_playwright_hazirlik.py",
     ]
     all_files = pg_glob + [p for p in named if p.exists()]
-    assert len(all_files) == 107, (
-        f"PostgreSQL test population changed: expected 107, got {len(all_files)}"
+    assert len(all_files) == 108, (
+        f"PostgreSQL test population changed: expected 108, got {len(all_files)}"
     )
 
 
 def test_ci_workflow_has_frozen_pg_population_constant() -> None:
-    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=107 and strict equality.
+    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=108 and strict equality.
 
     ÜÇÜNCÜ ÇİVİ. Sayı bu depoda ÜÇ yerde yaşıyor: `ci.yml`in sabiti,
-    `test_pg_test_population_exact_107`in adı/iddiası, ve BURASI. Üçü aynı
+    `test_pg_test_population_exact_108`in adı/iddiası, ve BURASI. Üçü aynı
     popülasyonu sayıyor; biri güncellenip öteki unutulursa kapı KENDİ
-    KENDİSİYLE ÇELİŞİR — ve bu tam olarak `test_pg_test_population_exact_107`
+    KENDİSİYLE ÇELİŞİR — ve bu tam olarak `test_pg_test_population_exact_108`
     düzyazısının anlattığı tuzaktır (bir tur boyunca ad `_99`, iddia `100`,
     `ci.yml` yorumu `97 + 2 = 99` idi).
     """
     content = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BEKLENEN_PG_DOSYA_SAYISI=107" in content
+    assert "BEKLENEN_PG_DOSYA_SAYISI=108" in content
     assert '[ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]' in content
 
 

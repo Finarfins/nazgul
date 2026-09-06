@@ -9269,6 +9269,11 @@ export interface components {
         };
         /** TransactionCreate */
         TransactionCreate: {
+            /**
+             * Allow Expired Lots
+             * @default false
+             */
+            allow_expired_lots: boolean;
             /** Branch Id */
             branch_id?: number | null;
             /** Discount Amount */
@@ -9713,6 +9718,11 @@ export interface components {
         };
         /** WorkflowDocumentCreate */
         WorkflowDocumentCreate: {
+            /**
+             * Allow Expired Lots
+             * @default false
+             */
+            allow_expired_lots: boolean;
             /** Delivery Date */
             delivery_date?: string | null;
             /**
