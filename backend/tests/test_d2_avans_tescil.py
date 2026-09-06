@@ -665,6 +665,56 @@ with TestClient(app) as client:
     yl = client.get('/api/suppliers/%d/advances' % yabanci_ciftci, headers=h)
     assert yl.status_code == 404, yl.text
 
+    # === SENARYO 8b: KISMI MAHSUP DA IPTALI ENGELLER ===================
+    # OLCULEN KUSUR (mercek): engel yalniz supplier_advances.receipt_id'ye
+    # bakiyordu; KISMI mahsupta avans ACIK kalir ve receipt_id NULL DURUR,
+    # yani tuketilmis mahsup SESSIZCE kayboluyordu. Avans 50, makbuz net 30
+    # -> avansin 30'u tukenir, kalan 20, receipt_id NULL.
+    with SessionLocal() as db:
+        db.execute(_sql(
+            "INSERT INTO suppliers(name,company_id,opening_balance,is_active)"
+            " VALUES('Kismi Ciftci',:c,0,:a)"), {'c':cid,'a':True})
+        kismi_ciftci = int(db.execute(_sql(
+            "SELECT id FROM suppliers WHERE company_id=:c AND "
+            "name='Kismi Ciftci'"), {'c':cid}).scalar_one())
+        db.commit()
+
+    ka = client.post('/api/suppliers/%d/advances' % kismi_ciftci, headers=h,
+                     json={'amount':'50.00','payment_method':'cash',
+                           'payment_date':'2026-09-12'})
+    assert ka.status_code == 201, ka.text
+    kismi_avans = ka.json()['id']
+
+    # 3 KG * 10.00 = 30 brut, kesinti YOK -> net 30.00 (avansin 50'sinden
+    # KUCUK, yani mahsup KISMIDIR ve avans ACIK kalir).
+    km = makbuz_kur(client, h, kismi_ciftci, '3', '10.00', '0', '0')
+    kk = client.post('/api/producer-receipts/%d/issue' % km, headers=h)
+    assert kk.status_code == 200, kk.text
+    assert kk.json()['advance_applied_total'] == '30.00', kk.text
+
+    with SessionLocal() as db:
+        sa = db.execute(_sql(
+            "SELECT remaining_amount,receipt_id FROM supplier_advances "
+            "WHERE company_id=:c AND id=:a"),
+            {'c':cid,'a':kismi_avans}).mappings().one()
+        # KUSURUN ON KOSULU: receipt_id NULL, yani eski engel BOSA DUSERDI.
+        assert sa['receipt_id'] is None, dict(sa)
+        assert Decimal(str(sa['remaining_amount'])) == Decimal('20'), dict(sa)
+
+    ki_iptal = client.post('/api/producer-receipts/%d/cancel' % km, headers=h)
+    assert ki_iptal.status_code == 409, ki_iptal.text
+    assert ki_iptal.json()['detail']['code'] == 'MAKBUZ_AVANS_MAHSUPLU',         ki_iptal.text
+
+    # Makbuz `issued` KALDI ve avansin kalani DEGISMEDI.
+    with SessionLocal() as db:
+        assert db.execute(_sql(
+            "SELECT status FROM producer_receipts WHERE company_id=:c AND "
+            "id=:r"), {'c':cid,'r':km}).scalar_one() == 'issued'
+        assert Decimal(str(db.execute(_sql(
+            "SELECT remaining_amount FROM supplier_advances WHERE "
+            "company_id=:c AND id=:a"),
+            {'c':cid,'a':kismi_avans}).scalar_one())) == Decimal('20')
+
     # === SENARYO 9: TEDARIKCI BAKIYESI — makbuz BORCTUR =================
     # Kural: bakiye = acilis + SUM(alimlar) + SUM(makbuz net_payable)
     #                 - SUM(odemeler)

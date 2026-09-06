@@ -69,7 +69,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from ..avans_engine import makbuz_odenen, makbuz_tescili
+from ..avans_engine import makbuz_odenen, makbuz_tescili, makbuzu_serilestir
 from ..avans_schemas import (
     ExchangeRegistrationWrite,
     ProducerReceiptPaymentWrite,
@@ -347,6 +347,13 @@ def pay_producer_receipt(
     """
     cid = company_id(request)
     makbuz = _kesilmis_makbuz(db, cid, receipt_id)
+    # KİLİT ÖNCE, OKUMA SONRA. Tavan denetimi OKU-SONRA-YAZ'dır ve kendi
+    # başına bir kilit DEĞİLDİR: iki eşzamanlı istek aynı "ödenen"i okuyup
+    # ikisi de tavana sığdığını görür ve ikisi de yazardı (ÖLÇÜLDÜ:
+    # 2×cash_due, 20/20). Kilit denetimden SONRA alınsaydı hiçbir şeyi
+    # korumazdı. PostgreSQL'de satır kilidi, SQLite'ta no-op — asimetrinin
+    # gerekçesi `avans_engine.makbuzu_serilestir`de.
+    makbuzu_serilestir(db, cid, receipt_id)
     net = money(makbuz["net_payable"] or 0)
     mahsup = money(makbuz["advance_applied_total"] or 0)
     nakit_borc = money(net - mahsup)

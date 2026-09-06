@@ -195,6 +195,48 @@ def _avanslari_mahsup_et(
     return toplam
 
 
+def makbuzu_serilestir(db: Session, cid: int, receipt_id: int) -> None:
+    """Aynı makbuza yapılan ödemeleri MAKBUZ SATIRINDA serileştirir.
+
+    ÖLÇÜLEN KUSUR (mercek, READ COMMITTED): `cash_due` kadar iki EŞZAMANLI
+    `/pay` isteği İKİSİ DE 200 aldı ve `payments` toplamı 2×`cash_due`
+    çıktı (20/20 koşum). Sebep, tavan denetiminin OKU-SONRA-YAZ olmasıdır:
+    iki oturum da "şimdiye kadar ödenen"i AYNI değerde okur, ikisi de
+    tavana sığdığını görür, ikisi de yazar. Denetim kendi başına bir kilit
+    DEĞİLDİR.
+
+    ÇAĞRI YERİ: `/pay` içinde, `makbuz_odenen` OKUNMADAN ÖNCE. Kilit
+    commit'e kadar tutulur (okuma + tavan denetimi + INSERT tek işlem);
+    denetimden SONRA alınan bir kilit hiçbir şeyi korumazdı.
+
+    PostgreSQL: `... FOR UPDATE` — ikinci oturum birincinin commit'ini
+    BEKLER, sonra güncellenmiş toplamı görür ve tavana takılıp 422 alır.
+
+    SQLite: TEK YAZAR — yazmalar veritabanı düzeyinde zaten seri ve
+    `FOR UPDATE` sözdizimi REDDEDİLİR; bu dal NO-OP (SQL KOŞMAZ).
+
+    ASİMETRİ ADIYLA YAZILIYOR: bu yüzden kilidin kaldırılması SQLite
+    süitinde GÖRÜNMEZ — orada yarış zaten üretilemez. Kusuru da düzeltmeyi
+    de yalnız PostgreSQL ikizi ölçebilir
+    (`test_ayni_makbuza_eszamanli_odeme_TEK_kez_gecer`). C2'nin
+    `_hasati_serilestir`i ile AYNI kalıp, AYNI gerekçe.
+
+    İki AYRI SABİT ifade; SQL çalışma zamanında KURULMAZ — bu modülde
+    dinamik SQL yoktur ve kilit metni de literaldir, yani dinamik `text()`
+    sayacı KIMILDAMAZ.
+    """
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    db.execute(
+        text(
+            "SELECT id FROM producer_receipts "
+            "WHERE id=:rid AND company_id=:cid AND status='issued' "
+            "FOR UPDATE"
+        ),
+        {"rid": receipt_id, "cid": cid},
+    ).first()
+
+
 def makbuz_odenen(db: Session, cid: int, receipt_id: int) -> Decimal:
     """Makbuza şimdiye dek yapılan ödemelerin TOPLAMI."""
     toplam = db.execute(
@@ -255,6 +297,27 @@ def iptal_engelleri(db: Session, cid: int, receipt_id: int) -> None:
             },
         )
 
+    # MAHSUP TOPLAMI BİRİNCİ TANIK, `receipt_id` İKİNCİ.
+    #
+    # ÖLÇÜLEN KUSUR (mercek): engel YALNIZ `supplier_advances.receipt_id`e
+    # bakıyordu. KISMİ mahsupta avans AÇIK kalır ve `receipt_id` NULL
+    # DURUR (göç 0071'in bilinen sınırı), yani 50'lik bir avansın 30'u
+    # tüketilmiş bir makbuz iptalden GEÇİYORDU — tüketilen 30 hiçbir yere
+    # geri dönmüyordu ve avansın `remaining_amount`ı 20'de KALIYORDU.
+    # Kayıp SESSİZDİ: ne makbuzda ne avansta bir iz kalıyordu.
+    #
+    # `advance_applied_total` mahsubun TAMAMINI görür (tam da, kısmi de),
+    # bu yüzden BİRİNCİ tanıktır. `receipt_id` denetimi KALDIRILMADI:
+    # ikisi AYRI olguyu ölçüyor ve biri bir gün diğerinden ayrışırsa
+    # (mahsup toplamı sıfırlanmış ama avans hâlâ bu makbuza bağlı) iptal
+    # yine REDDEDİLMELİDİR.
+    mahsup_toplami = db.execute(
+        text(
+            "SELECT COALESCE(advance_applied_total,0) FROM producer_receipts "
+            "WHERE company_id=:cid AND id=:rid"
+        ),
+        {"cid": cid, "rid": receipt_id},
+    ).scalar()
     mahsuplu = db.execute(
         text(
             "SELECT COUNT(*) FROM supplier_advances "
@@ -262,7 +325,7 @@ def iptal_engelleri(db: Session, cid: int, receipt_id: int) -> None:
         ),
         {"cid": cid, "rid": receipt_id},
     ).scalar()
-    if int(mahsuplu or 0) > 0:
+    if money(mahsup_toplami or 0) > SIFIR or int(mahsuplu or 0) > 0:
         raise HTTPException(
             409,
             {

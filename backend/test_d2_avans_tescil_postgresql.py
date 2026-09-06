@@ -48,7 +48,9 @@ her biri kısıtı ihlal eden bir yazma deneyip `IntegrityError` (ölçek için
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
+from threading import Barrier
 from decimal import Decimal
 from pathlib import Path
 
@@ -648,6 +650,144 @@ def test_TASLAK_ve_IPTAL_makbuz_bakiyeye_GIRMEZ(motor) -> None:
         "borc dogurmayan makbuzlar bakiyeye girdi: %s" % ekstre.closing_balance
     )
     assert [x for x in ekstre.lines if x.kind == "producer_receipt"] == []
+
+
+RACE_ROUNDS = 20
+ADMIN_PW = "D2Race!123"
+
+
+def _admin_headers(client):
+    for candidate in ("admin123", ADMIN_PW):
+        login = client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": candidate},
+        )
+        if login.status_code == 200:
+            break
+    assert login.status_code == 200, login.text
+    body = login.json()
+    headers = {
+        "Authorization": "Bearer " + body["access_token"],
+        "X-Company-ID": str(body["companies"][0]["id"]),
+    }
+    if candidate != ADMIN_PW:
+        changed = client.post(
+            "/api/auth/change-password",
+            headers=headers,
+            json={"current_password": candidate, "new_password": ADMIN_PW},
+        )
+        assert changed.status_code == 200, changed.text
+        headers["Authorization"] = "Bearer " + changed.json()["access_token"]
+    return headers, int(body["companies"][0]["id"])
+
+
+def test_ayni_makbuza_eszamanli_odeme_TEK_kez_gecer(motor) -> None:
+    """`cash_due` kadar İKİ eşzamanlı `/pay` -> TAM BİR 200 ve BİR 422.
+
+    ÖLÇÜLEN KUSUR (mercek, READ COMMITTED): kilit yokken İKİSİ DE 200
+    aldı ve `payments` toplamı 2×`cash_due` çıktı — tavan denetimi
+    OKU-SONRA-YAZ'dır ve kendi başına bir kilit DEĞİLDİR.
+
+    BU İKİZ ZORUNLU VE ASİMETRİ ADIYLA YAZILIYOR: SQLite TEK YAZARDIR,
+    yarış orada ÜRETİLEMEZ ve `FOR UPDATE` sözdizimi bile REDDEDİLİR —
+    yani hem kusur hem de düzeltmesi geliştirme diyalektinde GÖRÜNMEZ.
+    Kilit kaldırıldığında SQLite süiti YEŞİL KALIR, burası KIRMIZI olur.
+
+    `RACE_ROUNDS` tur koşuluyor: tek turluk bir yeşil, yarışın hiç
+    tetiklenmediği anlamına da gelebilirdi.
+    """
+    from fastapi.testclient import TestClient
+
+    from app.db import SessionLocal
+    from app.main import app
+
+    with TestClient(app) as client:
+        headers, cid = _admin_headers(client)
+        with SessionLocal() as db:
+            tedarikci = db.execute(
+                text(
+                    "INSERT INTO suppliers (company_id, name, opening_balance,"
+                    " is_active) VALUES (:cid, :ad, 0, true) RETURNING id"
+                ),
+                {"cid": cid, "ad": FIRMA_ADI + " yaris"},
+            ).scalar_one()
+            db.commit()
+
+        for tur in range(RACE_ROUNDS):
+            with SessionLocal() as db:
+                makbuz = db.execute(
+                    text(
+                        "INSERT INTO producer_receipts (company_id,"
+                        " supplier_id, receipt_no, issued_at, gross_amount,"
+                        " withholding_total, social_security_total,"
+                        " net_payable, status, advance_applied_total,"
+                        " created_at, updated_at) VALUES (:cid, :sid, :no,"
+                        " :t, 100, 0, 0, 100, 'issued', 0, :t, :t)"
+                        " RETURNING id"
+                    ),
+                    {
+                        "cid": cid,
+                        "sid": tedarikci,
+                        "no": "MM-RACE-%d" % tur,
+                        "t": datetime.now(timezone.utc),
+                    },
+                ).scalar_one()
+                db.commit()
+
+            barrier = Barrier(2)
+
+            def pay_once() -> int:
+                with TestClient(app) as concurrent:
+                    barrier.wait(timeout=30)
+                    return concurrent.post(
+                        "/api/producer-receipts/%d/pay" % makbuz,
+                        headers=headers,
+                        json={
+                            "amount": "100.00",
+                            "payment_method": "cash",
+                            "payment_date": "2026-09-12",
+                        },
+                    ).status_code
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                durumlar = sorted(
+                    f.result(timeout=60)
+                    for f in (pool.submit(pay_once), pool.submit(pay_once))
+                )
+            assert durumlar == [200, 422], (tur, durumlar)
+
+            with SessionLocal() as db:
+                toplam = db.execute(
+                    text(
+                        "SELECT COALESCE(SUM(amount),0) FROM payments"
+                        " WHERE company_id=:cid"
+                        " AND reference_type='producer_receipt'"
+                        " AND reference_id=:rid"
+                    ),
+                    {"cid": cid, "rid": makbuz},
+                ).scalar()
+            assert Decimal(str(toplam)) == Decimal("100.00"), (tur, toplam)
+
+        with SessionLocal() as db:
+            db.execute(
+                text(
+                    "DELETE FROM payments WHERE company_id=:cid"
+                    " AND entity_id=:sid AND entity_type='supplier'"
+                ),
+                {"cid": cid, "sid": tedarikci},
+            )
+            db.execute(
+                text(
+                    "DELETE FROM producer_receipts WHERE company_id=:cid"
+                    " AND supplier_id=:sid"
+                ),
+                {"cid": cid, "sid": tedarikci},
+            )
+            db.execute(
+                text("DELETE FROM suppliers WHERE company_id=:cid AND id=:sid"),
+                {"cid": cid, "sid": tedarikci},
+            )
+            db.commit()
 
 
 def test_kurus_UCUNCU_basamagi_OLCEGE_oturur(motor) -> None:
