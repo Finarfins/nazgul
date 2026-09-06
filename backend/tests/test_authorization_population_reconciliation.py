@@ -167,6 +167,17 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 #   * UNDENIABLE 100'de SABİT: `purchases` reddedilebilir bir izindir
 #     (tanımlı roller arasında onu TAŞIMAYAN roller var), yani hiçbir uç
 #     "bugün hiçbir rolü reddedemez" sınıfına girmedi.
+# 350 -> 354: E1b'nin DÖRT ucu (GET + POST plantbacks, GET + PUT
+# plantbacks/{id}; göç 20260907_0072). Hangi sayaç NİYE kımıldadı ya da
+# kımıldamadı: DÖRDÜ DE tarla ailesine (`farm.view`/`farm.manage`) çözülüyor,
+# yani EXPECTED_READ 93'te SABİT — önek listesine yazılmasalardı bu sayaç
+# 93 -> 95 olurdu ve bekleme sürelerini okuma yetkisi olan herkes
+# değiştirebilirdi; sayacın SABİT KALMASI o kararın TANIĞIDIR.
+# EXPECTED_UNDENIABLE 100 -> 102 ÇÜNKÜ İKİ OKUMA UCU `farm.view` istiyor ve
+# `farm.view` tanımlı rollerin hepsinde var, yani "bugün hiçbir rolü
+# reddetmeyen" sınıfa giriyorlar — 0063'ün katalog OKUMA uçlarında ölçülen
+# hareketin AYNISI. YAZMA uçları (POST/PUT) `farm.manage` istiyor ve bu
+# kümede DEĞİL.
 # 345 -> 350: D2'nin BEŞ ucu (POST + GET avans, POST pay, POST
 # exchange-registration, GET tax-liabilities; göç 20260906_0071). Hangi
 # sayaç NİYE kımıldamadı: BEŞİ DE `purchases` ister ve `read`E ÇÖZÜLMEZ,
@@ -174,9 +185,9 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 # kurallarla yakalanmasının TANIĞI budur. `purchases` deny-by-default
 # nöbetçisinin dışında bir muafiyet İSTEMEDİĞİ için EXPECTED_UNDENIABLE
 # de 100'de SABİT.
-EXPECTED_AUTHENTICATED = 350
+EXPECTED_AUTHENTICATED = 354
 EXPECTED_READ = 93
-EXPECTED_UNDENIABLE = 100
+EXPECTED_UNDENIABLE = 102
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
 #: sonra kendi kapılarına takılırlar. 89'a dahil, 94'e DEĞİL.
@@ -253,6 +264,8 @@ FARM_HERD_VIEW_OPERATIONS = {
     # bekleme sürelerini değiştirmeye yetmez.
     ("GET", "/api/plant-protection-products"),
     ("GET", "/api/plant-protection-products/{ppp_id}"),
+    ("GET", "/api/plant-protection-plantbacks"),
+    ("GET", "/api/plant-protection-plantbacks/{plantback_id}"),
     ("GET", "/api/herd-dashboard"),
     ("GET", "/api/herd-fertility"),
     ("GET", "/api/milk-yields"),
@@ -464,7 +477,9 @@ def test_farm_and_herd_view_membership_not_just_magnitude() -> None:
     # uçları (POST/PUT) bu kümede DEĞİL — onlar `farm.manage` istiyor.
     # 32 -> 33: GET /api/field-harvest-tickets (kantar fişi v2, göç
     # 20260904_0069) — hasat listesiyle aynı role bağlı, reddedilemez okuma.
-    assert len(farm_herd) == 33
+    # 33 -> 35: ekim-arası bekleme kataloğunun İKİ OKUMA ucu (göç
+    # 20260907_0072). Yazma uçları bu kümede DEĞİL — `farm.manage` istiyorlar.
+    assert len(farm_herd) == 35
 
 
 def test_eightynine_partitions_into_sixtysix_and_twentythree() -> None:

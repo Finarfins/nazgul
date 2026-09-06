@@ -258,6 +258,16 @@ DYNAMIC_PERMISSION_CASES = {
 # silinince GET envanteri `read` sayısını 93 -> 95 gösteriyor). Ayrı bir
 # `review_reason` GEREKMİYOR: beş uç da kiracı kapsamlıdır ve izinleri
 # mevcut `purchases` ailesindendir. Başka hiçbir ucun sözleşmesi değişmedi.
+# 360/278 -> 364/280: E1b — ekim-arası bekleme kataloğu (göç 20260907_0072).
+# İKİ yol, DÖRT işlem: GET + POST /api/plant-protection-plantbacks ve
+# GET + PUT /api/plant-protection-plantbacks/{plantback_id}. İzin DÖRDÜNDE DE
+# tarla ailesinden (`farm.view` / `farm.manage`) ve YENİ BİR İZİN AİLESİ
+# AÇILMADI: plant-back süresi de PHI gibi BKÜ etiketinden gelen tarla
+# verisidir. Önek `_FARM_PATH_PREFIXES`e AYRICA yazıldı ve gerekliliği
+# ÖLÇÜLDÜ: "...-plantbacks" mevcut "...-products" önekiyle EŞLEŞMİYOR, yani
+# satır olmasaydı dördü de genel `read`/yazma yoluna düşerdi. Ayrı bir
+# `review_reason` GEREKMİYOR: dört uç da kiracı kapsamlıdır ve izinleri
+# mevcut `farm` ailesindendir. Başka hiçbir ucun sözleşmesi değişmedi.
 # 355/274 -> 360/278: D2 — avans, makbuz ödemesi, borsa tescili ve vergi
 # defteri (göç 20260906_0071). DÖRT yol, BEŞ işlem (ilk yol İKİ işlem
 # taşır): POST + GET /api/suppliers/{supplier_id}/advances, POST
@@ -272,8 +282,8 @@ DYNAMIC_PERMISSION_CASES = {
 # GET envanteri o ucu `read` gösteriyor). Ayrı bir `review_reason`
 # GEREKMİYOR: beş uç da kiracı kapsamlıdır ve izinleri mevcut `purchases`
 # ailesindendir. Başka hiçbir ucun sözleşmesi değişmedi.
-EXPECTED_OPERATION_COUNT = 360
-EXPECTED_PATH_COUNT = 278
+EXPECTED_OPERATION_COUNT = 364
+EXPECTED_PATH_COUNT = 280
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -372,7 +382,10 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # yazılarak). Parmak izi 45a56fbd -> adb27fb5; başka sözleşme değişmedi.
     # 20260905 kiracı dışa aktarımı: GET /api/company/export eklendi
     # (`__admin_only__`). Parmak izi adb27fb5 -> yeniden türetildi.
-    "8f3eb86bf12c84c635981ab3a758f7fc1eb74b8e3053703bbea9eaa69a3e5391"
+    # 20260907 E1b (göç 20260907_0072): ekim-arası bekleme kataloğunun DÖRT
+    # işlemi eklendi (farm.view / farm.manage, öneke yazılarak). Parmak izi
+    # 8f3eb86b -> a49f58e6; başka hiçbir sözleşme değişmedi.
+    "a49f58e6f3873784c1246da16f4769d56dc683d372496d5c4d0ed91cb7660620"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

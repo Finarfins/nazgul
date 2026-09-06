@@ -175,6 +175,12 @@ class SeasonWrite(_Taban):
     # ÇKS tek ürün: aynı parsele üçüncü yıl aynı ürün gerekçesiz GEÇMEZ
     # (uç kontrol eder). Hasattaki safety_override_reason ile aynı şekil.
     monoculture_override_reason: str | None = Field(default=None, max_length=255)
+    # EKİM-ARASI BEKLEME (plant-back, göç 0072): önceki sezonun herbisiti
+    # toprakta durduğu sürece yeni ekim gerekçesiz GEÇMEZ. Sütun `Text`
+    # açıldı ama uçtaki sınır 255'te KALIYOR — kardeşleriyle (alan aşımı,
+    # giriş yasağı, monokültür) aynı sınır olmasaydı hangi gerekçenin ne
+    # kadar uzun olabileceği alana göre değişirdi.
+    plantback_override_reason: str | None = Field(default=None, max_length=255)
 
     @field_validator("crop")
     @classmethod
@@ -489,6 +495,48 @@ class TaskUpdate(TaskWrite, _SurumlüGuncelleme):
 # ---------------------------------------------------------------------------
 # BKÜ KATALOĞU (göç 20260901_0063)
 # ---------------------------------------------------------------------------
+
+
+class PlantProtectionPlantbackWrite(_Taban):
+    """Bir BKÜ'nün ARDINDAN ekilecek bitkiyi ne kadar beklettiği.
+
+    AYRI ŞEMA VE AYRI TABLO, ``PlantProtectionProductWrite``a sütun DEĞİL:
+    ``plant_protection_products``ın tekilliği ``(company_id, product_id,
+    crop)``tır ve aynı ilaç ardından ekilecek HER bitki için AYRI bir süre
+    taşıyabilir (ayçiçeği 12 ay, mercimek 4 ay). Ölçüldü: sütun tercihinde
+    ikinci satır ``IntegrityError`` alıyordu (göç 0072 başlığı).
+
+    ``crop`` BOŞ = ilaç hangi bitkide atılırsa atılsın.
+    ``next_crop`` BOŞ = ardından ne ekilirse ekilsin.
+    """
+
+    product_id: int = Field(gt=0)
+    crop: str = Field(default="", max_length=120)
+    next_crop: str = Field(default="", max_length=120)
+    # Tablonun VAR OLMA SEBEBİ; boş geçilemez. Üst sınır PHI ile AYNI (3650)
+    # ve şemadaki CHECK ile aynı — üç yer farklı söyleseydi bir değer forma
+    # girilip veritabanına yazılamaz olurdu.
+    interval_days: int = Field(ge=0, le=3650)
+    notes: str | None = None
+
+    @field_validator("crop", "next_crop")
+    @classmethod
+    def bitki(cls, value: str) -> str:
+        # Boş dize GEÇERLİ; `_metin` boşu reddettiği için yalnız boşluk
+        # sadeleştirmesi yapılıyor (`PlantProtectionProductWrite` ile aynı).
+        return " ".join(value.split())
+
+
+class PlantProtectionPlantbackUpdate(PlantProtectionPlantbackWrite, _SurumlüGuncelleme):
+    status: str = "ACTIVE"
+
+    @field_validator("status")
+    @classmethod
+    def durum(cls, value: str) -> str:
+        v = _metin(value).upper()
+        if v not in LIFECYCLE_STATUSES:
+            raise ValueError("Geçersiz durum")
+        return v
 
 
 class PlantProtectionProductWrite(_Taban):

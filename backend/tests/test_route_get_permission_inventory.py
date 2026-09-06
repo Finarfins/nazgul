@@ -91,6 +91,13 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     # herkes değiştirebilirdi. Okuma tarafı diğer tarla listeleriyle AYNI rol.
     ("GET", "/api/plant-protection-products"): "farm.view",
     ("GET", "/api/plant-protection-products/{ppp_id}"): "farm.view",
+    # Ekim-arası bekleme kataloğu (göç 20260907_0072). ÖNEK EŞLEŞMESİ
+    # ÖLÇÜLDÜ: "...-plantbacks" yukarıdaki "...-products" önekinin ALTINA
+    # DÜŞMEZ ('l'/'r' harfinde ayrılıyorlar), yani `_FARM_PATH_PREFIXES`e
+    # KENDİ satırı yazılmasaydı genel `read` iznine düşerdi. Okuması diğer
+    # tarla listeleriyle AYNI rol; yeni bir izin ailesi AÇILMADI.
+    ("GET", "/api/plant-protection-plantbacks"): "farm.view",
+    ("GET", "/api/plant-protection-plantbacks/{plantback_id}"): "farm.view",
 
     # --- field_service — `/api/field` önekinden; saha çevrimdışı anlık görüntüsü.
     ("GET", "/api/field/snapshot"): "field_service",
@@ -313,12 +320,15 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # 168 -> 170: müstahsil makbuzunun İKİ GET ucu (liste + tekil, göç
 # 20260905_0070). Başka hiçbir ucun izni değişmedi; drift raporu ÖLÇÜLDÜ:
 # `changed` ve `stale` BOŞ — artış YALNIZ ekleme.
+# 172 -> 174: E1b'nin İKİ GET ucu (ekim-arası bekleme listesi + tekil, göç
+# 20260907_0072). Drift raporu ÖLÇÜLDÜ: `missing`/`stale`/`changed` ÜÇÜ DE
+# BOŞ — artış YALNIZ eklemedir, hiçbir ucun izni DEĞİŞMEDİ.
 # 170 -> 172: D2'nin İKİ GET ucu (avans listesi + vergi defteri, göç
 # 20260906_0071). Drift raporu ÖLÇÜLDÜ: `missing`/`stale`/`changed` ÜÇÜ DE
 # BOŞ — artış YALNIZ eklemedir, hiçbir ucun izni DEĞİŞMEDİ.
-GET_INVENTORY_COUNT = 172
+GET_INVENTORY_COUNT = 174
 GET_INVENTORY_FINGERPRINT = (
-    "bd1b5dd14d34f09f29cef60a12e6493584d35c85f2b68d0ffccf4446d3703e7b"
+    "39395cc19b9a8c1681ad88750b1c9d7fc45a89a994be139043902e49fc17cea1"
 )
 
 

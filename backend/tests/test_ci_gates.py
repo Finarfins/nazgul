@@ -20,8 +20,14 @@ CALL_SITE_GATE = REPO_ROOT / "deploy" / "ci-verify-cagri-kapisi.py"
 BACKEND = REPO_ROOT / "backend"
 
 
-def test_pg_test_population_exact_104() -> None:
-    """PostgreSQL test population must be exactly 104 files.
+def test_pg_test_population_exact_105() -> None:
+    """PostgreSQL test population must be exactly 105 files.
+
+    104 -> 105: E1b ekim-arası bekleme ikizi
+    (`test_e1b_plantback_postgresql.py`, göç 20260907_0072). İkiz ZORUNLU:
+    bileşik yabancı anahtar SQLite'ta UYGULANMIYOR, `:haric IS NULL`
+    parametresinin tipi yalnız PostgreSQL'de ısırıyor ve
+    `farm_plantback_policy` CHECK'i geliştirme diyalektinde ölçülemez.
 
     95 -> 97: tarla yazma kilitleri ikizleri (`test_farm_monoculture_postgresql.py`,
     `test_farm_reentry_enforcement_postgresql.py`, göç 20260901_0064). İkizler
@@ -121,23 +127,23 @@ def test_pg_test_population_exact_104() -> None:
         BACKEND / "tests" / "test_ci_playwright_hazirlik.py",
     ]
     all_files = pg_glob + [p for p in named if p.exists()]
-    assert len(all_files) == 104, (
-        f"PostgreSQL test population changed: expected 104, got {len(all_files)}"
+    assert len(all_files) == 105, (
+        f"PostgreSQL test population changed: expected 105, got {len(all_files)}"
     )
 
 
 def test_ci_workflow_has_frozen_pg_population_constant() -> None:
-    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=104 and strict equality.
+    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=105 and strict equality.
 
     ÜÇÜNCÜ ÇİVİ. Sayı bu depoda ÜÇ yerde yaşıyor: `ci.yml`in sabiti,
-    `test_pg_test_population_exact_104`in adı/iddiası, ve BURASI. Üçü aynı
+    `test_pg_test_population_exact_105`in adı/iddiası, ve BURASI. Üçü aynı
     popülasyonu sayıyor; biri güncellenip öteki unutulursa kapı KENDİ
-    KENDİSİYLE ÇELİŞİR — ve bu tam olarak `test_pg_test_population_exact_104`
+    KENDİSİYLE ÇELİŞİR — ve bu tam olarak `test_pg_test_population_exact_105`
     düzyazısının anlattığı tuzaktır (bir tur boyunca ad `_99`, iddia `100`,
     `ci.yml` yorumu `97 + 2 = 99` idi).
     """
     content = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BEKLENEN_PG_DOSYA_SAYISI=104" in content
+    assert "BEKLENEN_PG_DOSYA_SAYISI=105" in content
     assert '[ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]' in content
 
 

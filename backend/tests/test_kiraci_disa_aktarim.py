@@ -341,6 +341,8 @@ def test_yuz_iki_tablo_dosyasi_tam(hazir) -> None:
     gorulen = {a for a in hazir["adlar"] if a.startswith("tables/")}
     assert gorulen == beklenen, {
         "eksik": sorted(beklenen - gorulen), "fazla": sorted(gorulen - beklenen)}
+    # 109 -> 110: E1b (göç 0072) BİR kiracı tablosu ekledi
+    # (`plant_protection_plantbacks`). Bir öncesi
     # 106 -> 109: D2 (göç 0071) ÜÇ kiracı tablosu daha ekledi
     # (`supplier_advances`, `tax_liabilities`,
     # `producer_receipt_exchange_registrations`). Bir öncesi
@@ -350,7 +352,7 @@ def test_yuz_iki_tablo_dosyasi_tam(hazir) -> None:
     # çalıştı: `_kiraci_tablolari` kümeyi ŞEMADAN türetiyor, yani yeni
     # tablolar dosyaya kendiliğinden girdi. Elle yazılmış bir liste
     # olsaydı bu iki tablo SESSİZCE dışarıda kalırdı.
-    assert len(gorulen) == 109
+    assert len(gorulen) == 110
     # Uygulamanın ŞEMADAN türettiği küme ile kapının listesi AYNI olmalı.
     assert set(hazir["sonuc"]["kiraci_tablolar"]) == set(TENANT_TABLES)
     assert f"companies/{hazir['sonuc']['a_id']}.json" in hazir["adlar"]
@@ -365,7 +367,7 @@ def test_tablo_sirasi_topolojik_ve_tam(hazir) -> None:
     değiştirmek (alfabetik sıra) bunu KIRMIZI yapar."""
     sonuc = hazir["sonuc"]
     sira = hazir["manifest"]["table_order"]
-    assert len(sira) == 109 and len(set(sira)) == 109
+    assert len(sira) == 110 and len(set(sira)) == 110
     assert set(sira) == set(sonuc["kiraci_tablolar"])
 
     # Testin KENDİ bağımsız Kahn tanığı: her bağımlılık, bağımlıdan ÖNCE.
@@ -497,7 +499,7 @@ with TestClient(app) as client:
     zf = zipfile.ZipFile(io.BytesIO(r.content))
     man = json.loads(zf.read("manifest.json"))
     ndjson = [a for a in zf.namelist() if a.startswith("tables/")]
-    assert len(ndjson) == 109, len(ndjson)
+    assert len(ndjson) == 110, len(ndjson)
     # ÖLÇÜLDÜ: "tamamen boş" bir firma dışa AKTARILAMAZ. Dışa aktarımın
     # kendisi ÜYELİK ister ve üyelik satırı `user_company_memberships`
     # tablosundadır — yani erişilebilir HER firmada en az bir satır vardır.
