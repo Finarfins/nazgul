@@ -48,6 +48,7 @@ import os
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from alembic import command
@@ -130,26 +131,38 @@ def motor():
 def _firma_kur(baglanti, firma_adi: str) -> tuple[int, int, int]:
     """Bir firma + BİR depo + BİR ürün kurar; (company_id, warehouse_id, product_id)."""
     simdi = datetime.now(timezone.utc)
+    # BOOLEAN'LAR BAĞLI PARAMETRE, SQL LİTERALİ DEĞİL. Fark bu dosyada
+    # bugün görünmez (PostgreSQL `true`yu anlar) ve tam bu yüzden yazıldı:
+    # bir tohum yardımcısı er ya da geç kopyalanır ve kopyası SQLite tarafına
+    # düşerse `true` orada bir SÜTUN ADI gibi çözülmeye çalışılır. Değeri
+    # bağlamak, metni diyalektten BAĞIMSIZ kılar ve deponun `text()` kuralıyla
+    # (istekten/koddan gelen DEĞER metne girmez) aynı hizaya sokar.
     cid = baglanti.execute(
         text(
             "INSERT INTO companies (name, is_active, created_at) "
-            "VALUES (:ad, true, :simdi) RETURNING id"
+            "VALUES (:ad, :aktif, :simdi) RETURNING id"
         ),
-        {"ad": firma_adi, "simdi": simdi},
+        {"ad": firma_adi, "aktif": True, "simdi": simdi},
     ).scalar_one()
     depo = baglanti.execute(
         text(
             "INSERT INTO warehouses (company_id, name, is_active, is_default) "
-            "VALUES (:cid, '1B-C İkiz Deposu', true, true) RETURNING id"
+            "VALUES (:cid, :ad, :aktif, :varsayilan) RETURNING id"
         ),
-        {"cid": cid},
+        {"cid": cid, "ad": "1B-C İkiz Deposu", "aktif": True, "varsayilan": True},
     ).scalar_one()
     urun = baglanti.execute(
         text(
             "INSERT INTO products (company_id, name, unit, sale_price, active) "
-            "VALUES (:cid, '1B-C İkiz Ürünü', 'Adet', 10, true) RETURNING id"
+            "VALUES (:cid, :ad, :birim, :fiyat, :aktif) RETURNING id"
         ),
-        {"cid": cid},
+        {
+            "cid": cid,
+            "ad": "1B-C İkiz Ürünü",
+            "birim": "Adet",
+            "fiyat": 10,
+            "aktif": True,
+        },
     ).scalar_one()
     return cid, depo, urun
 
@@ -380,3 +393,185 @@ def test_lot_id_SAYISAL_ANLIK_GORUNTUYE_GIRMIYOR(motor) -> None:
     ]
     assert ("stock_movements", "quantity") in sutunlar, sutunlar[:5]
     assert not [ikili for ikili in sutunlar if ikili[1] == "lot_id"], sutunlar
+
+
+# ---------------------------------------------------------------------------
+# HTTP DAVRANIŞ SMOKE'U — İKİZ ARTIK YALNIZ ŞEMA ÖLÇMÜYOR.
+#
+# Yukarıdaki kapıların hepsi şemaya DOĞRUDAN yazıp kısıtın ısırdığını ölçüyor
+# ve bu, ölçtükleri şey için doğru araç. Ama hepsi birden yeşil kalırken
+# UYGULAMA yolu partiyi hiç yazmıyor olabilirdi: şema kapıları
+# `app/routers/*.py`ye HİÇ dokunmuyor, yani "kısıt var" ile "ayarlama ve
+# sayım o kısıtın içinden geçiyor" iki AYRI cümledir.
+#
+# Bu smoke ikincisini ölçüyor ve GERÇEK PostgreSQL üzerinde ölçmesi ŞART:
+# `expiry_date` burada `date` DÖNER (SQLite'ta `str`) ve `_parti_ac`in çatışma
+# karşılaştırması METİN üzerindedir — çevrim yanlışsa SKT'si OLAN bir partinin
+# sayımı 422 `LOT_SKT_CELISKI` ile ölür ve o kusur YALNIZ burada görünür.
+# SQLite ikizinde aynı satır yeşil kalırdı.
+# ---------------------------------------------------------------------------
+
+ADMIN_PW = "AyarlamaLotPG!123"
+
+
+def _admin_baslik(client):
+    for aday in ("admin123", ADMIN_PW):
+        giris = client.post(
+            "/api/auth/login", json={"username": "admin", "password": aday}
+        )
+        if giris.status_code == 200:
+            break
+    assert giris.status_code == 200, giris.text
+    govde = giris.json()
+    baslik = {
+        "Authorization": "Bearer " + govde["access_token"],
+        "X-Company-ID": str(govde["companies"][0]["id"]),
+    }
+    if aday != ADMIN_PW:
+        degisti = client.post(
+            "/api/auth/change-password",
+            headers=baslik,
+            json={"current_password": aday, "new_password": ADMIN_PW},
+        )
+        assert degisti.status_code == 200, degisti.text
+        baslik["Authorization"] = "Bearer " + degisti.json()["access_token"]
+    return baslik, int(govde["companies"][0]["id"])
+
+
+def test_AYARLAMA_ve_SAYIM_UCTAN_UCA_parti_defterini_yaziyor(motor) -> None:
+    """Ayarlama açar/düşer, sayım farkı partiye yazar, SKT SORULMAZ.
+
+    ÖLÇÜLEN DÖRT CÜMLE:
+      1. Parti kodlu bir ayarlama parti satırı AÇAR ve hareket `lot_id`
+         TAŞIR (`insert(stock_movements)` Core yolu, `core_schema` bildirimi
+         olmadan `CompileError` verirdi).
+      2. Eksi yönlü ayarlama VAR OLMAYAN partide 409'dur, sessiz açılış DEĞİL.
+      3. Elde olandan fazlasını düşmek 409 `LOT_MIKTARI_EKSIYE_DUSER`dır ve
+         defter KIMILDAMAZ.
+      4. SKT'si OLAN bir partinin SAYIMI 422 ÜRETMEZ — sayım tarih beyan
+         etmez (`SKT_SORULMADI`). Bu, gerçek `date` tipiyle ancak burada
+         sınanır.
+    """
+    from fastapi.testclient import TestClient
+
+    from app.db import SessionLocal
+    from app.main import app
+
+    kosu = uuid4().hex[:8]
+    with TestClient(app) as client:
+        baslik, cid = _admin_baslik(client)
+        # NEGATİF STOK SERBEST — ÖLÇÜLMÜŞ BİR GEREKÇE, kolaylık değil. Bu kapı
+        # PARTİ kuralını ölçüyor ve stok politikası açık kalsaydı elde
+        # olandan fazlasını düşme denemesi partiye HİÇ ULAŞMADAN stok
+        # katmanında 409 alırdı (ÖLÇÜLDÜ: gövdesi düz metindir, `code`
+        # taşımaz). O yeşil, parti korumasının değil stok korumasının kanıtı
+        # olurdu — yani kapı ölçtüğünü sandığı şeyi ölçmezdi.
+        ayar = client.put(
+            "/api/company-settings",
+            headers=baslik,
+            json={"negative_stock_policy": "allow", "credit_limit_policy": "block"},
+        )
+        assert ayar.status_code < 300, ayar.text
+
+        depo = client.get("/api/warehouses", headers=baslik).json()[0]["id"]
+        urun = client.post(
+            "/api/products",
+            headers=baslik,
+            json={
+                "name": f"1B-C PG Ürün {kosu}",
+                "purchase_price": 10,
+                "sale_price": 20,
+                "vat_rate": 20,
+                "stock": 0,
+                "unit": "Adet",
+            },
+        ).json()["id"]
+
+        def partiler():
+            cevap = client.get(f"/api/products/{urun}/lots", headers=baslik)
+            assert cevap.status_code == 200, cevap.text
+            return {
+                s["lot_code"]: Decimal(str(s["quantity"])) for s in cevap.json()["lots"]
+            }
+
+        def ayarla(**govde):
+            return client.post(
+                f"/api/products/{urun}/stock",
+                headers=baslik,
+                json={"warehouse_id": depo, "movement_date": "2026-09-11", **govde},
+            )
+
+        # --- 1. Parti kodlu ayarlama AÇAR; hareket `lot_id` TAŞIR ----------
+        cevap = ayarla(
+            mode="add", quantity=10, lot_code="PG-AYAR", expiry_date="2099-01-31"
+        )
+        assert cevap.status_code < 300, cevap.text
+        assert partiler() == {"PG-AYAR": Decimal("10")}
+        with SessionLocal() as db:
+            tasiyan = db.execute(
+                text(
+                    "SELECT count(*) FROM stock_movements h "
+                    "JOIN product_lots l ON l.id=h.lot_id AND l.company_id=h.company_id "
+                    "WHERE h.company_id=:cid AND h.product_id=:pid "
+                    "AND l.lot_code='PG-AYAR'"
+                ),
+                {"cid": cid, "pid": urun},
+            ).scalar_one()
+        assert int(tasiyan) == 1, tasiyan
+
+        # --- 2. EKSİ ayarlama VAR OLMAYAN partide 409 ----------------------
+        reddedildi = ayarla(mode="add", quantity=-1, lot_code="PG-YOK")
+        assert reddedildi.status_code == 409, reddedildi.text
+        assert reddedildi.json()["detail"]["code"] == "LOT_MIKTARI_EKSIYE_DUSER", (
+            reddedildi.text
+        )
+        assert "PG-YOK" not in partiler(), partiler()
+
+        # --- 3. ELDEKİNDEN FAZLASINI düşmek 409; defter KIMILDAMAZ ---------
+        reddedildi = ayarla(mode="add", quantity=-99, lot_code="PG-AYAR")
+        assert reddedildi.status_code == 409, reddedildi.text
+        assert reddedildi.json()["detail"]["code"] == "LOT_MIKTARI_EKSIYE_DUSER", (
+            reddedildi.text
+        )
+        assert partiler() == {"PG-AYAR": Decimal("10")}
+
+        # Meşru eksi ayarlama GEÇER.
+        cevap = ayarla(mode="add", quantity=-4, lot_code="PG-AYAR")
+        assert cevap.status_code < 300, cevap.text
+        assert partiler() == {"PG-AYAR": Decimal("6")}
+
+        # --- 4. SKT'Sİ OLAN PARTİNİN SAYIMI 422 ÜRETMEZ --------------------
+        # `PG-AYAR` 2099-01-31 SKT'siyle açıldı ve PostgreSQL onu `date`
+        # olarak geri veriyor. Sayım SKT BEYAN ETMEZ; etseydi (ya da çevrim
+        # bozuk olsaydı) burası 422 `LOT_SKT_CELISKI` ile ölürdü.
+        sayim = client.post(
+            "/api/warehouses/counts",
+            headers=baslik,
+            json={
+                "warehouse_id": depo,
+                "count_date": "2026-09-11",
+                "items": [
+                    {
+                        "product_id": urun,
+                        "counted_quantity": 9,
+                        "lot_code": "PG-AYAR",
+                    }
+                ],
+            },
+        )
+        assert sayim.status_code == 201, sayim.text
+        # Sistemde 6, sayılan 9 -> partiye +3.
+        assert partiler() == {"PG-AYAR": Decimal("9")}
+        with SessionLocal() as db:
+            sayim_hareketi = db.execute(
+                text(
+                    "SELECT h.quantity FROM stock_movements h "
+                    "JOIN product_lots l ON l.id=h.lot_id AND l.company_id=h.company_id "
+                    "WHERE h.company_id=:cid AND h.product_id=:pid "
+                    "AND l.lot_code='PG-AYAR' AND h.movement_type='set' "
+                    "ORDER BY h.id DESC LIMIT 1"
+                ),
+                {"cid": cid, "pid": urun},
+            ).scalar_one_or_none()
+        assert sayim_hareketi is not None, "sayım hareketi `lot_id` TAŞIMIYOR"
+        assert Decimal(str(sayim_hareketi)) == Decimal("3"), sayim_hareketi

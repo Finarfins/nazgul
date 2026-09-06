@@ -29,7 +29,7 @@ from ..inventory import (
     warehouses,
 )
 from ..money import HUNDRED, ZERO_MONEY, money, percentage, quantity
-from ..parti_defteri import SKT_SORULMADI, parti_ac, parti_bul, parti_dus
+from ..parti_defteri import SKT_SORULMADI, _parti_ac, _parti_bul, _parti_dus
 from ..schemas import (
     BulkPriceUpdate,
     BulkStockUpdate,
@@ -658,19 +658,19 @@ def _ayarlama_partisi(
     fark üretebilir ve kararı `mode`a bağlamak, sayılan bir azalmanın partiye
     EKLENMESİNE yol açardı. Karar bu yüzden `diff`in İŞARETİNDEDİR.
 
-    SIFIR FARK DA PARTİYİ AÇAR (`parti_ac(miktar=0)`): operatör bir parti kodu
+    SIFIR FARK DA PARTİYİ AÇAR (`_parti_ac(miktar=0)`): operatör bir parti kodu
     YAZDI ve o beyan kaydedilmelidir. Sıfırı sessizce atlamak, hareketin
     `lot_id`ini boş bırakır ve "hangi parti sayıldı" sorusunu cevapsız
     yapardı; `quantity + 0` ise defterde hiçbir sayıyı kımıldatmaz.
 
     EKSİ FARK VAR OLMAYAN PARTİYE 409'DUR, sessiz açılış DEĞİL: olmayan bir
-    partiden mal düşmek, defteri eksiye iterdi ve `parti_dus` bunu ADIYLA
+    partiden mal düşmek, defteri eksiye iterdi ve `_parti_dus` bunu ADIYLA
     reddeder.
     """
     if payload.lot_code is None:
         return None
     if diff < 0:
-        parti = parti_bul(
+        parti = _parti_bul(
             db,
             cid,
             product_id=product_id,
@@ -689,7 +689,7 @@ def _ayarlama_partisi(
                     ),
                 },
             )
-        parti_dus(
+        _parti_dus(
             db,
             cid,
             lot_id=parti.id,
@@ -705,7 +705,7 @@ def _ayarlama_partisi(
         if "expiry_date" in payload.model_fields_set
         else SKT_SORULMADI
     )
-    return parti_ac(
+    return _parti_ac(
         db,
         cid,
         product_id=product_id,

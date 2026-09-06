@@ -13,7 +13,7 @@ from ..core_schema import products, stock_movements
 from ..db import get_db
 from ..inventory import adjust_warehouse_stock, warehouse_stocks, warehouses
 from ..money import quantity
-from ..parti_defteri import parti_ac, parti_bul, parti_dus
+from ..parti_defteri import _parti_ac, _parti_bul, _parti_dus
 from ..tenancy import company_id
 
 router = APIRouter(prefix="/warehouses/counts", tags=["Depo Sayımları"])
@@ -226,7 +226,7 @@ def create_count(
             parti = (
                 None
                 if item.lot_code is None
-                else parti_bul(
+                else _parti_bul(
                     db,
                     cid,
                     product_id=item.product_id,
@@ -270,7 +270,7 @@ def create_count(
             # ve parti YENİ açılmışsa kimliği ancak burada doğar.
             if item.lot_code is not None:
                 if difference < 0:
-                    parti_dus(
+                    _parti_dus(
                         db,
                         cid,
                         lot_id=lot_id,
@@ -288,7 +288,7 @@ def create_count(
                     # kımıldatmaz, ama hareket artık hangi partinin sayıldığını
                     # SÖYLER. SKT argümanı BİLEREK YAZILMIYOR (`SKT_SORULMADI`):
                     # sayım tarih BEYAN ETMEZ, bkz. `InventoryCountItem`.
-                    lot_id = parti_ac(
+                    lot_id = _parti_ac(
                         db,
                         cid,
                         product_id=item.product_id,

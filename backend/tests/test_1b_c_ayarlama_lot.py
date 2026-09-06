@@ -104,19 +104,6 @@ SAYIM = BACKEND / "app" / "routers" / "warehouse_counts.py"
 #: Parti defterine YAZMASINA izin verilen TEK dosya. Yol `backend/`e görelidir.
 YAZICI = "app/parti_defteri.py"
 
-#: Yazıcıyı ÇAĞIRABİLEN dosyalar — KAPALI KÜME. `workflow.py` 1B-B'nin
-#: (satış/FEFO) yeridir ve ortak karar gereği burada ilan edilmiştir; bkz.
-#: başlık. Beşinci bir dosya defteri çağırmaya başlarsa burası kırmızı olur.
-CAGIRANLAR = {
-    "app/routers/transactions.py",
-    "app/routers/products.py",
-    "app/routers/warehouse_counts.py",
-    "app/workflow.py",
-}
-
-#: Defteri ANABİLEN dosyalar: yazıcı + okuma ucu (`GET /api/products/{id}/lots`).
-OKUYUCULAR = {YAZICI, "app/routers/products.py"}
-
 _YAZMA_FIILLERI = ("INSERT", "UPDATE", "DELETE")
 
 
@@ -151,157 +138,22 @@ def _calistirilabilir_sabitler(agac: ast.AST):
 # --------------------------------------------------------- yazıcı sınırı ---
 
 
-def test_product_lots_YAZICISI_YALNIZ_parti_defteri() -> None:
-    """1B-A'NIN KAPISININ YERİNE GELEN, DAHA DAR İDDİA.
-
-    Eski kapı "`product_lots`a YAZAN metin YALNIZ
-    `app/routers/transactions.py` içindedir" diyordu; üç çağıranla o cümle
-    sürdürülemez. Yerine HİÇBİR ŞEY koymamak defteri her yerden yazılabilir
-    bırakırdı — yani emekliliğin kendisi bir gevşeme olurdu.
-
-    İDDİA İKİ KATMANLIDIR:
-
-    1. `product_lots`a YAZAN (INSERT/UPDATE/DELETE) çalıştırılabilir metin
-       YALNIZ `app/parti_defteri.py` içindedir. İkinci bir yazıcı, iki
-       defterin sessizce ayrışmasıdır — `app/parti.py`nin başlığında ADIYLA
-       yazılı kusur.
-    2. Tabloyu ANAN dosyaların kümesi de KAPALIDIR: yazıcı + okuma ucu.
-
-    MUTASYON, ADIYLA: `products.py`nin `_ayarlama_partisi`si yardımcıyı
-    atlayıp kendi `UPDATE product_lots ...`ını yazsaydı burası KIRMIZI olur.
-    """
-    yazanlar: list[str] = []
-    ananlar: set[str] = set()
-    for yol in sorted((BACKEND / "app").rglob("*.py")):
-        kaynak = yol.read_text(encoding="utf-8")
-        if "product_lots" not in kaynak:
-            continue
-        yer = yol.relative_to(BACKEND).as_posix()
-        for dugum in _calistirilabilir_sabitler(ast.parse(kaynak)):
-            if "product_lots" not in dugum.value:
-                continue
-            ananlar.add(yer)
-            buyuk = dugum.value.upper()
-            if any(fiil in buyuk for fiil in _YAZMA_FIILLERI):
-                yazanlar.append(f"{yer}:{dugum.lineno}")
-
-    assert all(yer.startswith(YAZICI) for yer in yazanlar), (
-        f"`product_lots`a YAZAN yer(ler) `{YAZICI}` dışında: {yazanlar}. "
-        "Defterin TEK yazıcısı o modüldür; ikinci bir yazıcı iki defteri "
-        "sessizce ayrıştırır."
-    )
-    assert yazanlar, (
-        "hiç yazıcı bulunamadı — yazıcı KAYBOLMUŞ ya da kapının taraması "
-        "bozulmuş demektir (sahte yeşil)"
-    )
-    assert ananlar <= OKUYUCULAR, (
-        f"`product_lots`u anan beklenmedik dosya(lar): {sorted(ananlar - OKUYUCULAR)}. "
-        f"Kapalı küme: {sorted(OKUYUCULAR)}."
-    )
-
-
-def _defteri_cagiranlar() -> set[str]:
-    """`app/parti_defteri.py`yi İTHAL EDEN dosyalar, `backend/`e göreli."""
-    cagiranlar: set[str] = set()
-    defter_yolu = BACKEND / "app" / "parti_defteri.py"
-    for yol in sorted((BACKEND / "app").rglob("*.py")):
-        if yol == defter_yolu:
-            continue
-        agac = ast.parse(yol.read_text(encoding="utf-8"))
-        yer = yol.relative_to(BACKEND).as_posix()
-        for dugum in ast.walk(agac):
-            if isinstance(dugum, ast.ImportFrom):
-                modul = dugum.module or ""
-                if modul.split(".")[-1] == "parti_defteri" or any(
-                    ad.name == "parti_defteri" for ad in dugum.names
-                ):
-                    cagiranlar.add(yer)
-            elif isinstance(dugum, ast.Import):
-                for ad in dugum.names:
-                    if ad.name.split(".")[-1] == "parti_defteri":
-                        cagiranlar.add(yer)
-    return cagiranlar
-
-
-def test_parti_defteri_CAGIRANLARI_KAPALI_KUME() -> None:
-    """Yazıcıyı çağırabilen dosyaların kümesi KAPALIDIR.
-
-    Yazıcıyı tek dosyaya hapsetmek YETMEZ: defteri çağıran her yeni yol,
-    partinin ne zaman açılıp ne zaman düştüğüne dair YENİ bir karar
-    verir ve o karar hiçbir yerde incelenmemiş olabilir. Beşinci bir dosya
-    `parti_defteri`yi ithal ettiği gün burası kırmızı olur ve "bu yolun parti
-    kararı nedir" sorusu İNCELEMEYE zorlanır.
-    """
-    cagiranlar = _defteri_cagiranlar()
-    assert cagiranlar <= CAGIRANLAR, (
-        f"`{YAZICI}`yi çağıran beklenmedik dosya(lar): "
-        f"{sorted(cagiranlar - CAGIRANLAR)}. Kapalı küme: {sorted(CAGIRANLAR)}."
-    )
-
-
-def test_CAGIRAN_KUMESI_BOS_DEGIL() -> None:
-    """Kapalı küme bir VAAT değil, bir ÖLÇÜMDÜR.
-
-    `CAGIRANLAR` 1B-B ile ortak karar gereği `app/workflow.py`yi de içeriyor
-    ve o dosya bu dalda defteri HENÜZ çağırmıyor. İzin verilenlerin hiçbirinin
-    gerçekten çağırmadığı bir küme, kapı gibi görünen ama hiçbir şey
-    savunmayan bir listedir. Bu kapı, bu dilimin GETİRDİĞİ üç çağıranın
-    gerçekten orada olduğunu ölçer.
-    """
-    cagiranlar = _defteri_cagiranlar()
-    for beklenen in (
-        "app/routers/transactions.py",
-        "app/routers/products.py",
-        "app/routers/warehouse_counts.py",
-    ):
-        assert beklenen in cagiranlar, (
-            f"`{beklenen}` parti defterini ÇAĞIRMIYOR — bu dilimin getirdiği "
-            "çağıran kaybolmuş ya da kapının taraması bozulmuş demektir."
-        )
-
-
-def test_fefo_sec_YALNIZ_parti_defteri_den_cagrilabilir() -> None:
-    """Seçicinin çağıranı da KAPALIDIR ve tek adresi yazıcıdır.
-
-    1B-A'nın `test_fefo_sec_HALA_CAGIRANSIZ`ı "hiç çağıran yok" diyor ve
-    bugün DOĞRU (1B-C parti TÜKETMEZ). O kapı 1B-B tüketimi getirdiğinde
-    emekli olacak; BU KAPI o gün de ayakta kalır ve daha dar olanı söyler:
-    seçiciye YALNIZ parti defteri bağlanabilir.
-
-    Sebep `app/parti.py`nin başlığındadır: iki farklı yerden çıkan mal iki
-    farklı partiden düşerse geri çağırma kaydı YALAN SÖYLER. Seçiciyi tek
-    yazıcının içine hapsetmek, "hangi partiden düşüldü" sorusunun TEK bir
-    yerde cevaplanmasını garanti eder.
-    """
-    secici = BACKEND / "app" / "parti.py"
-    defter = BACKEND / "app" / "parti_defteri.py"
-    ihlaller: list[str] = []
-    for yol in sorted((BACKEND / "app").rglob("*.py")):
-        if yol in (secici, defter):
-            continue
-        agac = ast.parse(yol.read_text(encoding="utf-8"))
-        yer = yol.relative_to(BACKEND).as_posix()
-        for dugum in ast.walk(agac):
-            if isinstance(dugum, ast.Import):
-                for ad in dugum.names:
-                    if ad.name.split(".")[-1] == "parti":
-                        ihlaller.append(f"{yer}:{dugum.lineno} import {ad.name}")
-            elif isinstance(dugum, ast.ImportFrom):
-                modul = dugum.module or ""
-                if modul.split(".")[-1] == "parti":
-                    ihlaller.append(f"{yer}:{dugum.lineno} from ...parti import")
-                elif any(ad.name == "parti" for ad in dugum.names):
-                    ihlaller.append(f"{yer}:{dugum.lineno} import parti")
-            elif isinstance(dugum, ast.Attribute) and dugum.attr == "fefo_sec":
-                ihlaller.append(f"{yer}:{dugum.lineno} .fefo_sec")
-            elif isinstance(dugum, ast.Name) and dugum.id == "fefo_sec":
-                ihlaller.append(f"{yer}:{dugum.lineno} fefo_sec")
-    assert ihlaller == [], (
-        f"FEFO seçicisine `{YAZICI}` DIŞINDAN bağlanan yer(ler): {ihlaller}."
-    )
-
-
-# ------------------------------------------------- sayısal manifesto kapısı ---
+# ---------------------------------------------------------------------------
+# YAZICI / ÇAĞIRAN / SEÇİCİ KAPILARI BU DOSYADA DEĞİL — TEK EVLERİ
+# `tests/test_1b_a_alis_lot.py`DİR.
+#
+# Bu dilim onların ÜÇÜNÜ DE kendi dosyasında taşıyordu ve 1B-B (#63) aynı üç
+# iddiayı 1B-A'nın dosyasında kuruyordu. İKİ EV, İKİ KAPALI KÜME demektir ve
+# ikisi SESSİZCE ayrışır: bu dosyanınki `workflow.py`yi tanımıyordu, ötekinin
+# ki tanıyordu — yani aynı soruya iki farklı cevap veren iki kapı vardı ve
+# hangisinin doğru olduğu SORULAMAZDI. Tam olarak bu kapıların engellemek
+# için var olduğu kusur şekli.
+#
+# Birleşme kararı: iddialar `tests/test_1b_a_alis_lot.py`de BİRLEŞTİ ve
+# oradaki kümeler bu dilimin çağıranlarını (products.py, warehouse_counts.py)
+# İÇERİYOR. Buradaki kopyalar kaldırıldı; bu dosya artık YALNIZ 1B-C'ye özgü
+# olanı ölçüyor (sayım/ayarlama davranışı, 0067 koşul ayrımı, manifesto).
+# ---------------------------------------------------------------------------
 
 
 def test_lot_id_SAYISAL_MANIFESTOYA_GIRMEZ_olculdu() -> None:
@@ -476,7 +328,7 @@ def test_ayarlama_ISARETE_bakar_mode_a_DEGIL() -> None:
 
 
 def test_SAYIM_SKT_BEYAN_ETMEZ_argumani_HIC_yazmaz() -> None:
-    """Sayım `parti_ac`e `expiry_date` GEÇMEZ ve bu bir unutma DEĞİLDİR.
+    """Sayım `_parti_ac`e `expiry_date` GEÇMEZ ve bu bir unutma DEĞİLDİR.
 
     `expiry_date=None` geçmek "bu partinin SKT'si YOKTUR" BEYANIDIR ve var
     olan tarihli bir partiyle ÇELİŞİR (422 `LOT_SKT_CELISKI`). Sayım tarih
@@ -493,42 +345,78 @@ def test_SAYIM_SKT_BEYAN_ETMEZ_argumani_HIC_yazmaz() -> None:
         for dugum in ast.walk(agac)
         if isinstance(dugum, ast.Call)
         and isinstance(dugum.func, ast.Name)
-        and dugum.func.id == "parti_ac"
+        and dugum.func.id == "_parti_ac"
     ]
-    assert len(cagrilar) == 1, "sayım yolunda tam bir `parti_ac` çağrısı bekleniyor"
+    assert len(cagrilar) == 1, "sayım yolunda tam bir `_parti_ac` çağrısı bekleniyor"
     anahtarlar = {kelime.arg for kelime in cagrilar[0].keywords}
     assert "expiry_date" not in anahtarlar, (
-        "sayım yolu `parti_ac`e SKT geçiyor; sayım tarih BEYAN ETMEZ."
+        "sayım yolu `_parti_ac`e SKT geçiyor; sayım tarih BEYAN ETMEZ."
     )
     assert {"product_id", "warehouse_id", "lot_code", "miktar"} == anahtarlar
 
 
-def test_EKSIYE_DUSME_KURALI_TEK_YERDE() -> None:
-    """`LOT_MIKTARI_EKSIYE_DUSER` üreten UPDATE tek fonksiyondadır.
+def test_HER_PARTI_DUSMESI_KENDI_KORUMASINI_TASIYOR() -> None:
+    """1B-C'NİN "TEK YER" KAPISI YENİDEN ÇERÇEVELENDİ — DAHA DAR OLARAK.
 
-    Kural üç çağıranda üç kez yazılsaydı biri gevşediğinde (örneğin `<=`
-    yerine `<`) öteki ikisi SESSİZ kalırdı. `parti_dus` dışında bir
-    `quantity=quantity-...` yazması bu kapıyı kırar.
+    Bu kapı `parti_dus` DIŞINDA hiçbir `quantity=quantity-...` yazması
+    olmadığını iddia ediyordu ve o iddia 1B-B (#63) ile ARTIK YANLIŞTIR:
+    defterde ÜÇ düşme var ve üçünün SÖZLEŞMESİ FARKLIDIR. Yanlış bir iddiayı
+    doğru sayıya çekmek (3 bekle) kapıyı hiçbir şey savunmaz hale getirirdi;
+    onun yerine SAVUNULAN ŞEY yazıldı.
 
-    `products.py`nin var-olmayan-parti dalı da aynı KODU üretir ama bir
-    UPDATE yazmaz — orada düşülecek satır YOKTUR ve `parti_dus`a hiç
-    girilmez; hata kodunun aynı olması operatörün gördüğü cümlenin aynı
-    kalması içindir.
+    YENİ İDDİA: eksiye düşebilen HER yazma, korumasını KENDİ `WHERE`ünde
+    taşır. Koruma `WHERE`de değil de önceden bir `SELECT` ile yapılırsa iki
+    eşzamanlı düşme aynı satırı okur ve ikisi de "yetiyor" der — 1B-B'nin
+    `_parti_tuket` için ADIYLA ölçtüğü kusur.
+
+    TEK İSTİSNA `_parti_geri_al`DIR VE İSTİSNA OLMASI BİR KARARDIR: onun
+    `miktar`ı hareketin İŞARETLİ miktarıdır, yani satış geri alınırken
+    NEGATİFTİR ve çıkarma EKLEMEYE döner. Bir alt sınır koruması orada eksiye
+    düşmeyi engellemez, TERSİNE geri vermeyi engellerdi. İstisna burada ADIYLA
+    sayılıyor ki dördüncü bir korumasız düşme onun arkasına saklanamasın.
     """
+    KORUMASIZ_MESRU = {"_parti_geri_al"}
+
+    kaynak = DEFTER.read_text(encoding="utf-8")
+    agac = ast.parse(kaynak)
+
+    # Düşme metnini TAŞIYAN fonksiyonu bul: sabit hangi `FunctionDef`in
+    # gövdesindeyse o. Metni dosya düzeyinde saymak, hangi sözleşmenin
+    # gevşediğini SÖYLEYEMEZDİ.
+    bulunan: dict[str, bool] = {}
+    for dugum in ast.walk(agac):
+        if not isinstance(dugum, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for sabit in _calistirilabilir_sabitler(dugum):
+            metin = " ".join(sabit.value.split())
+            if "UPDATE product_lots SET quantity=quantity-" not in metin:
+                continue
+            bulunan[dugum.name] = "quantity>=" in metin
+
+    assert set(bulunan) == {"_parti_geri_al", "_parti_tuket", "_parti_dus"}, (
+        f"parti düşüren fonksiyon kümesi değişti: {sorted(bulunan)}. Yeni bir "
+        "düşme eklendiyse sözleşmesi ADIYLA incelenmelidir."
+    )
+    korumasiz = {ad for ad, korumali in bulunan.items() if not korumali}
+    assert korumasiz == KORUMASIZ_MESRU, (
+        f"korumasız düşme(ler): {sorted(korumasiz)}. Eksiye düşebilen her "
+        "yazma koşulunu KENDİ `WHERE`ünde taşımalıdır; tek meşru istisna "
+        f"{sorted(KORUMASIZ_MESRU)} ve gerekçesi bu kapının düzyazısındadır."
+    )
+
+    # İKİNCİ YARI DEĞİŞMEDİ: düşme metinleri YALNIZ yazıcıdadır.
     dusenler: list[str] = []
     for yol in sorted((BACKEND / "app").rglob("*.py")):
-        agac = ast.parse(yol.read_text(encoding="utf-8"))
         yer = yol.relative_to(BACKEND).as_posix()
-        for dugum in _calistirilabilir_sabitler(agac):
+        for dugum in _calistirilabilir_sabitler(ast.parse(yol.read_text(encoding="utf-8"))):
             metin = " ".join(dugum.value.split())
             if "UPDATE product_lots SET quantity=quantity-" in metin:
                 dusenler.append(f"{yer}:{dugum.lineno}")
     assert dusenler and all(yer.startswith(YAZICI) for yer in dusenler), dusenler
-    defter = DEFTER.read_text(encoding="utf-8")
-    assert defter.count("UPDATE product_lots SET quantity=quantity-") == 1, (
-        "parti defterinde birden fazla düşme metni var; kuralın tek yeri "
-        "`parti_dus` olmalı."
-    )
+
+    # `LOT_MIKTARI_EKSIYE_DUSER` kodunu ÜRETEN tek UPDATE hâlâ `_parti_dus`tur.
+    dus = kaynak[kaynak.index("def _parti_dus"):kaynak.index("def _parti_geri_al")]
+    assert dus.count("LOT_MIKTARI_EKSIYE_DUSER") == 1, dus.count("LOT_MIKTARI_EKSIYE_DUSER")
 
 
 # ---------------------------------------------------------------------------

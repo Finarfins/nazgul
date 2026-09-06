@@ -52,9 +52,11 @@ YAZICI = "app/parti_defteri.py"
 #: Defteri OKUYABİLEN dosyalar. Okuma yazma DEĞİLDİR ve kapı ikisini ayırır;
 #: ayırmasaydı okuma ucu kendi kapısını ihlal ederdi.
 #:
-#: `warehouse_counts.py` BUGÜN defteri ANMIYOR ve küme bir ÜST SINIR olduğu
-#: için burada bulunması kapıyı bugün gevşetmez. 1B-C (sayım/ayarlama yolu)
-#: için ÖNCEDEN yazıldı ki iki dal aynı kapıyı ters yönde oynatmasın.
+#: `warehouse_counts.py` 1B-C ile defteri ANMAYA BAŞLAMADI — onu ÇAĞIRIYOR
+#: (aşağıdaki `CAGIRANLAR` ekseni). Burada durması, bir gün tabloyu adıyla
+#: okuması ihtimaline karşı AÇILMIŞ bir üst sınır DEĞİLDİR: `ananlar` kümesi
+#: TAM EŞİTLİKLE ölçülmüyor (üst sınır), çünkü okuma eklemek yazma eklemekle
+#: aynı ağırlıkta değildir.
 OKUYUCULAR = {
     YAZICI,
     "app/routers/products.py",
@@ -298,9 +300,15 @@ def test_parti_defterini_CAGIRANLAR_kapali_kume() -> None:
         f"parti defterini çağıran beklenmedik dosya(lar): "
         f"{sorted(cagiranlar - CAGIRANLAR)}. Kapalı küme: {sorted(CAGIRANLAR)}."
     )
-    # Sahte yeşil karşıtı: bu PR'ın İKİ çağıranı ADIYLA duruyor olmalı.
-    assert {"app/routers/transactions.py", "app/routers/workflow.py"} <= cagiranlar, (
-        f"1B-B'nin iki çağıranından biri KAYBOLMUŞ: {sorted(cagiranlar)}"
+    # SAHTE YEŞİL KARŞITI ve KÜMENİN BİR VAAT DEĞİL ÖLÇÜM OLDUĞU: izin
+    # verilenlerin hiçbirinin gerçekten çağırmadığı bir küme, kapı gibi
+    # görünen ama hiçbir şey savunmayan bir listedir. 1B-B iki çağıran
+    # getirdi, 1B-C iki tane daha; DÖRDÜ DE ADIYLA sorulur.
+    assert cagiranlar == CAGIRANLAR, (
+        f"çağıran kümesi ile İZİN VERİLEN küme ayrıştı. Fazla: "
+        f"{sorted(cagiranlar - CAGIRANLAR)}, eksik: "
+        f"{sorted(CAGIRANLAR - cagiranlar)}. Eksik olan, o dilimin getirdiği "
+        "çağıranın KAYBOLDUĞU anlamına gelir."
     )
 
 
