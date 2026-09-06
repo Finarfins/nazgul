@@ -47,14 +47,35 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+from fastapi.routing import APIRoute
+
 BACKEND = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND))
-os.environ.setdefault("DATABASE_URL", "sqlite:///./__x.db")
 
-from fastapi.routing import APIRoute  # noqa: E402
 
-from app.auth import SELF_SERVICE_API, required_permission  # noqa: E402
-from app.main import PUBLIC_API, app  # noqa: E402
+@pytest.fixture(scope="module", autouse=True)
+def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
+    """``app.main`` bir URL ister; paylaşılan cwd sqlite kardeş modüllere sızıyordu.
+
+    İçe aktarma anındaki ``setdefault("DATABASE_URL", ...)`` aynı süreçte
+    toplanan sonraki dosyaların (ör. slice1) atlamak yerine çalışma
+    dizinindeki paylaşılan dosyaya yazmasına yol açıyordu. URL yalnız henüz
+    yoksa tmp altına konur, ``Settings`` bağlanır, sonra süreç ortamından
+    silinir — böylece kardeş modülün ``os.environ`` okuması etkilenmez.
+    """
+    owned = "DATABASE_URL" not in os.environ
+    if owned:
+        db = tmp_path_factory.mktemp("auth_pop") / "auth.db"
+        os.environ["DATABASE_URL"] = f"sqlite:///{db.as_posix()}"
+    try:
+        from app.auth import required_permission as _required_permission  # noqa: F401
+        from app.main import PUBLIC_API as _PUBLIC_API  # noqa: F401
+        from app.main import app as _app  # noqa: F401
+    finally:
+        if owned:
+            os.environ.pop("DATABASE_URL", None)
+    yield
 
 #: --- SAYAÇ HAREKETİ: 326/89/94 -> 327/90/95 (PR #57 birleşmesi) --------------
 #:
@@ -380,6 +401,9 @@ NAKED_READ_OPERATIONS = {
 }
 
 def _populations():
+    from app.auth import required_permission
+    from app.main import PUBLIC_API, app
+
     authenticated, read_ops, guarded, farm_herd = set(), set(), set(), set()
     for path, route in _walk(app.routes):
         if not path.startswith("/api") or path in PUBLIC_API:
@@ -485,6 +509,8 @@ def test_self_service_routes_were_inside_the_sixtysix() -> None:
     tarafından reddedilemiyordu; değişen tek şey, rolü ÇÖZÜLEMEYEN hesabın da
     onlara ulaşabilmesi.
     """
+    from app.auth import SELF_SERVICE_API
+
     _, read_ops, guarded, _ = _populations()
     naked_read = read_ops - guarded
     self_service_operations = {
