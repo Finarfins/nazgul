@@ -3812,6 +3812,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/products/{product_id}/lots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Product Lots
+         * @description Bu üründen hangi depoda hangi parti, ne kadar ve hangi SKT ile duruyor.
+         *
+         *     OKUMADIR, YALNIZ OKUMA. Parti defterini YAZAN tek yer
+         *     `routers/transactions.py`nin alış yoludur (ve onun geri alma ikizi);
+         *     `tests/test_1b_a_alis_lot.py` bunu AST ile çiviliyor. Bu uç defteri
+         *     yalnız SEÇER — buraya bir `INSERT`/`UPDATE`/`DELETE` girerse o kapı
+         *     kırmızı olur ve bu DOĞRUDUR.
+         *
+         *     SIRA `app/parti.py`nin FEFO sırası DEĞİLDİR ve olmaması karardır: seçici
+         *     bir DAĞITIM üretir (hangi partiden ne kadar düşülecek), burası bir
+         *     LİSTEDİR (operatör rafta ne görüyor). İkisini aynı sıraya bağlamak,
+         *     listenin bir gün seçicinin cevabı sanılmasına yol açardı. Buradaki sıra
+         *     okunabilirlik içindir: depo adı, sonra SKT, sonra kimlik (belirlenimci).
+         *
+         *     Miktarı SIFIR olan parti GİZLENMEZ: tükenmiş parti satırı 0067'de
+         *     bilinçli olarak silinmiyor, çünkü o satır geri çağırmanın KANITIDIR.
+         */
+        get: operations["product_lots_api_products__product_id__lots_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/products/{product_id}/qr.png": {
         parameters: {
             query?: never;
@@ -9202,6 +9237,10 @@ export interface components {
              * @default 0
              */
             discount_percent: number | string;
+            /** Expiry Date */
+            expiry_date?: string | null;
+            /** Lot Code */
+            lot_code?: string | null;
             /** Product Id */
             product_id: number;
             /** Quantity */
@@ -17429,6 +17468,37 @@ export interface operations {
         };
     };
     product_label_api_products__product_id__label_pdf_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    product_lots_api_products__product_id__lots_get: {
         parameters: {
             query?: never;
             header?: never;

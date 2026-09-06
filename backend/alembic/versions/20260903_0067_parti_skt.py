@@ -5,6 +5,27 @@ OKUYAN ya da YAZAN YOKTUR — seçici (`app/parti.py`) de çağrılmıyor. 0066'
 duruşunun aynısı: şema ve SIRALAMA, onları unutacak bir çağıran ortaya
 çıkmadan ÖNCE çivileniyor.
 
+--- SONRADAN NOT: BAŞLIKTAKİ "ÇAĞIRANI YOKTUR" ARTIK YARIM DOĞRUDUR -------
+
+Göç `20260908_0073` (FAZ 1B-A) `product_lots`u ALIŞ YOLUNA bağladı:
+`app/routers/transactions.py` artık parti kodu taşıyan her alış kalemi için
+bir parti satırı açıyor/artırıyor ve `stock_movements.lot_id`i dolduruyor.
+
+Aşağıdaki düzyazı SİLİNMEDİ çünkü bu göçün NEDEN böyle yazıldığını anlatıyor
+ve o gerekçelerin çoğu hâlâ geçerli; ama İKİ CÜMLESİ ARTIK ESKİDİR ve burada
+adıyla işaretleniyor:
+
+  * "Bu PR'da hiçbir şey onları okumadığı için geri alma davranışsal olarak
+    GÖRÜNMEZDİR" — 0073'ten sonra GÖRÜNÜRDÜR; 0073'ün kendi `downgrade`ı bu
+    yüzden tabloyu BOŞ ister ve boş değilse gürültülü ölür.
+  * `uq_product_lots_company_product_code` — 0073 onu DÜŞÜRDÜ ve yerine
+    `(company_id, product_id, lot_code, warehouse_id)` koydu; aynı parti
+    kodu artık İKİ DEPODA iki AYRI satırdır. Aşağıdaki "bir firmanın bir
+    ürünü için bir parti kodu TEK satırdır" yorumu o güne kadar doğruydu.
+
+`app/parti.py` FEFO seçicisi HÂLÂ çağrılmıyor (tüketim yolu dilim B'dir) ve
+bu, `tests/test_1b_a_alis_lot.py::test_fefo_sec_HALA_CAGIRANSIZ` ile ölçülü.
+
 --- ÖLÇÜLEN KUSUR ----------------------------------------------------------
 
 Stok bugün TEK BİR SAYIDIR: `products.stock NUMERIC(18,4)`. O sayı "elde 50

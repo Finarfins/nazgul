@@ -1,10 +1,26 @@
-"""FEFO seçicisinin birim testleri (`app/parti.py`). BAĞLANAN YOK: `backend/app`
-altında (`parti.py` hariç) NE `product_lots` literali NE `app.parti` ithali var.
+"""FEFO seçicisinin birim testleri (`app/parti.py`). SEÇİCİNİN BAĞLANANI YOK.
 
 Bu dosya ile `test_parti_skt_postgresql.py`, seçicinin TEK kapsamıdır — ne
 bir yol ne bir ekran onu çağırıyor. Bu yüzden buradaki testlerin AYIRT EDİCİ
 olması normalden kritiktir: yanlış bir seçici, başka HİÇBİR yerde kırmızı
 üretmez.
+
+--- KAPI EMEKLİ EDİLDİ (FAZ 1B-A, göç 20260908_0073) ----------------------
+
+Burada `test_APP_ALTINDA_app_parti_ITHALI_ve_fefo_sec_REFERANSI_YOKTUR`
+adında bir kapı vardı ve İKİ şeyi birden yasaklıyordu: `product_lots`
+literalini ve `app.parti` ithalini.
+
+BİRİNCİSİ AÇILDI, İKİNCİSİ AÇILMADI ve ikisi ARTIK AYRI KAPILARDA:
+1B-A alış yolunu parti defterine bağladı, yani `product_lots` literali artık
+VAR — `tests/test_1b_a_alis_lot.py` içindeki
+`test_product_lots_YAZICISI_YALNIZ_transactions_py` onu TEK yazıcıya
+daraltıyor. `app.parti` ithali ve `fefo_sec` referansı ise HÂLÂ YASAK ve
+aynı dosyadaki `test_fefo_sec_HALA_CAGIRANSIZ` bunu ölçüyor: FEFO bir
+TÜKETİM aracıdır ve tüketim yolu dilim B'nin işidir.
+
+İkisi tek kapıda kalsaydı, birinci yarının açılması ikinci yarıyı da
+GEVŞETİRDİ — bu dosyanın koruduğu şey tam olarak o ikinci yarıdır.
 
 --- HER MEKANİZMA KENDİ TESTİYLE ANILIR -----------------------------------
 
@@ -490,78 +506,3 @@ def test_URUN_KUANTUM_units_ten_ITHAL_EDILDI_ikinci_kopya_YOK() -> None:
     sorulamaz."""
     assert URUN_KUANTUM is units.URUN_KUANTUM
     assert URUN_KUANTUM == Decimal("0.0001")
-
-
-def test_APP_ALTINDA_app_parti_ITHALI_ve_fefo_sec_REFERANSI_YOKTUR() -> None:
-    """İKİNCİ KAPI: `product_lots` LİTERALİ değil, `app.parti` İTHALİ aranır.
-
-    KARDEŞ KAPININ ÖLÇÜLEN DELİĞİ (`test_parti_skt_postgresql.py` içindeki
-    `test_PARTI_MIKTARI_bu_PR_da_HICBIR_YERDEN_guncellenmiyor`): o kapı
-    yalnız BELGE DİZGİSİ OLMAYAN metin sabitlerinde `product_lots` arıyor.
-    Yani ÇALIŞTIRILABİLİR bir SQL sabitini yakalar, ama SEÇİCİYİ PYTHON
-    SEVİYESİNDE ÇAĞIRAN bir dosyayı YAKALAMAZ: `from app.parti import
-    fefo_sec` yazan ve onu çağıran yeni bir dosya, tablo adını hiç anmadığı
-    için o kapıdan SESSİZCE GEÇER — ölçüldü, bütün takım yeşil kaldı.
-
-    Bu yüzden iddia DARALTILDI ve İKİYE BÖLÜNDÜ. Artık söylenen şudur ve
-    tamamı ÖLÇÜLÜYOR: `backend/app` altında (`app/parti.py` HARİÇ) NE
-    `product_lots` literali NE DE `app.parti` İTHALİ vardır.
-
-    "Çağıranı yoktur" cümlesi TEK BAŞINA bir kapı DEĞİLDİ: iki ayrı yoldan
-    ihlal edilebiliyordu ve kapı yalnız birini görüyordu. Bir kapının
-    savunduğunu SANDIĞI şey ile GERÇEKTEN savunduğu şey ayrışırsa, o kapı
-    savunma OLMAMASINDAN kötüdür — çünkü okuyucu ona güvenir (0066'nın
-    dersi, burada ikinci kez).
-
-    ARAMA AST ÜZERİNDEDİR ve sebep kardeş kapınınkiyle AYNI: düzyazıda
-    `app.parti`yi ANMAK onu İTHAL ETMEK DEĞİLDİR. Bu dosyanın ve ikizin
-    kendisi `app.parti`yi ithal eder — ONLAR `backend/app` ALTINDA DEĞİLDİR
-    ve kapsam bilinçli olarak oradadır: yasak olan ÜRÜN KODUNUN seçiciye
-    bağlanmasıdır, testin değil.
-
-    Bir çağıran eklendiği gün BURASI kırmızı olur ve bu DOĞRUDUR: o gün
-    bağlama (wiring) PR'ı gelmiştir ve kaydın düzyazısı da güncellenmelidir.
-    """
-    import ast
-
-    app_dizini = Path(__file__).resolve().parents[1] / "app"
-    secici = app_dizini / "parti.py"
-    ihlaller: list[str] = []
-
-    for yol in sorted(app_dizini.rglob("*.py")):
-        if yol == secici:
-            continue
-        agac = ast.parse(yol.read_text(encoding="utf-8"))
-        yer = yol.relative_to(app_dizini.parent).as_posix()
-        for dugum in ast.walk(agac):
-            # `import parti` / `import app.parti [as x]`
-            if isinstance(dugum, ast.Import):
-                for ad in dugum.names:
-                    if ad.name == "parti" or ad.name.split(".")[-1] == "parti":
-                        ihlaller.append(f"{yer}:{dugum.lineno} import {ad.name}")
-            # `from app.parti import ...` / `from .parti import ...`
-            # `from . import parti` / `from app import parti`
-            elif isinstance(dugum, ast.ImportFrom):
-                modul = dugum.module or ""
-                if modul == "parti" or modul.split(".")[-1] == "parti":
-                    ihlaller.append(
-                        f"{yer}:{dugum.lineno} from {'.' * dugum.level}{modul} import"
-                    )
-                elif any(ad.name == "parti" for ad in dugum.names):
-                    ihlaller.append(
-                        f"{yer}:{dugum.lineno} from {'.' * dugum.level}{modul} "
-                        "import parti"
-                    )
-            # `fefo_sec(...)` ya da `bir_sey.fefo_sec` — ithal edilmeden,
-            # örneğin `importlib` ile alınmış olsa bile referans GÖRÜNÜR.
-            elif isinstance(dugum, ast.Attribute) and dugum.attr == "fefo_sec":
-                ihlaller.append(f"{yer}:{dugum.lineno} .fefo_sec")
-            elif isinstance(dugum, ast.Name) and dugum.id == "fefo_sec":
-                ihlaller.append(f"{yer}:{dugum.lineno} fefo_sec")
-
-    assert ihlaller == [], (
-        "`backend/app` altında (`app/parti.py` hariç) seçiciye BAĞLANAN "
-        f"yer(ler) var: {ihlaller}. Bu PR'ın sözleşmesi ŞUDUR: ne "
-        "`product_lots` literali ne `app.parti` ithali. Bir çağıran "
-        "eklendiyse göçün, ikizin ve kaydın düzyazısı da güncellenmelidir."
-    )

@@ -301,6 +301,56 @@ def product_warehouse_stock(
     }
 
 
+@router.get("/{product_id}/lots")
+def product_lots(product_id: int, request: Request, db: Session = Depends(get_db)):
+    """Bu üründen hangi depoda hangi parti, ne kadar ve hangi SKT ile duruyor.
+
+    OKUMADIR, YALNIZ OKUMA. Parti defterini YAZAN tek yer
+    `routers/transactions.py`nin alış yoludur (ve onun geri alma ikizi);
+    `tests/test_1b_a_alis_lot.py` bunu AST ile çiviliyor. Bu uç defteri
+    yalnız SEÇER — buraya bir `INSERT`/`UPDATE`/`DELETE` girerse o kapı
+    kırmızı olur ve bu DOĞRUDUR.
+
+    SIRA `app/parti.py`nin FEFO sırası DEĞİLDİR ve olmaması karardır: seçici
+    bir DAĞITIM üretir (hangi partiden ne kadar düşülecek), burası bir
+    LİSTEDİR (operatör rafta ne görüyor). İkisini aynı sıraya bağlamak,
+    listenin bir gün seçicinin cevabı sanılmasına yol açardı. Buradaki sıra
+    okunabilirlik içindir: depo adı, sonra SKT, sonra kimlik (belirlenimci).
+
+    Miktarı SIFIR olan parti GİZLENMEZ: tükenmiş parti satırı 0067'de
+    bilinçli olarak silinmiyor, çünkü o satır geri çağırmanın KANITIDIR.
+    """
+    cid = company_id(request)
+    urun = db.execute(
+        text(
+            "SELECT id,name,product_code,unit FROM products "
+            "WHERE id=:id AND company_id=:cid"
+        ),
+        {"id": product_id, "cid": cid},
+    ).mappings().first()
+    if not urun:
+        raise HTTPException(404, "Ürün bulunamadı")
+    satirlar = db.execute(
+        text(
+            """SELECT l.id,l.lot_code,l.expiry_date,l.quantity,
+            l.warehouse_id,w.name warehouse_name,l.created_at
+            FROM product_lots l
+            JOIN warehouses w ON w.id=l.warehouse_id AND w.company_id=l.company_id
+            WHERE l.company_id=:cid AND l.product_id=:id
+            ORDER BY LOWER(w.name),l.expiry_date,l.id"""
+        ),
+        {"id": product_id, "cid": cid},
+    ).mappings().all()
+    partiler = [dict(satir) for satir in satirlar]
+    return {
+        "product": dict(urun),
+        "lots": partiler,
+        "total_quantity": sum(
+            (quantity(satir["quantity"]) for satir in partiler), quantity(0)
+        ),
+    }
+
+
 @router.post("", status_code=201)
 def create(payload: ProductCreate, request: Request, db: Session = Depends(get_db)):
     cid = company_id(request)

@@ -81,6 +81,11 @@ ROUTE_REASON_GROUPS = (
             ("GET", "/api/products/stock/movements/all"),
             ("GET", "/api/products/{product_id}"),
             ("GET", "/api/products/{product_id}/warehouse-stock"),
+            # Parti defterinin okuması (1B-A). Kök yüklem `l.company_id=:cid`
+            # ve `warehouses` birleştirmesi kiracı İÇİNDE kuruluyor
+            # (`w.company_id=l.company_id`); ürün başka firmaya aitse ürün
+            # kapısı zaten 404 döner ve parti SAYISI bile sızmaz.
+            ("GET", "/api/products/{product_id}/lots"),
             ("GET", "/api/suppliers"),
             ("GET", "/api/suppliers/{supplier_id}"),
             ("GET", "/api/suppliers/{supplier_id}/statement"),
@@ -290,8 +295,17 @@ DYNAMIC_PERMISSION_CASES = {
 # ve YENİDEN KUYRUKLAMA (#55) indikten SONRAKİ `a2c5f61`dir; önceki turun
 # 360/278 -> 361/279 ölçümü tabanı değiştiği anda GEÇERSİZ oldu ve bu
 # satırlar YENİDEN ÖLÇÜLDÜ, aritmetikle türetilmedi.
-EXPECTED_OPERATION_COUNT = 366
-EXPECTED_PATH_COUNT = 282
+# 366/282 -> ?/? (TABAN #54 SONRASI, YENIDEN OLCULDU): 1B-A — parti defterinin OKUMASI (göç 20260908_0073).
+# TEK yol, TEK işlem: GET /api/products/{product_id}/lots. İzin `read` ve
+# YENİ BİR İZİN AİLESİ AÇILMADI: uç, `GET /api/products/{product_id}`in
+# gösterdiği stok bakiyesinin PARTİ KIRILIMIDIR — aynı olguyu iki farklı
+# kapının arkasına koymak, birinin diğerinden sessizce ayrışmasına yol
+# açardı. Yolu `/api/products` önekindedir, yani izin ZATEN doğru aileden
+# geliyor ve `auth.py`ye satır EKLENMEDİ. `review_reason` gerektiği için
+# `ROUTE_REASONS`daki kiracı kapsamlı okuma kümesine yazıldı. Başka hiçbir
+# ucun sözleşmesi değişmedi.
+EXPECTED_OPERATION_COUNT = 0
+EXPECTED_PATH_COUNT = 0
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -414,7 +428,10 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # 20260906 kiracı yumuşak imhası (5.1b): POST /api/company/erase
     # (`__admin_only__`) eklendi — TEK uç. Parmak izi d11a83eb -> yeniden
     # türetildi (TABAN `a2c5f61`); başka hiçbir ucun sözleşmesi değişmedi.
-    "cec015e059a53e2f19b82aff9a58c4292092214942b26056af2cdf1cddf1bdc3"
+    # 20260908 1B-A (göç 20260908_0073): GET /api/products/{product_id}/lots
+    # eklendi (`read`, mevcut `/api/products` önekinden). Parmak izi
+    # TABAN #54 SONRASI: cec015e0 -> yeniden türetildi; başka hiçbir sözleşme değişmedi.
+    "PLACEHOLDER"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 
