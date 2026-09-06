@@ -225,6 +225,23 @@ purchase_items = Table(
     Column("line_total", MONEY, nullable=False),
     Column("discount_percent", MONEY, nullable=False, server_default="0"),
     Column("discount_amount", MONEY, nullable=False, server_default="0"),
+    # PARTİ + SKT, 1B-A (göç 20260908_0073). Kalem partiyi AÇAN girdidir;
+    # `product_lots` satırı ondan doğar ve kalemde saklanması, belgenin ne
+    # söylediğinin BELGEDE kalması içindir — defter sonradan düzeltilse bile
+    # alış fişi ne yazdığını söyleyebilmelidir.
+    #
+    # BURADA BİLDİRİLMESİ ÖLÇÜLDÜ, VARSAYILMADI. 0067 `core_schema`ya
+    # DOKUNMAMIŞTI ve gerekçesi şuydu: bildirim SAYISAL MANİFESTODA bir
+    # VARLIK FARKI üretir ve sayısal göç mutabakat kapısını kırar. O gerekçe
+    # bir NUMERIC sütun (`quantity`) içindi. Bu ikisi NE `MONEY` NE `QUANTITY`
+    # ailesindendir, yani `app/numeric_manifest.py`nin iki sözlüğünden
+    # HİÇBİRİNE girmezler ve `capture_numeric_snapshot` onları GÖRMEZ.
+    #
+    # İki yol AYNI şemada buluşuyor: `20260712_0000` bu metadata'yı
+    # `create_all` ile kurar (TAZE veritabanı sütunları ORADA alır) ve 0073
+    # sütun VARLIĞINI SORARAK ekler, yani mevcut veritabanı onları GÖÇTE alır.
+    Column("lot_code", String(80)),
+    Column("expiry_date", Date),
     # Garantinin kendisi: çift ebeveynde VAR olmak zorunda, yani satır başka
     # bir firmanın belgesine bağlanamaz. Veritabanı zorluyor (db.py'de
     # PRAGMA foreign_keys=ON açık olduğu için SQLite'ta da).

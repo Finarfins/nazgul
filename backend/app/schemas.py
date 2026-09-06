@@ -107,6 +107,28 @@ class TransactionItem(BaseModel):
     unit_price: Decimal = Field(ge=0)
     vat_rate: int = Field(ge=0, le=100)
     discount_percent: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+    # PARTİ + SKT, 1B-A. Yalnız ALIŞ yolunda okunur; satış kalemi bugün parti
+    # TÜKETMEZ (dilim B). Sınır `purchase_items.lot_code` sütunuyla AYNI
+    # (göç 20260908_0073): 80. İki yerde iki farklı sınır olsaydı, biri
+    # ötekini sessizce keserdi.
+    lot_code: str | None = Field(default=None, max_length=80)
+    expiry_date: str | None = None
+
+    @field_validator('lot_code')
+    @classmethod
+    def validate_lot_code(cls, value: str | None) -> str | None:
+        """Boşluk KIRPILIR ve boş dizgi `None`a düşer.
+
+        Bir form alanı boş bırakıldığında tarayıcılar `""` gönderir; onu parti
+        kodu saymak, kodu OLMAYAN bir parti satırı açardı ve o satırın neyi
+        temsil ettiği sorulamazdı.
+        """
+        return _clean_optional(value)
+
+    @field_validator('expiry_date')
+    @classmethod
+    def validate_expiry_date(cls, value: str | None) -> str | None:
+        return _iso_date(value, 'Son kullanma tarihi', optional=True)
 
 
 class PaymentAllocation(BaseModel):

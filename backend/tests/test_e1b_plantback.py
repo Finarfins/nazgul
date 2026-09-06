@@ -94,7 +94,13 @@ command.upgrade(config, "head")
 motor.dispose(); motor = sa.create_engine(URL)
 assert all(durum().values()), durum()
 
-command.downgrade(config, "-1")
+# HEDEF AÇIK YAZILDI, "-1" DEĞİL. "-1" bir GÖREL adımdır ve zincirin
+# UCUNU indirir; 1B-A (`20260908_0073`) 0072'nin ÜSTÜNE binince "-1" artık
+# 0073'ü indiriyordu ve 0072'nin nesneleri AYAKTA kalıyordu — bu kapı o gün
+# "geri alma çalışmıyor" diye kırmızı oldu, oysa ölçtüğü şey hiç
+# çalıştırılmamıştı. Mutlak hedef, üstüne kaç göç binerse binsin 0072'nin
+# KENDİ `downgrade`ini sürer.
+command.downgrade(config, "20260906_0071")
 motor.dispose(); motor = sa.create_engine(URL)
 assert not any(durum().values()), durum()
 
@@ -102,10 +108,13 @@ command.upgrade(config, "head")
 motor.dispose(); motor = sa.create_engine(URL)
 assert all(durum().values()), durum()
 
-# BAŞ TEK: göç 0072 zincire ikinci bir baş EKLEMEDİ.
+# BAŞ TEK: göç 0072 zincire ikinci bir baş EKLEMEDİ. Baş ARTIK 0073'tür
+# (1B-A, PARTİ DEFTERİ DEPOYA BAĞLANIR) ve bu kapının ölçtüğü şey başın
+# HANGİ göç olduğu değil, TEK olduğudur — 0072 hâlâ zincirin İÇİNDE ve
+# yukarıdaki `downgrade -1` turu onu adıyla sürüyor.
 from alembic.script import ScriptDirectory
 baslar = ScriptDirectory.from_config(config).get_heads()
-assert tuple(baslar) == ("20260907_0072",), baslar
+assert tuple(baslar) == ("20260908_0073",), baslar
 print("GOC TURU TAMAM")
 """
 

@@ -20,8 +20,16 @@ CALL_SITE_GATE = REPO_ROOT / "deploy" / "ci-verify-cagri-kapisi.py"
 BACKEND = REPO_ROOT / "backend"
 
 
-def test_pg_test_population_exact_105() -> None:
-    """PostgreSQL test population must be exactly 105 files.
+def test_pg_test_population_exact_106() -> None:
+    """PostgreSQL test population must be exactly 106 files.
+
+    105 -> 106: 1B-A alış-kalemi-parti ikizi
+    (`test_1b_a_alis_lot_postgresql.py`, göç 20260908_0073). İkiz ZORUNLU:
+    parti satırının depoya bağlanmasını sağlayan İKİ bileşik yabancı anahtar
+    SQLite'ta UYGULANMIYOR, yeni dörtlü tekil ile ESKİ ÜÇLÜNÜN DÜŞMÜŞ OLDUĞU
+    yalnız gerçek katalogda sorulabilir (0072'de ölçüldü: `batch`
+    PostgreSQL'de kısıt DDL'ini SESSİZCE atlayabiliyor) ve `warehouse_id`in
+    NOT NULL'u geliştirme diyalektinde başka bir şey ölçerdi.
 
     104 -> 105: E1b ekim-arası bekleme ikizi
     (`test_e1b_plantback_postgresql.py`, göç 20260907_0072). İkiz ZORUNLU:
@@ -127,23 +135,23 @@ def test_pg_test_population_exact_105() -> None:
         BACKEND / "tests" / "test_ci_playwright_hazirlik.py",
     ]
     all_files = pg_glob + [p for p in named if p.exists()]
-    assert len(all_files) == 105, (
-        f"PostgreSQL test population changed: expected 105, got {len(all_files)}"
+    assert len(all_files) == 106, (
+        f"PostgreSQL test population changed: expected 106, got {len(all_files)}"
     )
 
 
 def test_ci_workflow_has_frozen_pg_population_constant() -> None:
-    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=105 and strict equality.
+    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=106 and strict equality.
 
     ÜÇÜNCÜ ÇİVİ. Sayı bu depoda ÜÇ yerde yaşıyor: `ci.yml`in sabiti,
-    `test_pg_test_population_exact_105`in adı/iddiası, ve BURASI. Üçü aynı
+    `test_pg_test_population_exact_106`in adı/iddiası, ve BURASI. Üçü aynı
     popülasyonu sayıyor; biri güncellenip öteki unutulursa kapı KENDİ
-    KENDİSİYLE ÇELİŞİR — ve bu tam olarak `test_pg_test_population_exact_105`
+    KENDİSİYLE ÇELİŞİR — ve bu tam olarak `test_pg_test_population_exact_106`
     düzyazısının anlattığı tuzaktır (bir tur boyunca ad `_99`, iddia `100`,
     `ci.yml` yorumu `97 + 2 = 99` idi).
     """
     content = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BEKLENEN_PG_DOSYA_SAYISI=105" in content
+    assert "BEKLENEN_PG_DOSYA_SAYISI=106" in content
     assert '[ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]' in content
 
 

@@ -1,14 +1,22 @@
 """PostgreSQL ikizi: parti/SKT DEPOSU ve FEFO seçicisinin GERÇEK sayılarla eşi.
 
-Göç `20260903_0067` + `app/parti.py`. SEÇİCİ HİÇBİR ŞEYE BAĞLANMADI ve
-iddia ÖLÇÜLEBİLİR biçimde ikiye bölünmüştür: `backend/app` altında
-(`app/parti.py` HARİÇ) NE `product_lots` LİTERALİ (aşağıdaki
-`test_PARTI_MIKTARI_bu_PR_da_HICBIR_YERDEN_guncellenmiyor`) NE DE
-`app.parti` İTHALİ (`tests/test_parti_skt.py` içindeki
-`test_APP_ALTINDA_app_parti_ITHALI_ve_fefo_sec_REFERANSI_YOKTUR`) vardır.
-İKİSİ BİRLİKTE gerekir: yalnız literal kapısı, seçiciyi PYTHON SEVİYESİNDE
-çağıran bir dosyayı GÖRMÜYORDU (ölçüldü). Bu dosya ile
-`tests/test_parti_skt.py`, seçicinin TEK kapsamıdır.
+Göç `20260903_0067` + `app/parti.py`.
+
+--- YASAK KAPISI EMEKLİ EDİLDİ (FAZ 1B-A, göç 20260908_0073) --------------
+
+Bu dosyada `test_PARTI_MIKTARI_bu_PR_da_HICBIR_YERDEN_guncellenmiyor`
+adında bir kapı vardı ve şunu söylüyordu: `backend/app` altında (`app/parti.py`
+hariç) `product_lots` LİTERALİ YOKTUR. Kendi düzyazısı o kapının nasıl
+biteceğini ADIYLA yazmıştı — "bir çağıran eklendiği gün İKİSİNDEN BİRİ
+kırmızı olur ve bu DOĞRUDUR."
+
+O gün geldi: 1B-A alış yolunu parti defterine bağladı. Kapı GEVŞETİLMEDİ,
+DARALTILARAK devredildi — `tests/test_1b_a_alis_lot.py` içindeki
+`test_product_lots_YAZICISI_YALNIZ_transactions_py` artık "hiç yazıcı yok"
+yerine "TEK yazıcı var ve adı `app/routers/transactions.py`" diyor, ayrıca
+tabloyu ANAN dosyaların kümesini de KAPALI tutuyor. İkinci yarı (`app.parti`
+ithali ve `fefo_sec` referansı) DEĞİŞMEDEN devam ediyor:
+`test_fefo_sec_HALA_CAGIRANSIZ`. Bu dosyada kalanlar ŞEMA kapılarıdır.
 
 --- BU İKİZ NEDEN VAR ------------------------------------------------------
 
@@ -89,6 +97,10 @@ def _temizle(engine) -> None:
             "(SELECT id FROM companies WHERE name IN (:a, :b))",
             "DELETE FROM product_lots WHERE company_id IN "
             "(SELECT id FROM companies WHERE name IN (:a, :b))",
+            "DELETE FROM warehouse_stocks WHERE company_id IN "
+            "(SELECT id FROM companies WHERE name IN (:a, :b))",
+            "DELETE FROM warehouses WHERE company_id IN "
+            "(SELECT id FROM companies WHERE name IN (:a, :b))",
             "DELETE FROM products WHERE company_id IN "
             "(SELECT id FROM companies WHERE name IN (:a, :b))",
             "DELETE FROM companies WHERE name IN (:a, :b)",
@@ -109,6 +121,15 @@ def motor():
         engine.dispose()
 
 
+#: Firma başına açılan ikiz deposu. Göç `20260908_0073` `product_lots`a
+#: `warehouse_id INTEGER NOT NULL` ekledi ve bileşik yabancı anahtarla
+#: `warehouses(company_id, id)`ye bağladı — yani 0067 çağındaki "deposuz
+#: parti" satırı ARTIK YAZILAMAZ. Bu dosyanın iddiaları (FEFO sırası, NaN
+#: kısıtı, stok/parti ayrışması) DEPODAN BAĞIMSIZDIR ve DEĞİŞMEDİ; değişen
+#: tek şey her satırın artık bir depo ADLANDIRMAK ZORUNDA olmasıdır.
+_DEPOLAR: dict[int, int] = {}
+
+
 def _firma_ve_urun(
     baglanti, firma_adi: str = FIRMA_ADI, urun_adi: str = URUN_ADI
 ) -> tuple[int, int]:
@@ -126,6 +147,13 @@ def _firma_ve_urun(
         ),
         {"ad": urun_adi, "cid": firma_id},
     ).scalar_one()
+    _DEPOLAR[firma_id] = baglanti.execute(
+        text(
+            "INSERT INTO warehouses (company_id, name, is_active, is_default) "
+            "VALUES (:cid, 'Parti İkizi Deposu', true, true) RETURNING id"
+        ),
+        {"cid": firma_id},
+    ).scalar_one()
     return firma_id, urun_id
 
 
@@ -141,10 +169,12 @@ def _parti_yaz(
     return baglanti.execute(
         text(
             "INSERT INTO product_lots "
-            "(company_id, product_id, lot_code, expiry_date, quantity, created_at) "
-            "VALUES (:cid, :pid, :kod, :skt, :mik, :olusma) RETURNING id"
+            "(company_id, product_id, lot_code, expiry_date, quantity, "
+            " warehouse_id, created_at) "
+            "VALUES (:cid, :pid, :kod, :skt, :mik, :wid, :olusma) RETURNING id"
         ),
         {
+            "wid": _DEPOLAR[firma_id],
             "cid": firma_id,
             "pid": urun_id,
             "kod": kod,
@@ -243,10 +273,10 @@ def test_CHECK_kisiti_NaN_MIKTARI_GERCEKTEN_REDDEDER(motor) -> None:
             baglanti.execute(
                 text(
                     "INSERT INTO product_lots (company_id, product_id, lot_code, "
-                    "quantity, created_at) VALUES "
-                    "(:cid, :pid, 'NAN-1', 'NaN'::numeric, now())"
+                    "quantity, warehouse_id, created_at) VALUES "
+                    "(:cid, :pid, 'NAN-1', 'NaN'::numeric, :wid, now())"
                 ),
-                {"cid": firma_id, "pid": urun_id},
+                {"cid": firma_id, "pid": urun_id, "wid": _DEPOLAR[firma_id]},
             )
 
 
@@ -625,83 +655,4 @@ def test_stok_ile_parti_toplami_AYRISABILIR_ikinci_katman_YOK(motor) -> None:
         "stok ile parti toplamı AYRIŞAMADI — bir tutarlılık katmanı DOĞMUŞ "
         "demektir. Bu İYİ bir haberdir ama bu testin gerekçesini DEĞİŞTİRİR: "
         "burası artık o katmanı DOĞRULAYAN teste dönüşmelidir."
-    )
-
-
-@pytest.mark.postgresql
-def test_PARTI_MIKTARI_bu_PR_da_HICBIR_YERDEN_guncellenmiyor(motor) -> None:
-    """Sahip kararı 3'ün STATİK kanıtı: `product_lots` LİTERALİ YOKTUR.
-
-    KAPSAM DAR VE ADIYLA DARDIR: bu test `backend/app` altında BELGE DİZGİSİ
-    OLMAYAN metin sabitlerinde `product_lots` arar — yani bir SQL gövdesini
-    ya da bir tablo adı sabitini yakalar. TEK BAŞINA "çağıranı yoktur"
-    DEMEZ ve bir tur boyunca öyle sanıldı: `from app.parti import fefo_sec`
-    yazıp onu çağıran, tablo adını hiç anmayan bir dosya buradan SESSİZCE
-    GEÇİYORDU (ölçüldü, bütün takım yeşil kaldı).
-
-    İKİNCİ YARISI KARDEŞ KAPIDADIR: `tests/test_parti_skt.py` içindeki
-    `test_APP_ALTINDA_app_parti_ITHALI_ve_fefo_sec_REFERANSI_YOKTUR`
-    `app.parti` İTHALİNİ ve `fefo_sec` REFERANSINI arar. İkisi BİRLİKTE
-    şunu söyler ve tamamı ölçülür: `backend/app` altında (`app/parti.py`
-    hariç) NE `product_lots` literali NE `app.parti` ithali vardır.
-
-    Bir çağıran eklendiği gün İKİSİNDEN BİRİ kırmızı olur ve bu DOĞRUDUR:
-    o gün bağlama PR'ı gelmiştir ve göçün ile kaydın düzyazısı da
-    güncellenmelidir.
-
-    ARAMA HAM METİNDE DEĞİL, AST ÜZERİNDE YAPILIYOR ve bu fark ÖLÇÜLEREK
-    öğrenildi: ham `grep` `app/parti.py`yi yakalıyordu, çünkü o dosya tabloyu
-    KENDİ DÜZYAZISINDA anıyor (deposunu tarif ediyor). Düzyazıda anmak
-    ÇAĞIRMAK DEĞİLDİR ve ikisini ayırmayan bir kapı, kendi belgelenmesini
-    ihlal sayardı — sonraki okuyucu da gerekçeyi silmek zorunda kalırdı.
-
-    AST, YORUMLARI ZATEN DÜŞÜRÜR; belge dizgileri (docstring) burada AYRICA
-    dışlanıyor. Geriye kalan, GERÇEKTEN çalıştırılabilir metinlerdir — bir
-    SQL `text()` gövdesi ya da bir tablo adı sabiti tam olarak orada durur.
-    """
-    import ast
-
-    def _belge_dizgileri(agac: ast.AST) -> set[int]:
-        """Belge dizgisi olan `Constant` düğümlerinin kimlikleri."""
-        kimlikler: set[int] = set()
-        for dugum in ast.walk(agac):
-            if isinstance(
-                dugum, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-            ):
-                govde = getattr(dugum, "body", [])
-                if (
-                    govde
-                    and isinstance(govde[0], ast.Expr)
-                    and isinstance(govde[0].value, ast.Constant)
-                    and isinstance(govde[0].value.value, str)
-                ):
-                    kimlikler.add(id(govde[0].value))
-        return kimlikler
-
-    app_dizini = BACKEND / "app"
-    degenler: list[str] = []
-    for yol in sorted(app_dizini.rglob("*.py")):
-        kaynak = yol.read_text(encoding="utf-8")
-        if "product_lots" not in kaynak:
-            continue
-        agac = ast.parse(kaynak)
-        belgeler = _belge_dizgileri(agac)
-        for dugum in ast.walk(agac):
-            if (
-                isinstance(dugum, ast.Constant)
-                and isinstance(dugum.value, str)
-                and id(dugum) not in belgeler
-                and "product_lots" in dugum.value
-            ):
-                degenler.append(
-                    f"{yol.relative_to(BACKEND).as_posix()}:{dugum.lineno}"
-                )
-
-    assert degenler == [], (
-        f"`product_lots`a ÇALIŞTIRILABİLİR metinde değen yer(ler) var: "
-        f"{degenler}. Bu PR'ın sözleşmesi ŞUDUR: ne `product_lots` literali "
-        "ne `app.parti` ithali (ikinci yarısı `tests/test_parti_skt.py` "
-        "içindeki `test_APP_ALTINDA_app_parti_ITHALI_ve_fefo_sec_REFERANSI_"
-        "YOKTUR`). Bir çağıran eklendiyse göçün ve kaydın düzyazısı da "
-        "güncellenmelidir."
     )

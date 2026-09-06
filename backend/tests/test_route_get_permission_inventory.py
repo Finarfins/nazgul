@@ -240,6 +240,11 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/products/{product_id}/barcode-label.pdf"): "read",
     ("GET", "/api/products/{product_id}/current"): "read",
     ("GET", "/api/products/{product_id}/label.pdf"): "read",
+    # PARTİ DEFTERİ OKUMASI (1B-A). Ürün okumasının yetkisiyle AYNI: gösterdiği
+    # şey stok bakiyesinin PARTİ KIRILIMIDIR ve o bakiyeyi zaten
+    # `GET /api/products/{product_id}` gösteriyor. Ayrı bir yetkiye bağlamak
+    # aynı olguyu iki farklı kapının arkasına koyardı.
+    ("GET", "/api/products/{product_id}/lots"): "read",
     ("GET", "/api/products/{product_id}/qr.png"): "read",
     ("GET", "/api/products/{product_id}/warehouse-stock"): "read",
     ("GET", "/api/purchases"): "read",
@@ -326,9 +331,12 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # 170 -> 172: D2'nin İKİ GET ucu (avans listesi + vergi defteri, göç
 # 20260906_0071). Drift raporu ÖLÇÜLDÜ: `missing`/`stale`/`changed` ÜÇÜ DE
 # BOŞ — artış YALNIZ eklemedir, hiçbir ucun izni DEĞİŞMEDİ.
-GET_INVENTORY_COUNT = 174
+# 174 -> 175: 1B-A'nın TEK GET ucu (parti defteri okuması, göç
+# 20260908_0073). Drift raporu ÖLÇÜLDÜ: `missing`/`stale`/`changed` ÜÇÜ DE
+# BOŞ — artış YALNIZ eklemedir, hiçbir ucun izni DEĞİŞMEDİ.
+GET_INVENTORY_COUNT = 175
 GET_INVENTORY_FINGERPRINT = (
-    "39395cc19b9a8c1681ad88750b1c9d7fc45a89a994be139043902e49fc17cea1"
+    "ea3ee70394a9ad7f7452035bcc986cf7d89defa9dedeb6941398f1c54fe0f983"
 )
 
 
