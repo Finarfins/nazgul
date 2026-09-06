@@ -566,6 +566,34 @@ def revoke_refresh_token(db: Session, token: str, *, whole_family: bool = True) 
     db.commit()
 
 
+def revoke_refresh_family_for_user(db: Session, token: str, user_id: int) -> bool:
+    """Revoke ``token``'s family ONLY when the family belongs to ``user_id``.
+
+    The cookie logout path can trust its token because the browser attached it
+    to the caller's own origin. A body-supplied refresh token carries no such
+    guarantee: the caller types it. Without the ownership predicate below, a
+    bearer-authenticated client could post ANOTHER user's refresh token and
+    destroy that user's session family — the same cross-principal hazard the
+    bearer branch of ``logout`` already refuses to take (routers/auth.py).
+
+    The predicate is on ``user_id`` and not on the family alone, because a
+    family is reachable from any of its rows and the attacker supplies the row.
+    Returns True when a family was revoked, so the caller can stay silent about
+    which of "unknown token" and "someone else's token" happened.
+    """
+
+    row = db.execute(
+        select(auth_refresh_tokens.c.family_id).where(
+            auth_refresh_tokens.c.token_hash == token_digest(token),
+            auth_refresh_tokens.c.user_id == user_id,
+        )
+    ).mappings().first()
+    if not row:
+        return False
+    revoke_refresh_family(db, str(row["family_id"]))
+    return True
+
+
 def revoke_user_refresh_tokens(db: Session, user_id: int) -> None:
     db.execute(
         update(auth_refresh_tokens)
@@ -830,6 +858,15 @@ SELF_SERVICE_API: frozenset[str] = frozenset(
     {
         "/api/auth/change-password",
         "/api/auth/logout",
+        # KENDİ oturumlarının TAMAMINI kapatmak da self-servistir: özne yalnız
+        # çağıranın kendisidir, yol parametresi yoktur ve başka bir aktörü
+        # adlandırmaz. Muafiyet ZORUNLU — bu uç POST'tur ve listeye girmezse
+        # ``required_permission`` dosyanın sonundaki deny-by-default nöbetçisine
+        # düşer, yani ``admin`` dışında hiç kimse cihazını kaybettiğinde
+        # oturumlarını düşüremezdi. Aynı liste zorunlu parola rotasyonu kapısını
+        # da açar; bu da DOĞRU: parolasını değiştirmesi gereken bir hesabın
+        # çalınmış oturumlarını kapatabilmesi gerekir.
+        "/api/auth/logout-all",
         "/api/auth/me",
     }
 )
