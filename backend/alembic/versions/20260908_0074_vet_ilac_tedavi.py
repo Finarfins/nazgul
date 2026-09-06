@@ -353,7 +353,7 @@ def upgrade() -> None:
             sa.Column("dose", sa.Numeric(14, 4), nullable=True),
             sa.Column("dose_unit", sa.String(length=32), nullable=True),
             *_zaman_sutunlari(),
-            sa.CheckConstraint("dose IS NULL OR dose >= 0", name="ck_ati_dose_pozitif"),
+            sa.CheckConstraint("dose IS NULL OR dose >= 0", name="ck_ati_dose_negatif_olamaz"),
             sa.ForeignKeyConstraint(["company_id"], ["companies.id"]),
             sa.ForeignKeyConstraint(
                 ["company_id", "treatment_id"],
