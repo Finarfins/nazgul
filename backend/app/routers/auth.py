@@ -7,7 +7,7 @@ import time
 from urllib import parse, request as urlrequest
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import delete, func, insert, select, update
@@ -35,6 +35,7 @@ from ..auth import (
     login_lock_status,
     permissions_for,
     record_login_failure,
+    revoke_refresh_family_for_user,
     revoke_refresh_token,
     revoke_token,
     revoke_user_access_tokens,
@@ -98,6 +99,47 @@ def _reject_weak_password(value: str) -> str:
     if value.strip().lower() in COMMON_WEAK_PASSWORDS:
         raise ValueError("Parola çok yaygın; daha güçlü bir parola seçin")
     return value
+
+
+#: Mobil kabuğun kendini tanıttığı başlık. Web SPA'sı bu başlığı GÖNDERMEZ —
+#: ölçüldü, varsayılmadı: ``frontend/src/api.ts`` istek yorumlayıcısı yalnız
+#: ``X-Company-ID`` ve ``X-CSRF-Token`` ekler, ``AuthContext`` login çağrısına
+#: başlık vermez. Bu yüzden başlığın YOKLUĞU tarayıcı yolunun tanımıdır ve
+#: bugünkü davranış bit bit korunur.
+MOBILE_CLIENT_KIND = "mobile"
+
+
+def _is_mobile_client(client_kind: str | None) -> bool:
+    return (client_kind or "").strip().lower() == MOBILE_CLIENT_KIND
+
+
+def _session_user_agent(user_agent: str | None, *, mobile: bool) -> str | None:
+    """Oturum satırına istemci TÜRÜNÜ de yazar — göç GEREKTİRMEDEN.
+
+    ``auth_refresh_tokens.user_agent`` zaten var ve zaten serbest metin. Mobil
+    oturumları ayırt etmek için yeni bir sütun açmak bir göç demekti; bunun
+    yerine tür, metnin ÖNÜNE ``mobile:`` öneki olarak yazılır. Böylece
+    "hangi oturum telefondan" sorusu ileride şema değişmeden yanıtlanabilir.
+    Web yolunda metin DEĞİŞMEZ; önek yalnız mobil yolda eklenir.
+    """
+
+    if not mobile:
+        return user_agent
+    return f"{MOBILE_CLIENT_KIND}:{user_agent or ''}"
+
+
+class RefreshPayload(BaseModel):
+    """Çerezsiz istemcinin yenileme gövdesi.
+
+    Alan İSTEĞE BAĞLI, çünkü tarayıcı SPA'sı bu uca boş nesne (``{}``) gönderir
+    (``frontend/src/api.ts``); zorunlu alan o çağrıyı 422'ye düşürürdü.
+    """
+
+    refresh_token: str | None = Field(default=None, min_length=1, max_length=512)
+
+
+class LogoutPayload(BaseModel):
+    refresh_token: str | None = Field(default=None, min_length=1, max_length=512)
 
 
 class LoginPayload(BaseModel):
@@ -467,6 +509,7 @@ def login(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
+    x_client_kind: str | None = Header(default=None, alias="X-Client-Kind"),
 ):
     username = payload.username
     ip_address = request.client.host if request.client else "unknown"
@@ -492,13 +535,36 @@ def login(
             },
         )
     clear_login_failures(db, username, ip_address)
+    mobile = _is_mobile_client(x_client_kind)
     access_token, access_expires = issue_token(db, int(user["id"]))
     refresh_token, refresh_expires, _ = issue_refresh_token(
         db,
         int(user["id"]),
         ip_address=ip_address,
-        user_agent=request.headers.get("user-agent"),
+        user_agent=_session_user_agent(
+            request.headers.get("user-agent"), mobile=mobile
+        ),
     )
+    body = {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "expires_at": access_expires.isoformat(),
+        **_session_payload(db, user),
+    }
+    if mobile:
+        # MOBİL YOLDA ÇEREZ YOK — ve bu bir tercih değil, ZORUNLULUK. Capacitor
+        # kabuğunun origin'i (`https://localhost`) API alan adından farklıdır;
+        # HttpOnly çerez oraya ya hiç yazılmaz ya da üçüncü-taraf çerez
+        # engelleriyle sessizce düşer. Çerez yazıp GÖVDEYE de token koymak, iki
+        # ayrı oturum kanalı demekti: biri düşerken diğeri yaşar ve "çıkış
+        # yaptım" diyen kullanıcının oturumu ayakta kalırdı.
+        #
+        # HAM refresh token gövdede YALNIZ BURADA ve YALNIZ BİR KEZ görünür;
+        # bundan sonrası ``/auth/refresh`` rotasyonudur. CSRF çerezi de
+        # yazılmaz: çerez yoksa taklit edilecek bir kimlik bilgisi de yoktur.
+        body["refresh_token"] = refresh_token
+        body["refresh_expires_at"] = refresh_expires.isoformat()
+        return body
     csrf_token = issue_csrf_token()
     _set_session_cookies(
         response,
@@ -510,12 +576,7 @@ def login(
     )
     # access_token remains in the JSON response for existing non-browser API
     # clients. The SPA deliberately ignores it and authenticates with cookies.
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "expires_at": access_expires.isoformat(),
-        **_session_payload(db, user),
-    }
+    return body
 
 
 @router.post("/auth/register", status_code=200)
@@ -850,15 +911,77 @@ def reset_password(
     return {"message": "Şifreniz güncellendi. Yeni şifrenizle giriş yapabilirsiniz."}
 
 
+def _refresh_from_body(db: Session, request: Request, refresh_token: str) -> dict:
+    """Çerezsiz (mobil) yenileme — AYNI rotasyon, AYNI yeniden kullanım tespiti.
+
+    Kasıtlı olarak ``rotate_refresh_token`` çağrılır ve o fonksiyona
+    DOKUNULMAZ: aile rotasyonu ve replay tespiti tek bir yerde durur. İki ayrı
+    rotasyon yolu olsaydı, biri diğerinden sessizce ayrışır ve mobil yol
+    replay'e açık kalırdı — testler bunu adıyla ölçüyor.
+
+    Yanıt ham refresh tokenı TAŞIR, çünkü eski token bu çağrıyla ÖLDÜ; yenisi
+    gövdede dönmezse istemcinin oturumu 15 dakika sonra kurtarılamaz biçimde
+    biter. Çerez YAZILMAZ.
+    """
+
+    try:
+        rotated = rotate_refresh_token(
+            db,
+            refresh_token,
+            ip_address=request.client.host if request.client else None,
+            user_agent=_session_user_agent(
+                request.headers.get("user-agent"), mobile=True
+            ),
+        )
+    except RefreshPasswordChangeRequired:
+        # Çerez yolundaki ile AYNI gövde ve AYNI kod; tek fark çerez
+        # temizliğinin olmaması — silinecek çerez yok.
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "PASSWORD_CHANGE_REQUIRED",
+                "message": "Oturumu yenilemeden önce şifrenizi değiştirin",
+            },
+        ) from None
+    if not rotated:
+        raise HTTPException(status_code=401, detail="Refresh oturumu geçersiz")
+    new_refresh, refresh_expires, user = rotated
+    access_token, access_expires = issue_token(db, int(user["id"]))
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "expires_at": access_expires.isoformat(),
+        "refresh_token": new_refresh,
+        "refresh_expires_at": refresh_expires.isoformat(),
+        **_session_payload(db, user),
+    }
+
+
 @router.post("/auth/refresh")
 def refresh_session(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
+    payload: RefreshPayload | None = Body(default=None),
 ):
+    cookie_refresh = request.cookies.get(settings.refresh_cookie_name)
+    body_refresh = payload.refresh_token if payload else None
+    # YOL SEÇİMİ ÇEREZE BAKAR, GÖVDEYE DEĞİL. Çerez VARSA bugünkü yol aynen
+    # koşar — CSRF dahil. Tersi olsaydı, tarayıcıda çalışan bir saldırgan
+    # gövdeye kendi seçtiği bir token koyup CSRF kapısını ATLATABİLİRDİ:
+    # gövde yolu CSRF istemediği için kapı, saldırganın kontrolündeki bir
+    # alanla kapatılıp açılır hale gelirdi.
+    #
+    # GÖVDE YOLUNDA CSRF YOK ve bu bir gevşetme DEĞİL. CSRF, tarayıcının
+    # isteği OTOMATİK kimliklendirmesine karşıdır: çerez, saldırganın
+    # sitesinden yapılan isteğe de iliştirilir. Gövdedeki token otomatik
+    # iliştirilmez — saldırganın onu YAZABİLMESİ zaten tokenı bilmesi
+    # demektir ve o noktada CSRF'in koruduğu şey çoktan gitmiştir.
+    if cookie_refresh is None and body_refresh:
+        return _refresh_from_body(db, request, body_refresh)
     if not csrf_is_valid(request):
         raise HTTPException(status_code=403, detail="CSRF doğrulaması başarısız")
-    refresh_token = request.cookies.get(settings.refresh_cookie_name)
+    refresh_token = cookie_refresh
     if not refresh_token:
         _clear_session_cookies(response)
         raise HTTPException(status_code=401, detail="Refresh oturumu bulunamadı")
@@ -908,10 +1031,20 @@ def logout(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
+    payload: LogoutPayload | None = Body(default=None),
 ):
     token, source = extract_access_token(request)
+    user = getattr(request.state, "user", None)
     if token:
         revoke_token(db, token)
+    # ÇEREZSİZ (mobil) ÇIKIŞ. İstemci kendi refresh tokenını gövdede verir,
+    # çünkü düşürülecek bir çerezi yoktur. Aile ancak token ÇAĞIRANIN ise
+    # düşer: gövdeyi istemci yazar, yani sahiplik yüklemi olmasaydı bearer ile
+    # kimliklenen bir çağıran BAŞKASININ refresh ailesini imha edebilirdi —
+    # aşağıdaki çerez dalının tam da reddettiği tehlike.
+    body_refresh = payload.refresh_token if payload else None
+    if body_refresh and user:
+        revoke_refresh_family_for_user(db, body_refresh, int(user["id"]))
     # Only a cookie-authenticated logout may revoke the refresh-cookie family.
     # When a bearer token wins authentication, require_logout_csrf intentionally
     # skips CSRF, and the refresh cookie can belong to a different principal
@@ -922,6 +1055,42 @@ def logout(
         refresh_token = request.cookies.get(settings.refresh_cookie_name)
         if refresh_token:
             revoke_refresh_token(db, refresh_token, whole_family=True)
+    _clear_session_cookies(response)
+
+
+@router.post("/auth/logout-all", status_code=204)
+def logout_all(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Bu kullanıcının TÜM oturumlarını kapatır — cihaz kaybı yolu.
+
+    İKİ tablo da süpürülür ve bu ZORUNLU: yalnız refresh iptal edilseydi,
+    dağıtılmış access tokenları 15 dakika daha canlı kalırdı (``config.py``:
+    ``access_token_minutes``). Çalınmış bir telefonda 15 dakika, "hemen
+    kapat" düğmesinin vaadini bozmaya yeter.
+
+    HIZ SINIRI YOK — ölçüldü, atlanmadı. ``_consume_ip_limit`` IP başına
+    saatlik sayaçtır ve KİMLİKSİZ uçlar (kayıt, şifre sıfırlama) içindir;
+    burada çağıran ZATEN geçerli bir access token taşıyor, yani sınır bir
+    saldırganı değil kendi hesabını kapatmaya çalışan kullanıcıyı
+    engellerdi. Ucun kötüye kullanımı da yalnız çağıranın KENDİ oturumlarını
+    düşürür; başka bir aktöre dokunmaz.
+    """
+
+    user = getattr(request.state, "user", None)
+    if not user:
+        raise HTTPException(status_code=401, detail="Oturum geçersiz")
+    user_id = int(user["id"])
+    revoke_user_access_tokens(db, user_id)
+    revoke_user_refresh_tokens(db, user_id)
+    # İki yardımcı da BİLEREK commit etmiyor (app/auth.py): çağıran ikisini tek
+    # işlemde kapatabilsin diye. Tek commit, "access düştü ama refresh yaşıyor"
+    # ara durumunu imkansız kılar.
+    db.commit()
+    # Çağıran tarayıcıysa çerezleri de düşür; mobil istemcide silinecek çerez
+    # yoktur ve bu satır zararsızdır.
     _clear_session_cookies(response)
 
 

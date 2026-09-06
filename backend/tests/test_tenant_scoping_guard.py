@@ -1862,8 +1862,26 @@ print("TENANT_TABLES_JSON=" + json.dumps(tables))
 #   YALNIZ test tarafinda buyudu. Onceki turda 115/196 olculmustu ve o olcum
 #   E2 (#62) develop'a indigi anda GECERSIZ oldu; sayilar E2 SONRASI tabanda
 #   (3646d4d, CPython 3.12.10) YENIDEN OLCULDU, aritmetikle devralinmadi.
-BEKLENEN_ALT_SUREC_SQL_DOSYA = 116
-BEKLENEN_ALT_SUREC_SQL_METIN = 197
+# 5.4A (MOBIL KIMLIK AKISI, GOC YOK) +1 dosya / +1 metin:
+#   tests/test_54a_mobil_auth.py — alt surec ZORUNLU, cunku davranis smoke'u
+#   kendi DATABASE_URL'iyle TAZE bir sema kurar ve bootstrap admini o turda
+#   uretir; `app.config.Settings` modul duzeyinde TEK KOPYADIR (self-servis
+#   muafiyeti ve mustahsil makbuzu ikizlerinin AYNI gerekcesi). Gomulu tek
+#   metin o smoke'un kendisidir.
+#   GOMULU SQL'LERIN KIRACI DURUMU: hepsi SQLAlchemy Core select/update'tir,
+#   HAM SQL DEGIL, ve hicbiri KIRACI verisine dokunmaz — okunan/yazilan
+#   tablolar `app_users`, `auth_tokens` ve `auth_refresh_tokens`, yani KIMLIK
+#   tablolaridir ve UCUNDE DE `company_id` sutunu YOKTUR. Bu yuzden kiraci
+#   yuklemi TASIMAZLAR ve TASIMAMALIDIRLAR; her okuma bunun yerine
+#   `user_id`/`username` esitligiyle TEK kullaniciya daralir ve senaryonun
+#   AMACI zaten iki kullanicinin oturumlarinin AYRISTIGINI olcmektir.
+# app/ altinda yine SIFIR: bu tur da uretim kodu SQL'i alt surece VERMIYOR.
+# TABAN develop `77aa5b0` (#59 + #62 + #63 indikten sonra): develop 116/197, bu
+# dal +1 dosya / +1 metin ile 117/198. Sayilar birlesmis agacta YENIDEN
+# OLCULDU; onceki turun 114/195 -> 115/196 olcumu taban degistigi anda
+# GECERSIZ oldu ve ARITMETIKLE tasinmadi.
+BEKLENEN_ALT_SUREC_SQL_DOSYA = 117
+BEKLENEN_ALT_SUREC_SQL_METIN = 198
 
 
 def _alt_surecte_sql() -> tuple[list[str], int]:

@@ -71,6 +71,14 @@ from app.route_security_contracts import registered_api_operations  # noqa: E402
 EXPECTED_SELF_SERVICE = {
     "/api/auth/change-password",
     "/api/auth/logout",
+    # 5.4a: DÖRDÜNCÜ uç bilinçli olarak eklendi. "Tüm oturumlarımı kapat"ın
+    # öznesi yalnız çağıranın kendisidir, yol parametresi yoktur ve başka bir
+    # aktörü adlandırmaz — yani yukarıdaki iki yöntemin ikisini de geçer.
+    # Muafiyet ZORUNLU: uç POST'tur ve ``required_permission`` içinde eşleşen
+    # kuralı yoktur, listeye girmezse deny-by-default nöbetçisine düşer ve
+    # ``admin`` dışında hiç kimse cihazını kaybettiğinde oturumlarını
+    # düşüremezdi.
+    "/api/auth/logout-all",
     "/api/auth/me",
 }
 
@@ -197,6 +205,7 @@ def test_route_inventory_answer_is_unchanged_for_these_paths() -> None:
     assert required_permission("GET", "/api/auth/me") == "read"
     assert required_permission("POST", "/api/auth/logout") == "read"
     assert required_permission("POST", "/api/auth/change-password") == "read"
+    assert required_permission("POST", "/api/auth/logout-all") == "read"
 
 
 # --------------------------------------------------------------------------

@@ -602,6 +602,11 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "06514928c03f51fd6e91479fbb429e08844ef886f4cfc43fd59d85b2840691a7"): (1, "login_attempts", "arg0"),  # satır [374]
     ("app/auth.py", "revoke_refresh_family", "update",
      "3e2140a017dd17bd0e7e2426b95331d8a697a3b3eba0f35b3930e14c1af064a9"): (1, "auth_refresh_tokens", "arg0"),  # satır [519]
+    # 5.4a: govde ile cikisin SAHIPLIK yuklemi. Yuklem ``token_hash`` VE
+    # ``user_id`` uzerindedir; ikincisi olmasaydi bearer ile kimliklenen bir
+    # cagiran BASKASININ refresh ailesini imha edebilirdi.
+    ("app/auth.py", "revoke_refresh_family_for_user", "select",
+     "29144094871dce47285f559ad4aedd16fc37498843fd42af37f54a0bfbd484c9"): (1, "auth_refresh_tokens", "arg0"),
     ("app/auth.py", "revoke_refresh_token", "select",
      "05ed2eed7147c170ade8a1328120acd51db33e26e273eb27d6b88e684215fc7c"): (1, "auth_refresh_tokens", "arg0"),  # satır [532]
     ("app/auth.py", "revoke_refresh_token", "update",
@@ -901,8 +906,8 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "4594c3b519aab868921b5bd88a7f5bc6f2579889963ec81277bc7383effb9a72"): (1, "memberships", "arg0"),  # satır [137]
 }
 
-TOTAL_CORE_QUERIES = 144
-EXPECTED_OP_COUNTS = {"select": 94, "update": 42, "delete": 8}
+TOTAL_CORE_QUERIES = 145
+EXPECTED_OP_COUNTS = {"select": 95, "update": 42, "delete": 8}
 # 2026-08-12: iki sorgu bilerek değişti — `ensure_company_default_warehouse`
 # depo adı taramasına kiracı kapsamı eklendi (şema ölçümü: warehouses.name
 # üzerinde ne küresel ne kiracı kapsamlı UNIQUE var) ve `_finalize` opak
@@ -930,7 +935,20 @@ EXPECTED_OP_COUNTS = {"select": 94, "update": 42, "delete": 8}
 # sorgunun da hedefi statik olarak çözüldü. TABAN `a2c5f61`; E1b ve yeniden
 # kuyruklama Core envanterini KIMILDATMADI (ikisi de text() ile yazılmış),
 # bu yüzden taban 140'ta kaldı ve artış YALNIZ bu dilimindir.
-INVENTORY_FINGERPRINT = "5cb0ad7b82b7b7b931bc5e6772baf681e3434e34b7aae433297f4fab23c272da"
+# 20260907 5.4a mobil kimlik akisi (goc YOK): 144 -> 145. TEK sorgu ve TEK
+# dosya: app/auth.py :: revoke_refresh_family_for_user :: select. Yeni ucun
+# kendisi (`POST /api/auth/logout-all`) Core envanterine HIC dokunmuyor —
+# var olan `revoke_user_access_tokens` / `revoke_user_refresh_tokens`
+# yardimcilarini cagiriyor, yeni SQL yazmiyor. app/routers/auth.py'ye de
+# HICBIR sorgu EKLENMEDI: login'in mobil dali ve `/auth/refresh` govde dali
+# AYNI yardimcilari (`issue_token`, `issue_refresh_token`,
+# `rotate_refresh_token`) cagirir. Drift raporu OLCULDU: `changed` ve `stale`
+# BOS — artis YALNIZ ekleme. `UNRESOLVED_ALLOWLIST` BUYUMEDI: yeni sorgunun
+# hedefi (`auth_refresh_tokens`) statik olarak cozuldu. TABAN develop
+# `77aa5b0` (#59 + #62 + #63 indikten sonra); onceki turun 144 -> 145 /
+# `6031430b` -> `ee29c6f8` olcumu taban degistigi anda GECERSIZ oldu ve
+# parmak izi ARITMETIKLE degil YENIDEN turetildi.
+INVENTORY_FINGERPRINT = "744f620ecce130a31e40bbbcaacd35291b57664aa82d52511ba9f4ab1b1cd374"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:
