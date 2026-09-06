@@ -239,7 +239,24 @@ def upgrade() -> None:
     # --- (d) firma politikası ---------------------------------------------
     inspector = sa.inspect(bind)
     firma = _sutunlar(inspector, FIRMA)
-    if "farm_plantback_policy" not in firma:
+    # SÜTUN VE CHECK AYRI AYRI SORULUYOR — ÖLÇÜLMÜŞ BİR KUSUR YÜZÜNDEN.
+    # İlk yazımda tek bir `if "farm_plantback_policy" not in firma:` vardı ve
+    # CHECK o dalın İÇİNDEYDİ. `app/tenancy.py`nin `companies` BİLDİRİMİNE de
+    # sütun eklendiği için AÇILIŞ DDL'i tabloyu sütunla birlikte kuruyor;
+    # sonra bu göç sütunu VAR bulup dalı ATLIYOR ve CHECK HİÇ KURULMUYOR.
+    # ÖLÇÜLDÜ (PostgreSQL 16, taze şema + uygulama açılışı + `alembic upgrade
+    # head`): `UPDATE companies SET farm_plantback_policy='allow'` KABUL
+    # EDİLDİ. Yani seviye kümesi şemada yokken göç YEŞİL bitiyordu —
+    # aşağıdaki ikinci ölçülmüş kusurun (batch'in PostgreSQL'de sessizce DDL
+    # üretmemesi) İKİZİ, aynı sonucu veren farklı bir yol.
+    sutun_eksik = "farm_plantback_policy" not in firma
+    kisitlar = {k.get("name") for k in inspector.get_check_constraints(FIRMA)}
+    # SQLite bu CHECK'i YANSITMIYOR (aşağıdaki `downgrade` notu), yani orada
+    # `check_eksik` HER ZAMAN doğrudur. Zararsız: `upgrade` bir veritabanında
+    # BİR KEZ koşar ve yansıtılmayan kısıt yeniden kuruluma da taşınmadığı
+    # için ikilenme OLUŞMAZ.
+    check_eksik = "ck_companies_farm_plantback_policy" not in kisitlar
+    if sutun_eksik or check_eksik:
         sutun = sa.Column(
             "farm_plantback_policy",
             sa.String(length=20),
@@ -261,15 +278,19 @@ def upgrade() -> None:
         # ADD CONSTRAINT` ile alıyor.
         if bind.dialect.name == "sqlite":
             with op.batch_alter_table(FIRMA) as batch:
-                batch.add_column(sutun)
-                batch.create_check_constraint(
-                    "ck_companies_farm_plantback_policy", _seviye_check()
-                )
+                if sutun_eksik:
+                    batch.add_column(sutun)
+                if check_eksik:
+                    batch.create_check_constraint(
+                        "ck_companies_farm_plantback_policy", _seviye_check()
+                    )
         else:
-            op.add_column(FIRMA, sutun)
-            op.create_check_constraint(
-                "ck_companies_farm_plantback_policy", FIRMA, _seviye_check()
-            )
+            if sutun_eksik:
+                op.add_column(FIRMA, sutun)
+            if check_eksik:
+                op.create_check_constraint(
+                    "ck_companies_farm_plantback_policy", FIRMA, _seviye_check()
+                )
 
 
 def downgrade() -> None:
