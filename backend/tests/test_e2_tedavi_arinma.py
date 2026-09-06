@@ -143,10 +143,13 @@ command.upgrade(config, "head")
 motor.dispose(); motor = sa.create_engine(URL)
 assert all(durum().values()), durum()
 
-# BAŞ TEK: göç 0074 zincire ikinci bir baş EKLEMEDİ.
+# BAŞ TEK: göç 0074 zincire ikinci bir baş EKLEMEDİ. Baş ARTIK 0075'tir
+# (E3, KARANTİNA) ve bu kapının ölçtüğü şey başın HANGİ göç olduğu değil TEK
+# olduğudur; 0074 hâlâ zincirin İÇİNDE ve yukarıdaki mutlak hedefli
+# `downgrade` turu onu adıyla sürüyor.
 from alembic.script import ScriptDirectory
 baslar = ScriptDirectory.from_config(config).get_heads()
-assert tuple(baslar) == ("20260908_0074",), baslar
+assert tuple(baslar) == ("20260909_0075",), baslar
 print("GOC TURU TAMAM")
 """
 

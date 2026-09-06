@@ -362,6 +362,10 @@ class MilkYieldWrite(_KuyrukKimligi):
     # ARINMA KİLİDİ (göç 0074). KULLANICININ söylediği; sistemin bulduğu
     # `withdrawal_warning` sütununda ve AYRI durur (0048'in ayrımı).
     withdrawal_override_reason: str | None = None
+    # KARANTİNA KİLİDİ (göç 0075) ve 0074'ün çiftinden AYRI. Bir sağım HEM
+    # arınma HEM karantina ihlal edebilir; tek alana bindirmek, kullanıcının
+    # arınma için yazdığı gerekçeyi karantina için de GEÇERLİ sayardı.
+    quarantine_override_reason: str | None = None
 
 
 class MovementWrite(_KuyrukKimligi):
@@ -376,6 +380,10 @@ class MovementWrite(_KuyrukKimligi):
     # bu ise KİLİDİN gerekçesidir (arınma dolmadan neden satılıyor). Aynı
     # alana bindirmek, denetimde iki farklı soruyu tek cevaba çökertirdi.
     withdrawal_override_reason: str | None = None
+    # KARANTİNA KİLİDİ (göç 0075). Aynı ayrımın ÜÇÜNCÜ katmanı: `reason`
+    # hareketin sebebi, `withdrawal_override_reason` arınmanın, bu ise
+    # KARANTİNANIN. Üçü ayrı soruların cevabıdır.
+    quarantine_override_reason: str | None = None
 
     @field_validator("kind")
     @classmethod
@@ -502,6 +510,54 @@ class TreatmentWrite(_KuyrukKimligi):
             return None
         temiz = " ".join(value.split())
         return temiz or None
+
+
+# ---------------------------------------------------------------------------
+# KARANTİNA (göç 20260909_0075)
+# ---------------------------------------------------------------------------
+
+
+class QuarantineWrite(_KuyrukKimligi):
+    """Bir hayvanı YA DA bir sürüyü karantinaya alma KARARI.
+
+    ``ended_on`` BURADA YOK ve yokluğu BİLİNÇLİDİR: karantina açılırken ne
+    zaman biteceği BİLİNMEZ. Alanı açma gövdesine koymak, kullanıcıyı
+    uydurma bir tarih girmeye iter ve o tarih geldiğinde karantina KİMSE
+    bakmadan kendiliğinden kalkardı. Kapatma AYRI bir uçtur
+    (``POST /api/animal-quarantines/{id}/close``) ve orada tarih ZORUNLUDUR.
+
+    ``reason`` ZORUNLU (şemada ``ck_animal_quarantines_sebep_dolu``):
+    sebepsiz bir karantina, kapatma kararını alacak olana hiçbir şey
+    söylemez.
+    """
+
+    animal_id: int | None = Field(default=None, gt=0)
+    group_id: int | None = Field(default=None, gt=0)
+    started_on: date
+    reason: str = Field(min_length=1, max_length=120)
+    notes: str | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def sebep(cls, value: str) -> str:
+        temiz = " ".join(value.split())
+        if not temiz:
+            raise ValueError("Karantina sebebi boş olamaz")
+        return temiz
+
+
+class QuarantineClose(_Taban):
+    """Karantinanın KAPANIŞI. Tek alan, çünkü kapanan tek şey tarihtir.
+
+    ``expected_updated_at`` İSTENMİYOR ve bu, kardeş uçlardan (``VetDrugUpdate``)
+    BİLİNÇLİ bir ayrımdır: kapatma iyimser kilit DEĞİL, ``ended_on IS NULL``
+    üzerinde KOŞULLU BİR YAZMADIR (CAS). İki eşzamanlı kapatmadan biri kazanır
+    ve öteki 409 alır; iyimser kilit aynı sonucu verirdi ama istemciden
+    taşıması gereksiz bir zaman damgası isterdi.
+    """
+
+    ended_on: date
+    notes: str | None = None
 
 
 class HerdFertilityThresholds(_Taban):

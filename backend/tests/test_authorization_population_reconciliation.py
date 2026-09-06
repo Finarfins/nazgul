@@ -242,9 +242,22 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 # dusuyor (68 -> 69) ve ciplak read `undeniable`in alt kumesi oldugu icin o da
 # bir artiyor. `FARM_HERD_VIEW_OPERATIONS` KIMILDAMADI: uc tarla/suru
 # ailesinden degil.
-EXPECTED_AUTHENTICATED = 365
+# 365 -> 369 / 95'te SABİT / 108 -> 110 (TABAN 5.4a #61 SONRASI, YENİDEN
+# ÖLÇÜLDÜ): E3 — hayvan/sürü karantinası (göç 20260909_0075), DÖRT uç. Hangi
+# sayaç NİYE kımıldadı:
+#   * KİMLİKLENMİŞ +4: dört uç da kimlik ister (liste, tekil, açma, kapatma).
+#   * `read` 95'te SABİT ve BU BİR TANIKTIR: dört ucun HİÇBİRİ genel `read`e
+#     düşmüyor. Düşselerdi bu sayaç artardı ve OKUMA yetkisi olan herkes bir
+#     hayvanı karantinaya alıp ÇIKARABİLİRDİ — `auth.py`ye önek satırının
+#     yazılma sebebi tam olarak bu (ölçüldü: satır silinince
+#     `required_permission` dördünü de `read` gösteriyor).
+#   * UNDENIABLE +2: İKİ OKUMA ucu `herd.view`a çözülüyor ve o izin bugün sevk
+#     edilen altı rolün hepsinde var. İKİ YAZMA ucu bu sayaca GİRMİYOR
+#     (`herd.health`; taşımayan roller var) ve girmemesi ayrımın tanığıdır —
+#     "karantinayı görmek" ile "karantinayı açıp kapatmak" AYRI izinlerdir.
+EXPECTED_AUTHENTICATED = 369
 EXPECTED_READ = 95
-EXPECTED_UNDENIABLE = 108
+EXPECTED_UNDENIABLE = 110
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
 #: sonra kendi kapılarına takılırlar. 89'a dahil, 94'e DEĞİL.
@@ -295,6 +308,11 @@ FARM_HERD_VIEW_OPERATIONS = {
     # ister ve o izni sevk edilen roller arasında taşımayan var.
     ("GET", "/api/animal-treatments"),
     ("GET", "/api/animal-treatments/{treatment_id}"),
+    # Karantina defteri (göç 20260909_0075). Okuma yüzeyi aşı/tedavi/sağım
+    # listeleriyle AYNI role bağlı. YAZMA bu kümede DEĞİL: açma da kapatma da
+    # `herd.health` ister ve o izni sevk edilen roller arasında taşımayan var.
+    ("GET", "/api/animal-quarantines"),
+    ("GET", "/api/animal-quarantines/{quarantine_id}"),
     ("GET", "/api/animal-vaccinations"),
     ("GET", "/api/animal-weights"),
     ("GET", "/api/animals"),
@@ -568,7 +586,10 @@ def test_farm_and_herd_view_membership_not_just_magnitude() -> None:
     # tekil, tedavi defteri listesi + tekil; göç 20260908_0074). Yazma
     # uçları bu kümede DEĞİL — `herd.manage` (katalog) ve `herd.health`
     # (tedavi) istiyorlar ve ikisini de taşımayan sevk edilmiş roller var.
-    assert len(farm_herd) == 39
+    # 39 -> 41: E3'ün İKİ OKUMA ucu (karantina defteri listesi + tekil; göç
+    # 20260909_0075). Yazma uçları bu kümede DEĞİL — açma da kapatma da
+    # `herd.health` istiyor ve o izni taşımayan sevk edilmiş roller var.
+    assert len(farm_herd) == 41
 
 
 def test_eightynine_partitions_into_sixtysix_and_twentythree() -> None:

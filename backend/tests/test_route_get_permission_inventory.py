@@ -133,6 +133,15 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     # ADIYLA çivili.
     ("GET", "/api/animal-treatments"): "herd.view",
     ("GET", "/api/animal-treatments/{treatment_id}"): "herd.view",
+    # Karantina defteri (göç 20260909_0075). ÖNEK EŞLEŞMESİ ÖLÇÜLDÜ:
+    # "/api/animal-quarantines" "/api/animals" önekinin ALTINA DÜŞMEZ
+    # ('animal' sonrası 's' değil '-' geliyor), yani `_HERD_PATH_PREFIXES`e
+    # KENDİ satırı yazılmasaydı genel `read` iznine düşerdi ve OKUMA yetkisi
+    # olan herkes bir hayvanı karantinaya alıp ÇIKARABİLİRDİ. OKUMASI diğer
+    # hayvancılık listeleriyle AYNI rol; YAZMASI (açma VE kapatma)
+    # `herd.health`tir — karantina bir SAĞLIK OLAYIDIR.
+    ("GET", "/api/animal-quarantines"): "herd.view",
+    ("GET", "/api/animal-quarantines/{quarantine_id}"): "herd.view",
     ("GET", "/api/animal-vaccinations"): "herd.view",
     ("GET", "/api/animal-weights"): "herd.view",
     ("GET", "/api/animals"): "herd.view",
@@ -351,9 +360,10 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # tedavi defteri listesi + tekil; göç 20260908_0074). Drift raporu ÖLÇÜLDÜ:
 # `missing`/`stale`/`changed` ÜÇÜ DE BOŞ — artış YALNIZ eklemedir, hiçbir
 # ucun izni DEĞİŞMEDİ.
-GET_INVENTORY_COUNT = 179
+# 179 -> 181: E3 karantina defterinin İKİ OKUMA ucu (göç 20260909_0075).
+GET_INVENTORY_COUNT = 181
 GET_INVENTORY_FINGERPRINT = (
-    "197710665775dc7dfb01e260f50ded04ae53d3beef9a4a06ab4accba76ee5373"
+    "1a615fb127e29fa17383eeb7f69820da62b5e702756391e0229aae9c57bf69f7"
 )
 
 

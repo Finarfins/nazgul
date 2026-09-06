@@ -134,6 +134,15 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
         # yani "bu sütü kim tanka yazdırdı" sorusunun cevabı YALNIZ burada.
         "vet_drug.create", "vet_drug.update",
         "herd_withdrawal.overridden",
+        # KARANTİNA (göç 20260909_0075). AÇMA ve KAPATMA AYRI İKİ TİP ve tek
+        # bir "karantina değişti" tipine indirilmedi: paneli okuyanın sorduğu
+        # şey "bu hayvan NE ZAMAN ayrıldı, NE ZAMAN çıktı" ve tek tip bu iki
+        # soruyu `details`a gömerdi. KAPATMA ayrıca ŞART: karantinayı
+        # kapatmak, hayvanın sütünü tanka ve etini kasaba SERBEST BIRAKAN
+        # karardır ve `animal_quarantines` KULLANICI SÜTUNU TAŞIMIYOR (0049
+        # deseni; ölçüldü) — "bu hayvanı karantinadan kim çıkardı" sorusunun
+        # cevabı YALNIZ burada.
+        "animal_quarantine.opened", "animal_quarantine.closed",
     }
     assert set(ACTION_TYPES) == expected
     # 58 -> 59: product.base_unit_update (kantar fişi v2).
@@ -158,7 +167,20 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
     # kiracı imhasının kaynağı zaten `backup` ailesindendi, burada ise
     # `vet_drugs.id` ve gerekçeyi taşıyan SATIRIN kimliği panelde
     # bağlanabilecek başka hiçbir mevcut tipe karşılık gelmiyor.
-    assert len(ACTION_TYPES) == 65, sorted(ACTION_TYPES)
+    # 65 -> 67: E3 KARANTİNA (göç 20260909_0075). İKİ yeni eylem ve
+    # gerekçeleri yukarıda; TEK YENİ KAYNAK TİPİ açıldı
+    # (`animal_quarantine`) çünkü açma ve kapatma AYNI SATIRIN olaylarıdır
+    # ve ikisi de `animal_quarantines.id`yi işaret eder.
+    #
+    # ÜÇÜNCÜ BİR EYLEM (karantina kilidinin GEREKÇEYLE GEÇİLMESİ) BİLEREK
+    # AÇILMADI ve bu, `herd_withdrawal.overridden`dan bir AYRIMDIR: orada
+    # geçişin izi BAŞKA HİÇBİR YERDE yoktu, burada ise karantinanın AÇILIŞI
+    # ve KAPANIŞI zaten kullanıcısıyla birlikte kayıtta ve gerekçe metni
+    # sağım/hareket satırının `quarantine_override_reason` sütununda duruyor.
+    # KALAN BOŞLUK ADIYLA YAZILI: gerekçeyi KİMİN yazdığı, arınmadaki gibi,
+    # o satırdan çıkarılamaz — bu kapı o boşluğun bilinçli olduğunu çiviliyor
+    # ve kapatılmak istendiğinde SAYIYI kımıldatmak zorunda bırakıyor.
+    assert len(ACTION_TYPES) == 67, sorted(ACTION_TYPES)
     assert all(ACTION_TYPES.values()), ACTION_TYPES
     assert "activity_log" in RESOURCE_TYPES
     # POS fişi de bir ``orders`` satırıdır: ayrı bir kaynak tipi eklenmez,
@@ -172,6 +194,10 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
     # `animal_movements.id`dir ve hangisi olduğu `details`ta `kaynak` ile
     # yazılı; İKİ AYRI tip açmak aynı kararı panelde ikiye bölerdi.
     assert {"vet_drug", "herd_withdrawal"} <= RESOURCE_TYPES
+    # Karantina kaydı (göç 20260909_0075). Kaynak KİMLİĞİ
+    # `animal_quarantines.id`dir; açma ve kapatma AYNI kaynağı işaret eder ve
+    # iki AYRI tip açmak aynı satırın iki olayını panelde ikiye bölerdi.
+    assert "animal_quarantine" in RESOURCE_TYPES
 
 
 def test_log_activity_rejects_unknown_action_and_resource() -> None:

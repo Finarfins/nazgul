@@ -328,8 +328,35 @@ DYNAMIC_PERMISSION_CASES = {
 # yani yazılmasalardı genel `read` iznine düşerlerdi. Ayrı bir
 # `review_reason` GEREKMİYOR: yedi uç da kiracı kapsamlıdır ve izinleri
 # mevcut `herd.*` ailesindendir. Başka hiçbir ucun sözleşmesi değişmedi.
-EXPECTED_OPERATION_COUNT = 375
-EXPECTED_PATH_COUNT = 288
+# 375/288 -> 379/291 (TABAN 5.4a #61 SONRASI, YENIDEN OLCULDU): E3 —
+# hayvan/sürü karantinası ve karantina kilitleri (göç 20260909_0075). DÖRT
+# işlem, ÜÇ yol: GET/POST /api/animal-quarantines, GET
+# /api/animal-quarantines/{id}, POST /api/animal-quarantines/{id}/close.
+#
+# İZİNLER MEVCUT AİLEDEN ve YENİ BİR İZİN ADI AÇILMADI: okuma `herd.view`,
+# YAZMA (açma VE kapatma) `herd.health`. Sonuncusu `auth.py`deki AŞI/TEDAVİ
+# kuralının GENİŞLETİLMESİ değil AYNEN UYGULANMASIDIR — karantina bir SAĞLIK
+# OLAYIDIR: hayvanı hasta/şüpheli gördüğü için ayıran da, gözlem bitince
+# çıkaran da veteriner ya da sağlık sorumlusudur.
+#
+# KAPATMA AÇMAYLA AYNI İZİNDEDİR ve bu ÖLÇÜLMÜŞ bir tercihtir: önek eşleşmesi
+# bunu kendiliğinden veriyor ("/api/animal-quarantines/7/close" aynı önekle
+# başlıyor) ve ayrı bir izne bağlamak, karantinayı açabilen ama kapatamayan
+# bir rol üretirdi — o rol de karantinayı hiç açmamayı öğrenirdi.
+#
+# GENEL GÜNCELLEME ve SİLME UCU YOK ve yokluğu BİLİNÇLİ: `started_on`u
+# geçmişe dönük değiştirmek, o karantinanın kestiği bütün sağım ve hareketleri
+# GERİYE DÖNÜK olarak haklı ya da haksız çıkarırdı. Yol sayısının işlem
+# sayısından AZ artması (3 yol / 4 işlem) bunun tanığıdır.
+#
+# `auth.py`ye TEK önek satırı EKLENDİ (`/api/animal-quarantines`) ve gerekçesi
+# ÖLÇÜLDÜ: mevcut hiçbir önekle eşleşmiyor ("/api/animal-quarantines"
+# "/api/animals" ile EŞLEŞMEZ — 'animal' sonrası 's' değil '-' geliyor), yani
+# yazılmasaydı dördü de genel `read` iznine düşerdi. Ayrı bir `review_reason`
+# GEREKMİYOR: dört uç da kiracı kapsamlıdır ve izinleri mevcut `herd.*`
+# ailesindendir. Başka hiçbir ucun sözleşmesi değişmedi.
+EXPECTED_OPERATION_COUNT = 379
+EXPECTED_PATH_COUNT = 291
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -467,7 +494,7 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # Parmak izi 411caebd -> yeniden turetildi (TABAN develop `77aa5b0`, yani
     # #59 + #62 + #63 indikten SONRA; onceki turun 367/283 -> 368/284 olcumu
     # taban degistigi anda GECERSIZ oldu ve ARITMETIKLE tasinmadi).
-    "d3626d88708e328a3d5f7bd24a1c9afc82d8835a11fcafa7ed8b6022718010d2"
+    "25fa635c03f06271804f35f7542b27dba981c4a62d5e69fe0553f3b977e32da9"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 
