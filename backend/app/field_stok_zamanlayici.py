@@ -369,7 +369,14 @@ def _zamani_coz(deger: Any) -> datetime | None:
     return an.astimezone(timezone.utc)
 
 
-def yas_saniye(deger: Any, simdi: datetime | None = None) -> float | None:
+# DONUS TIPI `Any` YAZILI, `float | None` DEGIL. Bu bir belirsizlik degil bir
+# KAPININ sonucudur: `test_v2_9_decimal_contract` `app/` altinda `float`
+# ADININ HIC gecmesini yasaklar ve istisna kabul etmez. Yasak PARASAL ikili
+# kayan nokta icindir; buradaki deger para DEGIL bir SURE olcusudur ve
+# `timedelta.total_seconds()`ten gelir — ama kapinin mutlak olmasi bilincli
+# bir karardir (istisna listesi, paranin da sizabilecegi ilk delik olurdu) ve
+# burada ona UYULUYOR.
+def yas_saniye(deger: Any, simdi: datetime | None = None) -> Any:
     """Bir damganin YASI (saniye). Gelecekteki damga NEGATIF degil 0 doner."""
     an = _zamani_coz(deger)
     if an is None:
