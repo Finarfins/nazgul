@@ -2217,3 +2217,156 @@ def test_kapatilmis_firma_PG_de_HIC_secilmiyor_ve_acilinca_isleniyor() -> None:
         "kirmizi ise ilk turdaki sessizlik yuklemden DEGIL bozuk kurulumdan "
         f"geliyor demektir. cikti={cikti!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# ACILIS KOSULU 4 — CANLILIK/GECIKME SINYALI
+# ---------------------------------------------------------------------------
+#
+# BU IKI VAKANIN SQLite'TA OLCULEMEYECEK OLANI NEDIR? Ikisi de LEHCE
+# farkidir, davranis tercihi degil:
+#
+# 1. **KALP ATISI UPSERT'I.** `settings` satiri LEHCESIZ yazilir (once UPDATE,
+#    rowcount 0 ise INSERT). `ON CONFLICT` yazilmadi ve bu bir tercihti; PG'de
+#    GERCEKTEN tek satir kaldigini ve ikinci dongunun satiri EZDIGINI ancak
+#    gercek bir PG oturumu gosterir. SQLite'ta ayni kod yesil olurdu ama o
+#    yesil kodun degil ORTAMIN ozelligi olurdu (yazmalar seri).
+#
+# 2. **HAM `text()` SORGUSUNDA ZAMAN DAMGASININ TIPI.** `summary` ucu kova
+#    basina `MIN(created_at)` seciyor ve o sorgu HAM metindir — SQLAlchemy tip
+#    isleyicisi devrede DEGILDIR. OLCULDU: sqlite3 surucusu METIN dondurur,
+#    psycopg ise gercek `datetime` (ustelik SAAT DILIMLI). Yas hesabi bu iki
+#    tipi de cozmek ZORUNDA; cozmezse `pending_oldest_age_seconds` bir
+#    lehcede sessizce `None` olurdu — yani gecikme sinyali tam da uretim
+#    lehcesinde OLU olurdu.
+
+
+_KALP_UPSERT = r'''
+import json, os, sys
+sys.path.insert(0, os.environ["BACKEND"])
+from sqlalchemy import text as _sql
+from app.db import SessionLocal
+from app.field_stok_zamanlayici import KALP_ANAHTARI, bir_dongu_calistir, canlilik
+
+with SessionLocal() as db:
+    db.execute(_sql("DELETE FROM settings WHERE key = :k"), {"k": KALP_ANAHTARI})
+    db.commit()
+
+bir_dongu_calistir()
+bir_dongu_calistir()
+
+with SessionLocal() as db:
+    satirlar = db.execute(
+        _sql("SELECT value FROM settings WHERE key = :k"),
+        {"k": KALP_ANAHTARI},
+    ).scalars().all()
+    print("KALP SATIR %d" % len(satirlar))
+    kayit = json.loads(satirlar[0])
+    print("KALP ALANLAR %s" % ",".join(sorted(kayit)))
+    print("KALP HATA %r" % (kayit["last_error"],))
+    durum = canlilik(db)
+    print("KALP BAYAT %r" % (durum["stale"],))
+    print("KALP GECEN %r" % (durum["seconds_since_last_cycle"] is not None,))
+'''
+
+
+_YAS_TIPI = r'''
+import os, sys
+sys.path.insert(0, os.environ["BACKEND"])
+from datetime import datetime, timedelta, timezone
+from sqlalchemy import text as _sql
+from app.db import SessionLocal
+from app.field_stok_zamanlayici import yas_saniye
+
+ESKI = datetime.now(timezone.utc) - timedelta(days=40)
+with SessionLocal() as db:
+    db.execute(_sql(
+        "DELETE FROM field_integration_events WHERE idempotency_key = :k"),
+        {"k": "canlilik-yas:1:stock"})
+    db.execute(_sql(
+        "INSERT INTO field_integration_events (company_id,source_type,source_id,"
+        "target,idempotency_key,status,attempts,created_at,updated_at) "
+        "VALUES (1,'field_harvest',999999,'stock','canlilik-yas:1:stock',"
+        "'PENDING',0,:an,:an)"), {"an": ESKI})
+    db.commit()
+    try:
+        # OZETIN KENDI SORGUSU: HAM metin, kova basina MIN(created_at).
+        satir = db.execute(_sql(
+            "SELECT status, MIN(created_at) AS oldest_created_at "
+            "FROM field_integration_events WHERE company_id=:cid "
+            "GROUP BY status ORDER BY status"), {"cid": 1}).mappings().all()
+        bekleyen = [s for s in satir if s["status"] == "PENDING"]
+        assert bekleyen, satir
+        damga = bekleyen[0]["oldest_created_at"]
+        print("YAS TIP %s" % type(damga).__name__)
+        yas = yas_saniye(damga)
+        print("YAS DEGER %r" % (yas is not None and yas > 39 * 86400,))
+        # BASKA KIRACI BU SATIRI GORMEZ: ayni sorgu, company_id 2 ile.
+        yabanci = db.execute(_sql(
+            "SELECT status, MIN(created_at) AS oldest_created_at "
+            "FROM field_integration_events WHERE company_id=:cid "
+            "GROUP BY status"), {"cid": 2}).mappings().all()
+        print("YAS YABANCI %d" % len(
+            [s for s in yabanci if s["status"] == "PENDING"]))
+    finally:
+        db.rollback()
+        db.execute(_sql(
+            "DELETE FROM field_integration_events WHERE idempotency_key = :k"),
+            {"k": "canlilik-yas:1:stock"})
+        db.commit()
+'''
+
+
+def test_kalp_atisi_PG_de_TEK_SATIR_kalir_ve_EZILIR() -> None:
+    """MUTASYON: kalici yazimi kaldiran (yalniz surec-ici tutan) bir degisiklik
+    "KALP SATIR 1" satirini 0 yapar ve bu vaka KIRMIZI yanar.
+
+    Iki dongu kosuluyor: `settings` anahtari BIRINCIL ANAHTARDIR, yani ikinci
+    yazim ya satiri EZMELI ya da patlamalidir. Lehcesiz upsert'in dogru dali
+    sectigi ancak gercek PG'de gorunur.
+    """
+    assert "KURULUM-TAMAM" in _kos(_KURULUM)
+    cikti = _kos(_KALP_UPSERT)
+
+    assert "KALP SATIR 1" in cikti, (
+        "KALP ATISI SATIRI TEK DEGIL: lehcesiz upsert ya yazmadi ya ikinci "
+        f"satir acti. cikti={cikti!r}"
+    )
+    assert (
+        "KALP ALANLAR companies_processed,companies_total,events_processed,"
+        "finished_at,last_error,started_at" in cikti
+    ), f"KALP ATISI ALANLARI DEGISTI. cikti={cikti!r}"
+    assert "KALP HATA None" in cikti, (
+        f"Saglikli dongu `last_error` YAZDI. cikti={cikti!r}")
+    assert "KALP BAYAT False" in cikti, (
+        "TAZE yazilmis kalp atisi BAYAT bildirildi; esik ya da damga "
+        f"cozumu bozuk. cikti={cikti!r}"
+    )
+    assert "KALP GECEN True" in cikti, (
+        f"`seconds_since_last_cycle` hesaplanamadi. cikti={cikti!r}")
+
+
+def test_bekleyen_yasi_PG_de_DATETIME_donuyor_ve_COZULUYOR() -> None:
+    """MUTASYON: `yas_saniye`nin `datetime` dalini kaldirmak (yalniz metin
+    ayristirmak) bu vakayi KIRMIZI yakar — SQLite kulvarinda ise HICBIR SEY
+    kirilmaz. Dosyanin var olma sebebi tam olarak bu asimetridir.
+
+    Ikinci iddia KIRACI: ayni HAM sorgu company_id 2 ile kosuldugunda bu satir
+    HIC gorulmez, yani `pending_oldest_age_seconds` kiracidan kiraciya
+    ayrisir.
+    """
+    assert "KURULUM-TAMAM" in _kos(_KURULUM)
+    cikti = _kos(_YAS_TIPI)
+
+    assert "YAS TIP datetime" in cikti, (
+        "PG'de HAM sorgu zaman damgasini `datetime` DISINDA bir tiple "
+        f"dondurdu; yas cozucusunun varsayimi olculmeli. cikti={cikti!r}"
+    )
+    assert "YAS DEGER True" in cikti, (
+        "40 gunluk BEKLEYEN olayin yasi hesaplanamadi ya da yanlis; gecikme "
+        f"sinyali uretim lehcesinde OLU demektir. cikti={cikti!r}"
+    )
+    assert "YAS YABANCI 0" in cikti, (
+        "BASKA KIRACI bu bekleyen olayi GORDU: `company_id` yuklemi dusmus "
+        f"olabilir. cikti={cikti!r}"
+    )
