@@ -398,7 +398,48 @@ assert reddedildi.json()['detail']['code'] == 'PARTI_SURESI_GECMIS', reddedildi.
 assert partiler(irsaliye_bozuk) == {'LOT-IB': Decimal('5')}
 
 # =========================================================================
-# 11. TASLAK SATIŞ STOĞA DOKUNMAZ -> PARTİYE DE DOKUNMAZ
+# 11. ALIŞ İADESİ (workflow, `stock=-1`) DE PARTİ TÜKETİR
+#
+# `CONFIG`te stoktan DÜŞEN İKİ tür var: `delivery` ve `purchase_return`.
+# İkisi de AYNI dalı (`config["stock"] < 0`) kullanıyor, ama "aynı kodu
+# kullanıyorlar" bir TEST DEĞİLDİR: tür başına ayrı bir belge şeması, ayrı
+# bir cari (tedarikçi) ve ayrı bir doğrulama yolu var ve bunlardan biri
+# parti tüketimini atlarsa kod ortak olsa bile davranış ayrışır.
+#
+# `source_type`/`source_id` BİLEREK verilmiyor: `validate_return_reference`
+# ikisi de NULL iken erken dönüyor (ÖLÇÜLDÜ), yani kaynak belge kurmadan
+# iade kesilebiliyor ve bu kapı iade DOĞRULAMASINI değil PARTİ TÜKETİMİNİ
+# ölçmek istiyor.
+# =========================================================================
+iade_urun = urun_ac('FEFO Alış İadesi Ürünü')
+alis([kalem(iade_urun, 3, 'LOT-AI1', YAKIN)])
+alis([kalem(iade_urun, 3, 'LOT-AI2', UZAK)])
+iade = ok(client.post('/api/workflow/purchase_return', headers=baslik, json={
+    'entity_id': tedarikci, 'document_date': '2026-09-11', 'status': 'completed',
+    'warehouse_id': depo_a, 'items': [kalem(iade_urun, 4, fiyat=10)]}))
+assert [(k, m) for k, m, _ in hareketler('returns', iade['id'])] == [
+    ('LOT-AI1', Decimal('-3')),
+    ('LOT-AI2', Decimal('-1')),
+], hareketler('returns', iade['id'])
+assert partiler(iade_urun) == {'LOT-AI1': Decimal('0'), 'LOT-AI2': Decimal('2')}
+
+assert client.delete(f"/api/workflow/purchase_return/{iade['id']}",
+                     headers=baslik).status_code in (200, 204)
+assert partiler(iade_urun) == {'LOT-AI1': Decimal('3'), 'LOT-AI2': Decimal('3')}
+
+# SATIŞ İADESİ (`stock=+1`) PARTİ AÇMAZ VE TÜKETMEZ — kapsam sınırı ADIYLA
+# çivili: iade edilen malın hangi partiden çıktığı bu dilimde ÖLÇÜLMEDİ ve
+# uydurmak defteri yalan söyletirdi. Hareket yazılır, `lot_id` NULL kalır.
+satis_iadesi = ok(client.post('/api/workflow/sale_return', headers=baslik, json={
+    'entity_id': musteri, 'document_date': '2026-09-11', 'status': 'completed',
+    'warehouse_id': depo_a, 'items': [kalem(iade_urun, 1, fiyat=20)]}))
+assert hareketler('returns', satis_iadesi['id']) == [
+    (None, Decimal('1'), f"sale_return #{satis_iadesi['id']}")
+], hareketler('returns', satis_iadesi['id'])
+assert partiler(iade_urun) == {'LOT-AI1': Decimal('3'), 'LOT-AI2': Decimal('3')}
+
+# =========================================================================
+# 12. TASLAK SATIŞ STOĞA DOKUNMAZ -> PARTİYE DE DOKUNMAZ
 #
 # Parti tüketimi `apply_stock` dalının İÇİNDEDİR. Dışına çıksaydı taslak bir
 # belge defteri düşürür, stoğu düşürmezdi.
