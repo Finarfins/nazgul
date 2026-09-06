@@ -134,7 +134,8 @@ def suppliers(request: Request, q: str = '', sort: str = 'name_asc', active: str
     active_sql='' if active=='all' else (' AND COALESCE(s.is_active, TRUE)=FALSE' if active=='inactive' else ' AND COALESCE(s.is_active, TRUE)=TRUE')
     rows = db.execute(text(f'''SELECT s.id,s.name,s.owner_name,s.phone,s.email,s.address,s.tax_number,s.opening_balance,
       COALESCE(s.risk_limit,0) risk_limit,COALESCE(s.payment_term_days,0) payment_term_days,CASE WHEN COALESCE(s.is_active, TRUE) THEN 1 ELSE 0 END is_active,
-      COALESCE(s.opening_balance,0)+COALESCE(SUM(CASE WHEN COALESCE(pu.status,'completed') NOT IN ('draft','cancelled') THEN pu.final_total ELSE 0 END),0)-
+      COALESCE(s.opening_balance,0)+COALESCE(SUM(CASE WHEN COALESCE(pu.status,'completed') NOT IN ('draft','cancelled') THEN pu.final_total ELSE 0 END),0)+
+      COALESCE(mm.total_receipts,0)-
       COALESCE(pay.total_paid,0) current_balance,
       COALESCE(SUM(CASE WHEN pu.due_date IS NOT NULL AND pu.due_date<>'' AND pu.due_date<:today
        AND COALESCE(pu.status,'completed') NOT IN ('draft','cancelled')
@@ -146,9 +147,18 @@ def suppliers(request: Request, q: str = '', sort: str = 'name_asc', active: str
         SELECT entity_id,SUM(amount) total_paid FROM payments
         WHERE company_id=:cid AND entity_type='supplier' GROUP BY entity_id
       ) pay ON pay.entity_id=s.id
+      -- Kesilmiş müstahsil makbuzu tedarikçi BORCUDUR. `pay`in kalıbıyla
+      -- AYNI: ÖNCEDEN TOPLANMIŞ alt sorgu olarak bağlanıyor, LEFT JOIN
+      -- olarak DEĞİL — ikinci bir satır çoklayan birleştirme `pu` ile
+      -- kartezyen üretir ve alım toplamını makbuz sayısı kadar ŞİŞİRİRDİ.
+      -- NET, brüt DEĞİL: stopaj/SGK çiftçiye değil vergi dairesine borçtur.
+      LEFT JOIN (
+        SELECT supplier_id,SUM(net_payable) total_receipts FROM producer_receipts
+        WHERE company_id=:cid AND status='issued' GROUP BY supplier_id
+      ) mm ON mm.supplier_id=s.id
       WHERE s.company_id=:cid {active_sql} AND (LOWER(s.name) LIKE LOWER(:q) OR COALESCE(s.phone,'') LIKE :q
        OR LOWER(COALESCE(s.email,'')) LIKE LOWER(:q) OR COALESCE(s.tax_number,'') LIKE :q)
-      GROUP BY s.id,pay.total_paid ORDER BY {order} LIMIT 1000'''), {'cid': cid, 'q': f'%{q}%', 'today':today}).mappings().all()
+      GROUP BY s.id,pay.total_paid,mm.total_receipts ORDER BY {order} LIMIT 1000'''), {'cid': cid, 'q': f'%{q}%', 'today':today}).mappings().all()
     result=[]
     for item in rows:
         row=dict(item);risk=money(row.get('risk_limit'));balance=money(row.get('current_balance'))

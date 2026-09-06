@@ -932,6 +932,21 @@ def required_permission(method: str, path: str) -> str:
     # hemen yukarıdaki alım-karşılaştırma bloğununkidir.
     if path.startswith("/api/producer-receipts"):
         return "purchases"
+    # D2 — AYNI GEREKÇE, AYNI YER. Avans çiftçiye ödenen PARADIR ve stopaj
+    # yükümlülüğü makbuzun kesintisinin ta kendisidir; ikisi de tedarikçi
+    # maliyetini AÇIK EDER, yani OKUMALARI da ticari olarak hassastır. Bu
+    # yüzden kural temel ``read`` kuralının ÜSTÜNDE duruyor ve GET dahil TÜM
+    # yöntemleri ``purchases`` iznine bağlıyor.
+    #
+    # Aşağıda (bu kuralın ALTINDA) zaten bir ``/api/suppliers`` kuralı var
+    # ama o ``read``in ALTINDA kaldığı için GET'leri her role AÇIK bırakır;
+    # avans listesi oraya düşseydi çiftçiye ne ödendiği okuma yetkisi olan
+    # HERKESE görünürdü. Yerleştirmenin TANIĞI ``EXPECTED_READ``in 93'te
+    # SABİT kalmasıdır.
+    if path.startswith("/api/tax-liabilities"):
+        return "purchases"
+    if path.startswith("/api/suppliers/") and path.endswith("/advances"):
+        return "purchases"
     if method in {"GET", "HEAD", "OPTIONS"}:
         return "read"
     # Machine card writes require the dedicated ``machines`` permission (reads

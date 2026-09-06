@@ -198,6 +198,9 @@ def _totals(
         ),
         params,
     ).scalar()
+    debit = money(debit) + _makbuz_borcu(
+        db, cid, entity_type, entity_id, params, date_from, date_to, inclusive_to
+    )
     credit = db.execute(
         text(
             f"""SELECT COALESCE(SUM(p.amount),0) total
@@ -208,6 +211,59 @@ def _totals(
         params,
     ).scalar()
     return money(debit), money(credit)
+
+
+# `issued_at` bir ZAMAN DAMGASIDIR, ötekiler GÜN dizgisi. PostgreSQL'de
+# `COALESCE(timestamptz, '')` TİP HATASI verir, SQLite'ta ise sessizce geçer —
+# yani pencere karşılaştırmasını ötekilerle aynı biçimde yazmak, kusuru
+# YALNIZ üretim diyalektinde patlatırdı (D1'in `_tarih_suzgeci` dersinin
+# aynısı). Bu yüzden gün ÖNCE metne indiriliyor: `SUBSTR(CAST(... AS TEXT),1,10)`
+# iki diyalektte de 'YYYY-MM-DD' verir (ÖLÇÜLDÜ).
+MAKBUZ_GUNU = "SUBSTR(CAST(r.issued_at AS TEXT),1,10)"
+
+
+def _makbuz_borcu(
+    db: Session,
+    cid: int,
+    entity_type: str,
+    entity_id: int,
+    params: dict[str, object],
+    date_from: str | None,
+    date_to: str | None,
+    inclusive_to: bool,
+) -> Decimal:
+    """Kesilmiş müstahsil makbuzlarının NET ÖDENECEK toplamı (borç).
+
+    BRÜT DEĞİL NET: stopaj ve SGK kesintileri çiftçiye DEĞİL vergi
+    dairesine borçtur (`tax_liabilities`), yani tedarikçi carisine brütü
+    yazmak firmanın çiftçiye olan borcunu kesintiler kadar FAZLA
+    gösterirdi.
+
+    YALNIZ `issued`: taslak henüz bir borç doğurmamıştır ve `cancelled`
+    doğmuş borcu ORTADAN KALDIRIR. `purchases` tarafındaki
+    `NOT IN ('draft','cancelled')` kalıbı burada OLUMLU yazılıyor çünkü
+    makbuzun `issuing` ARA DURUMU da borç değildir (CAS'ın kazananı henüz
+    belli değil) ve olumsuz liste onu SESSİZCE borç sayardı.
+    """
+    if entity_type != "supplier":
+        return ZERO_MONEY
+    pencere = ""
+    if date_from is not None:
+        pencere += f" AND COALESCE({MAKBUZ_GUNU},'')>=:date_from"
+    if date_to is not None:
+        operator = "<=" if inclusive_to else "<"
+        pencere += f" AND COALESCE({MAKBUZ_GUNU},''){operator}:date_to"
+    toplam = db.execute(
+        text(
+            f"""SELECT COALESCE(SUM(r.net_payable),0) total
+            FROM producer_receipts r
+            WHERE r.supplier_id=:id AND r.company_id=:cid
+              AND r.status='issued'
+              {pencere}"""
+        ),
+        params,
+    ).scalar()
+    return money(toplam or 0)
 
 
 def build_statement(
@@ -236,6 +292,20 @@ def build_statement(
     )
     closing = money(opening + window_debit - window_credit)
 
+    # SATIRLAR TOPLAMLARLA AYNI KAYNAKTAN GELMELİ: makbuz borcu `_totals`a
+    # girip burada GÖRÜNMESEYDİ, ekstrenin yürüyen bakiyesi kendi kapanışını
+    # TUTMAZDI ve okuyucu farkı hiçbir satırda göremezdi.
+    makbuz_kolu = ""
+    if entity_type == "supplier":
+        makbuz_kolu = f"""UNION ALL
+            SELECT COALESCE({MAKBUZ_GUNU},''), 'producer_receipt',
+              r.receipt_no, NULL, r.net_payable, r.id
+            FROM producer_receipts r
+            WHERE r.supplier_id=:id AND r.company_id=:cid
+              AND r.status='issued'
+              AND COALESCE({MAKBUZ_GUNU},'')>=:date_from
+              AND COALESCE({MAKBUZ_GUNU},'')<=:date_to"""
+
     rows = db.execute(
         text(
             f"""SELECT COALESCE(d.{settings['date_column']},'') entry_date,
@@ -253,6 +323,7 @@ def build_statement(
             WHERE p.entity_type=:etype AND p.entity_id=:id AND p.company_id=:cid
               AND COALESCE(p.payment_date,'')>=:date_from
               AND COALESCE(p.payment_date,'')<=:date_to
+            {makbuz_kolu}
             ORDER BY 1,2,6
             LIMIT :limit"""
         ),
@@ -271,12 +342,14 @@ def build_statement(
     lines: list[StatementLine] = []
     balance = opening
     for item in rows[:LINE_LIMIT]:
-        is_document = item["kind"] == "document"
+        is_document = item["kind"] in ("document", "producer_receipt")
         amount = money(item["amount"])
         debit = amount if is_document else ZERO_MONEY
         credit = ZERO_MONEY if is_document else amount
         balance = money(balance + debit - credit)
-        if is_document:
+        if item["kind"] == "producer_receipt":
+            label = "Müstahsil makbuzu (net)"
+        elif is_document:
             label = settings["document_label"]
         else:
             method = item["payment_method"] or "cash"

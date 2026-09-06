@@ -146,7 +146,14 @@ from app.main import PUBLIC_API, app  # noqa: E402
 #   * UNDENIABLE 100'de SABİT: `purchases` reddedilebilir bir izindir
 #     (tanımlı roller arasında onu TAŞIMAYAN roller var), yani hiçbir uç
 #     "bugün hiçbir rolü reddedemez" sınıfına girmedi.
-EXPECTED_AUTHENTICATED = 345
+# 345 -> 350: D2'nin BEŞ ucu (POST + GET avans, POST pay, POST
+# exchange-registration, GET tax-liabilities; göç 20260906_0071). Hangi
+# sayaç NİYE kımıldamadı: BEŞİ DE `purchases` ister ve `read`E ÇÖZÜLMEZ,
+# bu yüzden EXPECTED_READ 93'te SABİT — iki GET'in `read`in ÜSTÜNDEKİ
+# kurallarla yakalanmasının TANIĞI budur. `purchases` deny-by-default
+# nöbetçisinin dışında bir muafiyet İSTEMEDİĞİ için EXPECTED_UNDENIABLE
+# de 100'de SABİT.
+EXPECTED_AUTHENTICATED = 350
 EXPECTED_READ = 93
 EXPECTED_UNDENIABLE = 100
 

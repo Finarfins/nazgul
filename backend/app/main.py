@@ -58,6 +58,7 @@ from .routers import (
     harvest_scheduling,
     history,
     imports,
+    avans,
     mustahsil,
     invoices,
     late_fees,
@@ -521,6 +522,10 @@ app.include_router(farm.router, prefix="/api")
 # Müstahsil makbuzu (D1). Öneksiz include: uçlar /api/producer-receipts
 # olarak router'ın kendi yollarında sabit.
 app.include_router(mustahsil.router, prefix="/api")
+# Avans / makbuz ödemesi / borsa tescili / vergi defteri (D2). Aynı öneksiz
+# kalıp: uçlar /api/suppliers/{id}/advances, /api/producer-receipts/{id}/pay,
+# /api/producer-receipts/{id}/exchange-registration ve /api/tax-liabilities.
+app.include_router(avans.router, prefix="/api")
 # Outbox okuma yuzeyi (FIELD_STOK_OUTBOX acilis kosulu 2). AYRI router:
 # alan bir PARAMETREDIR (bkz. `OlayYuzeyi`), yani ikinci outbox tablosu
 # (`herd_integration_events`) icin ayni modulde bir betimleyici eklemek

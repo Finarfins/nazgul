@@ -258,8 +258,22 @@ DYNAMIC_PERMISSION_CASES = {
 # silinince GET envanteri `read` sayısını 93 -> 95 gösteriyor). Ayrı bir
 # `review_reason` GEREKMİYOR: beş uç da kiracı kapsamlıdır ve izinleri
 # mevcut `purchases` ailesindendir. Başka hiçbir ucun sözleşmesi değişmedi.
-EXPECTED_OPERATION_COUNT = 355
-EXPECTED_PATH_COUNT = 274
+# 355/274 -> 360/278: D2 — avans, makbuz ödemesi, borsa tescili ve vergi
+# defteri (göç 20260906_0071). DÖRT yol, BEŞ işlem (ilk yol İKİ işlem
+# taşır): POST + GET /api/suppliers/{supplier_id}/advances, POST
+# /api/producer-receipts/{receipt_id}/pay, POST
+# /api/producer-receipts/{receipt_id}/exchange-registration, GET
+# /api/tax-liabilities. İzin BEŞİNDE DE `purchases` ve GET'ler DAHİL öyle:
+# iki yeni kural auth.py'de temel `read` kuralının ÜSTÜNE yazıldı, çünkü
+# avans çiftçiye ödenen PARADIR ve stopaj yükümlülüğü makbuzun kesintisidir
+# — ikisi de tedarikçi maliyetini AÇIK EDER. Avans yolu için bu ÖZELLİKLE
+# gerekliydi: `/api/suppliers` kuralı ZATEN var ama `read`in ALTINDA, yani
+# kural yazılmasaydı avans listesi `read`e düşerdi (ölçüldü: kural silinince
+# GET envanteri o ucu `read` gösteriyor). Ayrı bir `review_reason`
+# GEREKMİYOR: beş uç da kiracı kapsamlıdır ve izinleri mevcut `purchases`
+# ailesindendir. Başka hiçbir ucun sözleşmesi değişmedi.
+EXPECTED_OPERATION_COUNT = 360
+EXPECTED_PATH_COUNT = 278
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -358,7 +372,7 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # yazılarak). Parmak izi 45a56fbd -> adb27fb5; başka sözleşme değişmedi.
     # 20260905 kiracı dışa aktarımı: GET /api/company/export eklendi
     # (`__admin_only__`). Parmak izi adb27fb5 -> yeniden türetildi.
-    "647736cf07bf5825ad68524448faad74bf21cb66ac07003403d31ff90761514d"
+    "8f3eb86bf12c84c635981ab3a758f7fc1eb74b8e3053703bbea9eaa69a3e5391"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 
