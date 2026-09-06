@@ -1824,8 +1824,8 @@ print("TENANT_TABLES_JSON=" + json.dumps(tables))
 #   olarak verir — ve o tohumun AMACI zaten okuma ucunun o satiri GORMEDIGINI
 #   olcmektir. app/ altinda yine SIFIR: bu tur da uretim kodu SQL'i alt surece
 #   VERMIYOR. Sayilar birlesmis agacta YENIDEN OLCULDU, aritmetikle devralinmadi.
-BEKLENEN_ALT_SUREC_SQL_DOSYA = 112
-BEKLENEN_ALT_SUREC_SQL_METIN = 185
+BEKLENEN_ALT_SUREC_SQL_DOSYA = 113
+BEKLENEN_ALT_SUREC_SQL_METIN = 190
 
 
 def _alt_surecte_sql() -> tuple[list[str], int]:

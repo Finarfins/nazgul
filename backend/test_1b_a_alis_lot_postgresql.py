@@ -82,16 +82,61 @@ def _temizle(engine) -> None:
             baglanti.execute(text(deyim), {"a": FIRMA_ADI, "b": KOMSU_ADI})
 
 
+def _acilisa_cek() -> None:
+    """Admin şifresini AÇILIŞ DURUMUNA (`admin123` + `must_change_password`) yaz.
+
+    Tablo yoksa hiçbir şey yapmaz: taze şemada uygulama henüz açılış yapmamış
+    olabilir ve orada zaten `admin123` doğacaktır.
+    """
+    from app.auth import hash_password
+    from app.db import SessionLocal
+
+    with SessionLocal() as db:
+        if db.execute(text("SELECT to_regclass('public.app_users')")).scalar() is None:
+            return
+        db.execute(
+            text(
+                "UPDATE app_users SET password_hash=:h, "
+                "must_change_password=true WHERE username='admin'"
+            ),
+            {"h": hash_password("admin123")},
+        )
+        db.commit()
+
+
 @pytest.fixture()
 def motor():
+    """Şema + temiz kiracı + AÇILIŞ ŞİFRESİ, İKİ UÇTAN.
+
+    ŞİFRE YARISI D2'den (`test_d2_avans_tescil_postgresql.py::acilis_sifresi`)
+    DEVRALINDI ve BU DOSYA HENÜZ GİRİŞ YAPMASA DA duruyor. Gerekçe ölçülmüş
+    bir tuzaktır, üslup değil: PostgreSQL ikizleri CI'da AYNI veritabanını
+    paylaşıyor ve her biri girişten sonra admin şifresini KENDİ sabitine
+    çeviriyor; tek yönlü bir çare (yalnız teardown) dosyayı iyi bir komşu
+    yapar ama KENDİSİNİ korumaz, çünkü şifreyi bozan ÖNCEKİ dosya olabilir.
+
+    İki uçtan çalışması ayrıca bu dosyanın GELECEĞİNİ de kapsıyor: bu ikiz
+    bir gün bir HTTP adımı kazanırsa (dilim B'nin tüketim yolu bu şemayı
+    kullanacak) giriş SIRAYA BAĞLI olarak 401 almaz. Bugün ölçülebilir
+    faydası şudur: dosya veritabanını BULDUĞU GİBİ bırakıyor — aşağıdaki
+    `downgrade`/`upgrade` turu şemayı zaten oynatıyor ve o turdan sonra
+    açılış durumunun yerinde olduğu GARANTİ.
+
+    Şifre uçtan değil SATIRDAN yazılıyor: `change-password` mevcut şifreyi
+    ister (bilmiyoruz) ve açılış durumunun ayırt edici yarısı
+    (`must_change_password`) uçtan yazılamaz. Tablo `app_users`tır,
+    `users` DEĞİL.
+    """
     config = Config(str(BACKEND / "alembic.ini"))
     engine = create_engine(_url())
     command.upgrade(config, "head")
     _temizle(engine)
+    _acilisa_cek()
     try:
         yield engine
     finally:
         _temizle(engine)
+        _acilisa_cek()
         engine.dispose()
 
 

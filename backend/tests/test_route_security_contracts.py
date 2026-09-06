@@ -295,7 +295,7 @@ DYNAMIC_PERMISSION_CASES = {
 # ve YENİDEN KUYRUKLAMA (#55) indikten SONRAKİ `a2c5f61`dir; önceki turun
 # 360/278 -> 361/279 ölçümü tabanı değiştiği anda GEÇERSİZ oldu ve bu
 # satırlar YENİDEN ÖLÇÜLDÜ, aritmetikle türetilmedi.
-# 366/282 -> ?/? (TABAN #54 SONRASI, YENIDEN OLCULDU): 1B-A — parti defterinin OKUMASI (göç 20260908_0073).
+# 366/282 -> 367/283 (TABAN #54 SONRASI, YENIDEN OLCULDU): 1B-A — parti defterinin OKUMASI (göç 20260908_0073).
 # TEK yol, TEK işlem: GET /api/products/{product_id}/lots. İzin `read` ve
 # YENİ BİR İZİN AİLESİ AÇILMADI: uç, `GET /api/products/{product_id}`in
 # gösterdiği stok bakiyesinin PARTİ KIRILIMIDIR — aynı olguyu iki farklı
@@ -304,8 +304,8 @@ DYNAMIC_PERMISSION_CASES = {
 # geliyor ve `auth.py`ye satır EKLENMEDİ. `review_reason` gerektiği için
 # `ROUTE_REASONS`daki kiracı kapsamlı okuma kümesine yazıldı. Başka hiçbir
 # ucun sözleşmesi değişmedi.
-EXPECTED_OPERATION_COUNT = 0
-EXPECTED_PATH_COUNT = 0
+EXPECTED_OPERATION_COUNT = 367
+EXPECTED_PATH_COUNT = 283
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -431,7 +431,7 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # 20260908 1B-A (göç 20260908_0073): GET /api/products/{product_id}/lots
     # eklendi (`read`, mevcut `/api/products` önekinden). Parmak izi
     # TABAN #54 SONRASI: cec015e0 -> yeniden türetildi; başka hiçbir sözleşme değişmedi.
-    "PLACEHOLDER"
+    "4de3859472341099daa4f7c450b290291b5269490aaa3ff5759dfc05825fff22"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 
