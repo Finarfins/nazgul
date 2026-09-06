@@ -212,9 +212,16 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 #     kımıldamadı, dilim yeni bir çıplak okuma yüzeyi AÇMIYOR.
 # TABAN `a2c5f61` (E1b #53 + yeniden kuyruklama #55 indikten sonra); önceki
 # turun 350 -> 351 ölçümü GEÇERSİZ oldu ve bu satır YENİDEN ÖLÇÜLDÜ.
-EXPECTED_AUTHENTICATED = 356
-EXPECTED_READ = 93
-EXPECTED_UNDENIABLE = 102
+# 356 -> ? / 93 -> ? / 102 -> ? (TABAN #54 SONRASI, YENIDEN OLCULDU): 1B-A'nın TEK GET ucu
+# (`GET /api/products/{product_id}/lots`, göç 20260908_0073). ÜÇÜ DE BİRLİKTE
+# artıyor ve bu ÖLÇÜLMÜŞ bir tutarlılıktır: uç `read`e çözülüyor (yolu
+# `/api/products` önekinde, `auth.py`ye satır EKLENMEDİ), handler'da ikinci
+# bir yetki kapısı YOK, yani ÇIPLAK read'e düşüyor (67 -> 68) ve çıplak read
+# `undeniable`ın alt kümesi olduğu için o da bir artıyor.
+# `FARM_HERD_VIEW_OPERATIONS` KIMILDAMADI: uç tarla/sürü ailesinden değil.
+EXPECTED_AUTHENTICATED = 0
+EXPECTED_READ = 0
+EXPECTED_UNDENIABLE = 0
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
 #: sonra kendi kapılarına takılırlar. 89'a dahil, 94'e DEĞİL.
@@ -408,6 +415,12 @@ NAKED_READ_OPERATIONS = {
     ("GET", "/api/products/stock/movements/all"),
     ("GET", "/api/products/{product_id}/current"),
     ("GET", "/api/products/{product_id}/warehouse-stock"),
+    # 1B-A parti defteri okuması (göç 20260908_0073). ÇIPLAK read: handler'da
+    # ikinci bir yetki kapısı YOK, tıpkı yanındaki `warehouse-stock` ve
+    # `GET /api/products/{product_id}` gibi — gösterdiği şey aynı stok
+    # bakiyesinin parti kırılımıdır ve onu ikinci bir role bağlamak aynı
+    # olguyu iki farklı kapının arkasına koyardı.
+    ("GET", "/api/products/{product_id}/lots"),
     ("GET", "/api/purchases"),
     ("GET", "/api/purchases/last-purchase-price"),
     ("GET", "/api/quick-pick"),
@@ -523,7 +536,9 @@ def test_eightynine_partitions_into_sixtysix_and_twentythree() -> None:
     assert naked_read == NAKED_READ_OPERATIONS
     # 66 -> 67: PR #57'nin eklediği ``GET /api/payment-allocations/engine-state``
     # handler kapısı olmadığı için ÇIPLAK read'e düşer (bkz. SAYAÇ HAREKETİ notu).
-    assert len(naked_read) == 67
+    # 67 -> 68: 1B-A'nın ``GET /api/products/{product_id}/lots``u, AYNI
+    # gerekçeyle — handler'da ikinci bir yetki kapısı YOK.
+    assert len(naked_read) == 68
     # Bölünme: kesişim boş ve birleşim TAM. Sayılar tutup üyelik tutmazsa burası kırmızı.
     assert guarded <= read_ops
     assert naked_read | guarded == read_ops
