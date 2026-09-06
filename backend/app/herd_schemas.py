@@ -359,6 +359,9 @@ class MilkYieldWrite(_KuyrukKimligi):
     session: str | None = Field(default=None, max_length=20)
     quantity_liters: Decimal = Field(gt=0, le=MAX_MIKTAR)
     notes: str | None = None
+    # ARINMA KİLİDİ (göç 0074). KULLANICININ söylediği; sistemin bulduğu
+    # `withdrawal_warning` sütununda ve AYRI durur (0048'in ayrımı).
+    withdrawal_override_reason: str | None = None
 
 
 class MovementWrite(_KuyrukKimligi):
@@ -369,6 +372,10 @@ class MovementWrite(_KuyrukKimligi):
     counterparty: str | None = Field(default=None, max_length=180)
     reason: str | None = Field(default=None, max_length=255)
     notes: str | None = None
+    # `reason` HAREKETİN sebebidir (neden satıldı) ve 0049'dan beri vardır;
+    # bu ise KİLİDİN gerekçesidir (arınma dolmadan neden satılıyor). Aynı
+    # alana bindirmek, denetimde iki farklı soruyu tek cevaba çökertirdi.
+    withdrawal_override_reason: str | None = None
 
     @field_validator("kind")
     @classmethod
@@ -377,6 +384,124 @@ class MovementWrite(_KuyrukKimligi):
         if v not in MOVEMENT_KIND:
             raise ValueError("Geçersiz hareket türü")
         return v
+
+
+# ---------------------------------------------------------------------------
+# VETERİNER İLAÇ KATALOĞU VE TEDAVİ (göç 20260908_0074)
+# ---------------------------------------------------------------------------
+
+#: Katalogdaki tür sütununun kabul ettiği küme: `animals.species` + BOŞ DİZE.
+#: Boş dize "bütün türler" demektir (0063'ün `crop=''` deseni).
+DRUG_SPECIES = SPECIES | {""}
+
+#: 0063'ün `ck_ppp_preharvest_range` ve 0074'ün `EN_COK_GUN` sınırıyla AYNI.
+#: Şema ile uç farklı sınır söyleseydi, katalogdan çözülen bir değer tedaviye
+#: yazılamaz ve hata kullanıcıya anlamsız görünürdü.
+MAX_ARINMA_GUN = 3650
+
+
+class VetDrugWrite(_Taban):
+    """Bir stok ürününün PROSPEKTÜSÜNDEN gelen arınma süreleri.
+
+    ``product_id`` ZORUNLU: ürüne bağlı olmayan bir katalog satırı hiçbir
+    tedaviyi çözemez, yani doldurulup hiç kullanılmayan bir alan olurdu
+    (0063'ün kuralı).
+
+    ``species`` BOŞ BIRAKILABİLİR ve boş bırakmak "bütün türler" demektir.
+    Tedavi edilen hayvanın türüyle eşleşen satır varsa o, yoksa bu kullanılır.
+
+    ``crop``TAN FARKI: tür KAPALI bir kümedir (``ck_animals_species``), bu
+    yüzden burada doğrulanıyor ve eşleştirme TAM EŞİTLİKTİR — 0063'ün Türkçe
+    katlaması burada GEREKMİYOR ve bilerek kullanılmadı.
+    """
+
+    product_id: int = Field(gt=0)
+    species: str = Field(default="", max_length=40)
+    # Kataloğun VAR OLMA SEBEBİ; İKİSİ DE boş geçilemez.
+    milk_withdrawal_days: int = Field(ge=0, le=MAX_ARINMA_GUN)
+    meat_withdrawal_days: int = Field(ge=0, le=MAX_ARINMA_GUN)
+    route: str | None = Field(default=None, max_length=40)
+    dose_unit: str | None = Field(default=None, max_length=32)
+    registration_no: str | None = Field(default=None, max_length=60)
+    notes: str | None = None
+
+    @field_validator("species")
+    @classmethod
+    def tur(cls, value: str) -> str:
+        v = " ".join(value.split()).upper()
+        if v not in DRUG_SPECIES:
+            raise ValueError("Geçersiz tür")
+        return v
+
+    @field_validator("route", "dose_unit", "registration_no")
+    @classmethod
+    def kirp(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        temiz = " ".join(value.split())
+        return temiz or None
+
+
+class VetDrugUpdate(VetDrugWrite, _SurumluGuncelleme):
+    status: str = "ACTIVE"
+
+    @field_validator("status")
+    @classmethod
+    def durum(cls, value: str) -> str:
+        v = _metin(value).upper()
+        if v not in LIFECYCLE:
+            raise ValueError("Geçersiz durum")
+        return v
+
+
+class TreatmentItemWrite(_Taban):
+    """Tedavide uygulanan TEK ilaç.
+
+    ``product_id`` NULL KABUL EDER ve katalogdakinin tersidir: veteriner
+    kendi getirdiği, depoda stok kartı olmayan bir ilacı da kaydedebilmeli.
+    O kalem çözülmez ve süresi BOŞ kalır; boş ihlal DEĞİLDİR (0063 kuralı).
+    """
+
+    product_id: int | None = Field(default=None, gt=0)
+    drug_name: str | None = Field(default=None, max_length=200)
+    dose: Decimal | None = Field(default=None, ge=0, le=MAX_MIKTAR)
+    dose_unit: str | None = Field(default=None, max_length=32)
+
+    @field_validator("drug_name", "dose_unit")
+    @classmethod
+    def kirp(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        temiz = " ".join(value.split())
+        return temiz or None
+
+
+class TreatmentWrite(_KuyrukKimligi):
+    """Bir hayvana YA DA bir sürüye uygulanan tedavi.
+
+    ``milk_withdrawal_days`` / ``meat_withdrawal_days`` OPERATÖRÜN değeridir
+    ve verilirse katalogu EZER (0063'ün "katalog önerir, operatör karar
+    verir" kuralı). Ezme SESSİZ değildir: köken ``OPERATOR_OVERRIDE`` olarak
+    yazılır ve katalogun dediği ayrı sütunda durur.
+    """
+
+    animal_id: int | None = Field(default=None, gt=0)
+    group_id: int | None = Field(default=None, gt=0)
+    treated_on: date
+    veterinarian: str | None = Field(default=None, max_length=160)
+    diagnosis: str | None = Field(default=None, max_length=200)
+    notes: str | None = None
+    milk_withdrawal_days: int | None = Field(default=None, ge=0, le=MAX_ARINMA_GUN)
+    meat_withdrawal_days: int | None = Field(default=None, ge=0, le=MAX_ARINMA_GUN)
+    items: list[TreatmentItemWrite] = Field(default_factory=list, max_length=50)
+
+    @field_validator("veterinarian", "diagnosis")
+    @classmethod
+    def kirp(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        temiz = " ".join(value.split())
+        return temiz or None
 
 
 class HerdFertilityThresholds(_Taban):

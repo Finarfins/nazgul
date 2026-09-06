@@ -120,6 +120,20 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
         # SÜTUNU YOK ve o dilim göç EKLEMEDİ; kimin hangi olayı hangi
         # terminal durumdan geri aldığı YALNIZ bu satırda durur.
         "field_event.requeued",
+        # HAYVANCILIĞIN KATALOĞA GİREN İLK OLAYLARI (göç 20260908_0074).
+        # Modül 0049'dan beri HİÇ aktivite kaydı yazmıyordu ve o boşluk
+        # buraya kadar zararsızdı: hayvan/sürü/sağım kayıtları kendi
+        # tablolarında `updated_at` ile izleniyordu. Arınma süresi FARKLI —
+        # katalog satırı bir SAYIYI TANIMLAR ve 28 günlük et arınmasını 2
+        # güne çeken bir düzenleme o andan sonraki bütün tedavileri sessizce
+        # serbest bırakır; satırın kendi `updated_at`i yalnız "değişti" der,
+        # "neydi" demez. Üçüncüsü ise kilidin GEREKÇEYLE geçilmesidir ve
+        # ayrı bir ad ŞART: gerekçe metni `milk_yields` /
+        # `animal_movements` satırında durur ama O SATIR KİMİN YAZDIĞINI
+        # TAŞIMAZ — iki tabloda da kullanıcı sütunu YOKTUR (0049; ölçüldü),
+        # yani "bu sütü kim tanka yazdırdı" sorusunun cevabı YALNIZ burada.
+        "vet_drug.create", "vet_drug.update",
+        "herd_withdrawal.overridden",
     }
     assert set(ACTION_TYPES) == expected
     # 58 -> 59: product.base_unit_update (kantar fişi v2).
@@ -138,7 +152,13 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
     # "verisini indirdi" ile "firmayi kapatti" ayirt edilemezdi. KAYNAK TIPI
     # dis aktarimla AYNI ("backup"): RESOURCE_TYPES 18'de SABIT, yeni kaynak
     # tipi ACILMADI.
-    assert len(ACTION_TYPES) == 62, sorted(ACTION_TYPES)
+    # 62 -> 65: E2 ARINMA (göç 20260908_0074). ÜÇ yeni eylem ve gerekçeleri
+    # yukarıda; İKİ YENİ KAYNAK TİPİ de açıldı ve bu 0058'in "kaynak tipi
+    # AÇILMADI" kararının TERSİ değil, aynı ölçütün öteki yanıdır: orada
+    # kiracı imhasının kaynağı zaten `backup` ailesindendi, burada ise
+    # `vet_drugs.id` ve gerekçeyi taşıyan SATIRIN kimliği panelde
+    # bağlanabilecek başka hiçbir mevcut tipe karşılık gelmiyor.
+    assert len(ACTION_TYPES) == 65, sorted(ACTION_TYPES)
     assert all(ACTION_TYPES.values()), ACTION_TYPES
     assert "activity_log" in RESOURCE_TYPES
     # POS fişi de bir ``orders`` satırıdır: ayrı bir kaynak tipi eklenmez,
@@ -147,6 +167,11 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
     # Outbox olayı kendi kaynak tipidir: kaynak KİMLİĞİ olay satırının id'si,
     # bağlantısı da okuma yüzeyi (`GET /api/field-integration-events`).
     assert "field_integration_event" in RESOURCE_TYPES
+    # Veteriner ilaç kataloğu satırı ve arınma kilidinin gerekçeli geçişi
+    # (göç 20260908_0074). İkincisinin kaynak KİMLİĞİ `milk_yields.id` YA DA
+    # `animal_movements.id`dir ve hangisi olduğu `details`ta `kaynak` ile
+    # yazılı; İKİ AYRI tip açmak aynı kararı panelde ikiye bölerdi.
+    assert {"vet_drug", "herd_withdrawal"} <= RESOURCE_TYPES
 
 
 def test_log_activity_rejects_unknown_action_and_resource() -> None:

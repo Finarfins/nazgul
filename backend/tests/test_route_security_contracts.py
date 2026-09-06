@@ -304,8 +304,28 @@ DYNAMIC_PERMISSION_CASES = {
 # geliyor ve `auth.py`ye satır EKLENMEDİ. `review_reason` gerektiği için
 # `ROUTE_REASONS`daki kiracı kapsamlı okuma kümesine yazıldı. Başka hiçbir
 # ucun sözleşmesi değişmedi.
-EXPECTED_OPERATION_COUNT = 367
-EXPECTED_PATH_COUNT = 283
+# 367/283 -> 374/287 (TABAN #56 SONRASI, YENIDEN OLCULDU): E2 — veteriner
+# ilaç kataloğu + tedavi defteri + arınma kilitleri (göç 20260908_0074).
+# YEDİ işlem, DÖRT yol: GET/POST /api/vet-drugs, GET/PUT
+# /api/vet-drugs/{drug_id}, GET/POST /api/animal-treatments, GET
+# /api/animal-treatments/{treatment_id}.
+#
+# İZİNLER MEVCUT AİLEDEN ve YENİ BİR İZİN ADI AÇILMADI: okuma `herd.view`,
+# katalog yazma `herd.manage`, tedavi yazma `herd.health`. Sonuncusu
+# `auth.py`deki AŞI kuralının GENİŞLETİLMESİ değil AYNEN UYGULANMASIDIR —
+# kural "veteriner ya da sağlık sorumlusu" diyor ve ilaç tedavisi aşıdan
+# daha da açık biçimde veterinerlik işidir; kataloğun `herd.manage`da
+# kalması ise TANIM ile OLAY ayrımıdır (katalog satırı firmanın bütün
+# gelecek tedavilerinin süresini belirler).
+#
+# `auth.py`ye İKİ önek satırı EKLENDİ (`/api/vet-drugs`,
+# `/api/animal-treatments`) ve gerekçesi ÖLÇÜLDÜ: ikisi de mevcut hiçbir
+# önekle eşleşmiyor ("/api/animal-treatments" "/api/animals" ile EŞLEŞMEZ),
+# yani yazılmasalardı genel `read` iznine düşerlerdi. Ayrı bir
+# `review_reason` GEREKMİYOR: yedi uç da kiracı kapsamlıdır ve izinleri
+# mevcut `herd.*` ailesindendir. Başka hiçbir ucun sözleşmesi değişmedi.
+EXPECTED_OPERATION_COUNT = 374
+EXPECTED_PATH_COUNT = 287
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -431,7 +451,7 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # 20260908 1B-A (göç 20260908_0073): GET /api/products/{product_id}/lots
     # eklendi (`read`, mevcut `/api/products` önekinden). Parmak izi
     # TABAN #54 SONRASI: cec015e0 -> yeniden türetildi; başka hiçbir sözleşme değişmedi.
-    "4de3859472341099daa4f7c450b290291b5269490aaa3ff5759dfc05825fff22"
+    "411caebd4476d1bd2473723b3e7449ab3f5ab9081803cfef6a60ca4a9ceee6c8"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

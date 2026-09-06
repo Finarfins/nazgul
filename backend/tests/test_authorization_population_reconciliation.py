@@ -219,9 +219,23 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 # bir yetki kapısı YOK, yani ÇIPLAK read'e düşüyor (67 -> 68) ve çıplak read
 # `undeniable`ın alt kümesi olduğu için o da bir artıyor.
 # `FARM_HERD_VIEW_OPERATIONS` KIMILDAMADI: uç tarla/sürü ailesinden değil.
-EXPECTED_AUTHENTICATED = 357
+# 357 -> 364 / 94'te SABİT / 103 -> 107 (TABAN #56 SONRASI, YENİDEN ÖLÇÜLDÜ):
+# E2 — veteriner ilaç kataloğu + tedavi defteri (göç 20260908_0074), YEDİ uç.
+# Hangi sayaç NİYE kımıldadı:
+#   * KİMLİKLENMİŞ +7: yedi uç da kimlik ister.
+#   * `read` 94'te SABİT ve BU BİR TANIKTIR: yedi ucun HİÇBİRİ genel `read`e
+#     düşmüyor. Düşselerdi bu sayaç artardı ve OKUMA yetkisi olan herkes
+#     arınma sürelerini değiştirebilirdi — `auth.py`ye iki önek satırının
+#     yazılma sebebi tam olarak bu (ölçüldü: satırlar silinince
+#     `required_permission` ikisini de `read` gösteriyor).
+#   * UNDENIABLE +4: DÖRT OKUMA ucu `herd.view`a çözülüyor ve o izin bugün
+#     sevk edilen altı rolün hepsinde var, yani reddedilemez. ÜÇ YAZMA ucu
+#     bu sayaca GİRMİYOR (`herd.manage` / `herd.health`; ikisini de
+#     taşımayan roller var) ve girmemesi ayrımın tanığıdır.
+#   * ÇIPLAK read farkı (68) KIMILDAMADI: dilim genel `read` yüzeyi AÇMIYOR.
+EXPECTED_AUTHENTICATED = 364
 EXPECTED_READ = 94
-EXPECTED_UNDENIABLE = 103
+EXPECTED_UNDENIABLE = 107
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
 #: sonra kendi kapılarına takılırlar. 89'a dahil, 94'e DEĞİL.
@@ -267,6 +281,11 @@ FARM_HERD_VIEW_OPERATIONS = {
     ("GET", "/api/animal-groups"),
     ("GET", "/api/animal-groups/{group_id}"),
     ("GET", "/api/animal-movements"),
+    # Tedavi defteri (göç 20260908_0074). Okuma yüzeyi aşı/sağım
+    # listeleriyle AYNI role bağlı. YAZMA bu kümede DEĞİL: `herd.health`
+    # ister ve o izni sevk edilen roller arasında taşımayan var.
+    ("GET", "/api/animal-treatments"),
+    ("GET", "/api/animal-treatments/{treatment_id}"),
     ("GET", "/api/animal-vaccinations"),
     ("GET", "/api/animal-weights"),
     ("GET", "/api/animals"),
@@ -304,6 +323,14 @@ FARM_HERD_VIEW_OPERATIONS = {
     ("GET", "/api/herd-fertility"),
     ("GET", "/api/milk-yields"),
     ("GET", "/api/vaccination-calendar"),
+    # Veteriner ilaç kataloğu (göç 20260908_0074). BKÜ kataloğuyla AYNI
+    # gerekçe: sürü listelerinin yanında duran ve aynı hayvancılık verisini
+    # besleyen bir tanım tablosu. Maruziyet: ürün kimliği ve adı, tür,
+    # iki arınma süresi, uygulama yolu, doz birimi, ruhsat no, not ve durum.
+    # YAZMA `herd.manage` ister ve bu kümede DEĞİLDİR — `herd.view` yasal
+    # arınma sürelerini değiştirmeye yetmez.
+    ("GET", "/api/vet-drugs"),
+    ("GET", "/api/vet-drugs/{drug_id}"),
 }
 
 #: REDDEDEBİLEN handler kapıları. ``require_logout_csrf`` KASITLI olarak yok:
@@ -524,7 +551,11 @@ def test_farm_and_herd_view_membership_not_just_magnitude() -> None:
     # `farm.manage` — ve o izni sevk edilen altı rolün hepsi TAŞIMIYOR, yani
     # uç rol ile REDDEDİLEBİLİR. Sayacın kımıldamaması, "kuyruğu görmek" ile
     # "kuyruğu oynatmak"ın ayrı izinler olduğunun tanığıdır.
-    assert len(farm_herd) == 35
+    # 35 -> 39: E2'nin DÖRT OKUMA ucu (veteriner ilaç kataloğu listesi +
+    # tekil, tedavi defteri listesi + tekil; göç 20260908_0074). Yazma
+    # uçları bu kümede DEĞİL — `herd.manage` (katalog) ve `herd.health`
+    # (tedavi) istiyorlar ve ikisini de taşımayan sevk edilmiş roller var.
+    assert len(farm_herd) == 39
 
 
 def test_eightynine_partitions_into_sixtysix_and_twentythree() -> None:

@@ -422,9 +422,15 @@ def test_GOC_TURU_BOS_TABLO_OLCUMUYLE_kapaniyor(motor) -> None:
 
 @pytest.mark.postgresql
 def test_BAS_TEK_ve_0073_zincirin_UCUNDA(motor) -> None:
-    """Göç 0073 zincire İKİNCİ bir baş EKLEMEDİ."""
+    """Göç 0073 zincire İKİNCİ bir baş EKLEMEDİ.
+
+    Ölçülen şey başın HANGİ göç olduğu değil, TEK olduğudur. Baş ARTIK
+    `20260908_0074`tür (E2, veteriner ilaç kataloğu + arınma kilitleri) ve
+    0073 hâlâ zincirin İÇİNDE — yukarıdaki `test_GOC_TURU_BOS_TABLO_...`
+    turu onu MUTLAK hedefle adıyla sürüyor.
+    """
     from alembic.script import ScriptDirectory
 
     config = Config(str(BACKEND / "alembic.ini"))
     baslar = ScriptDirectory.from_config(config).get_heads()
-    assert tuple(baslar) == ("20260908_0073",), baslar
+    assert tuple(baslar) == ("20260908_0074",), baslar

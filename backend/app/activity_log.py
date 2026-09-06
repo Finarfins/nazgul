@@ -156,6 +156,28 @@ ACTION_TYPES: dict[str, str] = {
     # durumdan geri aldığı bu yüzden BURAYA yazılır. Kataloğa girmeden
     # çağrılamaz: `log_activity` katalog dışı bir tipi ValueError ile reddeder.
     "field_event.requeued": "Entegrasyon olayı yeniden kuyruklama",
+    # --- HAYVANCILIK: ARINMA (BEKLEME) SÜRELERİ (göç 20260908_0074) -------
+    #
+    # BU ÜÇÜ, HAYVANCILIK MODÜLÜNÜN KATALOĞA GİREN İLK OLAYLARIDIR. Modül
+    # 0049'dan beri HİÇ aktivite kaydı yazmıyordu ve o boşluk buraya kadar
+    # zararsızdı: hayvan/sürü/sağım kayıtları kendi tablolarında `updated_at`
+    # ile izleniyor ve hepsi tek bir kiracının kendi defteridir.
+    #
+    # Arınma süresi FARKLIDIR ve fark İKİ YERDEDİR:
+    #
+    # 1. KATALOG SATIRI BİR SAYIYI TANIMLAR ve o sayı kendi tablosunda
+    #    DEĞİŞTİRİLEBİLİR. 28 günlük et arınmasını 2 güne çeken bir düzenleme,
+    #    o andan sonraki bütün tedavileri sessizce serbest bırakır ve satırın
+    #    kendi `updated_at`i yalnız "değişti" der, "neydi" demez. Eski ve yeni
+    #    değer `details`ta durur.
+    # 2. KİLİDİN GEREKÇEYLE GEÇİLMESİ bir KARARDIR. Gerekçe metni sağım/hareket
+    #    satırındaki `withdrawal_override_reason` sütununda durur, ama O SATIR
+    #    KİMİN yazdığını taşımaz — `milk_yields`te ve `animal_movements`ta
+    #    kullanıcı sütunu YOKTUR (0049; ölçüldü, varsayılmadı). "Bu sütü kim
+    #    tanka yazdırdı" sorusunun cevabı yalnız BURADAN çıkar.
+    "vet_drug.create": "Veteriner ilaç kataloğu satırı ekleme",
+    "vet_drug.update": "Veteriner ilaç kataloğu satırı güncelleme",
+    "herd_withdrawal.overridden": "Arınma süresi gerekçeyle geçildi",
 }
 
 RESOURCE_TYPES: frozenset[str] = frozenset(
@@ -181,6 +203,15 @@ RESOURCE_TYPES: frozenset[str] = frozenset(
         # id'sidir; panelin kaynak bağlantısı okuma yüzeyine (`GET
         # /api/field-integration-events`) karşılık gelir.
         "field_integration_event",
+        # Veteriner ilaç kataloğu satırı (göç 20260908_0074). Kaynak KİMLİĞİ
+        # `vet_drugs.id`dir ve okuma yüzeyi `GET /api/vet-drugs/{id}`tir.
+        "vet_drug",
+        # Arınma kilidinin gerekçeyle geçilmesi. Kaynak KİMLİĞİ, gerekçeyi
+        # taşıyan SATIRIN kimliğidir (`milk_yields.id` ya da
+        # `animal_movements.id`); hangisi olduğu `details`ta `kaynak` ile
+        # yazılı, çünkü tek bir kaynak tipiyle iki tabloyu ayırmanın başka
+        # yolu yok ve iki AYRI tip açmak aynı kararı panelde ikiye bölerdi.
+        "herd_withdrawal",
     }
 )
 
