@@ -341,6 +341,13 @@ def test_yuz_iki_tablo_dosyasi_tam(hazir) -> None:
     gorulen = {a for a in hazir["adlar"] if a.startswith("tables/")}
     assert gorulen == beklenen, {
         "eksik": sorted(beklenen - gorulen), "fazla": sorted(gorulen - beklenen)}
+    # 113 -> 114: E3 (göç 0075) BİR kiracı tablosu ekledi
+    # (`animal_quarantines`). Sayı burada ELLE güncellendi, uygulama tarafı
+    # yine DOKUNULMADI ve bu, kapının VAR OLMA SEBEBİNİN kanıtıdır: karantina
+    # defteri dışa aktarıma KENDİLİĞİNDEN girdi çünkü `_kiraci_tablolari`
+    # kümeyi ŞEMADAN türetiyor. Elle yazılmış bir liste olsaydı bir kiracının
+    # karantina geçmişi SESSİZCE teslim edilmezdi — ve bu, verisini isteyen
+    # firmaya EKSİK veri vermek demekti. Bir öncesi
     # 110 -> 113: E2 (göç 0074) ÜÇ kiracı tablosu ekledi (`vet_drugs`,
     # `animal_treatments`, `animal_treatment_items`). Sayı burada ELLE
     # güncellendi, uygulama tarafı yine DOKUNULMADI. Bir öncesi
@@ -355,7 +362,7 @@ def test_yuz_iki_tablo_dosyasi_tam(hazir) -> None:
     # çalıştı: `_kiraci_tablolari` kümeyi ŞEMADAN türetiyor, yani yeni
     # tablolar dosyaya kendiliğinden girdi. Elle yazılmış bir liste
     # olsaydı bu iki tablo SESSİZCE dışarıda kalırdı.
-    assert len(gorulen) == 113
+    assert len(gorulen) == 114
     # Uygulamanın ŞEMADAN türettiği küme ile kapının listesi AYNI olmalı.
     assert set(hazir["sonuc"]["kiraci_tablolar"]) == set(TENANT_TABLES)
     assert f"companies/{hazir['sonuc']['a_id']}.json" in hazir["adlar"]
@@ -370,7 +377,7 @@ def test_tablo_sirasi_topolojik_ve_tam(hazir) -> None:
     değiştirmek (alfabetik sıra) bunu KIRMIZI yapar."""
     sonuc = hazir["sonuc"]
     sira = hazir["manifest"]["table_order"]
-    assert len(sira) == 113 and len(set(sira)) == 113
+    assert len(sira) == 114 and len(set(sira)) == 114
     assert set(sira) == set(sonuc["kiraci_tablolar"])
 
     # Testin KENDİ bağımsız Kahn tanığı: her bağımlılık, bağımlıdan ÖNCE.
@@ -502,7 +509,7 @@ with TestClient(app) as client:
     zf = zipfile.ZipFile(io.BytesIO(r.content))
     man = json.loads(zf.read("manifest.json"))
     ndjson = [a for a in zf.namelist() if a.startswith("tables/")]
-    assert len(ndjson) == 113, len(ndjson)
+    assert len(ndjson) == 114, len(ndjson)
     # ÖLÇÜLDÜ: "tamamen boş" bir firma dışa AKTARILAMAZ. Dışa aktarımın
     # kendisi ÜYELİK ister ve üyelik satırı `user_company_memberships`
     # tablosundadır — yani erişilebilir HER firmada en az bir satır vardır.
