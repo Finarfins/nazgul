@@ -124,6 +124,53 @@ def test_check_ve_sutun_AYNI_batchte_dusuyor() -> None:
     assert kisit < sutun, "CHECK sütundan SONRA düşüyor"
 
 
+def test_ACILIS_DDLi_GOCUN_ONUNE_GECMIYOR() -> None:
+    """0072'nin dört nesnesinden HANGİLERİ açılış DDL'inde de bildiriliyor.
+
+    ÖLÇÜLMÜŞ KUSUR (CI'da kırmızı oldu): `app/tenancy.py` `companies`i
+    `Table()` olarak bildiriyor ve uygulamanın AÇILIŞI o tabloyu alembic'ten
+    ÖNCE kurabiliyor. Sütun bildirime eklendiği için göç 0072 onu VAR bulup
+    tek `if` dalını ATLADI ve `ck_companies_farm_plantback_policy` HİÇ
+    KURULMADI — göç yeşil bitti, kısıt yoktu.
+
+    Bu kapı o sınıfı ADIYLA çiviliyor:
+
+    * `companies` açılışta bildiriliyor (bu bir OLGU, kusur değil), bu yüzden
+      göç sütunu ve CHECK'i AYRI AYRI sormak ZORUNDA — kapı göçün kaynağında
+      o ayrımı arıyor.
+    * Öteki ÜÇ nesnenin tabloları (`plant_protection_plantbacks`,
+      `crop_seasons`, `field_activities`) HİÇBİR açılış bildiriminde YOK,
+      yani onların TEK yaratıcısı göçtür ve aynı kusur onlarda ÜRETİLEMEZ.
+      Biri bir gün açılış DDL'ine girerse bu kapı kırmızı olur ve o göçün de
+      aynı ayrımı yapması gerektiği İNCELEMEYE zorlanır.
+    """
+    import re
+
+    acilis = ""
+    for modul in ("tenancy.py", "core_schema.py", "auth.py", "inventory.py",
+                  "finance_engine.py", "workflow.py"):
+        acilis += (BACKEND / "app" / modul).read_text(encoding="utf-8")
+    bildirilen = set(re.findall(r"""Table\(\s*['"]([a-z_]+)['"]""", acilis))
+
+    assert "companies" in bildirilen, (
+        "companies açılışta bildirilmiyor — bu kapının dayandığı olgu değişti"
+    )
+    for tablo in ("plant_protection_plantbacks", "crop_seasons",
+                  "field_activities"):
+        assert tablo not in bildirilen, (
+            "%s açılış DDL'ine girmiş; göç 0072 onu VAR bulup atlayabilir "
+            "(companies'te ölçülen kusurun aynısı)" % tablo
+        )
+
+    goc = GOC.read_text(encoding="utf-8")
+    # Sütun ve CHECK AYRI AYRI soruluyor mu — companies açılışta bildirildiği
+    # için bu bir tercih değil ZORUNLULUK.
+    assert "sutun_eksik" in goc and "check_eksik" in goc, (
+        "companies dalı sütun ve CHECK'i tek koşulda soruyor; açılış DDL'i "
+        "sütunu kurduğunda CHECK SESSİZCE kurulmaz"
+    )
+
+
 def test_plantback_politikasinda_allow_seviyesi_YOK() -> None:
     """0048/0064 ile AYNI sınır: kontrolü tamamen kapatan bir seviye YOK."""
     sys.path.insert(0, str(BACKEND))
