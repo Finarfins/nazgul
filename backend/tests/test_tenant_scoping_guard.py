@@ -1823,9 +1823,11 @@ print("TENANT_TABLES_JSON=" + json.dumps(tables))
 #   AND product_id=:pid`, komsu firmanin tohumu ise company_id'yi ACIK sutun
 #   olarak verir — ve o tohumun AMACI zaten okuma ucunun o satiri GORMEDIGINI
 #   olcmektir. app/ altinda yine SIFIR: bu tur da uretim kodu SQL'i alt surece
-#   VERMIYOR. Sayilar birlesmis agacta YENIDEN OLCULDU, aritmetikle devralinmadi.
-BEKLENEN_ALT_SUREC_SQL_DOSYA = 113
-BEKLENEN_ALT_SUREC_SQL_METIN = 190
+#   VERMIYOR. TABAN #58 (acilis kosulu 4) SONRASIDIR: develop 113/194, bu dal
+#   +1 dosya / +1 metin ile 114/195. Sayilar birlesmis agacta YENIDEN OLCULDU,
+#   aritmetikle devralinmadi.
+BEKLENEN_ALT_SUREC_SQL_DOSYA = 114
+BEKLENEN_ALT_SUREC_SQL_METIN = 195
 
 
 def _alt_surecte_sql() -> tuple[list[str], int]:
