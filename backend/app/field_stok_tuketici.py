@@ -1358,10 +1358,17 @@ def olaylari_isle(
     return sayac
 
 
+#: `tum_firmalari_isle`nin ISTEGE BAGLI olcum kabina yazdigi anahtarlar.
+#: Zamanlayicinin canlilik kaydi (acilis kosulu 4) bunlari okur.
+OLCUM_FIRMA_SAYISI = "firma_sayisi"
+OLCUM_FIRMA_ISLENEN = "firma_islenen"
+
+
 def tum_firmalari_isle(
     db: Session, *, azami_deneme: int = AZAMI_DENEME,
     sure_butcesi_saniye: int | None = DONGU_SURE_BUTCESI_SANIYE,
     sinir: int | None = AZAMI_PARTI,
+    olcum: dict[str, int] | None = None,
 ) -> dict[str, int]:
     """Her firmayı KENDİ kapsamında işler ve sayaçları toplar.
 
@@ -1374,6 +1381,20 @@ def tum_firmalari_isle(
     olayda 180.58 sn surmustu), `sinir` ise firma basina parti buyuklugunu.
     Kesilen olay `PENDING` kalir ve BIR SONRAKI dongude yeniden secilir;
     `None` gecirmek ilgili siniri kapatir.
+
+    FIRMA SAYISI DONEN SOZLUGE GIRMEZ, `olcum` KABINA YAZILIR. Zamanlayicinin
+    canlilik kaydi (acilis kosulu 4) "bu dongu kac firmayi GERCEKTEN gezdi"
+    bilgisini istiyor, ama bu sayiyi donen sayaca EKLEMEK KIRMIZI OLURDU ve bu
+    OLCULDU: bu sozlugun anahtarlarini SAYAN kapilar var
+    (`tests/test_field_stok_zamanlayici.py` sozlugu BIREBIR karsilastirir,
+    `tests/test_field_stok_dongu_siniri.py` ve PG ikizi ise `girdi` ve
+    `COMPANY_FAILED` DISINDAKI butun degerleri TOPLAYIP `girdi`ye esitler) —
+    yani yeni bir tam sayi anahtar korunum denklemini SESSIZCE bozardi.
+    `olcum` VARSAYILAN OLARAK `None`dir: gecmeyen her cagiran icin bu
+    fonksiyon BIREBIR eskisi gibi davranir. Gecildiginde iki anahtar yazilir:
+    `firma_sayisi` (aktif firma sayisi) ve `firma_islenen` (dongunun
+    GERCEKTEN girdigi firma sayisi — sure butcesi kestiginde ya da bir firma
+    dustugunde ikisi AYRISIR).
     """
     toplam = _sayac()
     # OLAY KOVASI DEGIL, FIRMA SAYACI. `_sayac()` disinda tutulur; bkz.
@@ -1398,6 +1419,9 @@ def tum_firmalari_isle(
         text("SELECT id FROM companies WHERE is_active = :aktif ORDER BY id"),
         {"aktif": True},
     ).scalars().all()
+    if olcum is not None:
+        olcum[OLCUM_FIRMA_SAYISI] = len(firmalar)
+        olcum[OLCUM_FIRMA_ISLENEN] = 0
     for sira, firma in enumerate(firmalar):
         if son_an is not None and time.monotonic_ns() >= son_an:
             logger.warning(
@@ -1443,6 +1467,8 @@ def tum_firmalari_isle(
                     "oturum kullanilamaz durumda; firma=%s", firma,
                 )
             continue
+        if olcum is not None:
+            olcum[OLCUM_FIRMA_ISLENEN] += 1
         for anahtar, deger in parca.items():
             toplam[anahtar] = toplam.get(anahtar, 0) + deger
     # KORUNUM, FİRMA BAŞINAKİ İLE AYNI DENKLEM OLMAK ZORUNDA. `CLAIM_LOST`

@@ -70,6 +70,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from .. import field_stok_zamanlayici as zamanlayici
 from ..activity_log import actor, log_activity
 from ..auth import utcnow
 from ..db import get_db
@@ -118,6 +119,17 @@ class OlayYuzeyi:
     #: eklendiği gün bu bayrak False ile gelir ve tüketicisi yazıldığında
     #: BİLEREK açılır.
     yeniden_kuyruklanabilir: bool = False
+    #: Bu yuzeyin `summary` cevabi ZAMANLAYICI CANLILIGINI tasisin mi
+    #: (acilis kosulu 4).
+    #:
+    #: NEDEN BAYRAK. Canlilik sinyali TEK BIR zamanlayiciya aittir
+    #: (`app/field_stok_zamanlayici.py`) ve o zamanlayici YALNIZ tarla
+    #: outbox'ini kosar. Bayrak olmasaydi, ikinci yuzey eklendigi gun
+    #: (`herd_integration_events` — bugun ne yazicisi ne okuyucusu var) o
+    #: ekran BASKA bir kuyrugun canliligini KENDI kuyrugununmus gibi
+    #: gosterirdi: en zararli gozlem hatasi, YANLIS bir kuyruk icin YESIL
+    #: yanan bir isarettir.
+    zamanlayicili: bool = False
 
 
 #: Tüketicinin (`app/field_stok_tuketici.py`) YAZDIĞI terminal durumlar.
@@ -147,6 +159,8 @@ TARLA = OlayYuzeyi(
     basarisiz_kovalar=_TARLA_BASARISIZ,
     # Tüketici `app/field_stok_tuketici.py`de VAR ve `PENDING` seçiyor.
     yeniden_kuyruklanabilir=True,
+    # Zamanlayıcı (`app/field_stok_zamanlayici.py`) BU kuyruğu koşar.
+    zamanlayicili=True,
 )
 
 #: Bugün tek yüzey var. Küme yine de MODÜL İÇİ ve kapalı: tablo adının
@@ -270,6 +284,71 @@ def _kosul(
     return kosul
 
 
+# --------------------------------------------------------------------------
+# AÇILIŞ KOŞULU 4 — CANLILIK/GECİKME SİNYALİ
+# --------------------------------------------------------------------------
+#
+# Belgenin dördüncü koşulu: "Zamanlayıcı thread'i ölürse ya da kuyruk birikirse
+# bunu söyleyen bir metrik/alarm yok." Bu yüzeyin kendi başlığı da bu boşluğu
+# adıyla yazıyordu: `summary` kuyruğun BOYUNU ve YAŞINI gösterir ama
+# tüketicinin KOŞUP KOŞMADIĞINI göstermez.
+#
+# --- YENİ UÇ AÇILMADI, VAR OLAN `summary` BÜYÜTÜLDÜ ------------------------
+#
+# İkinci bir uç, "kuyruk" ile "onu boşaltan şey"i iki ekrana bölerdi ve o iki
+# ekran arasında bir zaman farkı olurdu: 40 gündür bekleyen bir olayı gören
+# kişi, tüketicinin ölü olduğunu ancak BAŞKA bir yere bakarsa öğrenirdi. Karar
+# TEK EKRAN: aynı yanıtta hem kuyruk hem onu koşan thread.
+#
+# --- İKİ ALAN, İKİ AYRI KAPSAM. BU AYRIM BİLEREK YAZILIYOR -----------------
+#
+# `scheduler` bloğu PLATFORM düzeyindedir ve HER KİRACI İÇİN AYNIDIR:
+# zamanlayıcı süreç-içi TEK bir thread'dir ve tüm firmaları tek döngüde gezer,
+# yani `company_id` taşıyan bir canlılık kaydı UYDURMA olurdu. Buna karşılık
+# `pending_oldest_age_seconds` KİRACIYA ÖZELDİR ve bu ucun ZATEN
+# `company_id=:cid` ile koşan özet sorgusundan türer — ikinci bir sorgu
+# AÇILMADI, çünkü özet zaten kova başına `MIN(created_at)` seçiyor.
+#
+# `last_error` DÖNMEZ. Kalp atısı satırı onu taşır (adli değer veritabanında
+# kalır) ama bu uç `farm.view` taşıyan salt-okur rollere açıktır ve bir döngü
+# istisnasının metni SQL, kısıt adı ve satır değeri taşıyabilir. Aynı gerekçe
+# `_gerekceyi_arindir`in gerekçesidir; koşul 2'de kapatılan sızıntı sınıfını
+# koşul 4'te yeniden açmıyoruz.
+
+
+def _bekleyen_en_eski(kovalar: list[dict[str, Any]]) -> Any:
+    """Kiracının EN ESKİ `PENDING` olayının damgası; yoksa `None`."""
+    damgalar = [
+        kova.get("oldest_created_at")
+        for kova in kovalar
+        if kova["status"] == _BEKLIYOR and kova.get("oldest_created_at")
+    ]
+    if not damgalar:
+        return None
+    # Kaynak tipi başına bir satır var; en eskisi hepsinin en küçüğüdür.
+    # Karşılaştırma ÇÖZÜLMÜŞ zaman üzerinden yapılır: ham değer lehçeye göre
+    # metin (sqlite) ya da `datetime` (psycopg) olabilir ve ikisini birlikte
+    # sıralamak `TypeError` verirdi.
+    cozulmus = [
+        (zamanlayici.yas_saniye(damga), damga) for damga in damgalar
+    ]
+    gecerli = [ikili for ikili in cozulmus if ikili[0] is not None]
+    if not gecerli:
+        return None
+    # EN ESKİ = EN BÜYÜK YAŞ.
+    return max(gecerli)[1]
+
+
+def _zamanlayici_blogu(
+    db: Session, kovalar: list[dict[str, Any]]
+) -> dict[str, Any]:
+    blok = zamanlayici.canlilik(db)
+    blok["pending_oldest_age_seconds"] = zamanlayici.yas_saniye(
+        _bekleyen_en_eski(kovalar)
+    )
+    return blok
+
+
 def kaydet(yuzey: OlayYuzeyi) -> None:
     """Bir yüzeyin iki rotasını kaydeder. İKİNCİ ALAN = İKİNCİ ÇAĞRI."""
 
@@ -298,7 +377,7 @@ def kaydet(yuzey: OlayYuzeyi) -> None:
         kovalar = [dict(satir) for satir in rows]
         for kova in kovalar:
             kova["count"] = int(kova["count"] or 0)
-        return {
+        cevap: dict[str, Any] = {
             "source": yuzey.alan,
             "buckets": kovalar,
             "total": sum(kova["count"] for kova in kovalar),
@@ -312,6 +391,9 @@ def kaydet(yuzey: OlayYuzeyi) -> None:
                 if kova["status"] in yuzey.basarisiz_kovalar
             ),
         }
+        if yuzey.zamanlayicili:
+            cevap["scheduler"] = _zamanlayici_blogu(db, kovalar)
+        return cevap
 
     @router.get(
         yuzey.yol,

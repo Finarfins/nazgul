@@ -6,7 +6,26 @@ from pathlib import Path
 
 
 BACKEND = Path(__file__).resolve().parent
-ALLOWED_SETTINGS_WRITERS = {Path("seed_demo_data.py")}
+# `settings` PLATFORM GENELIDIR ve bu kapi onu KIRACI verisinden korur:
+# tabloda `company_id` sutunu YOKTUR, yani oraya yazilan firma verisi
+# kiracilar arasinda PAYLASILIR. Listeye giren her yazicinin PLATFORM
+# DUZEYINDE bir olguyu yazdigi burada gerekcesiyle yazilir.
+#
+# `app/field_stok_zamanlayici.py` — ACILIS KOSULU 4 (canlilik/gecikme
+# sinyali). Tek anahtar: `field_stok_zamanlayici.heartbeat`. Zamanlayici
+# SUREC DUZEYINDE tek bir thread'dir ve TUM firmalari TEK dongude gezer;
+# kalp atisi o thread'in olgusudur, bir firmanin DEGIL. `company_id`
+# tasiyan bir kalp atisi kiracisi olmayan bir seye kiraci UYDURMAK olurdu.
+# Satirin govdesi (started_at, finished_at, companies_processed,
+# companies_total, events_processed, last_error) TEK BIR FIRMANIN verisini
+# DEGIL, dongunun TAMAMININ sayaclarini tasir. Yeni bir tablo alternatifi
+# GOC demekti ve bu dilim goc acmiyor; `platform_maintenance` ise BAKIM
+# ISLEMININ kalp atisidir (goc 20260728_0034) ve oraya yazmak kilit
+# sahipligi hakkinda YALAN soylerdi.
+ALLOWED_SETTINGS_WRITERS = {
+    Path("seed_demo_data.py"),
+    Path("app/field_stok_zamanlayici.py"),
+}
 RAW_SETTINGS_WRITE = re.compile(
     r"\b(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|REPLACE\s+INTO|UPDATE|DELETE\s+FROM)"
     r"\s+[\"'`\[]?settings\b",
