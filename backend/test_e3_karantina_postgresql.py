@@ -534,7 +534,7 @@ def test_kilit_GERCEK_PostgreSQLde_isiriyor(motor, acilis_sifresi) -> None:
             "moved_on": "2026-09-10"})
         assert sinir.status_code == 201, sinir.text
         assert sinir.json()["quarantine_warning"] is None, sinir.text
-        # BİR GÜN ÖNCESİ HÂLÂ KESİYOR.
+        # BİR GÜN ÖNCESİ HALA KESİYOR.
         assert client.post("/api/milk-yields", headers=h, json={
             "animal_id": inek["id"], "milked_on": "2026-09-09",
             "quantity_liters": "20"}).status_code == 422

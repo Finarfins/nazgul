@@ -25,7 +25,7 @@ Her kapı, HANGİ değişikliğin onu kırmızı yapacağını ADIYLA söylüyor
   * `_karantina_ihlalleri`de sürü yolunu (`_KARANTINA_GRUP_SORGU`) atlayıp
     yalnız bireysel karantinaya bakmak -> SÜRÜ YOLU adımı KIRMIZI
   * `_karantina_ihlalleri`de `hedef_gun >= bitis` atlamasını kaldırmak
-    (kapanmış karantina HÂLÂ kilitler) -> SINIR GÜNÜ adımı KIRMIZI
+    (kapanmış karantina HALA kilitler) -> SINIR GÜNÜ adımı KIRMIZI
   * `_KARANTINA_*_SORGU`dan iç sorgunun `h.company_id=:cid` yüklemini düşürmek
                                        -> ÇAPRAZ KİRACI adımı KIRMIZI
   * Göçün iki kısmi tekil indeksini düşürmek (ikinci AÇIK karantina serbest)
@@ -52,7 +52,7 @@ HERD = BACKEND / "app" / "routers" / "herd.py"
 # --------------------------------------------------------------- statik ---
 
 def test_goc_KARANTINA_TABLOSU_aciyor_ve_BITIS_NULL_KABUL_EDIYOR() -> None:
-    """Karantina KENDİ tablosunda; `ended_on` NULL = HÂLÂ AÇIK.
+    """Karantina KENDİ tablosunda; `ended_on` NULL = HALA AÇIK.
 
     MUTASYON: `ended_on`u NOT NULL yapmak ya da arınmanın desenini (başlangıç +
     gün sayısı) kopyalamak bunu KIRMIZI yapar. Karantina HESAPLANMAZ: süresi
@@ -667,12 +667,12 @@ with TestClient(app) as client:
                  ended_on='2026-10-02').status_code == 200
 
     # --- 8) SINIR GÜNÜ: ended_on GÜNÜ SERBEST ------------------------------
-    # Karantina 01-10 arasıydı. 10'u SERBEST, 09'u HÂLÂ KESİYOR.
+    # Karantina 01-10 arasıydı. 10'u SERBEST, 09'u HALA KESİYOR.
     sinir = hareket(client, h, inek, 'SALE', '2026-09-10')
     assert sinir.status_code == 201, sinir.text
     assert sinir.json()['quarantine_warning'] is None, sinir.text
     assert sagim(client, h, '2026-09-09', animal_id=inek).status_code == 422
-    # KAPANMIŞ KARANTİNA GEÇMİŞİ HÂLÂ KESİYOR: kapatıp geçmişe kayıt girerek
+    # KAPANMIŞ KARANTİNA GEÇMİŞİ HALA KESİYOR: kapatıp geçmişe kayıt girerek
     # kilidi atlatmak MÜMKÜN DEĞİL.
     assert sagim(client, h, '2026-09-05', animal_id=inek).status_code == 422
 
@@ -725,7 +725,7 @@ with TestClient(app) as client:
     assert karantina(client, h, animal_id=ikili, started_on='2026-09-01',
                      reason='hem tedavi hem karantina').status_code == 201
 
-    # YALNIZ ARINMA GEREKÇESİ: karantina HÂLÂ kesiyor.
+    # YALNIZ ARINMA GEREKÇESİ: karantina HALA kesiyor.
     yarim = sagim(client, h, '2026-09-05', animal_id=ikili,
                   withdrawal_override_reason='arınma için gerekçe')
     assert yarim.status_code == 422, yarim.text

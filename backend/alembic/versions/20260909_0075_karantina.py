@@ -16,7 +16,7 @@ ve E2'nin hiçbir halkası onu tutmuyordu:
     tedbir altındadır. Ne zaman biteceği YAZILDIĞI AN BİLİNMEZ; biten şeyi
     bitiren insandır, aritmetik değil.
 
-Bu ayrım şemaya YAZILDI: `ended_on` NULL KABUL EDER ve NULL "HÂLÂ AÇIK"
+Bu ayrım şemaya YAZILDI: `ended_on` NULL KABUL EDER ve NULL "HALA AÇIK"
 demektir. Arınma deseni (başlangıç + gün sayısı) burada kullanılsaydı, süresi
 belirsiz bir karantina için uydurma bir gün sayısı girmek ZORUNLU olurdu ve o
 sayı deponun İDDİASI olurdu.
@@ -195,7 +195,7 @@ def upgrade() -> None:
             sa.Column("animal_id", sa.Integer(), nullable=True),
             sa.Column("group_id", sa.Integer(), nullable=True),
             sa.Column("started_on", sa.Date(), nullable=False),
-            # NULL = HÂLÂ AÇIK. Gerekçe başlıkta: bitişi bilen insandır.
+            # NULL = HALA AÇIK. Gerekçe başlıkta: bitişi bilen insandır.
             sa.Column("ended_on", sa.Date(), nullable=True),
             # SEBEP ZORUNLU: sebepsiz bir karantina, kapatma kararını alacak
             # olana hiçbir şey söylemez ve "bu neden açıktı" sorusu denetimde

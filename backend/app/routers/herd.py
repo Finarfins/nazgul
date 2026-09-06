@@ -1740,7 +1740,7 @@ def _karantina_ihlalleri(
     * ``ended_on`` NULL ise ÜST SINIR YOKTUR: karantina açıktır ve
       ``started_on``dan sonraki HER gün kapsanır.
 
-    KAPANMIŞ KARANTİNA GEÇMİŞİ HÂLÂ KESER: aralığın içine düşen GERİYE DÖNÜK
+    KAPANMIŞ KARANTİNA GEÇMİŞİ HALA KESER: aralığın içine düşen GERİYE DÖNÜK
     bir sağım/hareket ihlaldir. Kilidi "yalnız açık karantina" diye yazmak,
     karantinayı kapatıp geçmişe kayıt girerek onu tamamen atlatmayı mümkün
     kılardı.
@@ -1784,7 +1784,7 @@ def _karantina_ihlal_metni(ihlaller: list[dict[str, Any]]) -> str:
     ilk = ihlaller[0]
     if ilk["ended_on"] is None:
         return (
-            f"{ilk['started_on']} tarihinde açılan karantina HÂLÂ AÇIK: "
+            f"{ilk['started_on']} tarihinde açılan karantina HALA AÇIK: "
             f"{ilk['reason']}"
         )
     return (
