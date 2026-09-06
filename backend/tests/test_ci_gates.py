@@ -20,8 +20,8 @@ CALL_SITE_GATE = REPO_ROOT / "deploy" / "ci-verify-cagri-kapisi.py"
 BACKEND = REPO_ROOT / "backend"
 
 
-def test_pg_test_population_exact_108() -> None:
-    """PostgreSQL test population must be exactly 108 files.
+def test_pg_test_population_exact_109() -> None:
+    """PostgreSQL test population must be exactly 109 files.
 
     106 -> 107: E2 veteriner ilaç / arınma ikizi
     (`test_e2_tedavi_arinma_postgresql.py`, göç 20260908_0074). SAYIM
@@ -66,6 +66,30 @@ def test_pg_test_population_exact_108() -> None:
     her biri KENDİ ikizinde yeşil kalarak; (e) kiracı yüklemi seçicide DEĞİL
     çağıranın sorgusundadır ve gerçekten ısırdığı ancak iki kiracılı gerçek
     bir şemada sorulabilir.
+
+    108 -> 109: E3 karantina ikizi (`test_e3_karantina_postgresql.py`, göç
+    20260909_0075). SAYIM ÖLÇÜLDÜ, önceki ölçümün ÜZERİNE ARİTMETİK
+    YAPILARAK DEĞİL: bu dalda `ls backend/test_*postgresql*.py | wc -l` ->
+    107 (yeni dosya DAHİL), yani 107 `postgresql`-adlı + 2 özel = 109.
+
+    ÖNCEKİ TURDA 108 ÖLÇÜLMÜŞTÜ ve o ölçüm 1B-B (#63) develop'a indiği anda
+    GEÇERSİZ oldu: iki dal AYNI ANDA birer ikiz ekliyordu ve ikisi de aynı
+    107 -> 108 adımını yazmıştı. İKİNCİ BİRLEŞEN YENİDEN ÖLÇER — bu satır
+    1B-B SONRASI tabanda (77aa5b0) yeniden ölçüldü, aritmetikle
+    devralınmadı.
+
+    İKİZ ZORUNLU ve gerekçesi DÖRT tanedir, dördü de yalnız üretim
+    diyalektinde görünür: (a) göçün İKİ bileşik yabancı anahtarının TEK işi
+    çapraz kiracı referansı engellemektir ve SQLite'ta yabancı anahtar
+    uygulaması varsayılan olarak KAPALIDIR, yani kiracı savunmasının TAMAMI
+    orada YEŞİL kalırdı; (b) İKİ KISMİ TEKİL İNDEKSİN gerçekten kısmi
+    olduğu — açık karantinayı tekilleştirip kapanmışları serbest bıraktığı —
+    ancak gerçek bir eşzamanlılık kısıtında ölçülebilir ve bu göçün EN İNCE
+    parçası odur; (c) `herd_quarantine_policy` CHECK'i ve `block`
+    varsayılanı geliştirme diyalektinde ÖLÇÜLEMEZ (SQLite CHECK'i
+    yansıtmıyor) ve 0072'de ölçülen kusur tam orada görünür; (d)
+    `ck_animal_quarantines_aralik` ile `ck_animal_quarantines_sebep_dolu`
+    yalnız gerçek katalogda reddeder.
 
     105 -> 106: 1B-A alış-kalemi-parti ikizi
     (`test_1b_a_alis_lot_postgresql.py`, göç 20260908_0073). İkiz ZORUNLU:
@@ -203,23 +227,23 @@ def test_pg_test_population_exact_108() -> None:
         BACKEND / "tests" / "test_ci_playwright_hazirlik.py",
     ]
     all_files = pg_glob + [p for p in named if p.exists()]
-    assert len(all_files) == 108, (
-        f"PostgreSQL test population changed: expected 108, got {len(all_files)}"
+    assert len(all_files) == 109, (
+        f"PostgreSQL test population changed: expected 109, got {len(all_files)}"
     )
 
 
 def test_ci_workflow_has_frozen_pg_population_constant() -> None:
-    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=108 and strict equality.
+    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=109 and strict equality.
 
     ÜÇÜNCÜ ÇİVİ. Sayı bu depoda ÜÇ yerde yaşıyor: `ci.yml`in sabiti,
-    `test_pg_test_population_exact_108`in adı/iddiası, ve BURASI. Üçü aynı
+    `test_pg_test_population_exact_109`in adı/iddiası, ve BURASI. Üçü aynı
     popülasyonu sayıyor; biri güncellenip öteki unutulursa kapı KENDİ
-    KENDİSİYLE ÇELİŞİR — ve bu tam olarak `test_pg_test_population_exact_108`
+    KENDİSİYLE ÇELİŞİR — ve bu tam olarak `test_pg_test_population_exact_109`
     düzyazısının anlattığı tuzaktır (bir tur boyunca ad `_99`, iddia `100`,
     `ci.yml` yorumu `97 + 2 = 99` idi).
     """
     content = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BEKLENEN_PG_DOSYA_SAYISI=108" in content
+    assert "BEKLENEN_PG_DOSYA_SAYISI=109" in content
     assert '[ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]' in content
 
 

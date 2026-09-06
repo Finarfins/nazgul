@@ -264,6 +264,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/animal-quarantines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Quarantines
+         * @description Karantina defteri. ``open_only`` YALNIZ AÇIK olanları süzer.
+         *
+         *     Süzgeç parçaları KAPALI bir kümeden kuruluyor ve istekten gelen DEĞERLER
+         *     her durumda BAĞLI PARAMETREDİR; ``open_only`` bir bool'dur ve metne
+         *     DEĞERİ değil, hangi SABİT parçanın ekleneceği girer.
+         */
+        get: operations["list_quarantines_api_animal_quarantines_get"];
+        put?: never;
+        /**
+         * Create Quarantine
+         * @description Karantinayı AÇAR. Kapanış tarihi BURADA YAZILMAZ.
+         *
+         *     AÇIK KARANTİNA HEDEF BAŞINA TEKTİR ve bunu ŞEMA zorluyor (göç 0075'in iki
+         *     kısmi tekil indeksi). Uygulama katmanında bir "önce bak, sonra yaz"
+         *     kontrolü İKİ EŞZAMANLI isteği ayırt EDEMEZDİ; ayıran yalnız indekstir ve
+         *     ihlali burada 409'a çevriliyor.
+         */
+        post: operations["create_quarantine_api_animal_quarantines_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/animal-quarantines/{quarantine_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Quarantine */
+        get: operations["get_quarantine_api_animal_quarantines__quarantine_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/animal-quarantines/{quarantine_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Close Quarantine
+         * @description Karantinayı KAPATIR. Yazma ``ended_on IS NULL`` üzerinde KOŞULLUDUR.
+         *
+         *     KAPATMA AYRI BİR UÇTUR, `PUT /animal-quarantines/{id}` DEĞİL — ve bu
+         *     ayrım BİLİNÇLİDİR. Genel bir güncelleme ucu `started_on`u ve `reason`u da
+         *     yazdırırdı; oysa karantinanın AÇILIŞI bir OLGUDUR ve geçmişe dönük
+         *     değiştirilmesi, o karantinanın kestiği bütün sağım ve hareketleri
+         *     GERİYE DÖNÜK olarak haklı ya da haksız çıkarırdı.
+         *
+         *     CAS (compare-and-set): ``WHERE ... AND ended_on IS NULL``. İki eşzamanlı
+         *     kapatmadan biri kazanır, öteki ``rowcount == 0`` görür ve 409 alır. Bir
+         *     "önce oku, kapalı mı bak, sonra yaz" dizisi bu yarışı KAYBEDERDİ.
+         */
+        post: operations["close_quarantine_api_animal_quarantines__quarantine_id__close_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/animal-treatments": {
         parameters: {
             query?: never;
@@ -6137,6 +6217,8 @@ export interface components {
             farm_reentry_policy?: ("warn" | "require_reason" | "block") | null;
             /** Farm Spraying Dose Required */
             farm_spraying_dose_required?: boolean | null;
+            /** Herd Quarantine Policy */
+            herd_quarantine_policy?: ("warn" | "require_reason" | "block") | null;
             /** Herd Withdrawal Policy */
             herd_withdrawal_policy?: ("warn" | "require_reason" | "block") | null;
             /**
@@ -7775,6 +7857,8 @@ export interface components {
             notes?: string | null;
             /** Quantity Liters */
             quantity_liters: number | string;
+            /** Quarantine Override Reason */
+            quarantine_override_reason?: string | null;
             /** Session */
             session?: string | null;
             /** Withdrawal Override Reason */
@@ -7797,6 +7881,8 @@ export interface components {
             moved_on: string;
             /** Notes */
             notes?: string | null;
+            /** Quarantine Override Reason */
+            quarantine_override_reason?: string | null;
             /** Reason */
             reason?: string | null;
             /** Withdrawal Override Reason */
@@ -8644,6 +8730,54 @@ export interface components {
             quantity?: number | string | null;
             /** Supplier Id */
             supplier_id: number;
+        };
+        /**
+         * QuarantineClose
+         * @description Karantinanın KAPANIŞI. Tek alan, çünkü kapanan tek şey tarihtir.
+         *
+         *     ``expected_updated_at`` İSTENMİYOR ve bu, kardeş uçlardan (``VetDrugUpdate``)
+         *     BİLİNÇLİ bir ayrımdır: kapatma iyimser kilit DEĞİL, ``ended_on IS NULL``
+         *     üzerinde KOŞULLU BİR YAZMADIR (CAS). İki eşzamanlı kapatmadan biri kazanır
+         *     ve öteki 409 alır; iyimser kilit aynı sonucu verirdi ama istemciden
+         *     taşıması gereksiz bir zaman damgası isterdi.
+         */
+        QuarantineClose: {
+            /**
+             * Ended On
+             * Format: date
+             */
+            ended_on: string;
+            /** Notes */
+            notes?: string | null;
+        };
+        /**
+         * QuarantineWrite
+         * @description Bir hayvanı YA DA bir sürüyü karantinaya alma KARARI.
+         *
+         *     ``ended_on`` BURADA YOK ve yokluğu BİLİNÇLİDİR: karantina açılırken ne
+         *     zaman biteceği BİLİNMEZ. Alanı açma gövdesine koymak, kullanıcıyı
+         *     uydurma bir tarih girmeye iter ve o tarih geldiğinde karantina KİMSE
+         *     bakmadan kendiliğinden kalkardı. Kapatma AYRI bir uçtur
+         *     (``POST /api/animal-quarantines/{id}/close``) ve orada tarih ZORUNLUDUR.
+         *
+         *     ``reason`` ZORUNLU (şemada ``ck_animal_quarantines_sebep_dolu``):
+         *     sebepsiz bir karantina, kapatma kararını alacak olana hiçbir şey
+         *     söylemez.
+         */
+        QuarantineWrite: {
+            /** Animal Id */
+            animal_id?: number | null;
+            /** Group Id */
+            group_id?: number | null;
+            /** Notes */
+            notes?: string | null;
+            /** Reason */
+            reason: string;
+            /**
+             * Started On
+             * Format: date
+             */
+            started_on: string;
         };
         /** QuickPickItem */
         QuickPickItem: {
@@ -10440,6 +10574,140 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_quarantines_api_animal_quarantines_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                animal_id?: number | null;
+                group_id?: number | null;
+                open_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_quarantine_api_animal_quarantines_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuarantineWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_quarantine_api_animal_quarantines__quarantine_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                quarantine_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    close_quarantine_api_animal_quarantines__quarantine_id__close_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                quarantine_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuarantineClose"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

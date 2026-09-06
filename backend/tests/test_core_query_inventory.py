@@ -790,7 +790,7 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     # `where(companies.c.id == cid)` aynen duruyor; değişen tek şey OKUNAN
     # SÜTUN kümesidir.
     ("app/routers/companies.py", "get_company_settings", "select",
-     "6f7b973d2d873a83a549635c6ddb5f3f93fab1e71c6bf8286f3958f111aebb2b"): (1, "companies", "arg0"),  # satır [115]
+     "05b5e87704905deef50c63f449fc945cf4be3784cf18d15052f5a2800f18fd1e"): (1, "companies", "arg0"),  # satır [115]
     ("app/routers/companies.py", "list_branches", "select",
      "a1e5782db98e816f1960a283e2827acf34c2f7f89add2c976e5c8d680863b69b"): (1, "branches", "arg0"),  # satır [183]
     ("app/routers/companies.py", "list_policy_overrides", "select",
@@ -948,7 +948,7 @@ EXPECTED_OP_COUNTS = {"select": 95, "update": 42, "delete": 8}
 # `77aa5b0` (#59 + #62 + #63 indikten sonra); onceki turun 144 -> 145 /
 # `6031430b` -> `ee29c6f8` olcumu taban degistigi anda GECERSIZ oldu ve
 # parmak izi ARITMETIKLE degil YENIDEN turetildi.
-INVENTORY_FINGERPRINT = "744f620ecce130a31e40bbbcaacd35291b57664aa82d52511ba9f4ab1b1cd374"
+INVENTORY_FINGERPRINT = "a2c744561d38ef2dc169fb11c67d3682f886769bb131fba0366c3f7b127bf75f"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:

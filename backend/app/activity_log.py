@@ -178,6 +178,21 @@ ACTION_TYPES: dict[str, str] = {
     "vet_drug.create": "Veteriner ilaç kataloğu satırı ekleme",
     "vet_drug.update": "Veteriner ilaç kataloğu satırı güncelleme",
     "herd_withdrawal.overridden": "Arınma süresi gerekçeyle geçildi",
+    # --- HAYVANCILIK: KARANTİNA (göç 20260909_0075) -----------------------
+    #
+    # AÇMA VE KAPATMA AYRI İKİ TİPTİR ve tek bir "karantina değişti" tipine
+    # indirilmedi: paneli okuyanın sorduğu şey "bu hayvan NE ZAMAN ayrıldı,
+    # NE ZAMAN çıktı" ve tek tip bu iki soruyu `details`a gömerdi.
+    #
+    # KAPATMA NEDEN AYRICA KAYIT ALTINDA: karantinayı kapatmak, hayvanın
+    # sütünü tanka ve etini kasaba SERBEST BIRAKAN karardır. `ended_on`
+    # sütunu YALNIZ tarihi tutar; o kararı KİMİN verdiği
+    # `animal_quarantines`ta HİÇBİR YERDE yazmaz — tablo kullanıcı sütunu
+    # TAŞIMIYOR (0049'dan beri hayvancılık modülünün deseni; ölçüldü,
+    # varsayılmadı). "Bu hayvanı karantinadan kim çıkardı" sorusunun cevabı
+    # yalnız BURADAN çıkar.
+    "animal_quarantine.opened": "Karantina açıldı",
+    "animal_quarantine.closed": "Karantina kapatıldı",
 }
 
 RESOURCE_TYPES: frozenset[str] = frozenset(
@@ -212,6 +227,11 @@ RESOURCE_TYPES: frozenset[str] = frozenset(
         # yazılı, çünkü tek bir kaynak tipiyle iki tabloyu ayırmanın başka
         # yolu yok ve iki AYRI tip açmak aynı kararı panelde ikiye bölerdi.
         "herd_withdrawal",
+        # Karantina kaydı (göç 20260909_0075). Kaynak KİMLİĞİ
+        # `animal_quarantines.id`dir ve okuma yüzeyi
+        # `GET /api/animal-quarantines/{id}`tir. Açma ve kapatma AYNI kaynağı
+        # işaret eder — ikisi de aynı satırın olaylarıdır.
+        "animal_quarantine",
     }
 )
 

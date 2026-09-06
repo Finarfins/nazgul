@@ -821,6 +821,14 @@ _HERD_PATH_PREFIXES = (
     # — 0063'ün katalog için, 0072'nin plant-back için yazdığı tuzağın aynısı.
     "/api/vet-drugs",
     "/api/animal-treatments",
+    # KARANTİNA — göç 20260909_0075.
+    #
+    # ÖNEK EŞLEŞMESİ ÖLÇÜLDÜ, VARSAYILMADI: "/api/animal-quarantines"
+    # yukarıdaki hiçbir öneke düşmez ("/api/animals" ile EŞLEŞMEZ — 'animal'
+    # sonrası 's' değil '-' geliyor). Yazılmasaydı dosyanın altındaki genel
+    # ``read`` kuralına düşerdi ve OKUMA yetkisi olan herkes bir hayvanı
+    # karantinaya alıp ÇIKARABİLİRDİ.
+    "/api/animal-quarantines",
 )
 
 #: Saatlik maliyet oranları (mobil-erp#24). Bu bir PARA TANIMI: oran, geçmiş
@@ -931,8 +939,22 @@ def required_permission(method: str, path: str) -> str:
         # satırı bir OLAY değil bir TANIMDIR — firmanın bütün gelecek
         # tedavilerinin süresini belirler. Tanımı değiştirmek sürü yönetimi
         # kararıdır; olayı kaydetmek sağlık kaydıdır.
-        if path.startswith("/api/animal-vaccinations") or path.startswith(
-            "/api/animal-treatments"
+        #
+        # KARANTİNA DA AYNI KAPIDAN GEÇER (göç 0075) ve bu, kuralın
+        # GENİŞLETİLMESİ değil AYNEN UYGULANMASIDIR: karantina bir SAĞLIK
+        # OLAYIDIR — hayvanı hasta/şüpheli gördüğü için ayıran da, gözlem
+        # bitince çıkaran da veteriner ya da sağlık sorumlusudur. `herd.manage`a
+        # bağlamak, aşı ve tedavi girebilen kişinin karantina AÇAMADIĞI bir
+        # sistem üretirdi.
+        #
+        # KAPATMA DA AYNI İZİNDEDİR ve önek eşleşmesi bunu KENDİLİĞİNDEN
+        # veriyor: "/api/animal-quarantines/7/close" aynı önekle başlar. Ayrı
+        # bir izne bağlamak, karantinayı açabilen ama kapatamayan bir rol
+        # üretirdi ve o rol karantinayı hiç açmamayı öğrenirdi.
+        if (
+            path.startswith("/api/animal-vaccinations")
+            or path.startswith("/api/animal-treatments")
+            or path.startswith("/api/animal-quarantines")
         ):
             return "herd.health"
         return "herd.manage"

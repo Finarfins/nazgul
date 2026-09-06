@@ -45,6 +45,8 @@ from ..herd_schemas import (
     HerdFertilityResponse,
     MilkYieldWrite,
     MovementWrite,
+    QuarantineClose,
+    QuarantineWrite,
     TreatmentWrite,
     VaccinationWrite,
     VetDrugUpdate,
@@ -84,6 +86,9 @@ _TABLOLAR = frozenset({
     # Arınma (bekleme) süreleri — göç 20260908_0074. Küme İSTEKTEN gelen bir
     # değeri asla kabul etmez; `_satir` yalnız bu sabitten okur.
     "vet_drugs", "animal_treatments", "animal_treatment_items",
+    # Karantina defteri — göç 20260909_0075. Aynı gerekçe: küme İSTEKTEN
+    # gelen bir değeri asla kabul etmez.
+    "animal_quarantines",
 })
 
 
@@ -869,17 +874,27 @@ def create_milk(payload: MilkYieldWrite, request: Request, db: Session = Depends
     # ARINMA KİLİDİ (göç 0074). HER SQL'DEN ÖNCE: `block` politikasında satır
     # HİÇ yazılmamalı, `require_reason`da gerekçesiz istek yazılmadan düşmeli.
     uyari = _sut_guvenlik_dogrula(db, cid, payload)
+    # KARANTİNA KİLİDİ (göç 0075). ARINMADAN SONRA ve YİNE HER SQL'DEN ÖNCE.
+    # İKİSİ AYRI ÇAĞRIDIR ve tek bir "hayvan uygun mu" fonksiyonuna
+    # birleştirilmedi: birleştirilseydi ilk `block` ikincisini HİÇ
+    # çalıştırmazdı ve kullanıcı iki engeli TEK TEK öğrenmek zorunda kalırdı.
+    # Bu sırada da öyle olur, ama sıra AÇIKÇA yazılıdır: arınma daha sık ve
+    # daha dar bir kısıttır, önce o konuşur.
+    karantina_uyari = _sut_karantina_dogrula(db, cid, payload)
     now = _simdi()
     yeni = db.execute(
         text(
             """INSERT INTO milk_yields(company_id,animal_id,group_id,milked_on,session,
             quantity_liters,notes,withdrawal_warning,withdrawal_override_reason,
+            quarantine_warning,quarantine_override_reason,
             created_at,updated_at)
             VALUES(:cid,:animal_id,:group_id,:milked_on,:session,:quantity_liters,
-            :notes,:withdrawal_warning,:withdrawal_override_reason,:now,:now)
+            :notes,:withdrawal_warning,:withdrawal_override_reason,
+            :quarantine_warning,:quarantine_override_reason,:now,:now)
             RETURNING id"""
         ),
         {"cid": cid, "now": now, "withdrawal_warning": uyari,
+         "quarantine_warning": karantina_uyari,
          **payload.model_dump()},
     ).scalar_one()
     # Kayıt aynı işlemde: `log_request_activity` commit ETMEZ, yani uyarı
@@ -935,17 +950,23 @@ def create_movement(payload: MovementWrite, request: Request, db: Session = Depe
     # ET ARINMA KİLİDİ (göç 0074). HER SQL'DEN ÖNCE, süt yolundaki gerekçenin
     # aynısı.
     uyari = _et_guvenlik_dogrula(db, cid, payload)
+    # KARANTİNA KİLİDİ (göç 0075). Küme arınmanınkinden GENİŞTİR: TRANSFER_OUT
+    # burada da kesiyor — gerekçe `_KARANTINA_KILITLI_HAREKETLER`de.
+    karantina_uyari = _hareket_karantina_dogrula(db, cid, payload)
     now = _simdi()
     hareket_id = db.execute(
         text(
             """INSERT INTO animal_movements(company_id,animal_id,kind,moved_on,amount,
             counterparty,reason,notes,withdrawal_warning,withdrawal_override_reason,
+            quarantine_warning,quarantine_override_reason,
             created_at,updated_at)
             VALUES(:cid,:animal_id,:kind,:moved_on,:amount,:counterparty,:reason,
-            :notes,:withdrawal_warning,:withdrawal_override_reason,:now,:now)
+            :notes,:withdrawal_warning,:withdrawal_override_reason,
+            :quarantine_warning,:quarantine_override_reason,:now,:now)
             RETURNING id"""
         ),
         {"cid": cid, "now": now, "withdrawal_warning": uyari,
+         "quarantine_warning": karantina_uyari,
          **payload.model_dump()},
     ).scalar_one()
     _arinma_gecisini_kaydet(
@@ -967,6 +988,10 @@ def create_movement(payload: MovementWrite, request: Request, db: Session = Depe
         # ULAŞMAZ. Hareket ucu satırı dönmüyor (durum + tür dönüyor), bu
         # yüzden alan AÇIKÇA ekleniyor.
         "withdrawal_warning": uyari,
+        # AYNI GEREKÇE, AYRI ALAN: iki kilit iki farklı olgudur ve bir hareket
+        # ikisini birden ihlal edebilir. Tek alanda birleştirmek, ikincisinin
+        # birinciyi EZMESİ demekti.
+        "quarantine_warning": karantina_uyari,
     }
 
 
@@ -1502,49 +1527,63 @@ def _arinma_ihlal_metni(ihlaller: list[dict[str, Any]]) -> str:
     )
 
 
-def _arinma_dogrula(
-    ihlaller: list[dict[str, Any]], politika: str, gerekce: str | None, ne: str,
+def _kilit_karari(
+    ihlaller: list[dict[str, Any]], politika: str, gerekce: str | None,
+    uyari: str, basli: str, sebep: str, engel_kuyrugu: str,
 ) -> str | None:
-    """Ortak karar: block RED, warn KABUL+uyarı, require_reason gerekçe İSTER.
+    """ÜÇ POLİTİKANIN TEK GÖVDESİ: block RED, warn KABUL+uyarı,
+    require_reason gerekçe İSTER.
+
+    BU FONKSİYON İKİ KİLİDİN (arınma — göç 0074, karantina — göç 0075) ORTAK
+    KARARIDIR ve TEK OLMASI BİLİNÇLİDİR. İkinci bir kopya çıkarılsaydı,
+    `block` dalının bir gün birinde düzeltilip ötekinde unutulması SESSİZ bir
+    güvenlik farkı üretirdi — ve burada gevşeyen şey İNSAN GIDASIDIR.
 
     Şekil `_plantback_dogrula` ile birebir ve ret gövdesi SÖZLÜKTÜR: çağıranın
-    yapacağı şey HANGİ tedavinin ve HANGİ tarihin kestiğine göre değişir, düz
-    bir metin bunu ayrıştırılabilir biçimde SÖYLEMEZ.
+    yapacağı şey HANGİ kaydın ve HANGİ tarihin kestiğine göre değişir, düz bir
+    metin bunu ayrıştırılabilir biçimde SÖYLEMEZ.
+
+    ``uyari`` KAYDA yazılan çıplak metindir; ``basli`` kullanıcıya dönen
+    mesajın ön ekidir (hangi olgu, hangi ürün). İkisinin AYRI olmasının
+    gerekçesi 0048'in ayrımıdır: sütunda duran şey olgunun kendisi,
+    kullanıcıya dönen şey o olgunun cümlesidir.
     """
     if not ihlaller:
         return None
-    metin = _arinma_ihlal_metni(ihlaller)
 
     if politika == "block":
         raise HTTPException(
             422,
-            {
-                "sebep": _ARINMA_SEBEP,
-                "message": (
-                    f"{ne} arınma süresi dolmadı: {metin}. "
-                    "Firma ayarı arınma dolmadan kaydetmeye izin vermiyor."
-                ),
-                "blocking": ihlaller,
-            },
+            {"sebep": sebep, "message": f"{basli}. {engel_kuyrugu}",
+             "blocking": ihlaller},
         )
 
     # `warn`: istek KABUL EDİLİYOR ama sistemin bulduğu kayda yazılıyor.
     if politika == "warn":
-        return metin
+        return uyari
 
-    # `require_reason` (varsayılan): gerekçesiz geçmez.
+    # `require_reason`: gerekçesiz geçmez.
     if gerekce:
-        return metin
+        return uyari
     raise HTTPException(
         422,
-        {
-            "sebep": _ARINMA_SEBEP,
-            "message": (
-                f"{ne} arınma süresi dolmadı: {metin}. "
-                "Yine de kaydetmek için gerekçe girin."
-            ),
-            "blocking": ihlaller,
-        },
+        {"sebep": sebep,
+         "message": f"{basli}. Yine de kaydetmek için gerekçe girin.",
+         "blocking": ihlaller},
+    )
+
+
+def _arinma_dogrula(
+    ihlaller: list[dict[str, Any]], politika: str, gerekce: str | None, ne: str,
+) -> str | None:
+    """Arınma kilidinin kararı; politika dalları `_kilit_karari`ndadır."""
+    if not ihlaller:
+        return None
+    metin = _arinma_ihlal_metni(ihlaller)
+    return _kilit_karari(
+        ihlaller, politika, gerekce, metin,
+        f"{ne} arınma süresi dolmadı: {metin}", _ARINMA_SEBEP,
+        "Firma ayarı arınma dolmadan kaydetmeye izin vermiyor.",
     )
 
 
@@ -1595,6 +1634,204 @@ def _arinma_gecisini_kaydet(
         db, request, cid, "herd_withdrawal.overridden", "herd_withdrawal",
         kayit_id, f"Arınma uyarısı gerekçeyle geçildi: {uyari}",
         {"kaynak": kaynak, "uyari": uyari, "gerekce": gerekce},
+    )
+
+
+# ---------------------------------------------------------------------------
+# KARANTİNA KİLİTLERİ — göç 20260909_0075
+# ---------------------------------------------------------------------------
+#
+# ARINMADAN (0074) FARKI TEK CÜMLEDE: arınma HESAPLANIR, karantina KARARDIR.
+# Arınma bitişi `treated_on + milk_withdrawal_days` aritmetiğidir; karantina
+# bitişi `ended_on` sütununda DURUR ve NULL "hâlâ açık" demektir.
+#
+# Politika dalları AYRI YAZILMADI: iki kilit de `_kilit_karari`ye gidiyor
+# (gerekçe orada).
+
+_KARANTINA_SEBEP = "KARANTINA_ACIK"
+
+#: Okunamayan ayarda SIKI tarafa düş — `_arinma_politikasi`nın gerekçesiyle
+#: aynı. VARSAYILAN `block`tur ve arınmanınkinden (`require_reason`) FARKLI
+#: olmasının gerekçesi göç 0075'in başlığındadır: karantinayı bir insan
+#: ELLE açmıştır ve hâlâ AÇIK bırakmıştır; doğru yol onu KAPATMAKTIR.
+_VARSAYILAN_KARANTINA_POLITIKASI = "block"
+
+#: KARANTİNA KİLİDİ, ARINMANINKİNDEN DAHA GENİŞTİR ve fark TRANSFER_OUT'tur.
+#: Ayrım ÖLÇÜLDÜ, unutulmadı:
+#:
+#:   * SALE / SLAUGHTER — arınmadaki gerekçenin aynısı: hayvan insan gıda
+#:     zincirine giriyor.
+#:   * TRANSFER_OUT — ARINMADA SERBESTTİ, BURADA KİLİTLİ. Arınma süresi
+#:     hayvanla BİRLİKTE taşınır ve kesim kararını karşı taraf alır; karantina
+#:     ise taşınmaz — karantinanın VAR OLMA SEBEBİ hayvanın işletmeden
+#:     ÇIKMAMASIDIR. Nakli serbest bırakmak, kilidi tam da engellemek için
+#:     kurulduğu yoldan boşaltırdı.
+#:   * DEATH — hayvan ölmüştür. 0074'ün gerekçesi burada DAHA GÜÇLÜ: karantina
+#:     çoğu zaman bir HASTALIK şüphesidir ve o hayvanın ölümü denetimin en çok
+#:     ihtiyaç duyduğu kayıttır. Ölümü bildirmeyi zorlaştırmak salgını
+#:     durdurmaz, defteri bozar.
+#:   * PURCHASE / TRANSFER_IN — hayvan GELİYOR; karantina zaten girişte konur.
+_KARANTINA_KILITLI_HAREKETLER = frozenset({"SALE", "SLAUGHTER", "TRANSFER_OUT"})
+
+
+def _karantina_politikasi(db: Session, cid: int) -> str:
+    """Firmanın karantina kilidi ayarı; satır okunamazsa VARSAYILAN (sıkı)."""
+    row = db.execute(
+        text("SELECT herd_quarantine_policy FROM companies WHERE id=:cid"),
+        {"cid": cid},
+    ).mappings().first()
+    if not row:
+        return _VARSAYILAN_KARANTINA_POLITIKASI
+    return row["herd_quarantine_policy"] or _VARSAYILAN_KARANTINA_POLITIKASI
+
+
+# HAYVAN YOLU. Hayvanın KENDİ karantinası VE İÇİNDE BULUNDUĞU SÜRÜNÜN
+# karantinası birlikte ısırıyor: sürü karantinaya alındığında içindeki her
+# hayvan karantinadadır ve yalnız bireysel kayda bakmak, sürü karantinasını
+# tamamen işlevsiz bırakırdı.
+#
+# ÜYELİK GÜNCELDİR, GEÇMİŞ DEĞİL — 0074'ün `_ARINMA_HAYVAN_SORGU`sunda ölçülen
+# sınırın AYNISI: `animals.group_id` TEK bir sütundur (0049) ve depoda üyelik
+# GEÇMİŞİ tutan hiçbir tablo YOKTUR.
+#
+# TARİH SÜZGECİ SQL'DE DEĞİL PYTHON'DA: `started_on`/`ended_on` sürücüye göre
+# metin (SQLite) ya da `date` (PostgreSQL) döner ve karşılaştırmayı SQL'e
+# indirmek iki diyalekte iki farklı sonuç verirdi. `_gun` farkı düzeltiyor —
+# `_arinma_ihlalleri`nin aynı tercihi.
+_KARANTINA_HAYVAN_SORGU = text(
+    """SELECT k.id,k.started_on,k.ended_on,k.reason,k.animal_id,k.group_id
+    FROM animal_quarantines k
+    WHERE k.company_id=:cid
+      AND (k.animal_id=:aid
+           OR (k.group_id IS NOT NULL AND k.group_id=(
+                 SELECT h.group_id FROM animals h
+                 WHERE h.company_id=:cid AND h.id=:aid)))"""
+)
+
+# SÜRÜ YOLU. Sürüye yazılmış karantinalar VE sürüdeki herhangi bir hayvanın
+# bireysel karantinası BİRLİKTE ısırıyor: grup sağımı o hayvanın sütünü de
+# içerir, yani karantinadaki tek bir inek tankın tamamını kirletir.
+_KARANTINA_GRUP_SORGU = text(
+    """SELECT k.id,k.started_on,k.ended_on,k.reason,k.animal_id,k.group_id
+    FROM animal_quarantines k
+    WHERE k.company_id=:cid
+      AND (k.group_id=:gid
+           OR (k.animal_id IS NOT NULL AND k.animal_id IN (
+                 SELECT h.id FROM animals h
+                 WHERE h.company_id=:cid AND h.group_id=:gid)))"""
+)
+
+
+def _karantina_ihlalleri(
+    db: Session, cid: int, animal_id: int | None, group_id: int | None,
+    hedef_gun: date,
+) -> list[dict[str, Any]]:
+    """``hedef_gun``de bu hayvanı/sürüyü KAPSAYAN karantinalar.
+
+    ARALIK YARI AÇIKTIR: ``started_on <= hedef_gun < ended_on``. İki ucun
+    farklı davranmasının gerekçesi ayrıdır ve ikisi de ölçülmüştür:
+
+    * BAŞLANGIÇ GÜNÜ KAPSANIR — karantina o gün başlar, yani o günün sağımı
+      zaten karantinalı hayvanındır.
+    * BİTİŞ GÜNÜ KAPSANMAZ — karantina o gün KALKAR. ``<=`` yazmak, hayvanı
+      çıkardığınız günün kendisinde onu hâlâ tutardı ve kullanıcı bir gün
+      daha beklemek zorunda kalırdı; oysa kapatma tarihini yazan da odur. Bu,
+      `_arinma_ihlalleri`nin sınır günü kuralının AYNISIDIR.
+    * ``ended_on`` NULL ise ÜST SINIR YOKTUR: karantina açıktır ve
+      ``started_on``dan sonraki HER gün kapsanır.
+
+    KAPANMIŞ KARANTİNA GEÇMİŞİ HALA KESER: aralığın içine düşen GERİYE DÖNÜK
+    bir sağım/hareket ihlaldir. Kilidi "yalnız açık karantina" diye yazmak,
+    karantinayı kapatıp geçmişe kayıt girerek onu tamamen atlatmayı mümkün
+    kılardı.
+    """
+    if animal_id is not None:
+        satirlar = db.execute(
+            _KARANTINA_HAYVAN_SORGU, {"cid": cid, "aid": int(animal_id)}
+        ).mappings().all()
+    else:
+        satirlar = db.execute(
+            _KARANTINA_GRUP_SORGU, {"cid": cid, "gid": int(group_id)}
+        ).mappings().all()
+
+    ihlaller: list[dict[str, Any]] = []
+    for r in satirlar:
+        baslangic = _gun(r["started_on"])
+        bitis = _gun(r["ended_on"])
+        if hedef_gun < baslangic:
+            continue
+        if bitis is not None and hedef_gun >= bitis:
+            continue
+        ihlaller.append({
+            "quarantine_id": int(r["id"]),
+            "started_on": baslangic.isoformat(),
+            "ended_on": bitis.isoformat() if bitis is not None else None,
+            "reason": r["reason"],
+            # Kaydı HANGİ yolun kestiği: bireysel karantina mı, sürü
+            # karantinası mı. Kullanıcı "bu hayvanı ben karantinaya almadım"
+            # deyip hiçbir şey bulamasın diye.
+            "scope": "ANIMAL" if r["animal_id"] is not None else "GROUP",
+        })
+    # AÇIK OLANLAR EN ÜSTTE, sonra en geç başlayan: kullanıcının ilgilendiği
+    # şey hâlâ süren kısıttır, kapanmış bir aralık değil.
+    ihlaller.sort(
+        key=lambda x: (x["ended_on"] is None, x["started_on"]), reverse=True
+    )
+    return ihlaller
+
+
+def _karantina_ihlal_metni(ihlaller: list[dict[str, Any]]) -> str:
+    ilk = ihlaller[0]
+    if ilk["ended_on"] is None:
+        return (
+            f"{ilk['started_on']} tarihinde açılan karantina HALA AÇIK: "
+            f"{ilk['reason']}"
+        )
+    return (
+        f"{ilk['started_on']} - {ilk['ended_on']} karantinası bu tarihi "
+        f"kapsıyor: {ilk['reason']}"
+    )
+
+
+def _karantina_dogrula(
+    ihlaller: list[dict[str, Any]], politika: str, gerekce: str | None, ne: str,
+) -> str | None:
+    """Karantina kilidinin kararı; politika dalları `_kilit_karari`ndadır."""
+    if not ihlaller:
+        return None
+    metin = _karantina_ihlal_metni(ihlaller)
+    return _kilit_karari(
+        ihlaller, politika, gerekce, metin,
+        f"{ne} karantina altında: {metin}", _KARANTINA_SEBEP,
+        "Firma ayarı karantina açıkken kaydetmeye izin vermiyor; "
+        "önce karantinayı kapatın.",
+    )
+
+
+def _sut_karantina_dogrula(
+    db: Session, cid: int, payload: MilkYieldWrite,
+) -> str | None:
+    ihlaller = _karantina_ihlalleri(
+        db, cid, payload.animal_id, payload.group_id, payload.milked_on,
+    )
+    return _karantina_dogrula(
+        ihlaller, _karantina_politikasi(db, cid),
+        payload.quarantine_override_reason, "Süt",
+    )
+
+
+def _hareket_karantina_dogrula(
+    db: Session, cid: int, payload: MovementWrite,
+) -> str | None:
+    """Karantina kilidi satış, kesim VE NAKİLDE; gerekçesi kümenin başında."""
+    if payload.kind not in _KARANTINA_KILITLI_HAREKETLER:
+        return None
+    ihlaller = _karantina_ihlalleri(
+        db, cid, payload.animal_id, None, payload.moved_on,
+    )
+    return _karantina_dogrula(
+        ihlaller, _karantina_politikasi(db, cid),
+        payload.quarantine_override_reason, "Hareket",
     )
 
 
@@ -1847,3 +2084,162 @@ def get_treatment(
     kayit = _satir(db, cid, "animal_treatments", treatment_id)
     kayit["items"] = _tedavi_kalemleri(db, cid, treatment_id)
     return kayit
+
+
+# --------------------------------------------------------- karantina uçları ---
+
+@router.get("/animal-quarantines")
+def list_quarantines(
+    request: Request, limit: int = _SAYFA, offset: int = _ATLA,
+    animal_id: int | None = None, group_id: int | None = None,
+    open_only: bool = False,
+    db: Session = Depends(get_db),
+):
+    """Karantina defteri. ``open_only`` YALNIZ AÇIK olanları süzer.
+
+    Süzgeç parçaları KAPALI bir kümeden kuruluyor ve istekten gelen DEĞERLER
+    her durumda BAĞLI PARAMETREDİR; ``open_only`` bir bool'dur ve metne
+    DEĞERİ değil, hangi SABİT parçanın ekleneceği girer.
+    """
+    cid = company_id(request)
+    kosul = ""
+    params: dict[str, Any] = {"cid": cid, "limit": limit, "offset": offset}
+    if animal_id:
+        kosul += " AND animal_id=:animal_id"
+        params["animal_id"] = animal_id
+    if group_id:
+        kosul += " AND group_id=:group_id"
+        params["group_id"] = group_id
+    if open_only:
+        kosul += " AND ended_on IS NULL"
+    toplam = db.execute(
+        text(f"SELECT COUNT(*) FROM animal_quarantines WHERE company_id=:cid{kosul}"),
+        params,
+    ).scalar()
+    rows = db.execute(
+        text(
+            f"""SELECT id,animal_id,group_id,started_on,ended_on,reason,notes,
+            updated_at
+            FROM animal_quarantines WHERE company_id=:cid{kosul}
+            ORDER BY started_on DESC,id DESC LIMIT :limit OFFSET :offset"""
+        ),
+        params,
+    ).mappings().all()
+    return _sayfa(rows, toplam, limit, offset)
+
+
+@router.post("/animal-quarantines", status_code=201)
+def create_quarantine(
+    payload: QuarantineWrite, request: Request, db: Session = Depends(get_db),
+):
+    """Karantinayı AÇAR. Kapanış tarihi BURADA YAZILMAZ.
+
+    AÇIK KARANTİNA HEDEF BAŞINA TEKTİR ve bunu ŞEMA zorluyor (göç 0075'in iki
+    kısmi tekil indeksi). Uygulama katmanında bir "önce bak, sonra yaz"
+    kontrolü İKİ EŞZAMANLI isteği ayırt EDEMEZDİ; ayıran yalnız indekstir ve
+    ihlali burada 409'a çevriliyor.
+    """
+    cid = company_id(request)
+    # HAYVAN YA DA GRUP — İKİSİ BİRDEN DEĞİL. `ck_animal_quarantines_hedef`
+    # son savunma; buradaki kontrol kullanıcıya anlaşılır mesaj verir
+    # (`create_milk`/`create_treatment` kalıbı).
+    if (payload.animal_id is None) == (payload.group_id is None):
+        raise HTTPException(
+            422,
+            "Karantina ya bir hayvana ya bir sürüye bağlanmalı; ikisi birden "
+            "verilirse hangi hayvanların karantinada olduğu belirsiz kalır.",
+        )
+    if payload.animal_id is not None:
+        _satir(db, cid, "animals", payload.animal_id)
+    else:
+        _satir(db, cid, "animal_groups", payload.group_id)
+    now = _simdi()
+    try:
+        yeni = db.execute(
+            text(
+                """INSERT INTO animal_quarantines(company_id,animal_id,group_id,
+                started_on,ended_on,reason,notes,created_at,updated_at)
+                VALUES(:cid,:animal_id,:group_id,:started_on,NULL,:reason,:notes,
+                :now,:now) RETURNING id"""
+            ),
+            {"cid": cid, "now": now, **payload.model_dump()},
+        ).scalar_one()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            409,
+            "Bu hayvan/sürü için zaten AÇIK bir karantina var; önce onu "
+            "kapatın.",
+        ) from exc
+    log_request_activity(
+        db, request, cid, "animal_quarantine.opened", "animal_quarantine",
+        int(yeni),
+        f"Karantina açıldı ({payload.started_on}): {payload.reason}",
+        {"animal_id": payload.animal_id, "group_id": payload.group_id,
+         "started_on": payload.started_on.isoformat(),
+         "reason": payload.reason},
+    )
+    db.commit()
+    return _satir(db, cid, "animal_quarantines", int(yeni))
+
+
+@router.get("/animal-quarantines/{quarantine_id}")
+def get_quarantine(
+    quarantine_id: int, request: Request, db: Session = Depends(get_db),
+):
+    return _satir(db, company_id(request), "animal_quarantines", quarantine_id)
+
+
+@router.post("/animal-quarantines/{quarantine_id}/close")
+def close_quarantine(
+    quarantine_id: int, payload: QuarantineClose, request: Request,
+    db: Session = Depends(get_db),
+):
+    """Karantinayı KAPATIR. Yazma ``ended_on IS NULL`` üzerinde KOŞULLUDUR.
+
+    KAPATMA AYRI BİR UÇTUR, `PUT /animal-quarantines/{id}` DEĞİL — ve bu
+    ayrım BİLİNÇLİDİR. Genel bir güncelleme ucu `started_on`u ve `reason`u da
+    yazdırırdı; oysa karantinanın AÇILIŞI bir OLGUDUR ve geçmişe dönük
+    değiştirilmesi, o karantinanın kestiği bütün sağım ve hareketleri
+    GERİYE DÖNÜK olarak haklı ya da haksız çıkarırdı.
+
+    CAS (compare-and-set): ``WHERE ... AND ended_on IS NULL``. İki eşzamanlı
+    kapatmadan biri kazanır, öteki ``rowcount == 0`` görür ve 409 alır. Bir
+    "önce oku, kapalı mı bak, sonra yaz" dizisi bu yarışı KAYBEDERDİ.
+    """
+    cid = company_id(request)
+    mevcut = _satir(db, cid, "animal_quarantines", quarantine_id)
+    baslangic = _gun(mevcut["started_on"])
+    # ARALIK GERİYE AKMAZ. `ck_animal_quarantines_aralik` son savunma;
+    # buradaki kontrol 500 yerine anlaşılır bir 422 veriyor.
+    if payload.ended_on < baslangic:
+        raise HTTPException(
+            422,
+            f"Karantina {baslangic.isoformat()} tarihinde başladı; kapanış "
+            "tarihi ondan önce olamaz.",
+        )
+    sonuc = db.execute(
+        text(
+            """UPDATE animal_quarantines
+            SET ended_on=:ended_on,notes=COALESCE(:notes,notes),updated_at=:now
+            WHERE id=:id AND company_id=:cid AND ended_on IS NULL"""
+        ),
+        {"id": quarantine_id, "cid": cid, "now": _simdi(),
+         "ended_on": payload.ended_on, "notes": payload.notes},
+    )
+    if sonuc.rowcount != 1:
+        # ZATEN KAPALI. 404 DEĞİL 409: kayıt VAR (yukarıdaki `_satir` onu
+        # okudu) ve istek YENİDEN GÖNDERİLİRSE de aynı sonucu verir — bu bir
+        # durum çakışmasıdır, bulunamama değil.
+        db.rollback()
+        raise HTTPException(409, "Karantina zaten kapatılmış")
+    log_request_activity(
+        db, request, cid, "animal_quarantine.closed", "animal_quarantine",
+        quarantine_id,
+        f"Karantina kapatıldı ({payload.ended_on}): {mevcut['reason']}",
+        {"started_on": baslangic.isoformat(),
+         "ended_on": payload.ended_on.isoformat(),
+         "reason": mevcut["reason"]},
+    )
+    db.commit()
+    return _satir(db, cid, "animal_quarantines", quarantine_id)
