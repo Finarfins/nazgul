@@ -32,7 +32,7 @@ KARŞILANDI; **4 DURUYOR** ve tek başına anahtarı kapalı tutmaya yeter.
    `field_integration_events` tablosunu okuyan hiçbir ekran/uç yok; kovalar
    yalnız süreç günlüğünde görünür.
 3. ~~**Terminal satırlar için bir yeniden kuyruklama yolu.**~~ **KARŞILANDI**
-   (PR #53; **GÖÇ YOK**).
+   (PR #55; **GÖÇ YOK**).
    Eskiden: tüketici yalnız `PENDING` seçer; `SKIPPED_*`/`DEAD` yazılan satır
    bir daha ASLA seçilmez ve onu `PENDING`e döndüren hiçbir mekanizma yok.
 
