@@ -108,9 +108,11 @@ def _iddia_manifest_sayisi(yoksayilan: list[str]) -> None:
     kesfedilen = len(_kesfedilen_test_dosyalari())
     aktif = _aktif_sayisi(set(yoksayilan))
     beklenen = kesfedilen - len(yoksayilan)
+    bayat = sorted(ad for ad in yoksayilan if not (BACKEND / ad).is_file())
     assert aktif == beklenen, (
         f"izole koşucu manifesti {aktif}, keşfedilen {kesfedilen} − "
         f"len(collect_ignore)={len(yoksayilan)} = {beklenen}"
+        + (f"; bayat adlar={bayat}" if bayat else "")
     )
 
 
@@ -186,4 +188,4 @@ def test_bayat_ad_diskte_yoksa_kirmizi(tmp_path: Path) -> None:
     assert BAYAT_AD in str(disk.value)
     with pytest.raises(AssertionError) as sayim:
         _iddia_manifest_sayisi(adlar)
-    assert BAYAT_AD in str(sayim.value) or "collect_ignore" in str(sayim.value)
+    assert BAYAT_AD in str(sayim.value)
