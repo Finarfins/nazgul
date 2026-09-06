@@ -419,6 +419,49 @@ def test_HER_PARTI_DUSMESI_KENDI_KORUMASINI_TASIYOR() -> None:
     assert dus.count("LOT_MIKTARI_EKSIYE_DUSER") == 1, dus.count("LOT_MIKTARI_EKSIYE_DUSER")
 
 
+def test_BOS_SKT_ALANI_ANAHTARI_DUSURULUR_deger_degil() -> None:
+    """Çarenin ŞEKLİ de çivili: anahtar DÜŞER, değer değişmez.
+
+    `products.py` "beyan var mı" sorusunu `payload.model_fields_set` üzerinden
+    okuyor. Boş dizgiyi düzeltmenin İKİ yolu vardı ve BİRİ KUSURDU:
+
+      (a) `products.py`de ayrıca "değer boş mu" diye bakmak — o zaman "beyan
+          yok" bilgisi İKİ YERDE birden tutulurdu (`model_fields_set` ve bir
+          boşluk denetimi) ve ikisi ayrışabilirdi.
+      (b) Anahtarı `mode='before'` doğrulayıcıda DÜŞÜRMEK — `SKT_SORULMADI`
+          sentineli o zaman DOĞAL OLARAK devreye girer ve `products.py`
+          DEĞİŞMEZ.
+
+    (b) seçildi. Bu kapı, birinin sessizce (a)'ya kaymasını kırmızı yapar:
+    yardımcının `expiry_date` kararı hâlâ YALNIZ `model_fields_set`e bakmalı.
+
+    1B-A'NIN `TransactionItem`İNE DOKUNULMADI ve bu kapsam kararıdır: alış
+    yolunun boş-SKT davranışı bu dilimde ÖLÇÜLMEDİ ve değiştirilmedi.
+    """
+    semalar = (BACKEND / "app" / "schemas.py").read_text(encoding="utf-8")
+    agac = ast.parse(semalar)
+    sinif = [
+        d for d in ast.walk(agac)
+        if isinstance(d, ast.ClassDef) and d.name == "StockAdjust"
+    ]
+    assert len(sinif) == 1
+    adlar = {d.name for d in sinif[0].body if isinstance(d, ast.FunctionDef)}
+    assert "bos_skt_BEYAN_DEGILDIR" in adlar, sorted(adlar)
+
+    # `products.py` kararını HÂLÂ yalnız `model_fields_set`ten okuyor.
+    urunler = ast.parse(URUNLER.read_text(encoding="utf-8"))
+    yardimci = [
+        d for d in ast.walk(urunler)
+        if isinstance(d, ast.FunctionDef) and d.name == "_ayarlama_partisi"
+    ][0]
+    kaynak = ast.unparse(yardimci)
+    assert "model_fields_set" in kaynak
+    assert ".strip()" not in kaynak, (
+        "parti kararı boşluk denetimi yapıyor; boş-dizgi kuralının TEK yeri "
+        "`StockAdjust.bos_skt_BEYAN_DEGILDIR` olmalı."
+    )
+
+
 # ---------------------------------------------------------------------------
 # DAVRANIŞ — taze veritabanı, göç zinciri, HTTP katmanı.
 # ---------------------------------------------------------------------------
@@ -605,6 +648,28 @@ assert partiler(urun)[('AY-1', depo_a)] == Decimal('5'), partiler(urun)
 ok(ayarla(urun, 'add', 1, kod='AY-1'))
 assert partiler(urun)[('AY-1', depo_a)] == Decimal('6'), partiler(urun)
 
+# === 8b. BOS SKT ALANI DA BEYAN DEGILDIR -> 200, 422 DEGIL ===============
+# TARAYICI BOS BIRAKILAN ALANI "" GONDERIR. Deger dogrulayicida None'a
+# duserdi ama ANAHTAR `model_fields_set` icinde kalir ve "beyan var" derdi;
+# beyanin ICERIGI de «SKT'siz» olurdu — yani BOS BIRAKILMIS bir form alani
+# TARIHLI partiye eklemeyi 422 ile OLDURURDU. `StockAdjust`in
+# `bos_skt_BEYAN_DEGILDIR` dogrulayicisi anahtari DUSURUR.
+# MUTASYON: o dogrulayici geri alinirsa burasi 422 alir ve KIRMIZI olur.
+for bos in ('', '   '):
+    cevap = ayarla(urun, 'add', 1, kod='AY-1', skt=bos)
+    assert cevap.status_code == 200, (bos, cevap.status_code, cevap.text)
+assert partiler(urun)[('AY-1', depo_a)] == Decimal('8'), partiler(urun)
+
+# === 8c. ACIK `null` HALA BEYANDIR -> 422 ===============================
+# DUZELTME BIR GEVSEME DEGIL: bos dizgi bir INSANIN bos biraktigi alandir,
+# acik `null` ise bir ISTEMCININ «bu partinin SKT'si yoktur» BEYANIDIR ve
+# tarihli bir partiyle CELISMESI DOGRUDUR. Ikisi ayni kefeye konsaydi
+# celiski kapisi HERKESE acilirdi.
+acik_null = ayarla(urun, 'add', 1, kod='AY-1', skt=None)
+assert acik_null.status_code == 422, (acik_null.status_code, acik_null.text)
+assert acik_null.json()['detail']['code'] == 'LOT_SKT_CELISKI', acik_null.text
+assert partiler(urun)[('AY-1', depo_a)] == Decimal('8'), partiler(urun)
+
 # === 9. PARTISIZ AYARLAMA -> defter HIC dokunulmaz, lot_id NULL ==========
 ok(ayarla(urun_partisiz, 'add', 7))
 assert partiler(urun_partisiz) == {}, partiler(urun_partisiz)
@@ -707,7 +772,7 @@ with SessionLocal() as db:
         "SELECT quantity FROM product_lots WHERE company_id=:c AND product_id=:p"),
         {'c': komsu_cid, 'p': komsu_urun}).scalar_one()
 assert Decimal(str(komsu_miktar)) == Decimal('42'), komsu_miktar
-assert partiler(urun)[('AY-1', depo_a)] == Decimal('6'), partiler(urun)
+assert partiler(urun)[('AY-1', depo_a)] == Decimal('8'), partiler(urun)
 
 print('AYARLAMA LOT TAMAM')
 '''
