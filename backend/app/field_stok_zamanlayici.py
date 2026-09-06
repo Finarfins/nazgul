@@ -350,6 +350,13 @@ def _zamani_coz(deger: Any) -> datetime | None:
     METIN dondurur, psycopg ise gercek `datetime`. Bu fark VARSAYILMADI,
     PG ikizinde OLCULUYOR.
 
+    `datetime` DALI BIR KISA YOLDUR, SART DEGIL — OLCULDU. Dal tamamen
+    silindiginde (`if False:`) hicbir test kirilmiyor, cunku metin dali
+    `str(<datetime>)` ciktisini `fromisoformat` ile geri ayristirabiliyor.
+    SART OLAN sey cozucunun metin OLMAYAN bir degeri REDDETMEMESIDIR: girdiyi
+    `str` ile sinirlayan bir mutasyon PG ikizini KIRMIZI yakar ve SQLite
+    kulvarini YESIL birakir (iki kulvarda da olculdu).
+
     NAIVE DAMGA UTC SAYILIR. SQLite saat dilimi SAKLAMAZ; uygulama her damgayi
     `datetime.now(timezone.utc)` ile yazar, yani dilimi olmayan bir damga
     UTC'dir. Bunu varsaymamak, SQLite kulvarinda her yas hesabini

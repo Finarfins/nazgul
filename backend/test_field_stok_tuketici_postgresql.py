@@ -2364,9 +2364,18 @@ def test_kalp_atisi_PG_de_TEK_SATIR_kalir_ve_EZILIR() -> None:
 
 
 def test_bekleyen_yasi_PG_de_DATETIME_donuyor_ve_COZULUYOR() -> None:
-    """MUTASYON: `yas_saniye`nin `datetime` dalini kaldirmak (yalniz metin
-    ayristirmak) bu vakayi KIRMIZI yakar — SQLite kulvarinda ise HICBIR SEY
-    kirilmaz. Dosyanin var olma sebebi tam olarak bu asimetridir.
+    """MUTASYON (OLCULDU, iki kulvarda birden): `_zamani_coz`e `if not
+    isinstance(deger, str): return None` eklemek — yani cozucuyu YALNIZ
+    METIN kabul eder hale getirmek — bu vakayi KIRMIZI yakar
+    (PG 1 failed) ve `tests/test_outbox_liveness.py`yi YESIL birakir
+    (SQLite 10 passed). Dosyanin var olma sebebi tam olarak bu asimetridir.
+
+    ONCE BASKA BIR MUTASYON DENENDI VE KIRMIZI YANMADI; adiyla yaziliyor
+    cunku bu vakanin NEYI kanitladigini daraltiyor: `datetime` DALINI
+    tamamen silmek (`if False:`) hicbir seyi kirmiyor, cunku metin dali
+    `str(<datetime>)` ciktisini `fromisoformat` ile GERI ayristirabiliyor.
+    Yani o dal bir KISA YOLDUR, sart degil; sart olan sey cozucunun
+    metin OLMAYAN bir degeri REDDETMEMESIDIR.
 
     Ikinci iddia KIRACI ve VAKUM KARSITIDIR: iki firmaya YASLARI CAK FARKLI
     (40 gun / 10 dakika) birer BEKLEYEN olay yaziliyor ve ayni HAM sorgu her
