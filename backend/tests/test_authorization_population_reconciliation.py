@@ -233,9 +233,18 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 #     bu sayaca GİRMİYOR (`herd.manage` / `herd.health`; ikisini de
 #     taşımayan roller var) ve girmemesi ayrımın tanığıdır.
 #   * ÇIPLAK read farkı (68) KIMILDAMADI: dilim genel `read` yüzeyi AÇMIYOR.
-EXPECTED_AUTHENTICATED = 364
-EXPECTED_READ = 94
-EXPECTED_UNDENIABLE = 107
+# 364 -> 365 / 94 -> 95 / 107 -> 108 (TABAN develop `77aa5b0`, yani #59 + #62
+# + #63 indikten SONRA; YENIDEN OLCULDU, onceki turun 357/94/103 -> 358/95/104
+# olcumu taban degistigi anda GECERSIZ oldu ve ARITMETIKLE tasinmadi): 5.4a'nin
+# TEK yeni ucu `POST /api/auth/logout-all` (goc YOK). UCU DE BIRLIKTE artiyor ve
+# bu OLCULMUS bir tutarliliktir: uc `read`e cozuluyor (`SELF_SERVICE_API`
+# muafiyeti), handler'da ikinci bir yetki kapisi YOK, yani CIPLAK read'e
+# dusuyor (68 -> 69) ve ciplak read `undeniable`in alt kumesi oldugu icin o da
+# bir artiyor. `FARM_HERD_VIEW_OPERATIONS` KIMILDAMADI: uc tarla/suru
+# ailesinden degil.
+EXPECTED_AUTHENTICATED = 365
+EXPECTED_READ = 95
+EXPECTED_UNDENIABLE = 108
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
 #: sonra kendi kapılarına takılırlar. 89'a dahil, 94'e DEĞİL.
@@ -478,6 +487,10 @@ NAKED_READ_OPERATIONS = {
     ("GET", "/api/{kind}/{transaction_id}"),
     ("POST", "/api/auth/change-password"),
     ("POST", "/api/auth/logout"),
+    # 5.4a: cihaz kaybi yolu. ``read``e cozulur (self-servis muafiyeti) ve
+    # handler'da ikinci bir yetki kapisi YOKTUR — yalniz "oturum var mi" bakar,
+    # ki bu middleware'in zaten yaptigi istir. Bu yuzden CIPLAK read'e duser.
+    ("POST", "/api/auth/logout-all"),
 }
 
 def _populations():
@@ -569,7 +582,9 @@ def test_eightynine_partitions_into_sixtysix_and_twentythree() -> None:
     # handler kapısı olmadığı için ÇIPLAK read'e düşer (bkz. SAYAÇ HAREKETİ notu).
     # 67 -> 68: 1B-A'nın ``GET /api/products/{product_id}/lots``u, AYNI
     # gerekçeyle — handler'da ikinci bir yetki kapısı YOK.
-    assert len(naked_read) == 68
+    # 68 -> 69: 5.4a'nin ``POST /api/auth/logout-all``u, AYNI gerekceyle —
+    # handler'da ikinci bir yetki kapisi YOK.
+    assert len(naked_read) == 69
     # Bölünme: kesişim boş ve birleşim TAM. Sayılar tutup üyelik tutmazsa burası kırmızı.
     assert guarded <= read_ops
     assert naked_read | guarded == read_ops
@@ -610,4 +625,7 @@ def test_self_service_routes_were_inside_the_sixtysix() -> None:
         operation for operation in naked_read if operation[1] in SELF_SERVICE_API
     }
     assert {path for _method, path in self_service_operations} == set(SELF_SERVICE_API)
-    assert len(self_service_operations) == 3
+    # 3 -> 4: 5.4a ``POST /api/auth/logout-all``i muafiyet listesine ekledi ve
+    # o uc da reddedilemeyenlerin ICINDE — yani muafiyet yine yeni bir aciklik
+    # yaratmiyor. Bu iddia, muafiyetin sinirinin olculdugu yerdir.
+    assert len(self_service_operations) == 4

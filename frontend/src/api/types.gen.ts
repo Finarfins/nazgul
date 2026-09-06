@@ -470,6 +470,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/logout-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Logout All
+         * @description Bu kullanıcının TÜM oturumlarını kapatır — cihaz kaybı yolu.
+         *
+         *     İKİ tablo da süpürülür ve bu ZORUNLU: yalnız refresh iptal edilseydi,
+         *     dağıtılmış access tokenları 15 dakika daha canlı kalırdı (``config.py``:
+         *     ``access_token_minutes``). Çalınmış bir telefonda 15 dakika, "hemen
+         *     kapat" düğmesinin vaadini bozmaya yeter.
+         *
+         *     HIZ SINIRI YOK — ölçüldü, atlanmadı. ``_consume_ip_limit`` IP başına
+         *     saatlik sayaçtır ve KİMLİKSİZ uçlar (kayıt, şifre sıfırlama) içindir;
+         *     burada çağıran ZATEN geçerli bir access token taşıyor, yani sınır bir
+         *     saldırganı değil kendi hesabını kapatmaya çalışan kullanıcıyı
+         *     engellerdi. Ucun kötüye kullanımı da yalnız çağıranın KENDİ oturumlarını
+         *     düşürür; başka bir aktöre dokunmaz.
+         */
+        post: operations["logout_all_api_auth_logout_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/me": {
         parameters: {
             query?: never;
@@ -7592,6 +7624,11 @@ export interface components {
             /** Username */
             username: string;
         };
+        /** LogoutPayload */
+        LogoutPayload: {
+            /** Refresh Token */
+            refresh_token?: string | null;
+        };
         /** MachineCreate */
         MachineCreate: {
             /** Brand */
@@ -8724,6 +8761,17 @@ export interface components {
             unlinked_customer_payment_total: string;
             /** Unlinked Customer Return Total */
             unlinked_customer_return_total: string;
+        };
+        /**
+         * RefreshPayload
+         * @description Çerezsiz istemcinin yenileme gövdesi.
+         *
+         *     Alan İSTEĞE BAĞLI, çünkü tarayıcı SPA'sı bu uca boş nesne (``{}``) gönderir
+         *     (``frontend/src/api.ts``); zorunlu alan o çağrıyı 422'ye düşürürdü.
+         */
+        RefreshPayload: {
+            /** Refresh Token */
+            refresh_token?: string | null;
         };
         /** RegisterPayload */
         RegisterPayload: {
@@ -10875,7 +10923,9 @@ export interface operations {
     login_api_auth_login_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Client-Kind"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10906,6 +10956,37 @@ export interface operations {
         };
     };
     logout_api_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["LogoutPayload"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logout_all_api_auth_logout_all_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -10950,7 +11031,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RefreshPayload"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -10959,6 +11044,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

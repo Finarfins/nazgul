@@ -38,6 +38,10 @@ ROUTE_REASON_GROUPS = (
         "Authenticated session self-service; no feature permission is required.",
         {
             ("POST", "/api/auth/logout"),
+            # 5.4a: cihaz kaybi yolu. Kullanicinin KENDI oturumlarinin tamamini
+            # kapatir (access + refresh); baska bir aktore dokunmaz, bu yuzden
+            # kimlik dogrulamasi YETERLI ve ayri bir izin ailesi acilmadi.
+            ("POST", "/api/auth/logout-all"),
             ("GET", "/api/auth/me"),
             ("POST", "/api/auth/change-password"),
         },
@@ -324,8 +328,8 @@ DYNAMIC_PERMISSION_CASES = {
 # yani yazılmasalardı genel `read` iznine düşerlerdi. Ayrı bir
 # `review_reason` GEREKMİYOR: yedi uç da kiracı kapsamlıdır ve izinleri
 # mevcut `herd.*` ailesindendir. Başka hiçbir ucun sözleşmesi değişmedi.
-EXPECTED_OPERATION_COUNT = 374
-EXPECTED_PATH_COUNT = 287
+EXPECTED_OPERATION_COUNT = 375
+EXPECTED_PATH_COUNT = 288
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -451,7 +455,19 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # 20260908 1B-A (göç 20260908_0073): GET /api/products/{product_id}/lots
     # eklendi (`read`, mevcut `/api/products` önekinden). Parmak izi
     # TABAN #54 SONRASI: cec015e0 -> yeniden türetildi; başka hiçbir sözleşme değişmedi.
-    "411caebd4476d1bd2473723b3e7449ab3f5ab9081803cfef6a60ca4a9ceee6c8"
+    # 20260907 5.4a MOBIL KIMLIK AKISI (goc YOK): POST /api/auth/logout-all
+    # eklendi — TEK uc, self-servis grubunda (``required_permission`` "read",
+    # muafiyet ``SELF_SERVICE_API``da). SIRA: uc `SELF_SERVICE_API`ya yazildi,
+    # `required_permission` ile OLCULDU ("read"), `ROUTE_REASONS`a gerekcesiyle
+    # girdi, EN SON parmak izi alindi — bu dosyanin notu parmak izini YANLIS
+    # izinle dondurmanin iki kez yasandigini soyluyor.
+    # /auth/login, /auth/refresh ve /auth/logout'un SOZLESMESI DEGISMEDI:
+    # ucu de ayni yol, ayni yontem, ayni izin; degisen yalniz govde/baslik
+    # kabuludur ve parmak izi bunlari gormez. Sayim 374 -> 375, yol 287 -> 288.
+    # Parmak izi 411caebd -> yeniden turetildi (TABAN develop `77aa5b0`, yani
+    # #59 + #62 + #63 indikten SONRA; onceki turun 367/283 -> 368/284 olcumu
+    # taban degistigi anda GECERSIZ oldu ve ARITMETIKLE tasinmadi).
+    "d3626d88708e328a3d5f7bd24a1c9afc82d8835a11fcafa7ed8b6022718010d2"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 
