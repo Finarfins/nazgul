@@ -1,7 +1,8 @@
 # Field stok outbox tüketicisi — AÇILIŞ KOŞULLARI
 
 `FIELD_STOCK_OUTBOX_ENABLED` varsayılan olarak **false**'tur ve aşağıdaki
-DÖRT koşulun DÖRDÜ de var olmadan **true yapılmamalıdır**:
+DÖRT koşulun DÖRDÜ de var olmadan **true yapılmamalıdır**. Bugün 1, 2 ve 3
+KARŞILANDI; **4 DURUYOR** ve tek başına anahtarı kapalı tutmaya yeter.
 
 1. ~~**Hasat → ürün yolu.**~~ **KARŞILANDI** (göç `20260827_0062`).
    Eskiden: `field_harvests` içinde `product_id` yoktu, `crop_seasons.crop`
@@ -30,9 +31,63 @@ DÖRT koşulun DÖRDÜ de var olmadan **true yapılmamalıdır**:
 2. **Başarısızlık sonuçları için bir okuma yüzeyi.** Uygulamada
    `field_integration_events` tablosunu okuyan hiçbir ekran/uç yok; kovalar
    yalnız süreç günlüğünde görünür.
-3. **Terminal satırlar için bir yeniden kuyruklama yolu.** Tüketici yalnız
-   `PENDING` seçer; `SKIPPED_*`/`DEAD` yazılan satır bir daha ASLA seçilmez
-   ve onu `PENDING`e döndüren hiçbir mekanizma yok.
+3. ~~**Terminal satırlar için bir yeniden kuyruklama yolu.**~~ **KARŞILANDI**
+   (PR #53; **GÖÇ YOK**).
+   Eskiden: tüketici yalnız `PENDING` seçer; `SKIPPED_*`/`DEAD` yazılan satır
+   bir daha ASLA seçilmez ve onu `PENDING`e döndüren hiçbir mekanizma yok.
+
+   Bugün: **`POST /api/field-integration-events/{id}/requeue`**. İzni
+   `farm.manage` (ÖLÇÜLDÜ, varsayılmadı: yol koşul 2'de eklenen
+   `_FARM_PATH_PREFIXES` önekinin altında ve güvenli olmayan yöntem oraya
+   çözülüyor) — yani okuma yüzeyinin `farm.view`inden DAHA DAR: kuyruğu
+   GÖRMEK ile onu OYNATMAK ayrı izinlerdir.
+
+   **NE YAPAR.** İzin verilen küme terminal durumlardan `SENT` çıkarılmış
+   hâlidir — `SKIPPED_SOURCE_NOT_VISIBLE`, `SKIPPED_NO_PRODUCT`,
+   `SKIPPED_TABAN_BILDIRILMEMIS`, `DEAD` — ve okuma yüzeyinin `failed_only`
+   süzgecini kuran demetin AYNISINDAN gelir; iki ayrı yerde yazılsaydı yeni
+   bir kova ekleyen dilim (C2 ekledi) ekranda görünür ama geri alınamaz bir
+   olay yaratırdı. Satırda değişen ÜÇ sütun vardır: `status` -> `PENDING`,
+   `attempts` -> `0`, `updated_at` -> şimdi.
+
+   **`SENT` GERİ ALINAMAZ (409 `EVENT_ALREADY_SENT`).** Gönderilmiş olayın
+   stok hareketi YAZILMIŞTIR ve tüketici `stock_movements` satırlarını
+   hiçbir yolda UPDATE/DELETE etmez; yeniden gönderim "tekrar denemek"
+   değil İKİNCİ BİR HAREKET yazmayı denemek olurdu. Veritabanı ikinci hattı
+   zaten tutuyor (göç 0060, kısmi benzersiz indeks) ama uç okunur bir cevap
+   borçlu olduğu için kapı uygulamada da duruyor.
+
+   **`attempts` SIFIRLANIR — BEDELİ AÇIKÇA YAZILIYOR.** İlk niyet onu
+   korumaktı; ÖLÇÜLDÜ ve o niyet mekanizmayı ateşlenemez kılıyor: tavanı
+   doldurarak ölen satırın `attempts`i 4'tür (`AZAMI_DENEME` 3, tavan kolu
+   `attempts = deneme` MUTLAK yazar), yani korunsaydı geri alınan olay bir
+   sonraki döngüde 5 > 3 ile YENİDEN `DEAD` olurdu — koşulun VAR OLMA
+   SEBEBİ olan sınıfta uç hiçbir şey yapmazdı. Kaybolan bilgi YER
+   DEĞİŞTİRİR: `last_error` KORUNUR ("deneme tavanı aşıldı (3)") ve
+   `activity_logs` satırının `details`i ÖNCEKİ durumu ve ÖNCEKİ `attempts`
+   değerini saklar.
+
+   **`processed_at` KORUNUR** ve bu, sıfırlanan `attempts`in İSTENEN
+   karşılığıdır: geri alınmış bir satırı HİÇ denenmemiş bir satırdan ayıran
+   TEK sütun odur. Aşağıdaki `RECOVERY_FAILED` notunun şikâyeti tam buydu;
+   `processed_at`i de temizlemek onu büyütürdü.
+
+   **DENETİM İZİ GÖÇ İSTEMEDİ.** `requeued_by`/`requeued_at` sütunu YOK ve
+   bu dilim göç EKLEMEDİ; kimin hangi olayı hangi durumdan geri aldığı
+   `activity_logs`ta `field_event.requeued` satırı olarak durur (katalog
+   60 -> 61). Satır ucun kendi işleminde yazılır ve TEK commit ile biter:
+   denetimsiz bir yeniden kuyruklama OLUŞAMAZ.
+
+   **YARIŞ.** Kararı veren şey `status IN (<terminal>)` yüklemli KOŞULLU
+   UPDATE'in rowcount'udur — tüketicinin `_talep_et`indeki desenin aynısı.
+   Sınıflandırma SELECT'i yalnız hangi 4xx'in döneceğini seçer. Uçuştaki
+   bir tüketicinin talep ettiği (`CLAIMED`) ya da başka bir istekle zaten
+   geri alınmış (`PENDING`) satır DOKUNULMADAN 409 alır. Bu SQLite'ta
+   ölçülemez (yazmalar seri); davranış kanıtı PG ikizindedir.
+
+   **NE YAPMAZ.** `RECOVERY_FAILED` sınıfını bu uç da KAPATMAZ (aşağıdaki
+   nota bakın): o olay veritabanında iz bırakmaz, `PENDING` kalır ve bu
+   ucun seçeceği bir işaret yoktur.
 4. **Canlılık/gecikme sinyali.** Zamanlayıcı thread'i ölürse ya da kuyruk
    birikirse bunu söyleyen bir metrik/alarm yok; tek iz süreç günlüğüdür.
 
@@ -45,7 +100,13 @@ atılmış olur. Anahtar kapalıyken olaylar `PENDING` birikir ve açıldığı 
 işlenir: kayıp yoktur, erteleme vardır.
 
 Okuma yüzeyi, yeniden kuyruklama ve canlılık sinyali AYRI işler olarak
-sıradadır; bu tüketicinin kapsamına bilinçli olarak alınmamıştır.
+sıradaydı; bu tüketicinin kapsamına bilinçli olarak alınmamışlardı. İlk
+ikisi indi (koşul 2 ve 3); **canlılık sinyali (koşul 4) hâlâ YOK** ve
+yukarıdaki cümle onun için AYNEN geçerlidir: zamanlayıcı thread'i ölürse
+ya da kuyruk birikirse bunu söyleyen bir metrik/alarm yoktur. Okuma yüzeyi
+bu boşluğu KAPATMAZ — `summary` kuyruğun BOYUNU ve YAŞINI gösterir ama
+tüketicinin KOŞUP KOŞMADIĞINI göstermez; ölü bir thread ile boş bir kuyruk
+o ekranda AYNI görünür.
 
 ## Açarken bilinmesi gereken iki şey daha
 

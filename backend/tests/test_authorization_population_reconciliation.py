@@ -185,7 +185,22 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 # kurallarla yakalanmasının TANIĞI budur. `purchases` deny-by-default
 # nöbetçisinin dışında bir muafiyet İSTEMEDİĞİ için EXPECTED_UNDENIABLE
 # de 100'de SABİT.
-EXPECTED_AUTHENTICATED = 354
+# 354 -> 355: outbox YENİDEN KUYRUKLAMA ucu (FIELD_STOK_OUTBOX açılış koşulu
+# 3) — POST /api/field-integration-events/{olay_id}/requeue. GÖÇ YOK. TABAN
+# E1b SONRASIDIR; önceki turdaki 350 -> 351 ölçümü taban değiştiği anda
+# GEÇERSİZ oldu ve bu satır BİRLEŞMİŞ AĞAÇTA YENİDEN ÖLÇÜLDÜ. Hangi sayaç
+# NİYE kımıldadı:
+#   * KİMLİKLENMİŞ +1: uç kimlik ister (PUBLIC_API'de değil).
+#   * `read` 93'te SABİT: uç middleware'de `read`e DEĞİL,
+#     `/api/field-integration-events` öneki üzerinden `farm.manage`e
+#     çözülüyor — koşul 2'nin okuma uçlarıyla AYNI önek, FARKLI yöntem.
+#   * UNDENIABLE 102'de SABİT: `farm.manage` REDDEDİLEBİLİR bir izindir
+#     (sevk edilen roller arasında onu taşımayanlar var — kuyruğu OKUYABİLEN
+#     altı rolün hepsi onu YAZAMAZ), yani uç "bugün hiçbir rolü reddedemez"
+#     sınıfına GİRMEZ. Koşul 2 kaydı UNDENIABLE'ı 95 -> 97 yaparken bedelini
+#     açıkça yazmıştı ("tarla verisini görebilen HERKES kuyruğu da görür");
+#     bu uç o bedeli BÜYÜTMÜYOR — kuyruğu OYNATMAK ayrı ve dar bir izindir.
+EXPECTED_AUTHENTICATED = 355
 EXPECTED_READ = 93
 EXPECTED_UNDENIABLE = 102
 
@@ -479,6 +494,11 @@ def test_farm_and_herd_view_membership_not_just_magnitude() -> None:
     # 20260904_0069) — hasat listesiyle aynı role bağlı, reddedilemez okuma.
     # 33 -> 35: ekim-arası bekleme kataloğunun İKİ OKUMA ucu (göç
     # 20260907_0072). Yazma uçları bu kümede DEĞİL — `farm.manage` istiyorlar.
+    # 35'te SABİT (açılış koşulu 3): POST /api/field-integration-events/
+    # {olay_id}/requeue bu kümeye GİRMEZ. Aynı önek, AYNI yüzey, ama
+    # `farm.manage` — ve o izni sevk edilen altı rolün hepsi TAŞIMIYOR, yani
+    # uç rol ile REDDEDİLEBİLİR. Sayacın kımıldamaması, "kuyruğu görmek" ile
+    # "kuyruğu oynatmak"ın ayrı izinler olduğunun tanığıdır.
     assert len(farm_herd) == 35
 
 
