@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import insert, select, text, update
@@ -28,6 +29,7 @@ from ..inventory import (
     warehouses,
 )
 from ..money import HUNDRED, ZERO_MONEY, money, percentage, quantity
+from ..parti_defteri import SKT_SORULMADI, parti_ac, parti_bul, parti_dus
 from ..schemas import (
     BulkPriceUpdate,
     BulkStockUpdate,
@@ -637,6 +639,83 @@ def update_product(
         raise HTTPException(400, PRODUCT_FAILED_MESSAGE) from exc
 
 
+def _ayarlama_partisi(
+    db: Session,
+    cid: int,
+    *,
+    payload: StockAdjust,
+    product_id: int,
+    warehouse_id: int,
+    diff: Decimal,
+) -> int | None:
+    """Ayarlamanın parti ayağı: defteri YAZAR ve hareketin `lot_id`ini verir.
+
+    PARTİ KODU YOKSA HİÇBİR ŞEY DEĞİŞMEZ ve `None` döner — 1B-C'den önceki
+    davranışın BİREBİR aynısı. Bu, dilimin en dar sözüdür: parti bilmeyen
+    çağıran parti defterini GÖRMEZ bile.
+
+    İŞARET KARARI VERİR, `mode` DEĞİL. `mode='set'` hem artı hem eksi bir
+    fark üretebilir ve kararı `mode`a bağlamak, sayılan bir azalmanın partiye
+    EKLENMESİNE yol açardı. Karar bu yüzden `diff`in İŞARETİNDEDİR.
+
+    SIFIR FARK DA PARTİYİ AÇAR (`parti_ac(miktar=0)`): operatör bir parti kodu
+    YAZDI ve o beyan kaydedilmelidir. Sıfırı sessizce atlamak, hareketin
+    `lot_id`ini boş bırakır ve "hangi parti sayıldı" sorusunu cevapsız
+    yapardı; `quantity + 0` ise defterde hiçbir sayıyı kımıldatmaz.
+
+    EKSİ FARK VAR OLMAYAN PARTİYE 409'DUR, sessiz açılış DEĞİL: olmayan bir
+    partiden mal düşmek, defteri eksiye iterdi ve `parti_dus` bunu ADIYLA
+    reddeder.
+    """
+    if payload.lot_code is None:
+        return None
+    if diff < 0:
+        parti = parti_bul(
+            db,
+            cid,
+            product_id=product_id,
+            warehouse_id=warehouse_id,
+            lot_code=payload.lot_code,
+        )
+        if parti is None:
+            raise HTTPException(
+                409,
+                {
+                    "code": "LOT_MIKTARI_EKSIYE_DUSER",
+                    "message": (
+                        f"`{payload.lot_code}` partisi bu depoda YOK; ondan "
+                        f"{-diff} birim düşülemez. Önce partiyi bir alışla "
+                        "ya da artı yönlü bir ayarlamayla açın."
+                    ),
+                },
+            )
+        parti_dus(
+            db,
+            cid,
+            lot_id=parti.id,
+            miktar=-diff,
+            care="Ayarlama miktarını partide gerçekten olan kadara düşürün.",
+        )
+        return parti.id
+    # `expiry_date` ALANI HİÇ GÖNDERİLMEDİYSE beyan YOKTUR ve SKT çatışma
+    # denetimi ÇALIŞMAZ; gönderildiyse (`None` dahil) BEYANDIR ve çelişki
+    # 422'dir. Ayrımın gerekçesi `app/parti_defteri.py` başlığındadır.
+    skt = (
+        payload.expiry_date
+        if "expiry_date" in payload.model_fields_set
+        else SKT_SORULMADI
+    )
+    return parti_ac(
+        db,
+        cid,
+        product_id=product_id,
+        warehouse_id=warehouse_id,
+        lot_code=payload.lot_code,
+        expiry_date=skt,
+        miktar=diff,
+    )
+
+
 @router.post("/{product_id}/stock")
 def adjust(
     product_id: int,
@@ -696,12 +775,20 @@ def adjust(
             new_stock=new_stock,
             overrides=override_policies,
         )
+        lot_id = _ayarlama_partisi(
+            db,
+            cid,
+            payload=payload,
+            product_id=product_id,
+            warehouse_id=warehouse_id,
+            diff=diff,
+        )
         db.execute(
             text(
                 """INSERT INTO stock_movements(
                 product_id,movement_type,quantity,movement_date,reference_type,
-                note,company_id,warehouse_id
-                ) VALUES(:id,:m,:q,:d,'manual',:n,:cid,:wid)"""
+                note,company_id,warehouse_id,lot_id
+                ) VALUES(:id,:m,:q,:d,'manual',:n,:cid,:wid,:lot)"""
             ),
             {
                 "id": product_id,
@@ -711,6 +798,7 @@ def adjust(
                 "n": payload.note,
                 "cid": cid,
                 "wid": warehouse_id,
+                "lot": lot_id,
             },
         )
         record_policy_overrides(

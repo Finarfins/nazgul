@@ -293,6 +293,27 @@ class StockAdjust(BaseModel):
     quantity: Decimal
     movement_date: str
     note: str | None = None
+    # PARTİ + SKT, 1B-C. Sınır `TransactionItem.lot_code` ve göçün sütunuyla
+    # AYNI (80) ve bu bir üslup değil zorunluluktur: iki yerde iki farklı
+    # sınır olsaydı büyük olan sessizce kesilir ve kesilen kod defterdeki
+    # partiyle EŞLEŞMEZDİ — aynı parti için İKİNCİ bir satır açılırdı.
+    lot_code: str | None = Field(default=None, max_length=80)
+    # `None` BİR BEYANDIR («bu parti SKT'sizdir») ve var olan tarihli bir
+    # partiyle ÇELİŞİR (422). ALANIN HİÇ GÖNDERİLMEMESİ ise beyanın
+    # YOKLUĞUdur ve çatışma denetimini HİÇ çalıştırmaz. İkisini ayıran şey
+    # `model_fields_set`tir ve ayrım `app/routers/products.py`de okunur;
+    # `app/parti_defteri.SKT_SORULMADI`nın gerekçesi orada yazılı.
+    expiry_date: str | None = None
+
+    @field_validator('lot_code')
+    @classmethod
+    def validate_lot_code(cls, value: str | None) -> str | None:
+        return _clean_optional(value)
+
+    @field_validator('expiry_date')
+    @classmethod
+    def validate_expiry_date(cls, value: str | None) -> str | None:
+        return _iso_date(value, 'Son kullanma tarihi', optional=True)
 
 
 class BulkPriceUpdate(BaseModel):
