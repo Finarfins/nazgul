@@ -22,7 +22,7 @@ aktarılmıyor (ürün sınırı, konu #17).
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -30,6 +30,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ..activity_log import log_request_activity
 from ..business_time import business_today
 from ..db import get_db
 from ..herd_schemas import (
@@ -44,7 +45,10 @@ from ..herd_schemas import (
     HerdFertilityResponse,
     MilkYieldWrite,
     MovementWrite,
+    TreatmentWrite,
     VaccinationWrite,
+    VetDrugUpdate,
+    VetDrugWrite,
     WeightWrite,
     kupe_uyarisi,
 )
@@ -77,6 +81,9 @@ _ATLA = Query(default=0, ge=0, le=100_000)
 _TABLOLAR = frozenset({
     "animals", "animal_groups", "animal_vaccinations", "animal_breedings",
     "animal_births", "animal_weights", "milk_yields", "animal_movements",
+    # Arınma (bekleme) süreleri — göç 20260908_0074. Küme İSTEKTEN gelen bir
+    # değeri asla kabul etmez; `_satir` yalnız bu sabitten okur.
+    "vet_drugs", "animal_treatments", "animal_treatment_items",
 })
 
 
@@ -859,16 +866,28 @@ def create_milk(payload: MilkYieldWrite, request: Request, db: Session = Depends
         _satir(db, cid, "animals", payload.animal_id)
     else:
         _satir(db, cid, "animal_groups", payload.group_id)
+    # ARINMA KİLİDİ (göç 0074). HER SQL'DEN ÖNCE: `block` politikasında satır
+    # HİÇ yazılmamalı, `require_reason`da gerekçesiz istek yazılmadan düşmeli.
+    uyari = _sut_guvenlik_dogrula(db, cid, payload)
     now = _simdi()
     yeni = db.execute(
         text(
             """INSERT INTO milk_yields(company_id,animal_id,group_id,milked_on,session,
-            quantity_liters,notes,created_at,updated_at)
+            quantity_liters,notes,withdrawal_warning,withdrawal_override_reason,
+            created_at,updated_at)
             VALUES(:cid,:animal_id,:group_id,:milked_on,:session,:quantity_liters,
-            :notes,:now,:now) RETURNING id"""
+            :notes,:withdrawal_warning,:withdrawal_override_reason,:now,:now)
+            RETURNING id"""
         ),
-        {"cid": cid, "now": now, **payload.model_dump()},
+        {"cid": cid, "now": now, "withdrawal_warning": uyari,
+         **payload.model_dump()},
     ).scalar_one()
+    # Kayıt aynı işlemde: `log_request_activity` commit ETMEZ, yani uyarı
+    # yazılıp aktivite yazılmadan biten bir yol YOK.
+    _arinma_gecisini_kaydet(
+        db, request, cid, "milk_yield", int(yeni), uyari,
+        payload.withdrawal_override_reason,
+    )
     db.commit()
     return _satir(db, cid, "milk_yields", int(yeni))
 
@@ -913,15 +932,25 @@ def create_movement(payload: MovementWrite, request: Request, db: Session = Depe
     """
     cid = company_id(request)
     hayvan = _satir(db, cid, "animals", payload.animal_id)
+    # ET ARINMA KİLİDİ (göç 0074). HER SQL'DEN ÖNCE, süt yolundaki gerekçenin
+    # aynısı.
+    uyari = _et_guvenlik_dogrula(db, cid, payload)
     now = _simdi()
-    db.execute(
+    hareket_id = db.execute(
         text(
             """INSERT INTO animal_movements(company_id,animal_id,kind,moved_on,amount,
-            counterparty,reason,notes,created_at,updated_at)
+            counterparty,reason,notes,withdrawal_warning,withdrawal_override_reason,
+            created_at,updated_at)
             VALUES(:cid,:animal_id,:kind,:moved_on,:amount,:counterparty,:reason,
-            :notes,:now,:now)"""
+            :notes,:withdrawal_warning,:withdrawal_override_reason,:now,:now)
+            RETURNING id"""
         ),
-        {"cid": cid, "now": now, **payload.model_dump()},
+        {"cid": cid, "now": now, "withdrawal_warning": uyari,
+         **payload.model_dump()},
+    ).scalar_one()
+    _arinma_gecisini_kaydet(
+        db, request, cid, "animal_movement", int(hareket_id), uyari,
+        payload.withdrawal_override_reason,
     )
     yeni_durum = MOVEMENT_TO_STATUS.get(payload.kind)
     if yeni_durum and hayvan["status"] != yeni_durum:
@@ -933,6 +962,11 @@ def create_movement(payload: MovementWrite, request: Request, db: Session = Depe
     return {
         "animal": _satir(db, cid, "animals", payload.animal_id),
         "movement_kind": payload.kind,
+        # Uyarı YANITTA da dönüyor: `warn` politikasında istek 201 alır ve
+        # kullanıcı hiçbir şey görmezse uyarı kayda girer ama KİMSEYE
+        # ULAŞMAZ. Hareket ucu satırı dönmüyor (durum + tür dönüyor), bu
+        # yüzden alan AÇIKÇA ekleniyor.
+        "withdrawal_warning": uyari,
     }
 
 
@@ -1181,3 +1215,635 @@ def herd_dashboard(request: Request, db: Session = Depends(get_db)):
             "non_live_events": int(dogumlar["olu"] or 0),
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# VETERİNER İLAÇ KATALOĞU VE ARINMA (BEKLEME) KİLİTLERİ — göç 20260908_0074
+# ---------------------------------------------------------------------------
+#
+# ÖLÇÜLEN KUSUR: bu modülde arınma süresi kavramı HİÇ YOKTU. `animal_
+# vaccinations` bir AŞI defteridir ve aşının kalıntı süresi yoktur; ilaç
+# tedavisinin tutulacağı bir yer, dolayısıyla süt/et için bir kilit de yoktu.
+# Antibiyotik uygulanmış bir hayvanın sütü sistem HİÇBİR ŞEY BİLMEDEN tanka
+# yazılabiliyordu.
+#
+# ŞEKİL TARLA MODÜLÜNDEN DEVRALINDI ve BİLEREK aynı: katalog önerir, operatör
+# karar verir, köken kayıt altındadır (0063), sistemin bulduğu ile kullanıcının
+# söylediği AYRI sütunda durur (0048), politika ÜÇ seviyelidir ve "allow"
+# YOKTUR (0064/0072). İkinci bir şekil uydurmak, aynı olguyu iki dilde okutmak
+# olurdu.
+
+#: 0063/0072 ile BİREBİR AYNI sözlük. Hayvancılığa ÖZEL bir köken kümesi
+#: AÇILMADI: `preharvest_source`/`reentry_source` ile aynı üç değer.
+_ARINMA_KOKEN_KATALOG = "CATALOGUE"
+_ARINMA_KOKEN_OPERATOR = "OPERATOR"
+_ARINMA_KOKEN_USTUNE_YAZMA = "OPERATOR_OVERRIDE"
+
+_ARINMA_SEBEP = "ARINMA_SURESI_DOLMADI"
+
+#: Okunamayan ayarda SIKI tarafa düş (`farm.py` `_firma_kurallari`nın gerekçesi:
+#: bir veritabanı sorununu sessiz kural gevşetmesine çevirmemek).
+_VARSAYILAN_ARINMA_POLITIKASI = "require_reason"
+
+#: ET arınması YALNIZ bu iki harekette ısırıyor ve dışarıda kalanların
+#: gerekçesi ÖLÇÜLMÜŞ bir ayrımdır, unutkanlık değil:
+#:
+#:   * SALE / SLAUGHTER — hayvan İNSAN GIDA ZİNCİRİNE giriyor. Kilit tam
+#:     olarak burayı korur.
+#:   * DEATH — hayvan ölmüştür. Kilidi buraya koymak ölümü BİLDİRMEYİ
+#:     zorlaştırırdı; oysa ölüm kaydı denetimin en çok ihtiyaç duyduğu
+#:     kayıttır ve onu caydırmak arınma süresini korumaz, defteri bozar.
+#:   * TRANSFER_OUT — hayvan başka bir işletmeye gidiyor, kesime değil.
+#:     Arınma süresi hayvanla BİRLİKTE taşınır ve kesim kararını alacak olan
+#:     karşı taraftır. Buraya kilit koymak aynı süreyi iki kez sorardı ve
+#:     ikincisinde (gerçek kesimde) hiçbir şey bilmezdik.
+#:   * PURCHASE / TRANSFER_IN — hayvan GELİYOR; zaten kesilmiyor.
+_ET_KILITLI_HAREKETLER = frozenset({"SALE", "SLAUGHTER"})
+
+#: Tedavi satırındaki iki ETKİN değer sütunu. İki alan BAĞIMSIZ hesaplanıyor;
+#: gerekçe `_arinma_coz`da.
+_SUT_ALANI = "milk_withdrawal_days"
+_ET_ALANI = "meat_withdrawal_days"
+
+
+def _arinma_politikasi(db: Session, cid: int) -> str:
+    """Firmanın arınma kilidi ayarı; satır okunamazsa VARSAYILAN (sıkı).
+
+    `farm.py`nin `_firma_kurallari`sıyla aynı fail-closed duruşu: okunamayan
+    bir ayarda gevşek tarafa düşmek, bir veritabanı sorununu sessizce kural
+    gevşetmesine çevirirdi ve burada gevşeyen şey İNSAN GIDASIDIR.
+    """
+    row = db.execute(
+        text("SELECT herd_withdrawal_policy FROM companies WHERE id=:cid"),
+        {"cid": cid},
+    ).mappings().first()
+    if not row:
+        return _VARSAYILAN_ARINMA_POLITIKASI
+    return row["herd_withdrawal_policy"] or _VARSAYILAN_ARINMA_POLITIKASI
+
+
+def _urun_dogrula(db: Session, cid: int, product_id: int) -> None:
+    """Ürün AYNI firmaya ait olmalı.
+
+    Veritabanındaki bileşik yabancı anahtar da bunu zorluyor; buradaki kontrol
+    kullanıcıya 404 veriyor, 500 değil (0063'ün `create_ppp`indeki gerekçe).
+    """
+    var = db.execute(
+        text("SELECT 1 FROM products WHERE id=:id AND company_id=:cid"),
+        {"id": int(product_id), "cid": cid},
+    ).scalar()
+    if not var:
+        raise HTTPException(404, "Ürün bulunamadı")
+
+
+def _katalog_arinma(
+    db: Session, cid: int, product_id: int, tur: str,
+) -> tuple[int | None, int | None]:
+    """Ürün için katalogdaki (süt, et) arınma günleri; türe ÖZEL satır önce.
+
+    Türden bağımsız satır (``species=''``) yedek: firma tek satırla başlayıp
+    gerektiğinde türe özelleştirebilsin diye (0063'ün `crop` deseni).
+
+    KARŞILAŞTIRMA TAM EŞİTLİKTİR ve 0063'ün Türkçe katlaması BURADA YOK.
+    Gerekçe ölçülmüş bir ŞEMA farkıdır: `crop_seasons.crop` SERBEST METİNDİR,
+    `animals.species` ise KAPALI bir kümedir (`ck_animals_species`) ve katalog
+    sütunu da aynı kümeye kısıtlıdır (`ck_vet_drugs_species`, göç 0074). İki
+    taraf da aynı kapalı kümeden geldiği için katlanacak bir şey yok; katlama
+    eklemek, olmayan bir sorunu çözerken ``I``/``ı`` gibi gerçek bir kayıp
+    riski getirirdi.
+    """
+    satirlar = db.execute(
+        text(
+            """SELECT species,milk_withdrawal_days,meat_withdrawal_days
+            FROM vet_drugs
+            WHERE company_id=:cid AND product_id=:pid AND status='ACTIVE'"""
+        ),
+        {"cid": cid, "pid": int(product_id)},
+    ).mappings().all()
+
+    genel: tuple[int | None, int | None] = (None, None)
+    for r in satirlar:
+        katalog_tur = (r["species"] or "").strip()
+        cift = (int(r["milk_withdrawal_days"]), int(r["meat_withdrawal_days"]))
+        if katalog_tur and katalog_tur == tur:
+            # Türe ÖZEL satır bulundu; yedeğe bakmaya gerek yok.
+            return cift
+        if not katalog_tur:
+            genel = cift
+    return genel
+
+
+def _tedavi_turu(db: Session, cid: int, payload: TreatmentWrite) -> str:
+    """Tedavinin TÜRÜ: hayvanınki, ya da sürününki.
+
+    Sürüde tür BOŞ ya da ``MIXED`` olabilir (0049 karışık sürüye izin veriyor).
+    İkisi de katalogdaki hiçbir tür koduna eşleşmez ve o durumda çözüm türden
+    BAĞIMSIZ satıra (``species=''``) düşer — bu bir kayıp değil, kataloğun
+    zaten tarif ettiği yedek yol.
+
+    Bu çağrı AYNI ZAMANDA kiracı kapısıdır: `_satir` başka firmanın hayvanını
+    ya da sürüsünü 404 ile reddeder.
+    """
+    if payload.animal_id is not None:
+        hayvan = _satir(db, cid, "animals", payload.animal_id)
+        return str(hayvan.get("species") or "")
+    grup = _satir(db, cid, "animal_groups", payload.group_id)
+    return str(grup.get("species") or "")
+
+
+def _arinma_coz(
+    db: Session, cid: int, payload: TreatmentWrite, tur: str,
+) -> tuple[int | None, int | None, int | None, int | None, str | None]:
+    """``(katalog_süt, katalog_et, etkin_süt, etkin_et, köken)``.
+
+    İKİ KURAL, İKİSİ DE 0063'ten DEVRALINDI:
+
+    * **EN UZUN KAZANIR.** Birden çok ilaç uygulandıysa her alan için en uzun
+      süre alınır. İKİ ALAN BAĞIMSIZ hesaplanıyor ve bu bilinçli: bir ilacın
+      süt arınması, başka bir ilacın et arınması uzun olabilir ve "en uzun
+      süreli ilacın çiftini al" demek, öteki ilacın uzun olan alanını
+      SESSİZCE kısaltırdı.
+    * **KATALOG ÖNERİR, OPERATÖR KARAR VERİR.** Operatörün girdiği değer
+      kazanır, ama üstüne yazma SESSİZ OLAMAZ: köken ``OPERATOR_OVERRIDE``
+      olur ve katalogun dediği ayrı sütunda durur.
+
+    KÖKEN TEK SÜTUNDUR ama alan İKİ TANEDİR; çift için TEK bir köken şöyle
+    türetiliyor ve `_phi_coz`un tek alanlı hâlinin BİREBİR genellemesidir:
+    operatör hiç konuşmadıysa ``CATALOGUE``; konuştuğu her alanda katalogla
+    aynı şeyi söylüyorsa (ya da katalog o alanda susuyorsa) ``OPERATOR``; en az
+    bir alanda katalogla ÇELİŞİYORSA ``OPERATOR_OVERRIDE``. Her uyuşmazlığı
+    üstüne yazma saymak, denetimde GERÇEK üstüne yazmaları görünmez kılardı.
+    """
+    kat_sut: int | None = None
+    kat_et: int | None = None
+    for kalem in payload.items or []:
+        if kalem.product_id is None:
+            # Serbest metin ilaç — prospektüsü depoda yok, çözülmez.
+            continue
+        sut, et = _katalog_arinma(db, cid, kalem.product_id, tur)
+        if sut is not None and (kat_sut is None or sut > kat_sut):
+            kat_sut = sut
+        if et is not None and (kat_et is None or et > kat_et):
+            kat_et = et
+
+    op_sut = payload.milk_withdrawal_days
+    op_et = payload.meat_withdrawal_days
+
+    etkin_sut = op_sut if op_sut is not None else kat_sut
+    etkin_et = op_et if op_et is not None else kat_et
+
+    if op_sut is None and op_et is None:
+        if kat_sut is None and kat_et is None:
+            # Ne operatör ne katalog: süre BOŞ kalır ve boş ihlal DEĞİLDİR.
+            return None, None, None, None, None
+        return kat_sut, kat_et, etkin_sut, etkin_et, _ARINMA_KOKEN_KATALOG
+
+    celiski = (op_sut is not None and kat_sut is not None and op_sut != kat_sut) or (
+        op_et is not None and kat_et is not None and op_et != kat_et
+    )
+    koken = _ARINMA_KOKEN_USTUNE_YAZMA if celiski else _ARINMA_KOKEN_OPERATOR
+    return kat_sut, kat_et, etkin_sut, etkin_et, koken
+
+
+# HAYVAN YOLU. Hayvanın KENDİ tedavileri ve İÇİNDE BULUNDUĞU SÜRÜYE yazılmış
+# tedaviler BİRLİKTE ısırıyor: sürünün tamamı ilaçlandığında o sürüdeki her
+# hayvanın sütü de etkilenir ve yalnız bireysel kayda bakmak, küçükbaş
+# işletmesinde kilidi tamamen işlevsiz bırakırdı.
+#
+# ÜYELİK GÜNCELDİR, GEÇMİŞ DEĞİL — ve bu ÖLÇÜLMÜŞ bir sınırdır, tercih değil:
+# `animals.group_id` TEK bir sütundur (0049) ve depoda üyelik GEÇMİŞİ tutan
+# hiçbir tablo YOKTUR. Yani tedaviden sonra sürü değiştiren bir hayvan YENİ
+# sürüsünün kurallarıyla değerlendirilir. Bunu düzeltmek bir üyelik defteri
+# açmak demektir ve o KENDİ göçünü ister; burada iddia EDİLMİYOR.
+#
+# Hayvanın sürüsü YOKSA (`group_id` NULL) alt sorgu NULL döner ve
+# `t.group_id=NULL` karşılaştırması NULL'dur, yani hiçbir satırı seçmez —
+# istenen davranış budur ve iki diyalektte de aynıdır.
+_ARINMA_HAYVAN_SORGU = text(
+    """SELECT t.id,t.treated_on,t.milk_withdrawal_days,t.meat_withdrawal_days,
+    t.animal_id,t.group_id
+    FROM animal_treatments t
+    WHERE t.company_id=:cid
+      AND (t.animal_id=:aid
+           OR (t.group_id IS NOT NULL AND t.group_id=(
+                 SELECT h.group_id FROM animals h
+                 WHERE h.company_id=:cid AND h.id=:aid)))"""
+)
+
+# SÜRÜ YOLU. Sürüye yazılmış tedaviler VE sürüdeki herhangi bir hayvanın
+# bireysel tedavisi BİRLİKTE ısırıyor: grup sağımı o hayvanın sütünü de
+# içerir, yani tek bir tedavi edilmiş inek tankın tamamını kirletir.
+_ARINMA_GRUP_SORGU = text(
+    """SELECT t.id,t.treated_on,t.milk_withdrawal_days,t.meat_withdrawal_days,
+    t.animal_id,t.group_id
+    FROM animal_treatments t
+    WHERE t.company_id=:cid
+      AND (t.group_id=:gid
+           OR (t.animal_id IS NOT NULL AND t.animal_id IN (
+                 SELECT h.id FROM animals h
+                 WHERE h.company_id=:cid AND h.group_id=:gid)))"""
+)
+
+
+def _arinma_ihlalleri(
+    db: Session, cid: int, animal_id: int | None, group_id: int | None,
+    hedef_gun: date, alan: str,
+) -> list[dict[str, Any]]:
+    """``hedef_gun``de bu hayvan/sürü için ihlal edilecek arınma süreleri.
+
+    Süresi GİRİLMEMİŞ tedavi ihlal SAYILMIYOR — `_bekleme_ihlalleri`nin
+    0044'ten beri geçerli kuralı: bilinmeyeni ihlal saymak kullanıcıyı gerekçe
+    yazmaya alıştırır ve o da GERÇEK uyarıyı değersizleştirir.
+
+    SINIR GÜNÜ SERBEST: karşılaştırma ``<`` iledir, yani arınmanın dolduğu
+    günün KENDİSİ ihlal değildir. ``treated_on`` bir DATE'tir ve saat taşımaz;
+    tarla tarafındaki `_yerel_gun` çevrimi (``performed_at`` bir ZAMAN
+    DAMGASIDIR ve UTC gününe göre hesaplamak süreyi bir gün kaydırırdı) burada
+    GEREKMİYOR — `_gun` yalnız sürücü farkını (SQLite metin, PostgreSQL
+    ``date``) düzeltiyor.
+    """
+    if animal_id is not None:
+        satirlar = db.execute(
+            _ARINMA_HAYVAN_SORGU, {"cid": cid, "aid": int(animal_id)}
+        ).mappings().all()
+    else:
+        satirlar = db.execute(
+            _ARINMA_GRUP_SORGU, {"cid": cid, "gid": int(group_id)}
+        ).mappings().all()
+
+    ihlaller: list[dict[str, Any]] = []
+    for r in satirlar:
+        gun = r[alan]
+        if gun is None:
+            continue
+        uygulama = _gun(r["treated_on"])
+        guvenli = uygulama + timedelta(days=int(gun))
+        if hedef_gun < guvenli:
+            ihlaller.append({
+                "treatment_id": int(r["id"]),
+                "treated_on": uygulama.isoformat(),
+                "withdrawal_days": int(gun),
+                "earliest_allowed": guvenli.isoformat(),
+                # Kaydı HANGİ yolun kestiği: bireysel tedavi mi, sürü tedavisi
+                # mi. Kullanıcı "bu hayvana ne verdim" diye bakıp hiçbir şey
+                # bulamasın diye.
+                "scope": "ANIMAL" if r["animal_id"] is not None else "GROUP",
+            })
+    # En geç biten kısıt en üstte: kullanıcının beklemesi gereken tarih odur.
+    ihlaller.sort(key=lambda x: x["earliest_allowed"], reverse=True)
+    return ihlaller
+
+
+def _arinma_ihlal_metni(ihlaller: list[dict[str, Any]]) -> str:
+    ilk = ihlaller[0]
+    return (
+        f"{ilk['treated_on']} tarihli tedavi {ilk['withdrawal_days']} gün arınma "
+        f"gerektiriyor, en erken {ilk['earliest_allowed']}"
+    )
+
+
+def _arinma_dogrula(
+    ihlaller: list[dict[str, Any]], politika: str, gerekce: str | None, ne: str,
+) -> str | None:
+    """Ortak karar: block RED, warn KABUL+uyarı, require_reason gerekçe İSTER.
+
+    Şekil `_plantback_dogrula` ile birebir ve ret gövdesi SÖZLÜKTÜR: çağıranın
+    yapacağı şey HANGİ tedavinin ve HANGİ tarihin kestiğine göre değişir, düz
+    bir metin bunu ayrıştırılabilir biçimde SÖYLEMEZ.
+    """
+    if not ihlaller:
+        return None
+    metin = _arinma_ihlal_metni(ihlaller)
+
+    if politika == "block":
+        raise HTTPException(
+            422,
+            {
+                "sebep": _ARINMA_SEBEP,
+                "message": (
+                    f"{ne} arınma süresi dolmadı: {metin}. "
+                    "Firma ayarı arınma dolmadan kaydetmeye izin vermiyor."
+                ),
+                "blocking": ihlaller,
+            },
+        )
+
+    # `warn`: istek KABUL EDİLİYOR ama sistemin bulduğu kayda yazılıyor.
+    if politika == "warn":
+        return metin
+
+    # `require_reason` (varsayılan): gerekçesiz geçmez.
+    if gerekce:
+        return metin
+    raise HTTPException(
+        422,
+        {
+            "sebep": _ARINMA_SEBEP,
+            "message": (
+                f"{ne} arınma süresi dolmadı: {metin}. "
+                "Yine de kaydetmek için gerekçe girin."
+            ),
+            "blocking": ihlaller,
+        },
+    )
+
+
+def _sut_guvenlik_dogrula(
+    db: Session, cid: int, payload: MilkYieldWrite,
+) -> str | None:
+    ihlaller = _arinma_ihlalleri(
+        db, cid, payload.animal_id, payload.group_id, payload.milked_on, _SUT_ALANI,
+    )
+    return _arinma_dogrula(
+        ihlaller, _arinma_politikasi(db, cid),
+        payload.withdrawal_override_reason, "Süt",
+    )
+
+
+def _et_guvenlik_dogrula(
+    db: Session, cid: int, payload: MovementWrite,
+) -> str | None:
+    """ET kilidi YALNIZ satış ve kesimde; gerekçesi `_ET_KILITLI_HAREKETLER`de."""
+    if payload.kind not in _ET_KILITLI_HAREKETLER:
+        return None
+    ihlaller = _arinma_ihlalleri(
+        db, cid, payload.animal_id, None, payload.moved_on, _ET_ALANI,
+    )
+    return _arinma_dogrula(
+        ihlaller, _arinma_politikasi(db, cid),
+        payload.withdrawal_override_reason, "Et",
+    )
+
+
+def _arinma_gecisini_kaydet(
+    db: Session, request: Request, cid: int, kaynak: str, kayit_id: int,
+    uyari: str | None, gerekce: str | None,
+) -> None:
+    """Kilidin GEREKÇEYLE geçilmesi aktivite kaydına yazılır.
+
+    YALNIZ ikisi de doluyken: uyarı yoksa geçilecek bir şey yoktu, gerekçe
+    yoksa (``warn`` politikası) karar kullanıcının DEĞİL firmanın ayarınındır
+    ve o ayar zaten `company-settings` üzerinden denetlenebilir.
+
+    Kaydın var olma sebebi `activity_log.ACTION_TYPES` başlığında ÖLÇÜLDÜ:
+    `milk_yields` ve `animal_movements` KULLANICI SÜTUNU TAŞIMIYOR (0049),
+    yani gerekçeyi kimin yazdığı başka hiçbir yerden çıkarılamaz.
+    """
+    if not uyari or not gerekce:
+        return
+    log_request_activity(
+        db, request, cid, "herd_withdrawal.overridden", "herd_withdrawal",
+        kayit_id, f"Arınma uyarısı gerekçeyle geçildi: {uyari}",
+        {"kaynak": kaynak, "uyari": uyari, "gerekce": gerekce},
+    )
+
+
+# ------------------------------------------------------------ katalog uçları ---
+
+@router.get("/vet-drugs")
+def list_vet_drugs(
+    request: Request,
+    limit: int = _SAYFA,
+    offset: int = _ATLA,
+    product_id: int | None = None,
+    status: str | None = None,
+    db: Session = Depends(get_db),
+):
+    cid = company_id(request)
+    kosul = ""
+    params: dict[str, Any] = {"cid": cid, "limit": limit, "offset": offset}
+    if product_id:
+        kosul += " AND k.product_id=:product_id"
+        params["product_id"] = product_id
+    if status:
+        kosul += " AND k.status=:status"
+        params["status"] = status.strip().upper()
+    toplam = db.execute(
+        text(f"SELECT COUNT(*) FROM vet_drugs k WHERE k.company_id=:cid{kosul}"),
+        params,
+    ).scalar()
+    # ÜRÜN ADI BİRLEŞTİRİLEREK GELİYOR (0063'ün `list_ppp` gerekçesi) ve
+    # birleştirme KİRACI İÇİNDE: `u.company_id=k.company_id` olmadan başka
+    # firmanın ürün adı bu listeye düşebilirdi.
+    rows = db.execute(
+        text(
+            f"""SELECT k.id,k.product_id,u.name AS product_name,k.species,
+            k.milk_withdrawal_days,k.meat_withdrawal_days,k.route,k.dose_unit,
+            k.registration_no,k.notes,k.status,k.origin,k.origin_reference,
+            k.updated_at
+            FROM vet_drugs k
+            JOIN products u ON u.id=k.product_id AND u.company_id=k.company_id
+            WHERE k.company_id=:cid{kosul}
+            ORDER BY u.name,k.species LIMIT :limit OFFSET :offset"""
+        ),
+        params,
+    ).mappings().all()
+    return _sayfa(rows, toplam, limit, offset)
+
+
+@router.post("/vet-drugs", status_code=201)
+def create_vet_drug(
+    payload: VetDrugWrite, request: Request, db: Session = Depends(get_db),
+):
+    cid = company_id(request)
+    _urun_dogrula(db, cid, payload.product_id)
+    now = _simdi()
+    try:
+        yeni = db.execute(
+            text(
+                """INSERT INTO vet_drugs(company_id,product_id,species,
+                milk_withdrawal_days,meat_withdrawal_days,route,dose_unit,
+                registration_no,notes,status,origin,origin_reference,
+                created_at,updated_at)
+                VALUES(:cid,:product_id,:species,:milk_withdrawal_days,
+                :meat_withdrawal_days,:route,:dose_unit,:registration_no,:notes,
+                'ACTIVE','MANUAL',NULL,:now,:now) RETURNING id"""
+            ),
+            {"cid": cid, "now": now, **payload.model_dump()},
+        ).scalar_one()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            409, "Bu ürün ve tür için katalog kaydı zaten var"
+        ) from exc
+    log_request_activity(
+        db, request, cid, "vet_drug.create", "vet_drug", int(yeni),
+        "Veteriner ilaç kataloğu satırı eklendi: süt "
+        f"{payload.milk_withdrawal_days} gün, et {payload.meat_withdrawal_days} gün",
+        {"product_id": payload.product_id, "species": payload.species,
+         "milk_withdrawal_days": payload.milk_withdrawal_days,
+         "meat_withdrawal_days": payload.meat_withdrawal_days},
+    )
+    db.commit()
+    return _satir(db, cid, "vet_drugs", int(yeni))
+
+
+@router.get("/vet-drugs/{drug_id}")
+def get_vet_drug(drug_id: int, request: Request, db: Session = Depends(get_db)):
+    return _satir(db, company_id(request), "vet_drugs", drug_id)
+
+
+@router.put("/vet-drugs/{drug_id}")
+def update_vet_drug(
+    drug_id: int, payload: VetDrugUpdate, request: Request,
+    db: Session = Depends(get_db),
+):
+    cid = company_id(request)
+    mevcut = _satir(db, cid, "vet_drugs", drug_id)
+    _urun_dogrula(db, cid, payload.product_id)
+    veri = payload.model_dump(exclude={"expected_updated_at"})
+    try:
+        sonuc = db.execute(
+            text(
+                """UPDATE vet_drugs SET product_id=:product_id,species=:species,
+                milk_withdrawal_days=:milk_withdrawal_days,
+                meat_withdrawal_days=:meat_withdrawal_days,route=:route,
+                dose_unit=:dose_unit,registration_no=:registration_no,
+                notes=:notes,status=:status,updated_at=:now
+                WHERE id=:id AND company_id=:cid AND updated_at=:expected_updated_at"""
+            ),
+            {"id": drug_id, "cid": cid, "now": _simdi(),
+             "expected_updated_at": _surum_param(payload.expected_updated_at),
+             **veri},
+        )
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            409, "Bu ürün ve tür için katalog kaydı zaten var"
+        ) from exc
+    if sonuc.rowcount != 1:
+        _surum_cakismasi(db)
+    # ESKİ VE YENİ DEĞER BİRLİKTE: 28 günlük et arınmasını 2 güne çeken bir
+    # düzenleme, satırın kendi `updated_at`inde yalnız "değişti" der.
+    log_request_activity(
+        db, request, cid, "vet_drug.update", "vet_drug", drug_id,
+        "Veteriner ilaç kataloğu satırı güncellendi: süt "
+        f"{mevcut['milk_withdrawal_days']} -> {payload.milk_withdrawal_days} gün, "
+        f"et {mevcut['meat_withdrawal_days']} -> {payload.meat_withdrawal_days} gün",
+        {"milk_before": mevcut["milk_withdrawal_days"],
+         "milk_after": payload.milk_withdrawal_days,
+         "meat_before": mevcut["meat_withdrawal_days"],
+         "meat_after": payload.meat_withdrawal_days,
+         "status_before": mevcut["status"], "status_after": payload.status},
+    )
+    db.commit()
+    return _satir(db, cid, "vet_drugs", drug_id)
+
+
+# ------------------------------------------------------------- tedavi uçları ---
+
+def _tedavi_kalemleri(db: Session, cid: int, tedavi_id: int) -> list[dict[str, Any]]:
+    return [dict(r) for r in db.execute(
+        text(
+            """SELECT id,product_id,drug_name,dose,dose_unit
+            FROM animal_treatment_items
+            WHERE company_id=:cid AND treatment_id=:tid ORDER BY id"""
+        ),
+        {"cid": cid, "tid": tedavi_id},
+    ).mappings().all()]
+
+
+@router.get("/animal-treatments")
+def list_treatments(
+    request: Request, limit: int = _SAYFA, offset: int = _ATLA,
+    animal_id: int | None = None, group_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    cid = company_id(request)
+    kosul = ""
+    params: dict[str, Any] = {"cid": cid, "limit": limit, "offset": offset}
+    if animal_id:
+        kosul += " AND animal_id=:animal_id"
+        params["animal_id"] = animal_id
+    if group_id:
+        kosul += " AND group_id=:group_id"
+        params["group_id"] = group_id
+    toplam = db.execute(
+        text(f"SELECT COUNT(*) FROM animal_treatments WHERE company_id=:cid{kosul}"),
+        params,
+    ).scalar()
+    rows = db.execute(
+        text(
+            f"""SELECT id,animal_id,group_id,treated_on,veterinarian,diagnosis,
+            notes,milk_withdrawal_days,meat_withdrawal_days,withdrawal_source,
+            catalogue_milk_days,catalogue_meat_days,updated_at
+            FROM animal_treatments WHERE company_id=:cid{kosul}
+            ORDER BY treated_on DESC,id DESC LIMIT :limit OFFSET :offset"""
+        ),
+        params,
+    ).mappings().all()
+    return _sayfa(rows, toplam, limit, offset)
+
+
+@router.post("/animal-treatments", status_code=201)
+def create_treatment(
+    payload: TreatmentWrite, request: Request, db: Session = Depends(get_db),
+):
+    """Tedavi + kalemleri + ÇÖZÜLMÜŞ arınma süreleri AYNI İŞLEMDE.
+
+    Süreler YAZMA anında çözülüp SATIRA yazılıyor, okuma anında katalogdan
+    hesaplanmıyor. Gerekçe 0063'ün tercihiyle aynı: katalog yarın değişebilir
+    ve o değişiklik DÜN kaydedilmiş bir tedavinin arınmasını geriye dönük
+    olarak kısaltmamalı. Kilit, tedavinin YAZILDIĞI GÜN geçerli olan
+    prospektüse dayanır ve `catalogue_*` sütunları o günün kaydıdır.
+
+    STOK HAREKETİ YAZILMIYOR ve bu, modülün 0049'dan beri geçerli sınırının
+    (V1 stok/muhasebeye fiş yazmaz — modül başlığı) AYNEN korunmasıdır:
+    kalemin `product_id`si burada YALNIZ katalog çözümü içindir, depodan
+    ilaç düşmez.
+    """
+    cid = company_id(request)
+    # HAYVAN YA DA GRUP — İKİSİ BİRDEN DEĞİL. Veritabanındaki CHECK
+    # (`ck_animal_treatments_hedef`, göç 0074) son savunma; buradaki kontrol
+    # kullanıcıya anlaşılır mesaj verir. `create_milk`in kalıbı.
+    if (payload.animal_id is None) == (payload.group_id is None):
+        raise HTTPException(
+            422,
+            "Tedavi ya bir hayvana ya bir sürüye bağlanmalı; ikisi birden "
+            "verilirse hangi hayvanların arındığı belirsiz kalır.",
+        )
+    tur = _tedavi_turu(db, cid, payload)
+    for kalem in payload.items:
+        if kalem.product_id is not None:
+            _urun_dogrula(db, cid, kalem.product_id)
+
+    kat_sut, kat_et, sut, et, koken = _arinma_coz(db, cid, payload, tur)
+    now = _simdi()
+    yeni = db.execute(
+        text(
+            """INSERT INTO animal_treatments(company_id,animal_id,group_id,
+            treated_on,veterinarian,diagnosis,notes,milk_withdrawal_days,
+            meat_withdrawal_days,withdrawal_source,catalogue_milk_days,
+            catalogue_meat_days,created_at,updated_at)
+            VALUES(:cid,:animal_id,:group_id,:treated_on,:veterinarian,:diagnosis,
+            :notes,:milk,:meat,:koken,:kat_sut,:kat_et,:now,:now) RETURNING id"""
+        ),
+        {"cid": cid, "now": now, "animal_id": payload.animal_id,
+         "group_id": payload.group_id, "treated_on": payload.treated_on,
+         "veterinarian": payload.veterinarian, "diagnosis": payload.diagnosis,
+         "notes": payload.notes, "milk": sut, "meat": et, "koken": koken,
+         "kat_sut": kat_sut, "kat_et": kat_et},
+    ).scalar_one()
+    for kalem in payload.items:
+        db.execute(
+            text(
+                """INSERT INTO animal_treatment_items(company_id,treatment_id,
+                product_id,drug_name,dose,dose_unit,created_at,updated_at)
+                VALUES(:cid,:tid,:product_id,:drug_name,:dose,:dose_unit,:now,:now)"""
+            ),
+            {"cid": cid, "tid": int(yeni), "now": now, **kalem.model_dump()},
+        )
+    db.commit()
+    kayit = _satir(db, cid, "animal_treatments", int(yeni))
+    kayit["items"] = _tedavi_kalemleri(db, cid, int(yeni))
+    return kayit
+
+
+@router.get("/animal-treatments/{treatment_id}")
+def get_treatment(
+    treatment_id: int, request: Request, db: Session = Depends(get_db),
+):
+    cid = company_id(request)
+    kayit = _satir(db, cid, "animal_treatments", treatment_id)
+    kayit["items"] = _tedavi_kalemleri(db, cid, treatment_id)
+    return kayit

@@ -124,6 +124,15 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/animal-groups"): "herd.view",
     ("GET", "/api/animal-groups/{group_id}"): "herd.view",
     ("GET", "/api/animal-movements"): "herd.view",
+    # Tedavi defteri (göç 20260908_0074). ÖNEK EŞLEŞMESİ ÖLÇÜLDÜ:
+    # "/api/animal-treatments" "/api/animals" önekinin ALTINA DÜŞMEZ
+    # ('animal' sonrası 's' değil '-' geliyor), yani `_HERD_PATH_PREFIXES`e
+    # KENDİ satırı yazılmasaydı genel `read` iznine düşerdi. OKUMASI diğer
+    # hayvancılık listeleriyle AYNI rol; YAZMASI ise `herd.health`tir (aşı
+    # kaydıyla aynı kapı) ve o ayrım `test_route_security_contracts`ta
+    # ADIYLA çivili.
+    ("GET", "/api/animal-treatments"): "herd.view",
+    ("GET", "/api/animal-treatments/{treatment_id}"): "herd.view",
     ("GET", "/api/animal-vaccinations"): "herd.view",
     ("GET", "/api/animal-weights"): "herd.view",
     ("GET", "/api/animals"): "herd.view",
@@ -132,6 +141,10 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/herd-fertility"): "herd.view",
     ("GET", "/api/milk-yields"): "herd.view",
     ("GET", "/api/vaccination-calendar"): "herd.view",
+    # Veteriner ilaç kataloğu (göç 20260908_0074). Aynı önek gerekçesi:
+    # "/api/vet-drugs" hiçbir mevcut önekle eşleşmiyor.
+    ("GET", "/api/vet-drugs"): "herd.view",
+    ("GET", "/api/vet-drugs/{drug_id}"): "herd.view",
 
     # --- payments — `/api/payments` ve `/api/receivables` öneklerinden.
     ("GET", "/api/payments"): "payments",
@@ -334,9 +347,13 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # 174 -> 175: 1B-A'nın TEK GET ucu (parti defteri okuması, göç
 # 20260908_0073). Drift raporu ÖLÇÜLDÜ: `missing`/`stale`/`changed` ÜÇÜ DE
 # BOŞ — artış YALNIZ eklemedir, hiçbir ucun izni DEĞİŞMEDİ.
-GET_INVENTORY_COUNT = 175
+# 175 -> 179: E2'nin DÖRT GET ucu (veteriner ilaç kataloğu listesi + tekil,
+# tedavi defteri listesi + tekil; göç 20260908_0074). Drift raporu ÖLÇÜLDÜ:
+# `missing`/`stale`/`changed` ÜÇÜ DE BOŞ — artış YALNIZ eklemedir, hiçbir
+# ucun izni DEĞİŞMEDİ.
+GET_INVENTORY_COUNT = 179
 GET_INVENTORY_FINGERPRINT = (
-    "ea3ee70394a9ad7f7452035bcc986cf7d89defa9dedeb6941398f1c54fe0f983"
+    "197710665775dc7dfb01e260f50ded04ae53d3beef9a4a06ab4accba76ee5373"
 )
 
 

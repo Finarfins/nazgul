@@ -783,6 +783,16 @@ _HERD_PATH_PREFIXES = (
     # Döl verimi göstergeleri (FAZ 5). Aynı gerekçe: salt okunur bir hesap ama
     # listede olmazsa sessizce genel ``read`` iznine düşer.
     "/api/herd-fertility",
+    # ARINMA (BEKLEME) SÜRELERİ — göç 20260908_0074.
+    #
+    # ÖNEK EŞLEŞMESİ ÖLÇÜLDÜ, VARSAYILMADI: "/api/animal-treatments" yukarıdaki
+    # HİÇBİR öneke düşmez ("/api/animals" ile eşleşmez — 'animal' sonrası 's'
+    # değil '-' geliyor), "/api/vet-drugs" ise hiçbirine yakın bile değil.
+    # Yazılmasalardı ikisi de dosyanın altındaki genel ``read`` kuralına
+    # düşerdi ve OKUMA yetkisi olan herkes arınma sürelerini DEĞİŞTİREBİLİRDİ
+    # — 0063'ün katalog için, 0072'nin plant-back için yazdığı tuzağın aynısı.
+    "/api/vet-drugs",
+    "/api/animal-treatments",
 )
 
 #: Saatlik maliyet oranları (mobil-erp#24). Bu bir PARA TANIMI: oran, geçmiş
@@ -873,7 +883,20 @@ def required_permission(method: str, path: str) -> str:
             return "herd.view"
         # AŞI VE SAĞLIK KAYDI AYRI İZİN: veteriner ya da sağlık sorumlusu aşı
         # girebilmeli ama hayvan alım/satımı ve sürü yapısını değiştirememeli.
-        if path.startswith("/api/animal-vaccinations"):
+        #
+        # TEDAVİ KAYDI AYNI KAPIDAN GEÇER ve bu, var olan kuralın GENİŞLETİLMESİ
+        # değil AYNEN UYGULANMASIDIR: yukarıdaki gerekçe "veteriner ya da sağlık
+        # sorumlusu" diyor ve ilaç tedavisi aşıdan daha da açık biçimde
+        # veterinerlik işidir. Tedaviyi ``herd.manage``a bağlamak, aşı
+        # girebilen veterinerin tedavi giremediği bir sistem üretirdi.
+        #
+        # KATALOG İSE ``herd.manage``DA KALIR ve ayrım BİLİNÇLİDİR: katalog
+        # satırı bir OLAY değil bir TANIMDIR — firmanın bütün gelecek
+        # tedavilerinin süresini belirler. Tanımı değiştirmek sürü yönetimi
+        # kararıdır; olayı kaydetmek sağlık kaydıdır.
+        if path.startswith("/api/animal-vaccinations") or path.startswith(
+            "/api/animal-treatments"
+        ):
             return "herd.health"
         return "herd.manage"
     if any(path.startswith(prefix) for prefix in _FARM_PATH_PREFIXES):

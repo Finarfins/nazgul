@@ -264,6 +264,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/animal-treatments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Treatments */
+        get: operations["list_treatments_api_animal_treatments_get"];
+        put?: never;
+        /**
+         * Create Treatment
+         * @description Tedavi + kalemleri + ÇÖZÜLMÜŞ arınma süreleri AYNI İŞLEMDE.
+         *
+         *     Süreler YAZMA anında çözülüp SATIRA yazılıyor, okuma anında katalogdan
+         *     hesaplanmıyor. Gerekçe 0063'ün tercihiyle aynı: katalog yarın değişebilir
+         *     ve o değişiklik DÜN kaydedilmiş bir tedavinin arınmasını geriye dönük
+         *     olarak kısaltmamalı. Kilit, tedavinin YAZILDIĞI GÜN geçerli olan
+         *     prospektüse dayanır ve `catalogue_*` sütunları o günün kaydıdır.
+         *
+         *     STOK HAREKETİ YAZILMIYOR ve bu, modülün 0049'dan beri geçerli sınırının
+         *     (V1 stok/muhasebeye fiş yazmaz — modül başlığı) AYNEN korunmasıdır:
+         *     kalemin `product_id`si burada YALNIZ katalog çözümü içindir, depodan
+         *     ilaç düşmez.
+         */
+        post: operations["create_treatment_api_animal_treatments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/animal-treatments/{treatment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Treatment */
+        get: operations["get_treatment_api_animal_treatments__treatment_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/animal-vaccinations": {
         parameters: {
             query?: never;
@@ -4925,6 +4974,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/vet-drugs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Vet Drugs */
+        get: operations["list_vet_drugs_api_vet_drugs_get"];
+        put?: never;
+        /** Create Vet Drug */
+        post: operations["create_vet_drug_api_vet_drugs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vet-drugs/{drug_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Vet Drug */
+        get: operations["get_vet_drug_api_vet_drugs__drug_id__get"];
+        /** Update Vet Drug */
+        put: operations["update_vet_drug_api_vet_drugs__drug_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/warehouse-transfers/{transfer_id}": {
         parameters: {
             query?: never;
@@ -6020,6 +6105,8 @@ export interface components {
             farm_reentry_policy?: ("warn" | "require_reason" | "block") | null;
             /** Farm Spraying Dose Required */
             farm_spraying_dose_required?: boolean | null;
+            /** Herd Withdrawal Policy */
+            herd_withdrawal_policy?: ("warn" | "require_reason" | "block") | null;
             /**
              * Negative Stock Policy
              * @enum {string}
@@ -7653,6 +7740,8 @@ export interface components {
             quantity_liters: number | string;
             /** Session */
             session?: string | null;
+            /** Withdrawal Override Reason */
+            withdrawal_override_reason?: string | null;
         };
         /** MovementWrite */
         MovementWrite: {
@@ -7673,6 +7762,8 @@ export interface components {
             notes?: string | null;
             /** Reason */
             reason?: string | null;
+            /** Withdrawal Override Reason */
+            withdrawal_override_reason?: string | null;
         };
         /** NoteCreate */
         NoteCreate: {
@@ -9250,6 +9341,56 @@ export interface components {
             /** Vat Rate */
             vat_rate: number;
         };
+        /**
+         * TreatmentItemWrite
+         * @description Tedavide uygulanan TEK ilaç.
+         *
+         *     ``product_id`` NULL KABUL EDER ve katalogdakinin tersidir: veteriner
+         *     kendi getirdiği, depoda stok kartı olmayan bir ilacı da kaydedebilmeli.
+         *     O kalem çözülmez ve süresi BOŞ kalır; boş ihlal DEĞİLDİR (0063 kuralı).
+         */
+        TreatmentItemWrite: {
+            /** Dose */
+            dose?: number | string | null;
+            /** Dose Unit */
+            dose_unit?: string | null;
+            /** Drug Name */
+            drug_name?: string | null;
+            /** Product Id */
+            product_id?: number | null;
+        };
+        /**
+         * TreatmentWrite
+         * @description Bir hayvana YA DA bir sürüye uygulanan tedavi.
+         *
+         *     ``milk_withdrawal_days`` / ``meat_withdrawal_days`` OPERATÖRÜN değeridir
+         *     ve verilirse katalogu EZER (0063'ün "katalog önerir, operatör karar
+         *     verir" kuralı). Ezme SESSİZ değildir: köken ``OPERATOR_OVERRIDE`` olarak
+         *     yazılır ve katalogun dediği ayrı sütunda durur.
+         */
+        TreatmentWrite: {
+            /** Animal Id */
+            animal_id?: number | null;
+            /** Diagnosis */
+            diagnosis?: string | null;
+            /** Group Id */
+            group_id?: number | null;
+            /** Items */
+            items?: components["schemas"]["TreatmentItemWrite"][];
+            /** Meat Withdrawal Days */
+            meat_withdrawal_days?: number | null;
+            /** Milk Withdrawal Days */
+            milk_withdrawal_days?: number | null;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Treated On
+             * Format: date
+             */
+            treated_on: string;
+            /** Veterinarian */
+            veterinarian?: string | null;
+        };
         /** UserPayload */
         UserPayload: {
             /** Display Name */
@@ -9300,6 +9441,74 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** VetDrugUpdate */
+        VetDrugUpdate: {
+            /** Dose Unit */
+            dose_unit?: string | null;
+            /**
+             * Expected Updated At
+             * Format: date-time
+             */
+            expected_updated_at: string;
+            /** Meat Withdrawal Days */
+            meat_withdrawal_days: number;
+            /** Milk Withdrawal Days */
+            milk_withdrawal_days: number;
+            /** Notes */
+            notes?: string | null;
+            /** Product Id */
+            product_id: number;
+            /** Registration No */
+            registration_no?: string | null;
+            /** Route */
+            route?: string | null;
+            /**
+             * Species
+             * @default
+             */
+            species: string;
+            /**
+             * Status
+             * @default ACTIVE
+             */
+            status: string;
+        };
+        /**
+         * VetDrugWrite
+         * @description Bir stok ürününün PROSPEKTÜSÜNDEN gelen arınma süreleri.
+         *
+         *     ``product_id`` ZORUNLU: ürüne bağlı olmayan bir katalog satırı hiçbir
+         *     tedaviyi çözemez, yani doldurulup hiç kullanılmayan bir alan olurdu
+         *     (0063'ün kuralı).
+         *
+         *     ``species`` BOŞ BIRAKILABİLİR ve boş bırakmak "bütün türler" demektir.
+         *     Tedavi edilen hayvanın türüyle eşleşen satır varsa o, yoksa bu kullanılır.
+         *
+         *     ``crop``TAN FARKI: tür KAPALI bir kümedir (``ck_animals_species``), bu
+         *     yüzden burada doğrulanıyor ve eşleştirme TAM EŞİTLİKTİR — 0063'ün Türkçe
+         *     katlaması burada GEREKMİYOR ve bilerek kullanılmadı.
+         */
+        VetDrugWrite: {
+            /** Dose Unit */
+            dose_unit?: string | null;
+            /** Meat Withdrawal Days */
+            meat_withdrawal_days: number;
+            /** Milk Withdrawal Days */
+            milk_withdrawal_days: number;
+            /** Notes */
+            notes?: string | null;
+            /** Product Id */
+            product_id: number;
+            /** Registration No */
+            registration_no?: string | null;
+            /** Route */
+            route?: string | null;
+            /**
+             * Species
+             * @default
+             */
+            species: string;
         };
         /** WarehouseCreate */
         WarehouseCreate: {
@@ -10173,6 +10382,104 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_treatments_api_animal_treatments_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                animal_id?: number | null;
+                group_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_treatment_api_animal_treatments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TreatmentWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_treatment_api_animal_treatments__treatment_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                treatment_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -19661,6 +19968,139 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_vet_drugs_api_vet_drugs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                product_id?: number | null;
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_vet_drug_api_vet_drugs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VetDrugWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_vet_drug_api_vet_drugs__drug_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drug_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_vet_drug_api_vet_drugs__drug_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drug_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VetDrugUpdate"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

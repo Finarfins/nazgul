@@ -785,7 +785,7 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     # `where(companies.c.id == cid)` aynen duruyor; değişen tek şey OKUNAN
     # SÜTUN kümesidir.
     ("app/routers/companies.py", "get_company_settings", "select",
-     "2a91c7d87b53075fdcbebdf0c0589ba3dc9618ad55e8a78b38b730643e6c248a"): (1, "companies", "arg0"),  # satır [115]
+     "6f7b973d2d873a83a549635c6ddb5f3f93fab1e71c6bf8286f3958f111aebb2b"): (1, "companies", "arg0"),  # satır [115]
     ("app/routers/companies.py", "list_branches", "select",
      "a1e5782db98e816f1960a283e2827acf34c2f7f89add2c976e5c8d680863b69b"): (1, "branches", "arg0"),  # satır [183]
     ("app/routers/companies.py", "list_policy_overrides", "select",
@@ -930,7 +930,7 @@ EXPECTED_OP_COUNTS = {"select": 94, "update": 42, "delete": 8}
 # sorgunun da hedefi statik olarak çözüldü. TABAN `a2c5f61`; E1b ve yeniden
 # kuyruklama Core envanterini KIMILDATMADI (ikisi de text() ile yazılmış),
 # bu yüzden taban 140'ta kaldı ve artış YALNIZ bu dilimindir.
-INVENTORY_FINGERPRINT = "6031430b950f539ca9eded95a159c978c44188f434739ada3e97cd32d3cef574"
+INVENTORY_FINGERPRINT = "5cb0ad7b82b7b7b931bc5e6772baf681e3434e34b7aae433297f4fab23c272da"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:

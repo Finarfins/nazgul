@@ -108,13 +108,13 @@ command.upgrade(config, "head")
 motor.dispose(); motor = sa.create_engine(URL)
 assert all(durum().values()), durum()
 
-# BAŞ TEK: göç 0072 zincire ikinci bir baş EKLEMEDİ. Baş ARTIK 0073'tür
-# (1B-A, PARTİ DEFTERİ DEPOYA BAĞLANIR) ve bu kapının ölçtüğü şey başın
-# HANGİ göç olduğu değil, TEK olduğudur — 0072 hâlâ zincirin İÇİNDE ve
-# yukarıdaki `downgrade -1` turu onu adıyla sürüyor.
+# BAŞ TEK: göç 0072 zincire ikinci bir baş EKLEMEDİ. Baş ARTIK 0074'tür
+# (E2, VETERİNER İLAÇ KATALOĞU + ARINMA KİLİTLERİ) ve bu kapının ölçtüğü şey
+# başın HANGİ göç olduğu değil, TEK olduğudur — 0072 hâlâ zincirin İÇİNDE ve
+# yukarıdaki mutlak hedefli `downgrade` turu onu adıyla sürüyor.
 from alembic.script import ScriptDirectory
 baslar = ScriptDirectory.from_config(config).get_heads()
-assert tuple(baslar) == ("20260908_0073",), baslar
+assert tuple(baslar) == ("20260908_0074",), baslar
 print("GOC TURU TAMAM")
 """
 
