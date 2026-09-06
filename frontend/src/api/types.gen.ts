@@ -1417,6 +1417,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/field-integration-events/{olay_id}/requeue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Yeniden Kuyrukla
+         * @description Terminal (ve `SENT` OLMAYAN) bir olayı `PENDING`e döndürür.
+         */
+        post: operations["field_integration_event_requeue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/field-safety": {
         parameters: {
             query?: never;
@@ -12576,6 +12596,39 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    field_integration_event_requeue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                olay_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

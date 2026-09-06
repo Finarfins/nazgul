@@ -114,6 +114,11 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
         "supplier_price.import_created", "supplier_price.import_applied",
         "supplier_price.import_reverted", "supplier_price.block_overridden",
         "supplier_price.xref_created",
+        # Outbox yeniden kuyruklama (FIELD_STOK_OUTBOX açılış koşulu 3).
+        # `field_integration_events` tablosunda `requeued_by`/`requeued_at`
+        # SÜTUNU YOK ve o dilim göç EKLEMEDİ; kimin hangi olayı hangi
+        # terminal durumdan geri aldığı YALNIZ bu satırda durur.
+        "field_event.requeued",
     }
     assert set(ACTION_TYPES) == expected
     # 58 -> 59: product.base_unit_update (kantar fişi v2).
@@ -121,12 +126,20 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
     # gerekli cunku `backup.*` PLATFORM yedegidir (kumenin tamami); bu ise TEK
     # firmanin verisini o firmaya teslim eder. Ayni ad altinda toplansalardi
     # panelde birbirinden ayirt edilemezlerdi.
-    assert len(ACTION_TYPES) == 60, sorted(ACTION_TYPES)
+    # 60 -> 61: YENİDEN KUYRUKLAMA (`field_event.requeued`). Ayrı bir eylem
+    # adı ŞART: uç bir olayın TERMİNAL kararını geri alıyor ve bunun izi
+    # başka hiçbir yerde yok — `activity_logs` bu dilimde `requeued_by`
+    # sütununun YERİNE geçiyor, üstelik append-only olduğu için ondan daha
+    # güçlü bir iz olarak.
+    assert len(ACTION_TYPES) == 61, sorted(ACTION_TYPES)
     assert all(ACTION_TYPES.values()), ACTION_TYPES
     assert "activity_log" in RESOURCE_TYPES
     # POS fişi de bir ``orders`` satırıdır: ayrı bir kaynak tipi eklenmez,
     # böylece paneldeki kaynak linki POS satırlarında da çalışır.
     assert "pos_sale" not in RESOURCE_TYPES
+    # Outbox olayı kendi kaynak tipidir: kaynak KİMLİĞİ olay satırının id'si,
+    # bağlantısı da okuma yüzeyi (`GET /api/field-integration-events`).
+    assert "field_integration_event" in RESOURCE_TYPES
 
 
 def test_log_activity_rejects_unknown_action_and_resource() -> None:

@@ -1836,3 +1836,297 @@ def test_mercek_iki_fis_olayi_ayni_hasatta_eszamanli_zaten_0_ASIRI_DUZELTME_yazm
             "Her işçi kendi olayını SENT bitirmeli. kosum=%d surecler=%r rapor=%r"
             % (kosum, ciktilar, rapor)
         )
+
+
+# ---------------------------------------------------------------------------
+# YENİDEN KUYRUKLAMA (açılış koşulu 3) — YARIŞ BACAĞI
+# ---------------------------------------------------------------------------
+#
+# NEDEN BURADA, SQLite KULVARINDA DEĞİL. `POST /api/field-integration-events/
+# {id}/requeue` satırı `status IN (<terminal, SENT hariç>)` yüklemli KOŞULLU
+# bir UPDATE ile kımıldatır. O yüklem yalnızca ucun SELECT'i ile UPDATE'i
+# ARASINDA satır değişirse konuşur — ve o pencere SQLite'ta AÇILMAZ, çünkü
+# yazmalar veritabanı düzeyinde seri hâle gelir. `tests/test_outbox_requeue.py`
+# bu yüzden yüklemi YAPISAL olarak (ucun koşturduğu metni yakalayarak)
+# çiviliyor; DAVRANIŞ kanıtı buradadır.
+#
+# ÖLÇÜLDÜ (yüklem düşürülerek): `_kosul(..., failed_only=False)` mutasyonu
+# SQLite senaryosunda YEŞİL kalıyor, aşağıdaki TALEP probunda
+# KIRMIZI — uç, tüketicinin talep ettiği satırı `PENDING`e geri çekiyor.
+#
+# PENCERE NASIL DETERMİNİSTİK AÇILIYOR. Zamanlamaya güvenilmiyor: bir süreç
+# olay satırının kilidini AÇIK BİR İŞLEMDE tutuyor, uç isteği o kilidin
+# üstüne geliyor ve UPDATE'inde BLOKE oluyor; kilit sahibi satırı
+# `DEAD -> PENDING -> CLAIMED` yapıp COMMIT edince ucun UPDATE'i çözülür ve
+# yüklemini YENİ (commit edilmiş) hâle karşı yeniden değerlendirir. READ
+# COMMITTED'in tam olarak bu davranışı ölçülüyor.
+#: Bu dosyanin HTTP bacaklarinin kullandigi admin sifresi. `admin123`
+#: DEGIL: acilis sifresi paylasilan veritabaninda SIRAYA BAGLI (bkz. KURULUM).
+_REQUEUE_ADMIN_PW = "PgKuyruk!12345"
+
+
+@pytest.fixture()
+def requeue_sifresi():
+    """Sifreyi test icin SATIRDAN yazar, sonra ACILIS durumuna geri koyar.
+
+    Iki uctan da calisir: kurulum her testte sifreyi kendi sabitine ceker,
+    teardown ise `admin123` + `must_change_password` acilis durumunu geri
+    koyar. Boylece bu dosya hangi sirada kosarsa kossun kendi girisini
+    garanti eder ve veritabanini BULDUGU GIBI birakir — ayni care ve ayni
+    gerekce `test_d2_avans_tescil_postgresql.py` icinde de duruyor.
+    """
+    yield _REQUEUE_ADMIN_PW
+    _kos(_REQUEUE_ACILIS, {"ADMIN_PW": _REQUEUE_ADMIN_PW})
+
+
+_REQUEUE_KURULUM = r'''
+import os, sys
+sys.path.insert(0, os.environ["BACKEND"])
+from sqlalchemy import text as _sql
+from app.db import SessionLocal
+from app.auth import hash_password
+import app.main
+Z = '2026-08-01T00:00:00'
+OLAY = 970101
+with SessionLocal() as db:
+    # ADMIN SIFRESI SATIRDAN YAZILIYOR. PG ikizleri AYNI veritabanini
+    # paylasiyor ve her biri girisin ardindan sifreyi KENDI sabitine cekiyor;
+    # bulunan sifre SIRAYA BAGLI olurdu (olculdu ve gerekcesi
+    # `test_d2_avans_tescil_postgresql.py`de yazili). Burada `change-password`
+    # ucu HIC kullanilmiyor: uc mevcut sifreyi ister (bilmiyoruz) ve iki
+    # ESZAMANLI istek surecinin ayni sifreyi degistirmesi kendi basina bir
+    # yaris olurdu. Dosya bitiminde acilis durumu GERI KONUR.
+    db.execute(_sql("UPDATE app_users SET password_hash=:h, "
+                    "must_change_password=false WHERE username='admin'"),
+               {"h": hash_password(os.environ["ADMIN_PW"])})
+    db.execute(_sql("DELETE FROM activity_logs WHERE company_id=1 "
+                    "AND action_type='field_event.requeued'"))
+    db.execute(_sql("DELETE FROM field_integration_events WHERE id=:i"),
+               {"i": OLAY})
+    # Kaynagi GORUNMEYEN bir olay: yeniden islenirse terminal kovasi
+    # ONGORULEBILIR (`SKIPPED_SOURCE_NOT_VISIBLE`) ve hicbir hareket yazmaz.
+    # Bu bacagin iddiasi YUKLEM, tuketim degil.
+    db.execute(_sql(
+        "INSERT INTO field_integration_events (id,company_id,source_type,"
+        "source_id,target,idempotency_key,status,attempts,last_error,"
+        "processed_at,created_at,updated_at) VALUES (:i,1,'field_harvest',"
+        "970999,'stock','field_harvest:970999:stock','DEAD',4,"
+        "'deneme tavani asildi (3)',:z,:z,:z)"), {"i": OLAY, "z": Z})
+    db.commit()
+print("REQUEUE-KURULUM-TAMAM")
+'''
+
+#: Kilidi TUTAN surec. Ucun SELECT'i ile UPDATE'i arasindaki pencereyi
+#: DETERMINISTIK acar: once satiri kilitler, uc isteginin geldigini bildiren
+#: dosyayi bekler, sonra `DEAD -> PENDING -> CLAIMED` yazip COMMIT eder.
+_REQUEUE_KILIT = r'''
+import os, sys, time
+sys.path.insert(0, os.environ["BACKEND"])
+from sqlalchemy import text as _sql
+from app.db import SessionLocal
+OLAY = 970101
+IZ = os.environ["IZ"]
+with SessionLocal() as db:
+    # Kilidi AL: bu UPDATE satiri isleme kadar kilitler.
+    n = db.execute(_sql(
+        "UPDATE field_integration_events SET status='PENDING', attempts=0 "
+        "WHERE company_id=1 AND id=:i AND status='DEAD'"), {"i": OLAY}).rowcount
+    assert n == 1, 'KILIT: satir DEAD degil'
+    print("KILIT-ALINDI", flush=True)
+    open(os.path.join(IZ, "kilit"), "w").write("1")
+    # Uc istegi UPDATE'inde bloke olana kadar bekle.
+    vade = time.monotonic() + 120.0
+    while time.monotonic() < vade:
+        if os.path.exists(os.path.join(IZ, "gonderildi")):
+            break
+        time.sleep(0.1)
+    else:
+        raise AssertionError('KILIT: uc istegi hic gelmedi')
+    # Istek metnin uzerine gelsin diye kisa bir pay; blokaj OLUSMASA bile
+    # asagidaki iddia (satir CLAIMED kalmali) gecerli kalir.
+    time.sleep(3.0)
+    # TUKETICININ TALEBI: satir artik CLAIMED.
+    n = db.execute(_sql(
+        "UPDATE field_integration_events SET status='CLAIMED', "
+        "attempts=attempts+1 WHERE company_id=1 AND id=:i AND status='PENDING'"
+    ), {"i": OLAY}).rowcount
+    assert n == 1, 'KILIT: satir PENDING degil'
+    db.commit()
+print("KILIT-BIRAKILDI")
+'''
+
+#: Ucu GERCEKTEN cagiran surec (HTTP, izin kapisi ve kiraci kapisi dahil).
+_REQUEUE_ISTEK = r'''
+import os, sys
+sys.path.insert(0, os.environ["BACKEND"])
+from fastapi.testclient import TestClient
+from app.main import app
+OLAY = 970101
+IZ = os.environ["IZ"]
+ADMIN_PW = os.environ["ADMIN_PW"]
+with TestClient(app) as client:
+    giris = client.post('/api/auth/login',
+                        json={'username':'admin','password':ADMIN_PW})
+    assert giris.status_code == 200, giris.text
+    govde = giris.json()
+    h = {'Authorization':'Bearer '+govde['access_token'],
+         'X-Company-ID':str(govde['companies'][0]['id'])}
+    # ESZAMANLI KOSUM ICIN BARIYER: iki istek AYNI ana nisan alsin diye
+    # kurulum/giris maliyeti POSTun disinda birakiliyor.
+    basla = os.environ.get("BASLA")
+    if basla:
+        import time as _t
+        hedef = float(basla)
+        while _t.time() < hedef:
+            _t.sleep(0.001)
+    open(os.path.join(IZ, "gonderildi"), "w").write("1")
+    r = client.post('/api/field-integration-events/%d/requeue' % OLAY, headers=h)
+    kod = None
+    try:
+        kod = r.json().get('detail', {}).get('code')
+    except Exception:
+        pass
+    print("ISTEK %d %s" % (r.status_code, kod))
+'''
+
+#: ACILIS DURUMUNU GERI KOYAR. Bu dosya sifreyi SATIRDAN degistiriyor; ayni
+#: veritabanini paylasan sonraki ikiz `admin123` bulmali (bkz. KURULUM notu).
+_REQUEUE_ACILIS = r'''
+import os, sys
+sys.path.insert(0, os.environ["BACKEND"])
+from sqlalchemy import text as _sql
+from app.db import SessionLocal
+from app.auth import hash_password
+with SessionLocal() as db:
+    if db.execute(_sql("SELECT to_regclass('public.app_users')")).scalar():
+        db.execute(_sql("UPDATE app_users SET password_hash=:h, "
+                        "must_change_password=true WHERE username='admin'"),
+                   {"h": hash_password("admin123")})
+        db.commit()
+print("ACILIS-GERI-KONDU")
+'''
+
+_REQUEUE_RAPOR = r'''
+import os, sys
+sys.path.insert(0, os.environ["BACKEND"])
+from sqlalchemy import text as _sql
+from app.db import SessionLocal
+OLAY = 970101
+with SessionLocal() as db:
+    d = db.execute(_sql("SELECT status FROM field_integration_events "
+                        "WHERE id=:i"), {"i": OLAY}).scalar_one()
+    n = db.execute(_sql("SELECT COUNT(*) FROM activity_logs WHERE company_id=1 "
+                        "AND action_type='field_event.requeued' "
+                        "AND resource_id=:i"), {"i": OLAY}).scalar_one()
+print("RAPOR DURUM %s DENETIM %d" % (d, n))
+'''
+
+
+def test_yeniden_kuyruklama_TALEP_EDILMIS_satiri_ALMIYOR_pg(
+    tmp_path, requeue_sifresi
+) -> None:
+    """Uç, tüketicinin TALEP ETTİĞİ satırı `PENDING`e geri ÇEKEMEZ.
+
+    Bu, koşullu UPDATE'in `status IN (<terminal>)` yükleminin DAVRANIŞ
+    kanıtıdır ve yalnız burada alınabilir (bkz. yukarıdaki başlık).
+
+    Yüklem düşerse ne olur, ÖLÇÜLDÜ: uç 200 döner, satır `CLAIMED`ken
+    `PENDING` olur ve uçuştaki tüketici — sonlandırması KOŞULSUZ olduğu için
+    (`_olayi_sonlandir`) — kendi kararını yine de yazar. Sonuç, yazıldığı
+    anda ZATEN yeniden kuyruklanmış sayılan bir olaydır: satır `SENT` ve
+    hareketi yazılmış olabilirken uç onu geri almış gösterir.
+
+    DENETİM SATIRI DA YAZILMAZ: reddedilen istek `activity_logs`a hiçbir şey
+    bırakmamalı. Tek başına 409 bunu söylemez — `log_activity` UPDATE'ten
+    ÖNCE çağrılsaydı red yine 409 olur ama defterde olmayan bir geri alma
+    görünürdü.
+    """
+    iz = tmp_path / "iz"
+    iz.mkdir()
+    assert "REQUEUE-KURULUM-TAMAM" in _kos(
+        _REQUEUE_KURULUM, {"ADMIN_PW": requeue_sifresi})
+
+    kilit = subprocess.Popen(
+        [sys.executable, "-c", _REQUEUE_KILIT], cwd=BACKEND,
+        env=_ortam({"IZ": str(iz)}), stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+    )
+    # Kilit ALINMADAN istek gonderilmemeli: aksi halde pencere ACILMAZ ve
+    # prob yuklemi olcmeden yesil kalir.
+    import time as _time
+
+    vade = _time.monotonic() + 180.0
+    while _time.monotonic() < vade and not (iz / "kilit").exists():
+        if kilit.poll() is not None:
+            cikti, hata = kilit.communicate()
+            raise AssertionError("KILIT SURECI DUSTU: " + cikti + "\n" + hata)
+        _time.sleep(0.1)
+    assert (iz / "kilit").exists(), "kilit surecinden isaret gelmedi"
+
+    istek = subprocess.Popen(
+        [sys.executable, "-c", _REQUEUE_ISTEK], cwd=BACKEND,
+        env=_ortam({"IZ": str(iz), "ADMIN_PW": requeue_sifresi}),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        encoding="utf-8", errors="replace",
+    )
+    k_cikti, k_hata = kilit.communicate(timeout=600)
+    assert kilit.returncode == 0, k_cikti + "\n" + k_hata
+    i_cikti, i_hata = istek.communicate(timeout=600)
+    assert istek.returncode == 0, i_cikti + "\n" + i_hata
+
+    rapor = _kos(_REQUEUE_RAPOR, {"ADMIN_PW": requeue_sifresi})
+    assert "ISTEK 409 EVENT_NOT_TERMINAL" in i_cikti, (
+        "Uç, TALEP EDİLMİŞ satırı geri almayı REDDETMELİYDİ. Koşullu "
+        "UPDATE'in `status IN (<terminal>)` yüklemi düşmüş olabilir. "
+        f"istek={i_cikti!r} kilit={k_cikti!r} rapor={rapor!r}"
+    )
+    assert "DURUM CLAIMED " in rapor, (
+        "TALEP EDİLMİŞ satır OYNADI: uç uçuştaki bir işlemin altından satır "
+        f"çekmiş. rapor={rapor!r} istek={i_cikti!r}"
+    )
+    assert "DENETIM 0" in rapor, (
+        f"reddedilen istek DENETİM satırı bırakmış: rapor={rapor!r}"
+    )
+
+
+def test_iki_yeniden_kuyruklama_yarisirken_TEK_kazanan_pg(
+    tmp_path, requeue_sifresi
+) -> None:
+    """İki eşzamanlı istek, tek terminal satır: bir 200, bir 409, TEK denetim.
+
+    "Geri alındı" bir GEÇİŞTİR ve bir kez olur. İki istek de 200 alsaydı
+    defterde tek geçiş için İKİ kayıt olurdu — denetim satırı sayısı bu
+    yüzden durum kadar sıkı ölçülüyor.
+    """
+    import time as _time
+
+    assert "REQUEUE-KURULUM-TAMAM" in _kos(
+        _REQUEUE_KURULUM, {"ADMIN_PW": requeue_sifresi})
+    basla = str(_time.time() + 4.0)
+    surecler = []
+    for i in range(2):
+        iz = tmp_path / ("y%d" % i)
+        iz.mkdir()
+        surecler.append(subprocess.Popen(
+            [sys.executable, "-c", _REQUEUE_ISTEK], cwd=BACKEND,
+            env=_ortam({"IZ": str(iz), "BASLA": basla,
+                        "ADMIN_PW": requeue_sifresi}),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            encoding="utf-8", errors="replace",
+        ))
+    ciktilar = []
+    for surec in surecler:
+        cikti, hata = surec.communicate(timeout=600)
+        assert surec.returncode == 0, cikti + "\n" + hata
+        ciktilar.append(cikti.strip())
+
+    rapor = _kos(_REQUEUE_RAPOR, {"ADMIN_PW": requeue_sifresi})
+    kazanan = [c for c in ciktilar if "ISTEK 200" in c]
+    kaybeden = [c for c in ciktilar if "ISTEK 409" in c]
+    assert len(kazanan) == 1, f"tam olarak BİR 200 bekleniyordu: {ciktilar!r}"
+    assert len(kaybeden) == 1, f"tam olarak BİR 409 bekleniyordu: {ciktilar!r}"
+    assert "DURUM PENDING " in rapor, (rapor, ciktilar)
+    assert "DENETIM 1" in rapor, (
+        "TEK geçiş için TEK denetim satırı olmalı; iki satır, iki isteğin de "
+        f"kazandığı anlamına gelir. rapor={rapor!r} surecler={ciktilar!r}"
+    )

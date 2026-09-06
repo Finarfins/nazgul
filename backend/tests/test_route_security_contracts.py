@@ -282,8 +282,8 @@ DYNAMIC_PERMISSION_CASES = {
 # GET envanteri o ucu `read` gösteriyor). Ayrı bir `review_reason`
 # GEREKMİYOR: beş uç da kiracı kapsamlıdır ve izinleri mevcut `purchases`
 # ailesindendir. Başka hiçbir ucun sözleşmesi değişmedi.
-EXPECTED_OPERATION_COUNT = 364
-EXPECTED_PATH_COUNT = 280
+EXPECTED_OPERATION_COUNT = 365
+EXPECTED_PATH_COUNT = 281
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -385,7 +385,25 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # 20260907 E1b (göç 20260907_0072): ekim-arası bekleme kataloğunun DÖRT
     # işlemi eklendi (farm.view / farm.manage, öneke yazılarak). Parmak izi
     # 8f3eb86b -> a49f58e6; başka hiçbir sözleşme değişmedi.
-    "a49f58e6f3873784c1246da16f4769d56dc683d372496d5c4d0ed91cb7660620"
+    # 20260907 (FIELD_STOK_OUTBOX açılış koşulu 3 — YENİDEN KUYRUKLAMA):
+    # 1 işlem / 1 yol eklendi — POST
+    # /api/field-integration-events/{olay_id}/requeue. TABAN E1b SONRASIDIR:
+    # 364 -> 365 işlem, 280 -> 281 yol. Önceki turdaki 360 -> 361 / 278 -> 279
+    # ölçümü, taban E1b ile değiştiği anda GEÇERSİZ oldu ve bu satırlar
+    # BİRLEŞMİŞ AĞAÇTA YENİDEN ÖLÇÜLDÜ (CPython 3.12.10).
+    # İZİN `farm.manage`, ÖLÇÜLDÜ VE VARSAYILMADI: yol
+    # `/api/field-integration-events` önekinin altında ve o önek koşul 2'de
+    # `_FARM_PATH_PREFIXES`e ZATEN eklenmişti; güvenli olmayan yöntem olduğu
+    # için `required_permission` `farm.manage` döndürüyor — okumanın
+    # `farm.view`inden DAHA DAR. Sıra yine korundu: önce önek listesinin
+    # yerinde olduğu doğrulandı, sonra izin `required_permission` ile
+    # ölçüldü, EN SON parmak izi alındı. Bu dosyanın yukarıdaki notu, parmak
+    # izini YANLIŞ izinle dondurmanın iki kez yaşandığını söylüyor.
+    # Uç TEK BİR SÜTUN ÜÇLÜSÜ yazar (`status`/`attempts`/`updated_at`) ve
+    # yalnız terminal (`SENT` OLMAYAN) satırda; göç EKLEMEDİ ve tüketici
+    # davranışı ile `FIELD_STOCK_OUTBOX_ENABLED` varsayılanı DEĞİŞMEDİ.
+    # Parmak izi a49f58e6 -> d11a83eb.
+    "d11a83eba1d6e5d703dac68a80865a3f37367a871196c2c21ef35c6f9fe5efcf"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

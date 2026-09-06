@@ -149,6 +149,12 @@ ACTION_TYPES: dict[str, str] = {
     "supplier_price.import_reverted": "Tedarikçi fiyat importu geri alma",
     "supplier_price.block_overridden": "Tedarikçi fiyat blok kabulü",
     "supplier_price.xref_created": "Tedarikçi parça eşlemesi",
+    # Outbox yeniden kuyruklama (FIELD_STOK_OUTBOX açılış koşulu 3).
+    # `field_integration_events` üzerinde `requeued_by`/`requeued_at` SÜTUNU
+    # YOKTUR ve o dilim göç EKLEMEDİ; kimin hangi olayı HANGİ terminal
+    # durumdan geri aldığı bu yüzden BURAYA yazılır. Kataloğa girmeden
+    # çağrılamaz: `log_activity` katalog dışı bir tipi ValueError ile reddeder.
+    "field_event.requeued": "Entegrasyon olayı yeniden kuyruklama",
 }
 
 RESOURCE_TYPES: frozenset[str] = frozenset(
@@ -170,6 +176,10 @@ RESOURCE_TYPES: frozenset[str] = frozenset(
         "notification_template",
         "notification_consent",
         "notification_rule",
+        # Outbox olayı (açılış koşulu 3). Kaynak KİMLİĞİ olay satırının
+        # id'sidir; panelin kaynak bağlantısı okuma yüzeyine (`GET
+        # /api/field-integration-events`) karşılık gelir.
+        "field_integration_event",
     }
 )
 
