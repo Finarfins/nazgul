@@ -97,6 +97,10 @@ def _temizle(engine) -> None:
             "(SELECT id FROM companies WHERE name IN (:a, :b))",
             "DELETE FROM product_lots WHERE company_id IN "
             "(SELECT id FROM companies WHERE name IN (:a, :b))",
+            "DELETE FROM warehouse_stocks WHERE company_id IN "
+            "(SELECT id FROM companies WHERE name IN (:a, :b))",
+            "DELETE FROM warehouses WHERE company_id IN "
+            "(SELECT id FROM companies WHERE name IN (:a, :b))",
             "DELETE FROM products WHERE company_id IN "
             "(SELECT id FROM companies WHERE name IN (:a, :b))",
             "DELETE FROM companies WHERE name IN (:a, :b)",
@@ -117,6 +121,15 @@ def motor():
         engine.dispose()
 
 
+#: Firma başına açılan ikiz deposu. Göç `20260908_0073` `product_lots`a
+#: `warehouse_id INTEGER NOT NULL` ekledi ve bileşik yabancı anahtarla
+#: `warehouses(company_id, id)`ye bağladı — yani 0067 çağındaki "deposuz
+#: parti" satırı ARTIK YAZILAMAZ. Bu dosyanın iddiaları (FEFO sırası, NaN
+#: kısıtı, stok/parti ayrışması) DEPODAN BAĞIMSIZDIR ve DEĞİŞMEDİ; değişen
+#: tek şey her satırın artık bir depo ADLANDIRMAK ZORUNDA olmasıdır.
+_DEPOLAR: dict[int, int] = {}
+
+
 def _firma_ve_urun(
     baglanti, firma_adi: str = FIRMA_ADI, urun_adi: str = URUN_ADI
 ) -> tuple[int, int]:
@@ -134,6 +147,13 @@ def _firma_ve_urun(
         ),
         {"ad": urun_adi, "cid": firma_id},
     ).scalar_one()
+    _DEPOLAR[firma_id] = baglanti.execute(
+        text(
+            "INSERT INTO warehouses (company_id, name, is_active, is_default) "
+            "VALUES (:cid, 'Parti İkizi Deposu', true, true) RETURNING id"
+        ),
+        {"cid": firma_id},
+    ).scalar_one()
     return firma_id, urun_id
 
 
@@ -149,10 +169,12 @@ def _parti_yaz(
     return baglanti.execute(
         text(
             "INSERT INTO product_lots "
-            "(company_id, product_id, lot_code, expiry_date, quantity, created_at) "
-            "VALUES (:cid, :pid, :kod, :skt, :mik, :olusma) RETURNING id"
+            "(company_id, product_id, lot_code, expiry_date, quantity, "
+            " warehouse_id, created_at) "
+            "VALUES (:cid, :pid, :kod, :skt, :mik, :wid, :olusma) RETURNING id"
         ),
         {
+            "wid": _DEPOLAR[firma_id],
             "cid": firma_id,
             "pid": urun_id,
             "kod": kod,
@@ -251,10 +273,10 @@ def test_CHECK_kisiti_NaN_MIKTARI_GERCEKTEN_REDDEDER(motor) -> None:
             baglanti.execute(
                 text(
                     "INSERT INTO product_lots (company_id, product_id, lot_code, "
-                    "quantity, created_at) VALUES "
-                    "(:cid, :pid, 'NAN-1', 'NaN'::numeric, now())"
+                    "quantity, warehouse_id, created_at) VALUES "
+                    "(:cid, :pid, 'NAN-1', 'NaN'::numeric, :wid, now())"
                 ),
-                {"cid": firma_id, "pid": urun_id},
+                {"cid": firma_id, "pid": urun_id, "wid": _DEPOLAR[firma_id]},
             )
 
 
