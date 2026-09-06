@@ -834,6 +834,22 @@ def required_permission(method: str, path: str) -> str:
     # genel SAFE_METHODS kuralına takılıp ``read``e düşme riski vardır ve o
     # hâlde HER rol firmanın tüm defterini indirebilirdi.
     if path.startswith("/api/company/export"): return "__admin_only__"
+    # KİRACI YUMUŞAK İMHASI dışa aktarımla AYNI kapıdır ve bu BİLİNÇLİDİR:
+    # ikisi de firmanın TAMAMI üzerinde tek hamlede iş görür. Ayrı bir izin
+    # adı uydurmak, o adı bir gün başka bir role yazma yolunu açardı.
+    #
+    # KURAL BUGÜN SONUCU DEĞİŞTİRMİYOR — ÖLÇÜLDÜ, VARSAYILMADI. Satır
+    # silindiğinde `required_permission` yine `__admin_only__` veriyor: imha
+    # POST'tur ve eşleşen kuralı olmadığı için dosyanın SONUNDAKİ
+    # deny-by-default nöbetçisine düşüyor. Kural yine de YAZILI, çünkü o
+    # DOLAYLI yola bağlıdır: "/api/company" ile başlayan bir önek kuralı bir
+    # gün eklenirse (yeni bir firma uçları ailesi gibi) uç SESSİZCE o kuralın
+    # iznine kayardı. Açık satır o kaymayı imkansız kılar.
+    #
+    # TAM EŞLEŞME, ÖNEK DEĞİL — ve bu ZORUNLU: "/api/company" öneki
+    # `/api/company-settings`i de yakalar ve ayarlar ucunu sessizce en
+    # yüksek role kilitlerdi.
+    if path == "/api/company/erase": return "__admin_only__"
     if path.startswith("/api/platform/backups"):
         # The router applies the stronger admin + environment allow-list check.
         # Middleware still requires authentication and CSRF.

@@ -1386,8 +1386,17 @@ def tum_firmalari_isle(
         time.monotonic_ns() + sure_butcesi_saniye * NANOSANIYE
         if sure_butcesi_saniye is not None else None
     )
+    # KAPATILMIS FIRMA ISLENMEZ. Bu yuklem 5.1b'de OLCULEREK eklendi: yumusak
+    # imha `companies.is_active`i false yapar ve `/api`nin tamamini kapatir,
+    # AMA bu dongu HTTP'den gecmez — uygulama surecinde kosar ve kiraci
+    # cozumunu HIC gormez. Yuklem olmadan kapatilmis bir kiracinin bekleyen
+    # outbox olaylari islenmeye DEVAM eder ve `stock_movements`e YENI satir
+    # yazardi; yani "kapatildi" iddiasi tam da denetlenmeyen yerde yalan olurdu.
+    # BAGLI PARAMETRE, `= TRUE` metni DEGIL: PG'de boolean, SQLite'ta 1 baglanir
+    # ve iki lehcede de ayni satirlar doner.
     firmalar = db.execute(
-        text("SELECT id FROM companies ORDER BY id")
+        text("SELECT id FROM companies WHERE is_active = :aktif ORDER BY id"),
+        {"aktif": True},
     ).scalars().all()
     for sira, firma in enumerate(firmalar):
         if son_an is not None and time.monotonic_ns() >= son_an:

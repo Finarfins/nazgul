@@ -885,10 +885,24 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "cd50bebcd58d7320694fa287dd30cd8b9bd4599f558d97f225c68932c351763f"): (1, None, "unresolved"),  # satır [225]
     ("app/routers/kiraci_disa_aktarim.py", "_uret", "select",
      "22146e8f2b8865b09df07eb95d99700ca20acb0071dc458f749716f9457560f1"): (1, None, "unresolved"),  # satır [282]
+    # --- app/routers/kiraci_imha.py
+    # KİRACI YUMUŞAK İMHASI. Dışa aktarımın tersine burada HİÇBİR hedef
+    # çözülemez DEĞİL: dört sorgunun da tablosu modül düzeyinde yazılı
+    # (`tenancy.companies` / `tenancy.memberships`) ve tarayıcı ikisini de
+    # görür. `UYELIKLER = memberships` biçiminde bir takma ad DENENDİ ve
+    # tarayıcının hedefi çözmesini ENGELLEDİĞİ ölçüldü; takma ad kaldırıldı.
+    ("app/routers/kiraci_imha.py", "firmayi_imha_et", "select",
+     "1ca178e7977a564eca6a5a8be7567762ccd8ced0c2d68b61145f37c093634349"): (1, "companies", "arg0"),  # satır [111]
+    ("app/routers/kiraci_imha.py", "firmayi_imha_et", "select",
+     "5f7e8d234443f629f4f98b1abb49da73f3b54eb1c5c2780ee0b951fbd83889c2"): (1, "memberships", "select_from"),  # satır [126]
+    ("app/routers/kiraci_imha.py", "firmayi_imha_et", "update",
+     "344689a43a024706cb6327aee8f29b2a40490b80526b4bd1852ec0ba9a15294c"): (1, "companies", "arg0"),  # satır [133]
+    ("app/routers/kiraci_imha.py", "firmayi_imha_et", "delete",
+     "4594c3b519aab868921b5bd88a7f5bc6f2579889963ec81277bc7383effb9a72"): (1, "memberships", "arg0"),  # satır [137]
 }
 
-TOTAL_CORE_QUERIES = 140
-EXPECTED_OP_COUNTS = {"select": 92, "update": 41, "delete": 7}
+TOTAL_CORE_QUERIES = 144
+EXPECTED_OP_COUNTS = {"select": 94, "update": 42, "delete": 8}
 # 2026-08-12: iki sorgu bilerek değişti — `ensure_company_default_warehouse`
 # depo adı taramasına kiracı kapsamı eklendi (şema ölçümü: warehouses.name
 # üzerinde ne küresel ne kiracı kapsamlı UNIQUE var) ve `_finalize` opak
@@ -907,7 +921,16 @@ EXPECTED_OP_COUNTS = {"select": 92, "update": 41, "delete": 7}
 # göç kiracı tablosu eklediğinde sessizce eksik kalır ve o tablonun satırları
 # dosyaya HİÇ girmezdi. Kiracı yüklemi statik olarak GÖRÜNÜR durumdadır
 # (``.where(tablo.c.company_id == cid)``), yalnız tablo NESNESİ değişkendir.
-INVENTORY_FINGERPRINT = "16f1e9549abe06b0cdd1ab80c533a8c643cbf5c260cb534220aa82ea7dfa5aec"
+# 20260906 kiracı yumuşak imhası (5.1b): 140 -> 144. DÖRDÜ DE
+# app/routers/kiraci_imha.py: `companies` okuması, `memberships` sayımı,
+# `companies` UPDATE'i, `memberships` DELETE'i. app/tenancy.py'ye HİÇBİR
+# sorgu EKLENMEDİ — o dosyaya bu dilim HİÇ DOKUNMADI. Drift raporu ÖLÇÜLDÜ:
+# `changed` ve `stale` BOŞ — artış YALNIZ ekleme, hiçbir mevcut sorgunun
+# yüklemi ya da hedefi DEĞİŞMEDİ. `UNRESOLVED_ALLOWLIST` BÜYÜMEDİ: dört
+# sorgunun da hedefi statik olarak çözüldü. TABAN `a2c5f61`; E1b ve yeniden
+# kuyruklama Core envanterini KIMILDATMADI (ikisi de text() ile yazılmış),
+# bu yüzden taban 140'ta kaldı ve artış YALNIZ bu dilimindir.
+INVENTORY_FINGERPRINT = "6031430b950f539ca9eded95a159c978c44188f434739ada3e97cd32d3cef574"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:

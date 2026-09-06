@@ -96,6 +96,7 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
         "user.create", "user.role_change", "user.status_change",
         "activity_log.archive", "activity_log.unarchive",
         "company.exported",
+        "company.erased",
         "backup.created", "backup.downloaded",
         "backup.restore_started", "backup.restore_completed", "backup.restore_failed",
         "backup.restore_rollback_started", "backup.restore_rollback_completed",
@@ -131,7 +132,13 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
     # başka hiçbir yerde yok — `activity_logs` bu dilimde `requeued_by`
     # sütununun YERİNE geçiyor, üstelik append-only olduğu için ondan daha
     # güçlü bir iz olarak.
-    assert len(ACTION_TYPES) == 61, sorted(ACTION_TYPES)
+    # 61 -> 62: KIRACI YUMUSAK IMHASI (`company.erased`). `company.exported`
+    # ile ayni aileden ama AYRI bir eylem: biri veriyi TESLIM eder, digeri
+    # kiraciyi KAPATIR. Ayni ad altinda toplansalardi denetim izinde
+    # "verisini indirdi" ile "firmayi kapatti" ayirt edilemezdi. KAYNAK TIPI
+    # dis aktarimla AYNI ("backup"): RESOURCE_TYPES 18'de SABIT, yeni kaynak
+    # tipi ACILMADI.
+    assert len(ACTION_TYPES) == 62, sorted(ACTION_TYPES)
     assert all(ACTION_TYPES.values()), ACTION_TYPES
     assert "activity_log" in RESOURCE_TYPES
     # POS fişi de bir ``orders`` satırıdır: ayrı bir kaynak tipi eklenmez,

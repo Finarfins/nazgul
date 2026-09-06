@@ -248,7 +248,7 @@ ALLOWLIST_FINGERPRINTS: dict[tuple[str, str], str] = {
 # ``python-version: "3.12"`` ile aynı). Yerelde başka bir sürümle koşuluyorsa
 # bu kapı ölçüm yapmıyor demektir; 3.12 kurup tekrar koşun.
 DYNAMIC_SQL_FILE_ALLOWLIST: dict[str, tuple[int, str, str]] = {
-    "backend/app/activity_log.py": (3, "3a0bd7a229f25ebe944b83707a691d5167e8255d3972dae7b5fe0e89a3c4a2cd", "fixed filters after tenant_text-enforced company scope. Parmak izi 2026-09-05te yenilendi: ACTION_TYPES katalog sozlugune TEK giris eklendi (`product.base_unit_update`, kantar fisi v2 / goc 20260902_0066 taban birim yazma yolu). Eklenen sey bir SOZLUK SABITIDIR, text() cagrisi DEGIL: dinamik text() sayisi 3te SABIT ve ucunun de argumanlari develop ile BIREBIR ayni; parmak izi f7e01786->6da9d10e kimildadi cunku dosya AST'sinin TAMAMINDAN turuyor. Parmak izi 2026-09-05te YENIDEN turetildi: KIRACI DISA AKTARIMI dilimi ACTION_TYPES sozluguna ikinci bir giris ekledi ('company.exported') ve dosya artik HEM kantar fisi HEM disa aktarim girdilerini tasiyor. SQL METNINE HIC DOKUNULMADI: dinamik text() cagrisi 3te SABIT, metinler BIREBIR ayni. Parmak izi yalnizca ACTION_TYPES bir sozluk LITERALI oldugu ve dosya AST'sinin TAMAMINDAN turedigi icin kimildadi. Parmak izi 2026-09-06da YENIDEN turetildi: OUTBOX YENIDEN KUYRUKLAMA (acilis kosulu 3) iki KAPALI kumeye BIRER giris ekledi — ACTION_TYPES sozluguna 'field_event.requeued' ve RESOURCE_TYPES frozenset'ine 'field_integration_event'. Eklenen sey bir SOZLUK/KUME LITERALIDIR, text() cagrisi DEGIL: dinamik text() sayisi 3te SABIT ve ucunun de argumanlari develop ile BIREBIR ayni (OLCULDU, CPython 3.12.10). SQL METNINE HIC DOKUNULMADI. Parmak izi 567f6d1d->3a0bd7a2 kimildadi cunku dosya AST'sinin TAMAMINDAN turuyor."),
+    "backend/app/activity_log.py": (3, "0a19ef72f290525440a50d7925055090a9ed2030c47e37b270e5f7cfa5e0d230", "fixed filters after tenant_text-enforced company scope. Parmak izi 2026-09-05te yenilendi: ACTION_TYPES katalog sozlugune TEK giris eklendi (`product.base_unit_update`, kantar fisi v2 / goc 20260902_0066 taban birim yazma yolu). Eklenen sey bir SOZLUK SABITIDIR, text() cagrisi DEGIL: dinamik text() sayisi 3te SABIT ve ucunun de argumanlari develop ile BIREBIR ayni; parmak izi f7e01786->6da9d10e kimildadi cunku dosya AST'sinin TAMAMINDAN turuyor. Parmak izi 2026-09-05te YENIDEN turetildi: KIRACI DISA AKTARIMI dilimi ACTION_TYPES sozluguna ikinci bir giris ekledi ('company.exported') ve dosya artik HEM kantar fisi HEM disa aktarim girdilerini tasiyor. SQL METNINE HIC DOKUNULMADI: dinamik text() cagrisi 3te SABIT, metinler BIREBIR ayni. Parmak izi yalnizca ACTION_TYPES bir sozluk LITERALI oldugu ve dosya AST'sinin TAMAMINDAN turedigi icin kimildadi. Parmak izi 2026-09-06da YENIDEN turetildi: OUTBOX YENIDEN KUYRUKLAMA (acilis kosulu 3) iki KAPALI kumeye BIRER giris ekledi — ACTION_TYPES sozluguna 'field_event.requeued' ve RESOURCE_TYPES frozenset'ine 'field_integration_event'. Eklenen sey bir SOZLUK/KUME LITERALIDIR, text() cagrisi DEGIL: dinamik text() sayisi 3te SABIT ve ucunun de argumanlari develop ile BIREBIR ayni (OLCULDU, CPython 3.12.10). SQL METNINE HIC DOKUNULMADI. Parmak izi 567f6d1d->3a0bd7a2 kimildadi cunku dosya AST'sinin TAMAMINDAN turuyor. Parmak izi 2026-09-06da YENIDEN turetildi: KIRACI YUMUSAK IMHASI (5.1b) ACTION_TYPES sozluguna BIR giris ekledi ('company.erased'). SQL METNINE HIC DOKUNULMADI: dinamik text() cagrisi 3te SABIT ve ucunun de argumanlari develop ile BIREBIR ayni; parmak izi 3a0bd7a2->0a19ef72 yalnizca sozluk LITERALI buyudugu ve parmak izi dosya AST'sinin TAMAMINDAN turedigi icin kimildadi. RESOURCE_TYPES BUYUMEDI: kaynak tipi dis aktarimla ayni ('backup')."),
     "backend/app/allocation_reconciliation.py": (1, "93f03e612ba84b11d2b60fc33777bc87375080de70a004532969364a56aa8875", "internal fixed company-scoped aggregate callers"),
     "backend/app/billing_service.py": (1, "3442e191e4713a297adcc9fc6e9c6003a360e663db7db17271a2052fbb920bef", "dialect lock suffix; work-order root and joins tenant-scoped"),
     "backend/app/change_history.py": (3, "bdef8b48f40d5f03678750aedecb4fb077323ffb496e50fe48aedc38f44f2fad", "closed restore table map after same-company source check"),
@@ -1773,8 +1773,29 @@ print("TENANT_TABLES_JSON=" + json.dumps(tables))
 #   olculemez. Dosya sayisi oradan ARTMAZ, o dosya listede ZATEN vardi.
 #   app/ altinda yine SIFIR: uretim kodu SQL'i alt surece VERMIYOR.
 #   Sayilar bu turda YENIDEN OLCULDU, devralinmadi.
-BEKLENEN_ALT_SUREC_SQL_DOSYA = 111
-BEKLENEN_ALT_SUREC_SQL_METIN = 184
+# KIRACI YUMUSAK IMHASI (5.1b) +1 dosya / +4 metin getiriyor:
+#   tests/test_kiraci_imha.py — alt surec ZORUNLU, cunku `app.config.Settings`
+#   modul duzeyinde TEK KOPYADIR ve taze bir DATABASE_URL ancak ayri bir
+#   surecte gorulur (dis aktarim dosyasinin AYNI gerekcesi). Ayrica imha GERI
+#   ALINAMAZ oldugu icin her senaryo KENDI veritabanini kurmak zorunda.
+#   DORT metin: ortak giris yardimcisi + uc senaryo (yanlis ad, dusuk rol,
+#   imha). Gomulu SQL'lerin hepsi SQLAlchemy Core insert/select ifadeleridir,
+#   HAM SQL DEGIL, ve kiraci yuklemi tasirlar: her okuma
+#   `.where(<tablo>.c.company_id == <firma>)` ya da birincil anahtar
+#   esitligiyle sorar. Yabanci firmanin satirini BILEREK yazan tek yer ikinci
+#   kiraci kurulumudur — AMACI zaten o firmanin DOKUNULMADAN kaldigini
+#   olcmektir.
+# app/ altinda yine SIFIR: bu tur da uretim kodu SQL'i alt surece VERMIYOR.
+# ARTI 1 METIN, DOSYA ARTMADAN: `test_field_stok_tuketici_postgresql.py`ye
+#   kapatilmis firma vakasi eklendi (5.1b yukleminin PG'de olcumu). Dosya
+#   ZATEN sayiliyordu, bu yuzden DOSYA sayaci kimildamiyor; metin +1.
+#   Gomulu SQL kiraci koku `companies` uzerinde birincil anahtar esitligiyle
+#   BAYRAK yaziyor ve olay/hareket sayimlari `company_id = 1` yuklemi tasiyor.
+# TABAN `a2c5f61` (E1b #53 + yeniden kuyruklama #55 indikten sonra) ve
+# sayilar O AGACTA YENIDEN OLCULDU; onceki turun 110/177 -> 111/181 olcumu
+# taban degistigi anda GECERSIZ oldu, ARITMETIKLE tasinmadi.
+BEKLENEN_ALT_SUREC_SQL_DOSYA = 112
+BEKLENEN_ALT_SUREC_SQL_METIN = 189
 
 
 def _alt_surecte_sql() -> tuple[list[str], int]:
