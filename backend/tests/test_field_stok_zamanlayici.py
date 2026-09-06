@@ -154,7 +154,18 @@ def test_cycle_logs_every_outcome_bucket(monkeypatch) -> None:
         "CLAIM_LOST": 0,
     }
     monkeypatch.setattr(scheduler, "SessionLocal", lambda: nullcontext(SimpleNamespace()))
-    monkeypatch.setattr(scheduler, "tum_firmalari_isle", lambda _db: result)
+    # `olcum` KABI: `tum_firmalari_isle` acilis kosulu 4'te ISTEGE BAGLI bir
+    # olcum kabi almaya basladi (firma sayaci donen sozluge EKLENEMEZ; bkz.
+    # tuketicideki gerekce). Vekil onu KABUL ETMEK ZORUNDA, yoksa olculen sey
+    # dongunun davranisi degil vekilin imzasi olur.
+    monkeypatch.setattr(
+        scheduler, "tum_firmalari_isle", lambda _db, olcum=None: result)
+    # KALP ATISI BURADA OLCULUYOR, YUTULMUYOR. Gercek yazici bir veritabani
+    # ister; vekil oturum onu veremez. Kaydi YAKALAMAK, hem dongu gunlugunun
+    # SON satir olarak kalmasini saglar hem de her dongunun bir kalp atisi
+    # URETTIGINI bu testin ikinci iddiasi yapar.
+    kalpler: list[dict] = []
+    monkeypatch.setattr(scheduler, "_kalbi_yaz", kalpler.append)
 
     with _yakala(scheduler.logger) as kayitlar:
         assert scheduler.bir_dongu_calistir() == result
@@ -163,6 +174,12 @@ def test_cycle_logs_every_outcome_bucket(monkeypatch) -> None:
     message = kayitlar[-1]
     for key, value in result.items():
         assert f"{key}={value}" in message
+    # ACILIS KOSULU 4: dongu bir KALP ATISI uretti ve isledigi olay sayisini
+    # tasiyor. Yazilmasaydi olu bir thread ile bos bir kuyruk yine AYNI
+    # gorunurdu.
+    assert len(kalpler) == 1, kalpler
+    assert kalpler[0]["events_processed"] == result["girdi"], kalpler
+    assert kalpler[0]["last_error"] is None, kalpler
 
 
 def test_empty_cycle_is_logged_explicitly(monkeypatch) -> None:
@@ -178,13 +195,28 @@ def test_empty_cycle_is_logged_explicitly(monkeypatch) -> None:
         "CLAIM_LOST": 0,
     }
     monkeypatch.setattr(scheduler, "SessionLocal", lambda: nullcontext(SimpleNamespace()))
-    monkeypatch.setattr(scheduler, "tum_firmalari_isle", lambda _db: result)
+    # `olcum` KABI: `tum_firmalari_isle` acilis kosulu 4'te ISTEGE BAGLI bir
+    # olcum kabi almaya basladi (firma sayaci donen sozluge EKLENEMEZ; bkz.
+    # tuketicideki gerekce). Vekil onu KABUL ETMEK ZORUNDA, yoksa olculen sey
+    # dongunun davranisi degil vekilin imzasi olur.
+    monkeypatch.setattr(
+        scheduler, "tum_firmalari_isle", lambda _db, olcum=None: result)
+    # KALP ATISI BURADA OLCULUYOR, YUTULMUYOR. Gercek yazici bir veritabani
+    # ister; vekil oturum onu veremez. Kaydi YAKALAMAK, hem dongu gunlugunun
+    # SON satir olarak kalmasini saglar hem de her dongunun bir kalp atisi
+    # URETTIGINI bu testin ikinci iddiasi yapar.
+    kalpler: list[dict] = []
+    monkeypatch.setattr(scheduler, "_kalbi_yaz", kalpler.append)
 
     with _yakala(scheduler.logger) as kayitlar:
         scheduler.bir_dongu_calistir()
 
     assert kayitlar, "bos dongu hic log yazmadi"
     assert "olay bulunmadi" in kayitlar[-1]
+    # BOS DONGU DE KALP ATISI YAZAR — kosulun butun meselesi bu: "olay yok"
+    # ile "tuketici yok" AYRI seylerdir.
+    assert len(kalpler) == 1, kalpler
+    assert kalpler[0]["events_processed"] == 0, kalpler
 
 
 def test_claim_lost_survives_all_company_conservation_and_cycle_log(
@@ -980,7 +1012,7 @@ _gunlukcu = logging.getLogger(sch.LOGGER_NAME)
 _gunlukcu.addHandler(Yakala())
 _gunlukcu.setLevel(logging.INFO)
 
-def _sahte(_db):
+def _sahte(_db, olcum=None):
     SAYAC["n"] += 1
     n = SAYAC["n"]
     if n == 1:

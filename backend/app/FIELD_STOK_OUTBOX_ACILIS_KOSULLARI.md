@@ -1,8 +1,14 @@
 # Field stok outbox tüketicisi — AÇILIŞ KOŞULLARI
 
 `FIELD_STOCK_OUTBOX_ENABLED` varsayılan olarak **false**'tur ve aşağıdaki
-DÖRT koşulun DÖRDÜ de var olmadan **true yapılmamalıdır**. Bugün 1, 2 ve 3
-KARŞILANDI; **4 DURUYOR** ve tek başına anahtarı kapalı tutmaya yeter.
+DÖRT koşulun DÖRDÜ de var olmadan **true yapılmamalıdır**.
+
+**DÖRT KOŞULUN DÖRDÜ DE KARŞILANDI; anahtar berkay karar verene kadar KAPALI
+kalır.** Bu satır bir açma emri DEĞİLDİR ve bu dilim anahtara DOKUNMADI:
+`field_stock_outbox_enabled` varsayılanı hâlâ `False`. Koşullar "açılabilir"
+der, "açıldı" demez — ve aşağıdaki "Açarken bilinmesi gereken iki şey daha"
+başlığı koşullar sağlandıktan SONRA da AYNEN geçerlidir (birikmiş kuyruğu
+ÖNCE ölç; `RECOVERY_FAILED` hâlâ veritabanında iz bırakmaz).
 
 1. ~~**Hasat → ürün yolu.**~~ **KARŞILANDI** (göç `20260827_0062`).
    Eskiden: `field_harvests` içinde `product_id` yoktu, `crop_seasons.crop`
@@ -28,9 +34,20 @@ KARŞILANDI; **4 DURUYOR** ve tek başına anahtarı kapalı tutmaya yeter.
 
    Sıfır değilse o sezonların hasatları kovaya düşmeye devam eder. Bu
    ölçümün ANLAMLI olması, aşağıdaki 2. koşula (okuma yüzeyi) bağlıdır.
-2. **Başarısızlık sonuçları için bir okuma yüzeyi.** Uygulamada
-   `field_integration_events` tablosunu okuyan hiçbir ekran/uç yok; kovalar
-   yalnız süreç günlüğünde görünür.
+2. ~~**Başarısızlık sonuçları için bir okuma yüzeyi.**~~ **KARŞILANDI**
+   (**GÖÇ YOK**). Eskiden: uygulamada `field_integration_events` tablosunu
+   okuyan hiçbir ekran/uç yoktu; kovalar yalnız süreç günlüğünde görünüyordu.
+
+   Bugün: `GET /api/field-integration-events` (liste, `last_error` metniyle,
+   `failed_only` süzgeci) ve `GET /api/field-integration-events/summary`
+   (kaynak tipi × durum kırılımı, `oldest_created_at` ile). İkisi de
+   `farm.view` iznine ve `company_id=:cid` yüklemine bağlı
+   (`app/routers/entegrasyon_olaylari.py`).
+
+   NOT — BU MADDE BUGÜNE KADAR ÜSTÜ ÇİZİLMEMİŞTİ: başlık 2'yi karşılanmış
+   sayıyor ve 3. koşul metni "koşul 2'de eklenen `_FARM_PATH_PREFIXES`"
+   diyerek ona dayanıyordu, ama madde eski hâliyle duruyordu. Koşul 4'ün
+   indiği bu turda ölçülerek düzeltildi.
 3. ~~**Terminal satırlar için bir yeniden kuyruklama yolu.**~~ **KARŞILANDI**
    (PR #55; **GÖÇ YOK**).
    Eskiden: tüketici yalnız `PENDING` seçer; `SKIPPED_*`/`DEAD` yazılan satır
@@ -88,8 +105,68 @@ KARŞILANDI; **4 DURUYOR** ve tek başına anahtarı kapalı tutmaya yeter.
    **NE YAPMAZ.** `RECOVERY_FAILED` sınıfını bu uç da KAPATMAZ (aşağıdaki
    nota bakın): o olay veritabanında iz bırakmaz, `PENDING` kalır ve bu
    ucun seçeceği bir işaret yoktur.
-4. **Canlılık/gecikme sinyali.** Zamanlayıcı thread'i ölürse ya da kuyruk
-   birikirse bunu söyleyen bir metrik/alarm yok; tek iz süreç günlüğüdür.
+4. ~~**Canlılık/gecikme sinyali.**~~ **KARŞILANDI** (**GÖÇ YOK**).
+   Eskiden: zamanlayıcı thread'i ölürse ya da kuyruk birikirse bunu söyleyen
+   bir metrik/alarm yoktu; tek iz süreç günlüğüydü. Okuma yüzeyi (koşul 2) bu
+   boşluğu KAPATMIYORDU ve gerekçesi bu belgede yazılıydı: `summary` kuyruğun
+   BOYUNU ve YAŞINI gösteriyor ama tüketicinin KOŞUP KOŞMADIĞINI
+   göstermiyordu — **ölü bir thread ile boş bir kuyruk o ekranda AYNI
+   görünüyordu**.
+
+   Bugün: **ZAMANLAYICI HER DÖNGÜDE KALP ATIŞI YAZIYOR** ve `summary` yanıtı
+   bir `scheduler` bloğu taşıyor:
+
+       enabled, alive, last_cycle_started_at, last_cycle_finished_at,
+       seconds_since_last_cycle, interval_seconds, stale,
+       pending_oldest_age_seconds
+
+   **YENİ UÇ AÇILMADI.** Blok VAR OLAN `summary` ucuna eklendi. İkinci bir uç,
+   "kuyruk" ile "onu boşaltan şey"i iki ekrana bölerdi: 40 gündür bekleyen bir
+   olayı gören kişi, tüketicinin ölü olduğunu ancak BAŞKA bir yere bakarsa
+   öğrenirdi.
+
+   **GÖÇ YOK, ÖLÇÜLDÜ.** Depoda bir işçi kalp atışı tablosu ARANDI ve YOK:
+   `heartbeat` geçen tek şema yeri `platform_maintenance.heartbeat_at`tır
+   (göç `20260728_0034`) ve o sütun BAKIM İŞLEMİNİN kalp atışıdır —
+   zamanlayıcı oraya yazsaydı bakım kilidinin sahipliği hakkında YALAN
+   söylerdi. Kullanılan şey ZATEN VAR OLAN `settings` anahtar/değer
+   tablosudur (`app/core_schema.py`; şemaya taban göçü `20260712_0000` ile
+   giriyor, yani hem SQLite hem PostgreSQL kurulumlarında VAR) ve tek satır
+   `field_stok_zamanlayici.heartbeat` anahtarında durur. Satırın gövdesi
+   JSON'dur: `started_at`, `finished_at`, `companies_processed`,
+   `companies_total`, `events_processed`, `last_error`.
+
+   **KALP ATIŞI PLATFORM DÜZEYİNDEDİR, `company_id` TAŞIMAZ.** Zamanlayıcı
+   süreç-içi TEK bir thread'dir ve tüm firmaları TEK döngüde gezer; kiracısı
+   olmayan bir olguya kiracı uydurmak olurdu. Bunun bedeli açıkça yazılıyor:
+   `scheduler` bloğunun `pending_oldest_age_seconds` DIŞINDAKİ her alanı HER
+   KİRACI İÇİN AYNIDIR. O tek alan ise KİRACIYA özeldir ve ucun ZATEN
+   `company_id=:cid` ile koşan özet sorgusundan türer — **ikinci bir sorgu
+   açılmadı**, çünkü özet kova başına `MIN(created_at)` zaten seçiyor.
+
+   **`alive` İLE `stale` AYRI SORULARDIR.** `alive` `Thread.is_alive()`tir:
+   yalnız thread'i TAŞIYAN süreçte anlamlıdır, hiçbir şeyi hayatta kalmaz ama
+   SAHTELENEMEZ. `stale` kalıcı kalp atışından türer, yani SÜRECİ AŞAR: bir
+   süreç ölüp yerine yenisi gelmediyse sorulacak bir thread yoktur ve kalan
+   tek delil o satırdır. Taze başlamış bir süreçte ilk döngü bitene kadar
+   `alive=True, stale=True` görülür — thread ORADADIR ama tamamlanmış bir
+   döngü KANITI henüz yoktur.
+
+   **BAYATLIK EŞİĞİ `3×interval_seconds` ve KATI BÜYÜKTÜR.** Bir döngüyü
+   kaçırmak jitterdir, üçünü birden kaçırmak arızadır. Kalp atışı HİÇ yoksa
+   `stale` TRUE'dur: kanıt yokluğu tazelik değildir.
+
+   **`last_error` KAYITTA VAR, YÜZEYDE YOK.** Kalp atışı satırı düşen bir
+   döngünün istisna metnini taşır ama uç onu DÖNDÜRMEZ. Gerekçe deponun kendi
+   kararıdır (`_gerekceyi_arindir`): ham istisna metni SQL, kısıt adı ve satır
+   değeri taşıyabilir ve bu uç `farm.view` taşıyan salt-okur rollere açıktır —
+   koşul 2'de kapatılan sızıntı sınıfını koşul 4'te yeniden açmıyoruz.
+
+   **NE YAPMAZ.** Kalp atışı bir TARİH SERİSİ değildir: tek satır, yalnız SON
+   döngü. "Son bir saatte kaç döngü koştu" burada CEVAPLANMAZ ve cevaplanması
+   bir tablo (yani göç) isterdi. Bir ALARM da değildir: bu sinyali kim okuyup
+   kime haber vereceği bu dilimin kapsamı DIŞINDADIR — uç `stale`i söyler,
+   birinin bakması gerekir.
 
 ## Neden
 
@@ -100,13 +177,16 @@ atılmış olur. Anahtar kapalıyken olaylar `PENDING` birikir ve açıldığı 
 işlenir: kayıp yoktur, erteleme vardır.
 
 Okuma yüzeyi, yeniden kuyruklama ve canlılık sinyali AYRI işler olarak
-sıradaydı; bu tüketicinin kapsamına bilinçli olarak alınmamışlardı. İlk
-ikisi indi (koşul 2 ve 3); **canlılık sinyali (koşul 4) hâlâ YOK** ve
-yukarıdaki cümle onun için AYNEN geçerlidir: zamanlayıcı thread'i ölürse
-ya da kuyruk birikirse bunu söyleyen bir metrik/alarm yoktur. Okuma yüzeyi
-bu boşluğu KAPATMAZ — `summary` kuyruğun BOYUNU ve YAŞINI gösterir ama
-tüketicinin KOŞUP KOŞMADIĞINI göstermez; ölü bir thread ile boş bir kuyruk
-o ekranda AYNI görünür.
+sıradaydı; bu tüketicinin kapsamına bilinçli olarak alınmamışlardı. ÜÇÜ DE
+İNDİ (koşul 2, 3 ve 4) ve **dört koşulun dördü de karşılandı; anahtar berkay
+karar verene kadar KAPALI kalır.**
+
+Yukarıdaki paragrafın "hiçbir yüzey bunu göstermez" cümlesi ARTIK GEÇERLİ
+DEĞİLDİR ve bu bir düzeltmedir, bir çıkarma değil: `summary`/liste kuyruğu
+gösterir, `requeue` terminal satırı geri alır, `scheduler` bloğu tüketicinin
+koşup koşmadığını söyler. GEÇERLİ KALAN tek cümle şudur: anahtar kapalıyken
+olaylar `PENDING` birikir ve açıldığı gün işlenir — kayıp yoktur, erteleme
+vardır.
 
 ## Açarken bilinmesi gereken iki şey daha
 

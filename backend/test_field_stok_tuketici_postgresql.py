@@ -2278,41 +2278,58 @@ from sqlalchemy import text as _sql
 from app.db import SessionLocal
 from app.field_stok_zamanlayici import yas_saniye
 
-ESKI = datetime.now(timezone.utc) - timedelta(days=40)
+# ID'ler ACIK yaziliyor: `_KURULUM` olaylari acik kimlikle ekliyor, yani
+# dizi (`sequence`) ilerlemiyor ve kimliksiz bir INSERT birincil anahtar
+# catismasi verir (OLCULDU).
+SIMDI = datetime.now(timezone.utc)
+SATIRLAR = (
+    (990001, 1, SIMDI - timedelta(days=40), "canlilik-yas-a:1:stock"),
+    (990002, 2, SIMDI - timedelta(minutes=10), "canlilik-yas-b:1:stock"),
+)
 with SessionLocal() as db:
-    db.execute(_sql(
-        "DELETE FROM field_integration_events WHERE idempotency_key = :k"),
-        {"k": "canlilik-yas:1:stock"})
-    db.execute(_sql(
-        "INSERT INTO field_integration_events (company_id,source_type,source_id,"
-        "target,idempotency_key,status,attempts,created_at,updated_at) "
-        "VALUES (1,'field_harvest',999999,'stock','canlilik-yas:1:stock',"
-        "'PENDING',0,:an,:an)"), {"an": ESKI})
+    # IKINCI KIRACI GERCEKTEN VAR OLMAK ZORUNDA: `field_integration_events`
+    # `companies`e YABANCI ANAHTARLA bagli (OLCULDU; SQLite'ta da acik ama
+    # burada gercek kisit patliyor). Kiraci ayrismasini olcmek icin ikinci
+    # firma UYDURULAMAZ, ACILIR.
+    if not db.execute(_sql("SELECT 1 FROM companies WHERE id = 2")).first():
+        db.execute(_sql(
+            "INSERT INTO companies (id,name,is_active,created_at) "
+            "VALUES (2,'Canlilik B Firmasi',true,:an)"), {"an": SIMDI})
+    for oid, firma, an, anahtar in SATIRLAR:
+        db.execute(_sql(
+            "DELETE FROM field_integration_events WHERE id = :id"), {"id": oid})
+        db.execute(_sql(
+            "INSERT INTO field_integration_events (id,company_id,source_type,"
+            "source_id,target,idempotency_key,status,attempts,created_at,"
+            "updated_at) VALUES (:id,:cid,'field_harvest',999999,'stock',"
+            ":anahtar,'PENDING',0,:an,:an)"),
+            {"id": oid, "cid": firma, "anahtar": anahtar, "an": an})
     db.commit()
     try:
+        def bekleyen(cid):
+            satirlar = db.execute(_sql(
+                "SELECT status, MIN(created_at) AS oldest_created_at "
+                "FROM field_integration_events WHERE company_id=:cid "
+                "GROUP BY status ORDER BY status"), {"cid": cid}).mappings().all()
+            kovalar = [s for s in satirlar if s["status"] == "PENDING"]
+            return kovalar[0]["oldest_created_at"] if kovalar else None
+
         # OZETIN KENDI SORGUSU: HAM metin, kova basina MIN(created_at).
-        satir = db.execute(_sql(
-            "SELECT status, MIN(created_at) AS oldest_created_at "
-            "FROM field_integration_events WHERE company_id=:cid "
-            "GROUP BY status ORDER BY status"), {"cid": 1}).mappings().all()
-        bekleyen = [s for s in satir if s["status"] == "PENDING"]
-        assert bekleyen, satir
-        damga = bekleyen[0]["oldest_created_at"]
-        print("YAS TIP %s" % type(damga).__name__)
-        yas = yas_saniye(damga)
-        print("YAS DEGER %r" % (yas is not None and yas > 39 * 86400,))
-        # BASKA KIRACI BU SATIRI GORMEZ: ayni sorgu, company_id 2 ile.
-        yabanci = db.execute(_sql(
-            "SELECT status, MIN(created_at) AS oldest_created_at "
-            "FROM field_integration_events WHERE company_id=:cid "
-            "GROUP BY status"), {"cid": 2}).mappings().all()
-        print("YAS YABANCI %d" % len(
-            [s for s in yabanci if s["status"] == "PENDING"]))
+        damga_a = bekleyen(1)
+        damga_b = bekleyen(2)
+        print("YAS TIP %s" % type(damga_a).__name__)
+        yas_a, yas_b = yas_saniye(damga_a), yas_saniye(damga_b)
+        print("YAS A %r" % (yas_a is not None and yas_a > 39 * 86400,))
+        print("YAS B %r" % (yas_b is not None and yas_b < 3600,))
+        # AYRISMA: iki kiracinin yasi ayni cikarsa yuklem dusmus demektir.
+        print("YAS AYRISTI %r" % (
+            yas_a is not None and yas_b is not None and yas_a > yas_b * 100,))
     finally:
         db.rollback()
-        db.execute(_sql(
-            "DELETE FROM field_integration_events WHERE idempotency_key = :k"),
-            {"k": "canlilik-yas:1:stock"})
+        for oid, _f, _a, _k in SATIRLAR:
+            db.execute(_sql(
+                "DELETE FROM field_integration_events WHERE id = :id"),
+                {"id": oid})
         db.commit()
 '''
 
@@ -2351,9 +2368,10 @@ def test_bekleyen_yasi_PG_de_DATETIME_donuyor_ve_COZULUYOR() -> None:
     ayristirmak) bu vakayi KIRMIZI yakar — SQLite kulvarinda ise HICBIR SEY
     kirilmaz. Dosyanin var olma sebebi tam olarak bu asimetridir.
 
-    Ikinci iddia KIRACI: ayni HAM sorgu company_id 2 ile kosuldugunda bu satir
-    HIC gorulmez, yani `pending_oldest_age_seconds` kiracidan kiraciya
-    ayrisir.
+    Ikinci iddia KIRACI ve VAKUM KARSITIDIR: iki firmaya YASLARI CAK FARKLI
+    (40 gun / 10 dakika) birer BEKLEYEN olay yaziliyor ve ayni HAM sorgu her
+    iki kiraci icin KENDI satirini donduruyor. `company_id` yuklemi duserse
+    iki yas AYNI cikar ve "AYRISTI" satiri KIRMIZI yanar.
     """
     assert "KURULUM-TAMAM" in _kos(_KURULUM)
     cikti = _kos(_YAS_TIPI)
@@ -2362,11 +2380,13 @@ def test_bekleyen_yasi_PG_de_DATETIME_donuyor_ve_COZULUYOR() -> None:
         "PG'de HAM sorgu zaman damgasini `datetime` DISINDA bir tiple "
         f"dondurdu; yas cozucusunun varsayimi olculmeli. cikti={cikti!r}"
     )
-    assert "YAS DEGER True" in cikti, (
+    assert "YAS A True" in cikti, (
         "40 gunluk BEKLEYEN olayin yasi hesaplanamadi ya da yanlis; gecikme "
         f"sinyali uretim lehcesinde OLU demektir. cikti={cikti!r}"
     )
-    assert "YAS YABANCI 0" in cikti, (
-        "BASKA KIRACI bu bekleyen olayi GORDU: `company_id` yuklemi dusmus "
-        f"olabilir. cikti={cikti!r}"
+    assert "YAS B True" in cikti, (
+        f"10 dakikalik olayin yasi yanlis olculdu. cikti={cikti!r}")
+    assert "YAS AYRISTI True" in cikti, (
+        "IKI KIRACI AYNI YASI GORDU: `company_id` yuklemi dusmus olabilir ve "
+        f"gecikme olcusu kiraci sinirini asiyor. cikti={cikti!r}"
     )
