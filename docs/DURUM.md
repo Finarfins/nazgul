@@ -1,8 +1,10 @@
 # Harman Zamanı — inen iş kaydı
 
 **Yeni bir PR şunu yapar:** `python scripts/durum.py --sonraki <PR numarası>`
-komutunun verdiği ada sahip dosyayı `docs/durum/` altında oluşturur ve içine
-tek satırlık girdisini yazar — bu dosyanın kendisini DEĞİŞTİRMEZ.
+komutunun verdiği `pr-NNNN.md` ada sahip dosyayı `docs/durum/` altında
+oluşturur ve içine tek satırlık girdisini yazar — bu dosyanın kendisini
+DEĞİŞTİRMEZ. (Option B: dosya adında `sıra` yoktur; görünen sıra
+`python scripts/durum.py --sira` ile first-parent git log'dan türetilir.)
 
 Kaydı en yeni üstte okumak için:
 
@@ -10,6 +12,11 @@ Kaydı en yeni üstte okumak için:
 python scripts/durum.py
 ```
 
+Merge sırasıyla (sıra + ad + metin) listelemek için:
+
+```
+python scripts/durum.py --sira
+```
 ## Kaydın bilinen boşluğu (donmuş sayı, 2026-08-17)
 
 Kayıt, kendisini ölçen bir kapı olmadan yaşadı: girdinin DOĞRULUĞUNU ölçen

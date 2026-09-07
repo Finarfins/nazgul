@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
-import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -40,8 +41,6 @@ TARIHSEL_GIRDISIZ_BU_PR_ILE_KAPANAN = 2      # #71, #72
 TASINAN_GIRDI_SAYISI = 30
 TASINAN_KORPUS_SHA256 = "9ee605539e0d5fd378863bc55a736ec120495006bae4a3b68db44df292c29742"
 
-AD_DESENI = re.compile(r"^(\d{4})-pr-(\d{4})\.md$")
-
 
 def _okuyucu():
     """`scripts/durum.py`yi modül olarak yükler.
@@ -52,6 +51,7 @@ def _okuyucu():
     spec = importlib.util.spec_from_file_location("durum_araci", OKUYUCU)
     assert spec and spec.loader, "scripts/durum.py yüklenemedi"
     modul = importlib.util.module_from_spec(spec)
+    sys.modules["durum_araci"] = modul
     spec.loader.exec_module(modul)
     return modul
 
@@ -75,13 +75,30 @@ def test_taşınan_korpus_capaya_bagli() -> None:
 
 
 def test_dosya_adlari_desene_uyuyor() -> None:
-    """Ad deseni çakışmasızlığın taşıyıcısı; bozulursa okuma sırası da bozulur."""
-    kusurlu = [
-        yol.name for yol in sorted(KAYIT_DIZINI.glob("*")) if not AD_DESENI.match(yol.name)
-    ]
+    """Ad deseni çakışmasızlığın taşıyıcısı; bozulursa okuma sırası da bozulur.
+
+    Option B: legacy `<sıra>-pr-<PR>.md` ve yeni `pr-<PR>.md` kabul;
+    bilinmeyen *.md reddedilir. Kesmeden sonra yeni legacy ad yasak
+    (sıra > KESME_SIRA).
+    """
+    arac = _okuyucu()
+    kusurlu = []
+    for yol in sorted(KAYIT_DIZINI.glob("*.md")):
+        kayit = arac.kayit_adi_ayikla(yol.name)
+        if kayit is None:
+            kusurlu.append(f"{yol.name} (bilinmeyen ad)")
+            continue
+        if (
+            kayit.legacy_sira is not None
+            and kayit.legacy_sira > arac.KESME_SIRA
+        ):
+            kusurlu.append(
+                f"{yol.name} (kesme sonrası legacy; sıra>{arac.KESME_SIRA})"
+            )
     assert not kusurlu, (
-        f"Dosya adı <sıra>-pr-<numara>.md biçiminde olmalı: {kusurlu}. "
-        "Adı `python scripts/durum.py --sonraki <PR>` verir."
+        f"Dosya adı legacy <sıra>-pr-<numara>.md veya yeni pr-<numara>.md "
+        f"olmalı (kesme sıra={_okuyucu().KESME_SIRA}): {kusurlu}. "
+        "Adı `python scripts/durum.py --sonraki <PR>` verir → `pr-NNNN.md`."
     )
 
 
@@ -147,8 +164,8 @@ def test_sonraki_ad_mevcut_girdiyle_carpismiyor(pr: int) -> None:
     yakalar ve yalnız BİRLEŞME SONUCUNDA görülebilir.
     """
     arac = _okuyucu()
-    ad = arac.sonraki_ad(KAYIT_DIZINI, pr)
-    assert AD_DESENI.match(ad), f"önerilen ad desene uymuyor: {ad}"
+    ad = arac.sonraki_ad(pr=pr)
+    assert arac.YENI_AD_DESENI.match(ad), f"önerilen ad yeni desene uymuyor: {ad}"
     assert not (KAYIT_DIZINI / ad).exists(), f"önerilen ad zaten var: {ad}"
 
 
@@ -284,7 +301,7 @@ def _girdi_varligi_denetle():
 def test_girdi_EKLEYEN_pr_varlik_kapisindan_gecer() -> None:
     """YÖN 1: girdi taşıyan PR yeşil."""
     base = ["docs/durum/0031-pr-0067.md", "docs/durum/0032-pr-0068.md"]
-    head = base + ["docs/durum/0033-pr-0099.md"]
+    head = base + ["docs/durum/pr-0099.md"]
     assert _girdi_varligi_denetle()(base, head) == []
 
 
@@ -295,6 +312,7 @@ def test_girdi_EKLEMEYEN_pr_varlik_kapisini_KIRMIZI_yapar() -> None:
     assert len(ihlaller) == 1, ihlaller
     assert "GİRDİ YOK" in ihlaller[0]
     assert "Kayıt PR başına bir girdiyle büyür" in ihlaller[0]
+    assert "pr-NNNN.md" in ihlaller[0]
 
 
 def test_yalnizca_dosya_degistiren_pr_de_KIRMIZI() -> None:
@@ -332,23 +350,24 @@ def test_varlik_kapisi_TARIHSEL_bosslugu_dondurur() -> None:
 def test_yalnizca_BASKASININ_girdisini_ekleyen_pr_KIRMIZI() -> None:
     """YÖN 1: sadece backfill yapıp kendi girdisini yazmayan PR kırmızı."""
     base = ["docs/durum/0033-pr-0070.md"]
-    head = base + ["docs/durum/0034-pr-0071.md"]          # #71'in girdisi, #99'un değil
+    head = base + ["docs/durum/pr-0071.md"]          # #71'in girdisi, #99'un değil
     ihlaller = _girdi_varligi_denetle()(base, head, 99)
     assert len(ihlaller) == 1, ihlaller
     assert "KENDİ GİRDİSİ YOK" in ihlaller[0]
     assert "#99" in ihlaller[0] and "#71" in ihlaller[0]
+    assert "pr-0099.md" in ihlaller[0]
 
 
 def test_kendi_girdisini_ekleyen_pr_GECER_backfill_ile_birlikte() -> None:
     """YÖN 2: kendi girdisi varsa, yanında backfill olsa da geçer (#70 böyleydi)."""
     base = ["docs/durum/0031-pr-0067.md"]
-    head = base + ["docs/durum/0032-pr-0068.md", "docs/durum/0033-pr-0070.md"]
+    head = base + ["docs/durum/pr-0068.md", "docs/durum/pr-0070.md"]
     assert _girdi_varligi_denetle()(base, head, 70) == []
 
 
 def test_sadece_kendi_girdisi_de_GECER() -> None:
     base = ["docs/durum/0033-pr-0070.md"]
-    head = base + ["docs/durum/0034-pr-0099.md"]
+    head = base + ["docs/durum/pr-0099.md"]
     assert _girdi_varligi_denetle()(base, head, 99) == []
 
 
@@ -455,3 +474,97 @@ def test_gecmiste_INEN_hicbir_kayit_bu_kuralla_reddedilmezdi() -> None:
     """
     assert YINELENEN_SIRA_TEPE_DURUMU == 0
     assert YINELENEN_SIRA_DAL_BIRLESMESI == 5
+
+
+# ---------------------------------------------------------------------------
+# OPTION B — kesme, çift kayıt, git-log sırası, yeni ad kapısı
+# ---------------------------------------------------------------------------
+
+
+def test_KESME_SONRASI_legacy_adli_yeni_dosya_KIRMIZI() -> None:
+    """Kesmeden sonra yeni `SSSS-pr-NNNN.md` eklemek kırmızı."""
+    arac = _okuyucu()
+    kesme = arac.KESME_SIRA
+    base = [f"{i:04d}-pr-{i:04d}.md" for i in range(1, kesme + 1)]
+    head = base + ["0113-pr-0999.md"]
+    ihlaller = arac.kesme_sonrasi_legacy_denetle(base, head)
+    assert ihlaller, "kesme sonrası legacy ad kırmızı olmalıydı"
+    assert any("KESME SONRASI LEGACY" in i for i in ihlaller), ihlaller
+    # kapi_denetle de aynı ihlali taşır (tek_satir için boş tmp)
+    kapi = arac.kapi_denetle(base, head, pr=999, dizin=Path("/nonexistent"))
+    assert any("KESME SONRASI LEGACY" in i for i in kapi), kapi
+
+
+def test_AYNI_PR_icin_iki_kayit_KIRMIZI() -> None:
+    """Aynı PR için birleşmede iki girdi → ÇİFT KAYIT."""
+    arac = _okuyucu()
+    base = [f"{i:04d}-pr-{i:04d}.md" for i in range(1, arac.KESME_SIRA + 1)]
+    head = base + ["pr-0999.md", "0113-pr-0999.md"]
+    ihlaller = arac.cift_kayit_denetle(base, head)
+    assert ihlaller, "aynı PR için iki kayıt kırmızı olmalıydı"
+    assert any("ÇİFT KAYIT" in i for i in ihlaller), ihlaller
+
+
+def test_sira_mtime_degil_git_log_ile_siralanir(tmp_path: Path) -> None:
+    """Görünen sıra mtime değil first-parent git log ekleme sırasından gelir."""
+    arac = _okuyucu()
+    repo = tmp_path / "fixture"
+    repo.mkdir()
+    durum = repo / "docs" / "durum"
+    durum.mkdir(parents=True)
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repo, check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "test"],
+        cwd=repo, check=True, capture_output=True,
+    )
+    # Default branch adı ortamdan bağımsız olsun.
+    subprocess.run(
+        ["git", "checkout", "-b", "main"],
+        cwd=repo, check=True, capture_output=True,
+    )
+
+    def _ekle_ve_commit(ad: str, metin: str, msg: str) -> None:
+        (durum / ad).write_text(metin + "\n", encoding="utf-8")
+        subprocess.run(["git", "add", f"docs/durum/{ad}"], cwd=repo, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", msg],
+            cwd=repo, check=True, capture_output=True,
+        )
+
+    _ekle_ve_commit("0001-pr-0001.md", "#1 — ilk", "add 0001")
+    _ekle_ve_commit("0002-pr-0002.md", "#2 — ikinci", "add 0002")
+    _ekle_ve_commit("pr-0003.md", "#3 — yeni biçim", "add pr-0003")
+
+    # mtime'ı tersine çevir: sıra yine commit sırasını izlemeli.
+    import os
+    import time
+
+    eski = time.time() - 3600
+    os.utime(durum / "pr-0003.md", (eski, eski))
+    os.utime(durum / "0001-pr-0001.md", (eski + 100, eski + 100))
+
+    liste = arac.sira_listesi(dal="main", repo=repo, dizin=durum)
+    assert [(s, p, a) for s, p, a, _ in liste] == [
+        (1, 1, "0001-pr-0001.md"),
+        (2, 2, "0002-pr-0002.md"),
+        (arac.KESME_SIRA + 1, 3, "pr-0003.md"),
+    ], liste
+
+
+def test_kapi_yeni_pr_NNNN_YESIL(tmp_path: Path) -> None:
+    """Base legacy korpus + head `pr-0999.md` → kapı yeşil."""
+    arac = _okuyucu()
+    kesme = arac.KESME_SIRA
+    base = [f"docs/durum/{i:04d}-pr-{i:04d}.md" for i in range(1, kesme + 1)]
+    dizin = tmp_path / "durum"
+    dizin.mkdir()
+    for ad in [Path(p).name for p in base]:
+        (dizin / ad).write_text(f"legacy {ad}\n", encoding="utf-8")
+    (dizin / "pr-0999.md").write_text("#999 — Option B girdi\n", encoding="utf-8")
+    head = base + ["docs/durum/pr-0999.md"]
+    ihlaller = arac.kapi_denetle(base, head, pr=999, dizin=dizin)
+    assert ihlaller == [], ihlaller
