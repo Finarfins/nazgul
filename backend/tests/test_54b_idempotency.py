@@ -32,6 +32,8 @@ Her kapı, HANGİ değişikliğin onu kırmızı yapacağını ADIYLA söylüyor
                                        -> SÜRESİ DOLAN adımı KIRMIZI
   * Göçün üç sütunlu tekilini iki sütuna indirmek
                                        -> göç kapısı ve İKİ KULLANICI KIRMIZI
+  * `govde_tamponlanabilir` çağrısını kaldırmak (gövde sınırsız tamponlanır)
+                                       -> BÜYÜK GÖVDE adımı KIRMIZI
 """
 from __future__ import annotations
 
@@ -539,7 +541,29 @@ with SessionLocal() as db:
         "UPDATE app_users SET must_change_password=0 WHERE username='admin'"))
     db.commit()
 
-# --- 12. 204 (gövdesiz) CEVAP DA TEKRAR OYNATILIYOR ---------------------
+# --- 12. BUYUK GOVDE: SESSIZCE KORUMASIZ DEGIL, 413 ---------------------
+# MUTASYON: `govde_tamponlanabilir` cagrisini kaldirmak bu adimi KIRMIZI
+# yapar. Bu ara katman `RequestBodyLimitMiddleware`in DISINDADIR, yani
+# govde okunurken govde sinir kapisi HENUZ kosmamistir.
+once = len(defter())
+buyuk = client.post('/api/customers',
+                    json={'name': 'B' * (1024 * 1024 + 10), 'phone': '5550000010'},
+                    headers={**h, 'Idempotency-Key': 'buyuk-anahtar'})
+assert buyuk.status_code == 413, (buyuk.status_code, buyuk.text[:200])
+assert buyuk.json()['code'] == 'IDEMPOTENCY_REQUEST_TOO_LARGE', buyuk.text
+assert len(defter()) == once, defter()
+# AYNI GOVDE BASLIKSIZ gonderilince BU KAPI HIC KOSMAZ. Istegin nasil
+# bittigi (dogrulama 422'si ya da govde sinir kapisinin 413'u) bu dilimin
+# isi DEGIL; olculen sey reddin IDEMPOTENSIDEN GELMEDIGIDIR — geleseydi
+# baslik gondermeyen mevcut istemciler de kimildardi.
+bassiz_buyuk = client.post('/api/customers',
+                           json={'name': 'B' * (1024 * 1024 + 10),
+                                 'phone': '5550000010'}, headers=h)
+assert 'IDEMPOTENCY_REQUEST_TOO_LARGE' not in bassiz_buyuk.text, (
+    bassiz_buyuk.status_code, bassiz_buyuk.text[:200])
+assert len(defter()) == once, defter()
+
+# --- 13. 204 (gövdesiz) CEVAP DA TEKRAR OYNATILIYOR ---------------------
 musteri_id = ilk.json()['id']
 SIL = {'Idempotency-Key': 'silme-anahtari'}
 d1 = client.delete('/api/customers/%d' % musteri_id, headers={**h, **SIL})
@@ -555,7 +579,7 @@ print('5.4B DAVRANIS TAMAM')
 
 
 def test_davranis_smoke_GERCEK_SEMADA(tmp_path: Path) -> None:
-    """On iki adım, hepsi GERÇEK şema üzerinde.
+    """On üç adım, hepsi GERÇEK şema üzerinde.
 
     ALT SÜREÇ ZORUNLU: smoke kendi `DATABASE_URL`iyle TAZE bir şema kurar ve
     göç 0076'yı o turda sürer; `app.config.Settings` modül düzeyinde TEK

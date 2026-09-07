@@ -114,6 +114,20 @@ YASAM_SURESI = timedelta(hours=24)
 #: Saklanan gövdenin üst sınırı. Aşan cevap SAKLANMAZ — gerekçe başlıkta.
 AZAMI_GOVDE = 64 * 1024
 
+#: TAMPONLANACAK İSTEK GÖVDESİNİN ÜST SINIRI ve NEDEN GEREKLİ OLDUĞU —
+#: ÖLÇÜLDÜ, VARSAYILMADI. `security_and_audit` ara katmanların EN DIŞTAKİDİR
+#: (`app.add_middleware` listeye BAŞTAN ekler; sıra: bu ara katman -> CORS ->
+#: `RequestBodyLimitMiddleware`). Yani gövde burada okunduğunda GÖVDE SINIRI
+#: KAPISI HENÜZ KOŞMAMIŞTIR ve 10 MiB'lık bir içe aktarma isteği reddedilmeden
+#: ÖNCE belleğe alınırdı.
+#:
+#: Çare, sınırı BURADA da sormaktır ve sınır BİLEREK DAR: idempotensi bir
+#: TEKRAR GÖNDERİM korumasıdır ve tekrar gönderilen şey bir JSON gövdesidir,
+#: 10 MiB'lık bir Excel dosyası değil. Aşan istek SESSİZCE KORUMASIZ
+#: BIRAKILMAZ — 413 ile REDDEDİLİR; istemci başlığı düşürerek aynı isteği
+#: gönderebilir ve o zaman gövde sınırı kapısı kendi işini yapar.
+AZAMI_ISTEK_GOVDESI = 1024 * 1024
+
 #: Yalnız bu tip saklanır. Ayrımın sebebi başlıkta.
 SAKLANAN_TIP = "application/json"
 
@@ -222,6 +236,37 @@ def anahtar_gecerli(ham: str | None) -> str | None:
             "IDEMPOTENCY_KEY_INVALID",
         )
     return anahtar
+
+
+def govde_tamponlanabilir(basliklar) -> None:
+    """Gövde okunmadan ÖNCE boyutunu sorar; sığmıyorsa reddeder.
+
+    `Transfer-Encoding` varsa uzunluk BİLİNMEZ ve okumak sınırsız tamponlama
+    demektir; `Content-Length` YOKSA (ve chunked de değilse) gövde YOKTUR —
+    gövdesiz `DELETE` tam olarak budur ve reddedilmesi yanlış olurdu.
+    """
+    if basliklar.get("transfer-encoding"):
+        raise IdempotensiReddi(
+            411,
+            "Idempotency-Key gönderen istek Content-Length taşımak zorundadır",
+            "IDEMPOTENCY_LENGTH_REQUIRED",
+        )
+    ham = basliklar.get("content-length")
+    if ham is None:
+        return
+    if not ham.strip().isdigit():
+        raise IdempotensiReddi(
+            411,
+            "Idempotency-Key gönderen istek Content-Length taşımak zorundadır",
+            "IDEMPOTENCY_LENGTH_REQUIRED",
+        )
+    if int(ham.strip()) > AZAMI_ISTEK_GOVDESI:
+        raise IdempotensiReddi(
+            413,
+            "Idempotency-Key en fazla %d baytlık gövdeyle kullanılabilir"
+            % AZAMI_ISTEK_GOVDESI,
+            "IDEMPOTENCY_REQUEST_TOO_LARGE",
+        )
 
 
 def istek_ozeti(metot: str, yol: str, govde: bytes) -> str:

@@ -380,6 +380,12 @@ async def security_and_audit(request: Request, call_next):
                     request.headers.get(idempotency.BASLIK)
                 )
                 if anahtar is not None:
+                    # GOVDE OKUNMADAN ONCE BOYUTU SORULUR. Bu ara katman
+                    # `RequestBodyLimitMiddleware`in DISINDADIR (add_middleware
+                    # listeye bastan ekler), yani govde sinir kapisi HENUZ
+                    # kosmamistir; sormasaydik 10 MiB'lik bir ice aktarma
+                    # istegi reddedilmeden ONCE bellege alinirdi.
+                    idempotency.govde_tamponlanabilir(request.headers)
                     # GOVDE ARA KATMANDA OKUNUYOR ve isleyici onu YINE
                     # OKUYABILIR: Starlette'in `BaseHTTPMiddleware`i istegi
                     # `_CachedRequest` ile sariyor ve tamponlanmis govdeyi
