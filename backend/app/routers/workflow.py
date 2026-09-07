@@ -30,7 +30,12 @@ from ..money import (
     quantity,
 )
 from ..movement_references import validate_return_reference
-from ..parti_defteri import _hareket_notu, _parti_geri_al, _parti_tuket
+from ..parti_defteri import (
+    _hareket_notu,
+    _parti_geri_al,
+    _parti_iade,
+    _parti_tuket,
+)
 from ..schemas import TransactionCreate, WorkflowDocumentCreate
 from ..tenancy import company_id
 from .transactions import _save
@@ -85,6 +90,16 @@ CONFIG = {
         prefix="SIA",
         stock=1,
         return_type="sale_return",
+        # İADE KAYNAĞI (1B-E): (belge alanının BEYANI, HAREKET referansı).
+        #
+        # İki ad AYRI durmak ZORUNDA çünkü depo onları AYRI yazıyor:
+        # `returns.source_type` TEKİL ("order", `movement_references.py`nin
+        # kapalı eşlemesi), `stock_movements.reference_type` ise TABLO ADIDIR
+        # ("orders", `transactions.py`de `config['head']`ten geliyor). Birini
+        # ötekinden TÜRETMEK (çoğul eki eklemek) bir konvansiyona bel bağlardı
+        # ve ikisi ayrıştığı gün iade satışın hareketlerini HİÇ bulamaz,
+        # sessizce partisiz yazardı.
+        iade_kaynagi=("order", "orders"),
     ),
     "purchase_return": dict(
         head="returns",
@@ -503,15 +518,24 @@ def _save_doc(
                 # `delivery` (irsaliye) ve `purchase_return` (alış iadesi).
                 # Koşul `kind` ADIYLA yazılmadı; işaret ÖLÇÜLÜYOR, çünkü
                 # CONFIG'e üçüncü bir çıkış türü eklendiği gün ad listesi onu
-                # SESSİZCE dışarıda bırakırdı. `sale_return` (`stock=+1`)
-                # parti AÇMAZ: iade edilen malın hangi partiden çıktığı bu
-                # dilimde ÖLÇÜLMEDİ ve uydurmak defteri yalan söyletirdi.
+                # SESSİZCE dışarıda bırakırdı.
+                #
+                # STOĞA GİREN TÜR (1B-E): `sale_return` (`stock=+1`) artık
+                # partiye GERİ VERİYOR. Bu dal da AD ile değil İŞARET ile
+                # seçiliyor, ama işaret TEK BAŞINA yetmez: geri verme, malın
+                # ÇIKTIĞI hareketleri okumayı gerektirir ve o hareketlerin
+                # nerede durduğunu yalnız KAYNAK BELGE söyler. Kaynağın adı
+                # CONFIG'te (`iade_kaynagi`) ve türe göre DEĞİŞİR — bu yüzden
+                # ikinci koşul bir ad denetimi değil, o BEYANIN VARLIĞIDIR.
+                # Beyanı olmayan bir giriş türü partisiz kalır ve bu SESSİZ
+                # bir atlama değil, CONFIG'te GÖRÜNEN bir eksikliktir.
                 #
                 # SIRA: `adjust_warehouse_stock`un ARDINDA (gerekçe ve
                 # eşzamanlılık ölçümü `parti_defteri._parti_tuket` belgesinde).
                 paylar: list[tuple[int | None, Decimal]] = [(None, delta)]
                 suresi_gecmisler: frozenset[int] = frozenset()
                 defter_bosaldi = False
+                iade_kaynagi = config.get("iade_kaynagi")
                 if config["stock"] < 0:
                     tuketim = _parti_tuket(
                         db,
@@ -526,6 +550,28 @@ def _save_doc(
                     if tuketim.dagitim:
                         paylar = [(kimlik, -pay) for kimlik, pay in tuketim.dagitim]
                         suresi_gecmisler = tuketim.suresi_gecmis_kimlikler
+                elif iade_kaynagi and payload.source_id is not None:
+                    # KAYNAKSIZ İADE BUGÜNKÜ DAVRANIŞINI KORUR ve bu bir
+                    # kapsam kararıdır: `validate_return_reference` kaynağı
+                    # ZORUNLU KILMIYOR (iki alan da NULL iken erken dönüyor),
+                    # yani kaynağı olmayan bir iade kesilebiliyor. Onun hangi
+                    # partiden çıktığını depo BİLEMEZ ve uydurmak defteri
+                    # yalan söyletirdi — tek satır, `lot_id` NULL.
+                    iade_paylari = _parti_iade(
+                        db,
+                        cid,
+                        product_id=int(product["id"]),
+                        warehouse_id=warehouse_id,
+                        satis_tablosu=iade_kaynagi[1],
+                        satis_id=int(payload.source_id),
+                        iade_kaynak_turu=iade_kaynagi[0],
+                        miktar=item.quantity,
+                    )
+                    # `None` = "satışın bu üründe parti borcu YOK" (partisiz
+                    # satış). Boş demetten AYRI: o durum 422'dir ve buraya
+                    # HİÇ ulaşmaz.
+                    if iade_paylari is not None:
+                        paylar = list(iade_paylari)
                 # BİR PAY = BİR HAREKET SATIRI (gerekçe satış yolunda).
                 # `lot_id` bu INSERT'e 1B-B'de EKLENDİ: 1B-A sütunu yalnız
                 # `transactions.py`de yazıyordu ve buradaki hareketler
