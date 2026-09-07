@@ -168,9 +168,6 @@ def girdi_varligi_denetle(
     base_adlari: list[str], head_adlari: list[str], pr: int | None = None
 ) -> list[str]:
     """Birleşme sonucu kendi girdisini eklemiş olmalı (yeni biçim: pr-NNNN.md)."""
-    base = {(k.ad if k.yeni else f"{k.legacy_sira:04d}-pr-{k.pr:04d}.md"): k
-            for k in _kayitlari_ayikla(base_adlari)}
-    # Normalize keys by canonical name
     base_set = {k.ad for k in _kayitlari_ayikla(base_adlari)}
     head_set = {k.ad for k in _kayitlari_ayikla(head_adlari)}
     eklenen_adlar = sorted(head_set - base_set)
@@ -233,47 +230,42 @@ def kesme_sonrasi_legacy_denetle(
 def cift_kayit_denetle(
     base_adlari: list[str], head_adlari: list[str]
 ) -> list[str]:
-    """Eklenenler içinde çift kayıt / legacy+yeni biçim yasak.
+    """Çift kayıt / legacy+yeni biçim yasak.
 
     Tarihsel göç korpusunda aynı PR numarasına ait İKİ legacy dosya olabilir
     (ölçüldü); onlara dokunulmaz. Yasak olan:
       * bu birleşmede aynı PR için birden fazla girdi eklemek
-      * bu birleşmede `pr-NNNN.md` varken aynı PR için legacy ad da eklemek
-        (veya tersi) — "legacy-named file for a PR that also has pr-NNNN.md"
+      * ağaçta aynı PR için hem legacy ad hem `pr-NNNN.md` bulunması
+        (yeni biçim eklenince eski adla yan yana olamaz)
     """
     base_set = {k.ad for k in _kayitlari_ayikla(base_adlari)}
     head_kayitlar = _kayitlari_ayikla(head_adlari)
     eklenen = [k for k in head_kayitlar if k.ad not in base_set]
     ihlaller: list[str] = []
 
-    by_pr: dict[int, list[KayitAdi]] = {}
+    by_pr_eklenen: dict[int, list[KayitAdi]] = {}
     for kayit in eklenen:
-        by_pr.setdefault(kayit.pr, []).append(kayit)
-    for pr, kayitlar in sorted(by_pr.items()):
+        by_pr_eklenen.setdefault(kayit.pr, []).append(kayit)
+    for pr, kayitlar in sorted(by_pr_eklenen.items()):
         if len(kayitlar) > 1:
             adlar = ", ".join(sorted(k.ad for k in kayitlar))
             ihlaller.append(
                 f"ÇİFT KAYIT #{pr}: bu birleşmede birden fazla girdi eklendi "
                 f"({adlar}). Bir PR için tam bir girdi eklenir."
             )
-            continue
-        kayit = kayitlar[0]
-        head_ayni_pr = [k for k in head_kayitlar if k.pr == pr]
-        yeni_var = any(k.yeni for k in head_ayni_pr)
-        legacy_eklenen = kayit.legacy_sira is not None
-        yeni_eklenen = kayit.yeni
-        if yeni_eklenen and any(
-            (not k.yeni) and k.ad not in base_set for k in head_ayni_pr
-        ):
+
+    by_pr_head: dict[int, list[KayitAdi]] = {}
+    for kayit in head_kayitlar:
+        by_pr_head.setdefault(kayit.pr, []).append(kayit)
+    for pr, kayitlar in sorted(by_pr_head.items()):
+        yeniler = [k for k in kayitlar if k.yeni]
+        legacyler = [k for k in kayitlar if not k.yeni]
+        if yeniler and legacyler:
+            adlar = ", ".join(sorted(k.ad for k in kayitlar))
             ihlaller.append(
-                f"LEGACY+YENİ #{pr}: aynı birleşmede hem legacy ad hem "
-                f"`pr-{pr:04d}.md` eklenmiş."
-            )
-        elif legacy_eklenen and yeni_var:
-            # Legacy eklenirken ağaçta (base veya head) pr-NNNN varsa yasak.
-            ihlaller.append(
-                f"LEGACY+YENİ #{pr}: `{kayit.ad}` eklenemez — `pr-{pr:04d}.md` "
-                "zaten var. Kesmeden sonra yeni girdi yalnız `pr-NNNN.md`."
+                f"LEGACY+YENİ #{pr}: aynı PR için hem legacy ad hem "
+                f"`pr-{pr:04d}.md` var ({adlar}). `pr-NNNN.md` olan PR'da "
+                "legacy ad bulunamaz."
             )
     return ihlaller
 
@@ -486,8 +478,7 @@ def main() -> int:
         return 0
     if argumanlar.sira is not None:
         for sira, pr, ad, metin in reversed(sira_listesi(dal=argumanlar.sira)):
-            etiket = f"{sira:04d}" if True else ""
-            print(f"{etiket}  {ad}  {metin}")
+            print(f"{sira:04d}  {ad}  {metin}")
         return 0
     # Varsayılan: --sira develop (en yeni üstte metin)
     try:

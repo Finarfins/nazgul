@@ -505,6 +505,17 @@ def test_AYNI_PR_icin_iki_kayit_KIRMIZI() -> None:
     assert any("ÇİFT KAYIT" in i for i in ihlaller), ihlaller
 
 
+def test_LEGACY_var_iken_yeni_pr_NNNN_KIRMIZI() -> None:
+    """Aynı PR için base'de legacy varken `pr-NNNN.md` eklemek → LEGACY+YENİ."""
+    arac = _okuyucu()
+    base = [f"{i:04d}-pr-{i:04d}.md" for i in range(1, arac.KESME_SIRA + 1)]
+    # 0050 zaten base'de legacy; head'e pr-0050.md eklemek yasak.
+    head = base + ["pr-0050.md"]
+    ihlaller = arac.cift_kayit_denetle(base, head)
+    assert ihlaller, "legacy+yeni yan yana kırmızı olmalıydı"
+    assert any("LEGACY+YENİ" in i for i in ihlaller), ihlaller
+
+
 def test_sira_mtime_degil_git_log_ile_siralanir(tmp_path: Path) -> None:
     """Görünen sıra mtime değil first-parent git log ekleme sırasından gelir."""
     arac = _okuyucu()
