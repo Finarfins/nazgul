@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -18,319 +19,115 @@ SHARD_GATE = REPO_ROOT / "deploy" / "ci-postgresql-shard-kapisi.py"
 NEEDS_GATE = REPO_ROOT / "deploy" / "ci-yayin-needs-kapisi.py"
 CALL_SITE_GATE = REPO_ROOT / "deploy" / "ci-verify-cagri-kapisi.py"
 BACKEND = REPO_ROOT / "backend"
+PG_TWINS_PIN = BACKEND / "tests" / "pins" / "pg_twins.txt"
+PG_OZEL = (
+    "tests/test_company_id_default_contract.py",
+    "tests/test_ci_playwright_hazirlik.py",
+)
+PG_PHANTOM = "test_h7_phantom_postgresql.py"
+PG_BAYAT = "test_h7_bayat_postgresql.py"
 
 
-def test_pg_test_population_exact_112() -> None:
-    """PostgreSQL test population must be exactly 112 files.
-
-    106 -> 107: E2 veteriner ilaç / arınma ikizi
-    (`test_e2_tedavi_arinma_postgresql.py`, göç 20260908_0074). SAYIM
-    ÖLÇÜLDÜ, önceki ölçümün ÜZERİNE ARİTMETİK YAPILARAK DEĞİL: bu dalda
-    `ls backend/test_*postgresql*.py | wc -l` -> 105 (yeni dosya DAHİL),
-    yani 105 `postgresql`-adlı + 2 özel = 107.
-
-    İKİZ ZORUNLU ve gerekçesi BEŞ tanedir, beşi de yalnız üretim
-    diyalektinde görünür: (a) göçün BEŞ bileşik yabancı anahtarının TEK işi
-    çapraz kiracı referansı engellemektir ve SQLite'ta yabancı anahtar
-    uygulaması varsayılan olarak KAPALIDIR (`PRAGMA foreign_keys` temiz bir
-    şemada 0 döner), yani kiracı savunmasının TAMAMI orada YEŞİL kalırdı;
-    (b) `ck_animal_treatments_hedef` ("hayvan ya da grup, ikisi birden
-    değil") `milk_yields`te 0049'dan beri YALNIZ uygulama katmanındaydı ve
-    şemaya ilk kez burada yazıldı — gerçekten reddettiği yalnız gerçek
-    katalogda sorulabilir; (c) `herd_withdrawal_policy` CHECK'i geliştirme
-    diyalektinde ÖLÇÜLEMEZ ve 0072'de ölçülen kusur (açılış DDL'i sütunu
-    kurar, göç dalı atlar, CHECK HİÇ kurulmaz) tam olarak orada görünür;
-    (d) `ck_vet_drugs_species` KAPALI KÜMESİ, tür çözümünün TAM EŞİTLİKLE
-    (Türkçe katlama olmadan) çalışmasının DAYANAĞIDIR ve ısırmasaydı dayanak
-    çürük olurdu; (e) `NUMERIC(14,4)` doz ölçeği SQLite'ta DAYATILMAZ.
-
-    107 -> 108: 1B-B satış/FEFO tüketimi ikizi
-    (`test_1b_b_satis_fefo_postgresql.py`, GÖÇ YOK). SAYIM ÖLÇÜLDÜ, önceki
-    ölçümün üzerine ARİTMETİK YAPILARAK DEĞİL: bu dalda
-    `ls backend/test_*postgresql*.py | wc -l` -> 106 (yeni dosya DAHİL), yani
-    106 `postgresql`-adlı + 2 özel = 108. Önceki turda 107 ölçülmüştü ve o
-    ölçüm E2 (#62) develop'a indiği anda GEÇERSİZ oldu; bu satır E2 SONRASI
-    tabanda yeniden ölçüldü.
-
-    İKİZ ZORUNLU ve gerekçesi BEŞ tanedir, beşi de yalnız üretim
-    diyalektinde görünür: (a) EŞZAMANLI iki satışın aynı partiyi iki kez
-    düşmesi SQLite'ta ÜRETİLEMEZ (tek yazar), yani hem kusur hem de
-    korumasının kaldırılması geliştirme diyalektinde GÖRÜNMEZ; (b)
-    `CHECK (quantity >= 0 AND quantity <> 'NaN')` tüketimin son savunmasıdır
-    ve SQLite'ta dayatılmaz (NaN yarısı zaten YALNIZ PostgreSQL'dedir); (c)
-    bölüştürülen payların `NUMERIC(18,4)` ölçeği SQLite'ta dayatılmaz, yani
-    yanlış ölçekli bir pay orada SESSİZCE geçerdi; (d) FEFO'nun birinci ve
-    üçüncü anahtarları (`expiry_date`, `created_at`) iki diyalektte İKİ
-    FARKLI TİP döner (`date`/`str`, tz-aware `timestamptz`/naive dizgi) ve
-    çevrim bozulursa sıra bir diyalektte takvimsel ötekinde alfabetik olur —
-    her biri KENDİ ikizinde yeşil kalarak; (e) kiracı yüklemi seçicide DEĞİL
-    çağıranın sorgusundadır ve gerçekten ısırdığı ancak iki kiracılı gerçek
-    bir şemada sorulabilir.
-
-    BİRLEŞİK ÖLÇÜM: İKİ DAL DA `108 -> 109` diyordu ve İKİSİ DE KENDİ
-    TABANINDA DOĞRUYDU — E3 `test_e3_karantina_postgresql.py`yi, 1B-C
-    `test_1b_c_ayarlama_lot_postgresql.py`yi ekliyor. AYNI SAYIYI İKİ AYRI
-    dosya için söyleyen iki dal birleşince sayı SEÇİLMEZ, TOPLANIR. İki
-    gerekçe de KORUNDU çünkü birini ötekinin yerine koymak sayıyı doğru
-    bırakıp GEREKÇEYİ yalan yapardı. Sayım #64 SONRASI develop (5ac6658)
-    üzerinde YENİDEN yapıldı, aritmetikle devralınmadı:
-    `ls backend/test_*postgresql*.py | wc -l` -> 108, yani 108 + 2 özel = 110.
-
-    109 -> 110 (E3 YARISI): E3 karantina ikizi (`test_e3_karantina_postgresql.py`, göç
-    20260909_0075). SAYIM ÖLÇÜLDÜ, önceki ölçümün ÜZERİNE ARİTMETİK
-    YAPILARAK DEĞİL: bu dalda `ls backend/test_*postgresql*.py | wc -l` ->
-    107 (yeni dosya DAHİL), yani 107 `postgresql`-adlı + 2 özel = 109.
-
-    ÖNCEKİ TURDA 108 ÖLÇÜLMÜŞTÜ ve o ölçüm 1B-B (#63) develop'a indiği anda
-    GEÇERSİZ oldu: iki dal AYNI ANDA birer ikiz ekliyordu ve ikisi de aynı
-    107 -> 108 adımını yazmıştı. İKİNCİ BİRLEŞEN YENİDEN ÖLÇER — bu satır
-    1B-B SONRASI tabanda (77aa5b0) yeniden ölçüldü, aritmetikle
-    devralınmadı.
-
-    İKİZ ZORUNLU ve gerekçesi DÖRT tanedir, dördü de yalnız üretim
-    diyalektinde görünür: (a) göçün İKİ bileşik yabancı anahtarının TEK işi
-    çapraz kiracı referansı engellemektir ve SQLite'ta yabancı anahtar
-    uygulaması varsayılan olarak KAPALIDIR, yani kiracı savunmasının TAMAMI
-    orada YEŞİL kalırdı; (b) İKİ KISMİ TEKİL İNDEKSİN gerçekten kısmi
-    olduğu — açık karantinayı tekilleştirip kapanmışları serbest bıraktığı —
-    ancak gerçek bir eşzamanlılık kısıtında ölçülebilir ve bu göçün EN İNCE
-    parçası odur; (c) `herd_quarantine_policy` CHECK'i ve `block`
-    varsayılanı geliştirme diyalektinde ÖLÇÜLEMEZ (SQLite CHECK'i
-    yansıtmıyor) ve 0072'de ölçülen kusur tam orada görünür; (d)
-    `ck_animal_quarantines_aralik` ile `ck_animal_quarantines_sebep_dolu`
-    yalnız gerçek katalogda reddeder.
-    109 -> 110 (1B-C YARISI): 1B-C ayarlama/sayım parti ikizi
-    (`test_1b_c_ayarlama_lot_postgresql.py`, GÖÇ YOK). SAYIM ÖLÇÜLDÜ,
-    aritmetikle devralınmadı: bu dalda `ls backend/test_*postgresql*.py | wc -l`
-    -> 107 (yeni dosya DAHİL), yani 107 `postgresql`-adlı + 2 özel = 109.
-    Bu dal iki kez ölçüldü ve İKİ ÖLÇÜM DE tabanı değişince GEÇERSİZ OLDU
-    (#62 inince 107, #63 inince 108); bu satır #63 SONRASI develop üstünde
-    ÜÇÜNCÜ kez ölçüldü.
-
-    İKİZ ZORUNLU ve gerekçesi DÖRT tanedir, dördü de yalnız üretim
-    diyalektinde görünür: (a) `fk_stock_movements_lot_same_company` GERÇEKTEN
-    ISIRIYOR MU — bu dilimin en ciddi ölçülmüş riski budur ve SQLite'ta
-    GÖRÜNMEZ (temiz bir şemada `PRAGMA foreign_keys` **0** döner, yani bir
-    kiracının hareketi BAŞKA kiracının partisini işaret edebilir ve orada
-    SESSİZCE kabul edilir); risk bu turda GERÇEKTEN DOĞDU, çünkü `lot_id`
-    `core_schema`da bildirilince taze veritabanında sütunu açılış DDL'i
-    açıyor ve 0067'nin TEK koşulu yanlış olup FK'yi HİÇ KURMUYORDU (koşul
-    İKİYE AYRILDI); (b) `CHECK (quantity >= 0 ...)` `_parti_dus`un 409'unun
-    ARDINDAKİ son savunmadır ve SQLite'ta dayatılmaz; (c) `NUMERIC(18,4)`
-    ölçeği dayatılmaz, oysa sayım yolu farkı `products.stock` ile
-    `product_lots.quantity` arasında dolaştırıyor; (d) sayım yolu hareketi
-    Core `insert()` ile yazıyor ve bildirim ile üretim şemasının ÖRTÜŞTÜĞÜ
-    yalnız gerçek şemaya karşı görülür.
-
-    105 -> 106: 1B-A alış-kalemi-parti ikizi
-    (`test_1b_a_alis_lot_postgresql.py`, göç 20260908_0073). İkiz ZORUNLU:
-    parti satırının depoya bağlanmasını sağlayan İKİ bileşik yabancı anahtar
-    SQLite'ta UYGULANMIYOR, yeni dörtlü tekil ile ESKİ ÜÇLÜNÜN DÜŞMÜŞ OLDUĞU
-    yalnız gerçek katalogda sorulabilir (0072'de ölçüldü: `batch`
-    PostgreSQL'de kısıt DDL'ini SESSİZCE atlayabiliyor) ve `warehouse_id`in
-    NOT NULL'u geliştirme diyalektinde başka bir şey ölçerdi.
-
-    104 -> 105: E1b ekim-arası bekleme ikizi
-    (`test_e1b_plantback_postgresql.py`, göç 20260907_0072). İkiz ZORUNLU:
-    bileşik yabancı anahtar SQLite'ta UYGULANMIYOR, `:haric IS NULL`
-    parametresinin tipi yalnız PostgreSQL'de ısırıyor ve
-    `farm_plantback_policy` CHECK'i geliştirme diyalektinde ölçülemez.
-
-    95 -> 97: tarla yazma kilitleri ikizleri (`test_farm_monoculture_postgresql.py`,
-    `test_farm_reentry_enforcement_postgresql.py`, göç 20260901_0064). İkizler
-    ZORUNLU: ÇKS tek ürün ve giriş yasağı yazma yolları üretim diyalektinde
-    SQLite'tan farklı davranıyor. 94 -> 95 BKÜ kataloğu ikizi (göç
-    20260901_0063) develop'ta zaten inmişti.
-
-    97 -> 98: `test_uretici_kayit_defteri_postgresql.py` (Uygulama Kayıt
-    Çizelgesi): genişleyen bind, NUMERIC ölçeği, TIMESTAMPTZ ve çapraz kiracı
-    GERÇEK PostgreSQL üzerinde ölçülüyor. Bu artış develop'a PR #22 ile indi.
-
-    98 -> 99: BKÜ içe aktarma ikizi (`test_farm_bku_ice_aktarma_postgresql.py`,
-    göç 20260902_0065). TABAN DEVELOP'UN 98'İDİR ve delta ÖLÇÜLEREK bulundu,
-    daha önceki 97 -> 98 ölçümümün üzerine aritmetik yapılarak DEĞİL: o ölçüm,
-    tabanı PR #22 ile değiştiği anda geçersiz oldu.
-
-    İKİZ ZORUNLU ve gerekçesi kardeşininkinden GÜÇLÜ: "bir bozuk satır dosyayı
-    düşürmez" kuralını ayakta tutan şey SAVEPOINT ve savepoint YOKKEN SQLite
-    koşusu YEŞİL KALIR — PostgreSQL'de başarısız bir deyim işlemi ABORTED
-    yapar, SQLite'ta yapmaz. Yani bu dilimin ana iddiasının kırılması YALNIZ
-    üretim diyalektinde görünür.
-
-    99 -> 100: birim dönüşümü ikizi (`test_birim_donusumu_postgresql.py`, göç
-    20260902_0066). SAYIM ÖLÇÜLDÜ: 98 `postgresql`-adlı glob + 2
-    adlandırılmış özel dosya = 100.
-
-    100 -> 101: parti/SKT ikizi (`test_parti_skt_postgresql.py`, göç
-    20260903_0067). SAYIM YİNE ÖLÇÜLDÜ, önceki ölçümün ÜZERİNE ARİTMETİK
-    YAPILARAK DEĞİL: taban develop'ta `ls backend/test_*postgresql*.py | wc -l`
-    -> 98 çıktı, o PR bir dosya ekliyor, yani 99 `postgresql`-adlı + 2 özel
-    = 101.
-
-    101 -> 102: kantar fişi ikizi (`test_kantar_fisi_postgresql.py`,
-    göç 20260904_0069). SAYIM YİNE ÖLÇÜLDÜ: o dalda
-    `ls backend/test_*postgresql*.py | wc -l` -> 100 (yeni dosya DAHİL), yani
-    100 `postgresql`-adlı + 2 özel = 102.
-
-    102 -> 103: bu PR'ın müstahsil makbuzu ikizi
-    (`test_mustahsil_makbuzu_postgresql.py`, göç 20260905_0070). SAYIM YİNE
-    ÖLÇÜLDÜ, önceki ölçümün ÜZERİNE ARİTMETİK YAPILARAK DEĞİL: bu dalda
-    `ls backend/test_*postgresql*.py | wc -l` -> 101 (yeni dosya DAHİL),
-    yani 101 `postgresql`-adlı + 2 özel = 103.
-
-    103 -> 104: bu PR'ın D2 ikizi (`test_d2_avans_tescil_postgresql.py`,
-    göç 20260906_0071). SAYIM YİNE ÖLÇÜLDÜ, önceki ölçümün ÜZERİNE ARİTMETİK
-    YAPILARAK DEĞİL: bu dalda `ls backend/test_*postgresql*.py | wc -l` ->
-    102 (yeni dosya DAHİL), yani 102 `postgresql`-adlı + 2 özel = 104.
-
-    İKİZ ZORUNLU ve gerekçesi ÜÇ tanedir, üçü de yalnız üretim diyalektinde
-    görünür: (a) D2'nin YEDİ bileşik yabancı anahtarının TEK işi çapraz
-    kiracı referansı engellemektir ve SQLite'ta yabancı anahtar uygulaması
-    varsayılan olarak KAPALIDIR; (b) `uq_payments_company_id` olmadan
-    PostgreSQL göçü REDDEDER ("there is no unique constraint matching given
-    keys") ama SQLite SESSİZCE geçirir, yani şemaların AYRIŞMASI yalnız
-    burada görünür; (c) `NUMERIC(18,2)` ölçeği ve
-    `0 <= remaining_amount <= amount` aralığı SQLite'ta DAYATILMAZ — yanlış
-    ölçekli ya da aşırı mahsup edilmiş bir avans orada SESSİZCE geçerdi.
-
-    İKİZ ZORUNLU: 0070'in BEŞ bileşik yabancı anahtarının TEK işi çapraz
-    kiracı referansı engellemektir ve SQLite'ta yabancı anahtar uygulaması
-    varsayılan olarak KAPALIDIR — yani ana kiracı iddiası SQLite koşusunda
-    YEŞİL KALIR. `NUMERIC` ölçeği ve kısmi benzersiz indeks de yalnız
-    üretim diyalektinde gerçekten dayatılır.
-
-    İKİZ ZORUNLU ve gerekçesi ÖLÇÜLDÜ, iddia edilmedi: temiz bir SQLite
-    şemasında `PRAGMA foreign_keys` **0** döner ve çapraz kiracı bir fiş
-    (`company_id` A firmasının, `harvest_id` B firmasının hasadı) SESSİZCE
-    KABUL EDİLİR. Göçün iki bileşik yabancı anahtarının TEK işi budur, yani
-    savunma yalnız üretim diyalektinde ölçülebilir. Ayrıca `NUMERIC(24,10)`
-    katsayı ölçeği ve `NUMERIC(18,4)` miktar ölçeği SQLite'ta DAYATILMAZ;
-    katsayı "o gün neye inanıldığının" kanıtı olduğu için yuvarlanmış bir
-    katsayı kanıtı SESSİZCE bozardı.
-
-    İKİZ ZORUNLU ve gerekçesi üç tanedir, üçü de yalnız üretim diyalektinde
-    görünür: (a) `CHECK (quantity >= 0 AND quantity <> 'NaN'::numeric)`in NaN
-    yarısı YALNIZ PostgreSQL'de vardır ve PostgreSQL `NaN`ı her sonlu sayının
-    üstüne sıralar; (b) dağıtım paylarının `NUMERIC(18,4)` ölçeği SQLite'ta
-    dayatılmaz, yani yanlış ölçekli bir yazma orada SESSİZCE geçerdi;
-    (c) bileşik yabancı anahtar SQLite'ta varsayılan olarak UYGULANMAZ
-    (`PRAGMA foreign_keys` kapalı), yani çapraz kiracı referans orada YEŞİL
-    kalırdı.
-
-    ADIN VE DÜZYAZININ SAYIYLA BİRLİKTE HAREKET ETMESİ ZORUNLUDUR. Bu test
-    bir tur boyunca `..._exact_99` ADIYLA `== 100` İDDİA ETTİ ve `ci.yml`in
-    yorumu `97 + 2 = 99` derken sabit `100`dü. Değeri doğru olan ama gerekçesi
-    onu yalanlayan bir çivi, sonraki okuyucu için TUZAKTIR: okuyucu gerekçeye
-    güvenip sayıyı "düzeltmeye" kalkar. Bu yüzden ad, düzyazı ve sayı ÜÇÜ
-    BİRDEN güncellenir.
+def _pg_envanter_satirlari(yol: Path) -> list[str]:
+    """Inventory lines; blank lines are a defect because ``wc -l`` counts them."""
+    ham = yol.read_text(encoding="utf-8")
+    assert ham.endswith("\n"), f"{yol.name} trailing newline yok; wc -l sapar"
+    satirlar = ham.splitlines()
+    bos = [i for i, s in enumerate(satirlar, 1) if not s.strip() or s != s.strip()]
+    assert not bos, f"{yol.name} boş ya da dolgulu satır: {bos}"
+    return satirlar
 
 
-    106 -> 107: 1B-B satış/FEFO tüketimi ikizi
-    (`test_1b_b_satis_fefo_postgresql.py`). GÖÇ YOKTUR ve ikiz YİNE ZORUNLU;
-    gerekçesi bir göç değil, DİYALEKT ASİMETRİSİDİR ve beş tanedir, hepsi
-    yalnız üretim diyalektinde görünür: (a) EŞZAMANLI iki satışın aynı
-    partiyi iki kez düşmesini engelleyen şey `warehouse_stocks` üzerindeki
-    `FOR UPDATE` kilididir ve SQLite TEK YAZARDIR — yarış orada ÜRETİLEMEZ,
-    `FOR UPDATE` sözdizimi bile reddedilir, yani kilit kaldırılırsa SQLite
-    süiti YEŞİL KALIR; (b) `CHECK (quantity >= 0 AND quantity <> 'NaN')`
-    tüketimin son savunmasıdır ve SQLite'ta dayatılmaz (NaN yarısı zaten
-    YALNIZ PostgreSQL'dedir); (c) bölüştürülen payların `NUMERIC(18,4)`
-    ölçeği SQLite'ta dayatılmaz, yani yanlış ölçekli bir pay orada SESSİZCE
-    geçerdi; (d) FEFO'nun birinci ve üçüncü anahtarları olan `expiry_date`
-    ve `created_at` iki diyalektte İKİ FARKLI TİP döner (`date`/`str`,
-    tz-aware `timestamptz`/naive dizgi) ve çevrim bozulursa sıra bir
-    diyalektte takvimsel, ötekinde alfabetik olur — her biri KENDİ ikizinde
-    yeşil kalarak; (e) kiracı yüklemi seçicide DEĞİL çağıranın sorgusundadır
-    ve tek yerde durduğu için gerçekten ısırdığı ancak iki kiracılı gerçek
-    bir şemada sorulabilir.
+def _pg_disk_kumesi(kok: Path = BACKEND) -> set[str]:
+    """``test_*postgresql*.py`` glob ∪ the two named specials (ci.yml ile aynı)."""
+    adlar = {p.name for p in kok.glob("test_*postgresql*.py")}
+    for ozel in PG_OZEL:
+        if (kok / ozel).is_file():
+            adlar.add(ozel)
+    return adlar
 
-    SAYIM ÖLÇÜLDÜ, ARİTMETİK YAPILARAK DEĞİL: bu dalda
-    `ls backend/test_*postgresql*.py | wc -l` -> 105 (yeni dosya DAHİL), yani
-    105 `postgresql`-adlı + 2 özel = 107.
 
-    107 -> 108: 1B-C ayarlama/sayım parti ikizi
-    (`test_1b_c_ayarlama_lot_postgresql.py`, GÖÇ YOK). İKİZ ZORUNLU ve
-    gerekçesi ÖLÇÜLDÜ, iddia edilmedi: bu dilim `stock_movements.lot_id`i
-    `app/core_schema.py`de BİLDİRDİ ve o bildirim, 0067'nin sütun/kısıt
-    koşulunu tek bıraktığı sürece `fk_stock_movements_lot_same_company`yi
-    TAZE veritabanında SESSİZCE düşürüyordu (taze SQLite + `alembic upgrade
-    head`: önce 1 yabancı anahtar, sonra 0). Koşul ikiye ayrıldı — ama
-    "kısıt duruyor" ile "kısıt REDDEDİYOR" aynı cümle DEĞİLDİR ve ikincisi
-    SQLite'ta SORULAMAZ: temiz bir SQLite şemasında `PRAGMA foreign_keys`
-    **0** döner, yani A firmasının hareketi B firmasının partisini işaret
-    edebilir ve orada SESSİZCE kabul edilir. Ayrıca (a) `product_lots`un
-    `CHECK (quantity >= 0)`ı `_parti_dus`un 409'unun ARDINDAKİ son savunmadır
-    ve SQLite'ta dayatılmaz; (b) `NUMERIC(18,4)` ölçeği de dayatılmaz, oysa
-    sayım yolu farkı `products.stock` ile `product_lots.quantity` arasında
-    dolaştırıyor; (c) sayım yolu hareketi Core `insert()` ile yazıyor ve
-    bildirimle üretim şemasının ÖRTÜŞTÜĞÜ yalnız gerçek şemaya karşı
-    görülür.
-
-    SAYI PROVİZYONELDİR — TABAN HENÜZ İNMEDİ. Bu dal `feat/1b-b-satis-fefo`
-    (#63) ÜSTÜNE yığılı ve #62 (E2, göç 0074) ile #63 develop'a inmeden
-    ölçülen taban GERÇEK taban DEĞİLDİR: ikisi de birer ikiz getiriyor, yani
-    develop 106 -> 108 olacak ve bu dal onu 109'a çıkaracak. Sayı, ikisi
-    indikten SONRA develop üstünde YENİDEN ÖLÇÜLECEK ve aritmetikle
-    devralınmayacak — 98 -> 99 ölçümünün taban değişince geçersiz olması bu
-    dosyada zaten yaşandı.
-
-    110 -> 111: 1B-D adli depo transferi ikizi
-    (`test_1b_d_transfer_lot_postgresql.py`, GOC YOK). Bu dalda sayim yeniden
-    yapildi: 109 `postgresql`-adli dosya + 2 ozel = 111. Ikiz zorunludur;
-    ayni partiden iki transferin korumali UPDATE uzerinde siralanmasi SQLite'in
-    tek-yazar modelinde uretilemez ve x20 gercek PostgreSQL yarisi bunu olcer.
-
-    111 -> 112: 1B-E satış iadesi / ters FEFO ikizi
-    (`test_1b_e_iade_lot_postgresql.py`, GÖÇ YOK). SAYIM ÖLÇÜLDÜ, önceki
-    ölçümün üzerine ARİTMETİK YAPILARAK DEĞİL: BİRLEŞMİŞ AĞAÇTA
-    `ls backend/test_*postgresql*.py | wc -l` -> 110 (yeni dosya DAHİL), yani
-    110 `postgresql`-adlı + 2 özel = 112. TABAN develop 8758535'tir (#71 /
-    1B-D birleştikten SONRA); İKİNCİ BİRLEŞEN olarak bu sayı BİRLEŞMİŞ
-    AĞAÇTA YENİDEN ÖLÇÜLDÜ — aritmetikle devralmak bu dosyada zaten bir kez
-    geçersiz oldu.
-
-    İKİZ ZORUNLU ve gerekçesi DÖRT tanedir, dördü de yalnız üretim
-    diyalektinde görünür: (a) `expiry_date` PostgreSQL'de `datetime.date`,
-    SQLite'ta `str` döner ve geri verme yolu kaynak partinin SKT'sini
-    OKUYUP `_parti_ac`a geri veriyor — çevrim atlanırsa HER iade sahte bir
-    `LOT_SKT_CELISKI` alır ve kusur YALNIZ burada görünür; (b)
-    `CHECK (quantity >= 0 AND quantity <> 'NaN')` iade hareketlerinin GERİ
-    ALINMASINDA son savunmadır (iade payları POZİTİFTİR, yani geri alma
-    partiden DÜŞER) ve SQLite'ta dayatılmaz; (c) `NUMERIC(18,4)` ölçeği ters
-    FEFO bölüştürmesinde ancak burada dayatılır; (d) `product_lots`un bileşik
-    yabancı anahtarları SQLite'ta varsayılan olarak UYGULANMAZ, yani "iade
-    hareketi komşunun partisine bağlanamaz" cümlesinin şema yarısı orada
-    YEŞİL kalırdı.
-
-    Bu sayaç ile `ci.yml`deki eşi birlikte artmak ZORUNDA — ikisi aynı
-    popülasyonu sayıyor ve biri güncellenip diğeri unutulursa kapı kendi
-    kendisiyle çelişir.
-    """
-
-    pg_glob = sorted(BACKEND.glob("test_*postgresql*.py"))
-    named = [
-        BACKEND / "tests" / "test_company_id_default_contract.py",
-        BACKEND / "tests" / "test_ci_playwright_hazirlik.py",
-    ]
-    all_files = pg_glob + [p for p in named if p.exists()]
-    assert len(all_files) == 112, (
-        f"PostgreSQL test population changed: expected 112, got {len(all_files)}"
+def _iddia_pg_kumesi(satirlar: list[str], disk: set[str]) -> None:
+    """Set equality, named. Duplicates are not collapsed away."""
+    yinelenen = sorted({ad for ad in satirlar if satirlar.count(ad) > 1})
+    assert not yinelenen, f"pg_twins.txt yinelenen satır: {yinelenen}"
+    liste = set(satirlar)
+    eklenen = sorted(disk - liste)
+    eksik = sorted(liste - disk)
+    assert not eklenen and not eksik, (
+        "PG ikiz envanteri ayrıştı; diskte olup listede yok="
+        f"{eklenen} listede olup diskte yok={eksik}"
     )
 
 
-def test_ci_workflow_has_frozen_pg_population_constant() -> None:
-    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=112 and strict equality.
+def test_pg_twins_inventory_matches_disk() -> None:
+    """PostgreSQL twins are an inventory, not an integer.
 
-    ÜÇÜNCÜ ÇİVİ. Sayı bu depoda ÜÇ yerde yaşıyor: `ci.yml`in sabiti,
-    `test_pg_test_population_exact_112`in adı/iddiası, ve BURASI. Üçü aynı
-    popülasyonu sayıyor; biri güncellenip öteki unutulursa kapı KENDİ
-    KENDİSİYLE ÇELİŞİR — ve bu tam olarak `test_pg_test_population_exact_112`
-    düzyazısının anlattığı tuzaktır (bir tur boyunca ad `_99`, iddia `100`,
-    `ci.yml` yorumu `97 + 2 = 99` idi).
+    Tree-wide counters (`BEKLENEN_PG_DOSYA_SAYISI=112`) force every PR that
+    adds a twin to collide on the same literal. Two parallel PRs each writing
+    112→113 cannot merge without a rewrite, and the surviving number then
+    matches neither justification. The pin is `tests/pins/pg_twins.txt`
+    (one filename per line, sorted, plus the two specials). The gate is
+    set(file) == set(glob ∪ specials). CI reads ``wc -l``, not a literal.
+    """
+    satirlar = _pg_envanter_satirlari(PG_TWINS_PIN)
+    assert satirlar == sorted(satirlar), "pg_twins.txt sıralı olmalı"
+    _iddia_pg_kumesi(satirlar, _pg_disk_kumesi())
+    for ozel in PG_OZEL:
+        assert ozel in satirlar, ozel
+
+
+def test_pg_twin_on_disk_missing_from_list_fails_by_name() -> None:
+    """Twin added to disk but not to the list is red by that filename."""
+    satirlar = _pg_envanter_satirlari(PG_TWINS_PIN)
+    disk = _pg_disk_kumesi() | {PG_PHANTOM}
+    with pytest.raises(AssertionError) as hata:
+        _iddia_pg_kumesi(satirlar, disk)
+    assert PG_PHANTOM in str(hata.value)
+
+
+def test_pg_twin_listed_missing_on_disk_fails_by_name(tmp_path: Path) -> None:
+    """Listed but missing on disk is red by that filename."""
+    satirlar = _pg_envanter_satirlari(PG_TWINS_PIN) + [PG_BAYAT]
+    satirlar.sort()
+    kopya = tmp_path / "pg_twins.txt"
+    kopya.write_text("\n".join(satirlar) + "\n", encoding="utf-8")
+    with pytest.raises(AssertionError) as hata:
+        _iddia_pg_kumesi(_pg_envanter_satirlari(kopya), _pg_disk_kumesi())
+    assert PG_BAYAT in str(hata.value)
+
+
+def test_pg_twin_duplicate_line_fails_by_name(tmp_path: Path) -> None:
+    """A duplicate inventory line is red by that filename, not by a count."""
+    satirlar = _pg_envanter_satirlari(PG_TWINS_PIN)
+    yinelenen = satirlar[0]
+    kopya = tmp_path / "pg_twins.txt"
+    kopya.write_text("\n".join(satirlar + [yinelenen]) + "\n", encoding="utf-8")
+    with pytest.raises(AssertionError) as hata:
+        _iddia_pg_kumesi(_pg_envanter_satirlari(kopya), _pg_disk_kumesi())
+    assert yinelenen in str(hata.value)
+
+
+def test_pg_population_integer_pin_is_gone() -> None:
+    """The three numeric sites must not come back as literals."""
+    kaynak = Path(__file__).read_text(encoding="utf-8")
+    assert re.search(r"test_pg_test_population_exact_\d+", kaynak) is None
+    content = CI_WORKFLOW.read_text(encoding="utf-8")
+    assert re.search(r"BEKLENEN_PG_DOSYA_SAYISI=\d+", content) is None
+
+
+def test_ci_workflow_reads_pg_population_from_inventory() -> None:
+    """ci.yml derives the PG count from pg_twins.txt via wc -l, not a literal.
+
+    The old third pin grepped `BEKLENEN_PG_DOSYA_SAYISI=112`. Two PRs adding
+    twins collided on that literal. The inventory line count is the source;
+    glob ∪ specials must equal it.
     """
     content = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BEKLENEN_PG_DOSYA_SAYISI=112" in content
+    assert "tests/pins/pg_twins.txt" in content
+    assert "wc -l < tests/pins/pg_twins.txt" in content
     assert '[ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]' in content
+    assert re.search(r"BEKLENEN_PG_DOSYA_SAYISI=\d+", content) is None
 
 
 def test_ci_required_contexts_manifest_has_exact_17_contexts() -> None:

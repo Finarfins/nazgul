@@ -25,6 +25,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from app.tenancy import tenant_predicate_is_required
 
 APP_DIR = Path(__file__).resolve().parents[1] / "app"
@@ -1946,11 +1948,17 @@ print("TENANT_TABLES_JSON=" + json.dumps(tables))
 #   TABAN develop 8758535'tir (#71/1B-D birlestikten SONRA) ve sayilar O
 #   BIRLESMIS AGACTA OLCULDU (CPython 3.12, `_alt_surecte_sql()` -> 122/203),
 #   onceki olcumun uzerine aritmetik yapilarak DEGIL.
-BEKLENEN_ALT_SUREC_SQL_DOSYA = 122
-BEKLENEN_ALT_SUREC_SQL_METIN = 203
+#
+# H7: bu yuzey artik bir SAYAC DEGIL bir ENVANTER. `122/203` iki paralel PR'nin
+# ayni tamsayiyi artirmasina zorluyordu; birlesen sayi her iki gerekceyi de
+# yalanliyordu. Pin `tests/pins/alt_surec_sql.txt` (`<dosya>\t<adet>`).
+# Kapi dosya-basi sayilari karsilastirir; toplam TURETILIR, civilenmez.
+# TENANT_TABLES, rota envanterleri, dinamik-SQL parmak izleri, alembic head
+# kapilari ve Core sorgu envanteri DOKUNULMADI — onlar zaten dosya-basi.
+ALT_SUREC_PIN = APP_DIR.parent / "tests" / "pins" / "alt_surec_sql.txt"
 
 
-def _alt_surecte_sql() -> tuple[list[str], int]:
+def _alt_surecte_sql() -> dict[str, int]:
     import ast as _ast
 
     sql = re.compile(
@@ -1959,8 +1967,7 @@ def _alt_surecte_sql() -> tuple[list[str], int]:
     )
     cocuk = {"run", "Popen", "check_output", "check_call", "call", "system", "popen"}
     kok = APP_DIR.parent
-    dosyalar: list[str] = []
-    toplam = 0
+    sayim: dict[str, int] = {}
     for yol in sorted(kok.rglob("*.py")):
         if any(p in {"__pycache__", ".venv", "node_modules"} for p in yol.parts):
             continue
@@ -1979,15 +1986,51 @@ def _alt_surecte_sql() -> tuple[list[str], int]:
             and (getattr(d.func, "attr", None) in cocuk or getattr(d.func, "id", None) in cocuk)
         ]
         if gomulu and cagri:
-            dosyalar.append(str(yol.relative_to(kok)).replace("\\", "/"))
-            toplam += len(gomulu)
-    return dosyalar, toplam
+            ad = str(yol.relative_to(kok)).replace("\\", "/")
+            sayim[ad] = len(gomulu)
+    return sayim
+
+
+def _alt_surec_envanter_oku(yol: Path) -> dict[str, int]:
+    """`<file>\\t<count>` lines; duplicates fail by filename before set collapse."""
+    ham = yol.read_text(encoding="utf-8")
+    assert ham.endswith("\n"), f"{yol.name} trailing newline yok"
+    satirlar = ham.splitlines()
+    bos = [i for i, s in enumerate(satirlar, 1) if not s.strip() or s != s.strip()]
+    assert not bos, f"{yol.name} boş ya da dolgulu satır: {bos}"
+    cift: dict[str, int] = {}
+    yinelenen: list[str] = []
+    for satir in satirlar:
+        assert "\t" in satir, f"beklenen <dosya>\\t<sayı>: {satir!r}"
+        ad, sayi_s = satir.split("\t", 1)
+        sayi = int(sayi_s)
+        if ad in cift:
+            yinelenen.append(ad)
+        cift[ad] = sayi
+    assert not yinelenen, f"alt_surec_sql.txt yinelenen satır: {yinelenen}"
+    return cift
+
+
+def _iddia_alt_surec(olculen: dict[str, int], beklenen: dict[str, int]) -> None:
+    """Per-file counts. A new file adds a line; a count change fails by name."""
+    eklenen = sorted(olculen.keys() - beklenen.keys())
+    eksik = sorted(beklenen.keys() - olculen.keys())
+    kayma = sorted(
+        f"{ad}:{olculen[ad]}!={beklenen[ad]}"
+        for ad in sorted(olculen.keys() & beklenen.keys())
+        if olculen[ad] != beklenen[ad]
+    )
+    assert not eklenen and not eksik and not kayma, (
+        "Alt süreç SQL envanteri ayrıştı; "
+        f"yeni dosya={eklenen} eksik dosya={eksik} sayı kayması={kayma}. "
+        "Toplam türetilir, çivilenmez."
+    )
 
 
 def test_alt_surecte_sql_uretim_kodunda_yok() -> None:
     """ÜRETİM kodu SQL'i alt sürece vermemeli — nöbetçi onu göremezdi."""
-    dosyalar, _ = _alt_surecte_sql()
-    uretim = sorted(d for d in dosyalar if d.startswith("app/"))
+    olculen = _alt_surecte_sql()
+    uretim = sorted(d for d in olculen if d.startswith("app/"))
     assert not uretim, (
         "app/ altında alt sürece SQL veren dosya var; bu ifadeler AST tabanlı "
         f"kiracı nöbetçisine GÖRÜNMEZ: {uretim}"
@@ -1995,16 +2038,67 @@ def test_alt_surecte_sql_uretim_kodunda_yok() -> None:
 
 
 def test_alt_surecte_sql_sayisi_donduruldu() -> None:
-    """Kör nokta sessizce BÜYÜMESİN."""
-    dosyalar, metin = _alt_surecte_sql()
-    assert (len(dosyalar), metin) == (
-        BEKLENEN_ALT_SUREC_SQL_DOSYA, BEKLENEN_ALT_SUREC_SQL_METIN
-    ), (
-        f"Alt süreçte SQL taşıyan yüzey değişti: dosya {len(dosyalar)} "
-        f"(bildirilen {BEKLENEN_ALT_SUREC_SQL_DOSYA}), gömülü metin {metin} "
-        f"(bildirilen {BEKLENEN_ALT_SUREC_SQL_METIN}). Bu yüzey AST kapılarına "
-        "görünmez; büyümesi bilinçli bir karar olmalı."
-    )
+    """Kör nokta sessizce BÜYÜMESİN — per file, not a tree-wide integer."""
+    olculen = _alt_surecte_sql()
+    beklenen = _alt_surec_envanter_oku(ALT_SUREC_PIN)
+    satirlar = ALT_SUREC_PIN.read_text(encoding="utf-8").splitlines()
+    assert satirlar == sorted(satirlar), "alt_surec_sql.txt sıralı olmalı"
+    _iddia_alt_surec(olculen, beklenen)
+
+
+def test_alt_surec_yeni_dosya_adiyla_kirmizi() -> None:
+    """A new subprocess-SQL file is red by that filename, not by a total."""
+    phantom = "tests/test_h7_phantom_alt_surec.py"
+    olculen = dict(_alt_surecte_sql())
+    olculen[phantom] = 1
+    with pytest.raises(AssertionError) as hata:
+        _iddia_alt_surec(olculen, _alt_surec_envanter_oku(ALT_SUREC_PIN))
+    assert phantom in str(hata.value)
+
+
+def test_alt_surec_sayi_kaymasi_adiyla_kirmizi() -> None:
+    """An existing file whose embedded-SQL count changes fails by name."""
+    olculen = dict(_alt_surecte_sql())
+    ad = sorted(olculen)[0]
+    olculen[ad] = olculen[ad] + 1
+    with pytest.raises(AssertionError) as hata:
+        _iddia_alt_surec(olculen, _alt_surec_envanter_oku(ALT_SUREC_PIN))
+    assert ad in str(hata.value)
+
+
+def test_alt_surec_listede_diskte_yok_adiyla_kirmizi(tmp_path: Path) -> None:
+    """Listed but missing on disk is red by that filename."""
+    phantom = "tests/test_h7_bayat_alt_surec.py"
+    satirlar = ALT_SUREC_PIN.read_text(encoding="utf-8").splitlines()
+    satirlar.append(f"{phantom}\t1")
+    satirlar.sort()
+    kopya = tmp_path / "alt_surec_sql.txt"
+    kopya.write_text("\n".join(satirlar) + "\n", encoding="utf-8")
+    with pytest.raises(AssertionError) as hata:
+        _iddia_alt_surec(_alt_surecte_sql(), _alt_surec_envanter_oku(kopya))
+    assert phantom in str(hata.value)
+
+
+def test_alt_surec_yinelenen_satir_adiyla_kirmizi(tmp_path: Path) -> None:
+    """A duplicate inventory line is red by that filename."""
+    satirlar = ALT_SUREC_PIN.read_text(encoding="utf-8").splitlines()
+    ad = satirlar[0].split("\t", 1)[0]
+    kopya = tmp_path / "alt_surec_sql.txt"
+    # Keep the duplicate adjacent so the file remains sorted; the defect is
+    # the repeated name, not order.
+    kopya.write_text("\n".join([satirlar[0], *satirlar]) + "\n", encoding="utf-8")
+    with pytest.raises(AssertionError) as hata:
+        _alt_surec_envanter_oku(kopya)
+    assert ad in str(hata.value)
+
+
+def test_alt_surec_toplam_civi_yok() -> None:
+    """Tree-wide 122/203 integers must not return; totals are derived."""
+    ad_dosya = "BEKLENEN_ALT_SUREC_SQL_" + "DOSYA"
+    ad_metin = "BEKLENEN_ALT_SUREC_SQL_" + "METIN"
+    kaynak = Path(__file__).read_text(encoding="utf-8")
+    assert ad_dosya not in kaynak
+    assert ad_metin not in kaynak
 
 
 # GEÇİŞ YARDIMCISI GÖRÜNÜRLÜĞÜ — BOŞLUK KARŞITI ÇAPA

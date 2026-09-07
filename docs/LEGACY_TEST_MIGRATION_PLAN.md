@@ -68,3 +68,28 @@ is recorded above; pytest's outer line is `assert result.returncode == 0`.
 
 No file is marked **delete**. Nothing measured as unused or superseded enough
 to drop without a conversion pass.
+
+## Pins that count files across the tree are inventories, not integers
+
+A tree-wide counter (`BEKLENEN_PG_DOSYA_SAYISI=112`,
+`BEKLENEN_ALT_SUREC_SQL_DOSYA` / `METIN` = 122/203) forces every PR that adds a
+file to collide on the same literal. Two parallel PRs each writing 112→113
+cannot merge without a rewrite, and the surviving number then matches neither
+justification.
+
+Those pins are inventories:
+
+- PostgreSQL twins: `backend/tests/pins/pg_twins.txt` — one filename per line,
+  sorted, plus the two specials. Gate: `set(file) == set(glob
+  backend/test_*postgresql*.py ∪ specials)`. CI reads `wc -l`, not a literal.
+  Mutations fail by name: twin on disk but not listed; listed but missing on
+  disk; duplicate line.
+- Subprocess SQL: `backend/tests/pins/alt_surec_sql.txt` — `<file>\t<count>`
+  per file. The gate compares per-file counts (a new file adds a line; an
+  existing file changing count fails by name). The total is derived, not
+  pinned.
+
+Do not convert `TENANT_TABLES`, route inventories, dynamic-SQL fingerprints,
+alembic head gates, or the core-query inventory — those are already per-file
+and do not collide.
+

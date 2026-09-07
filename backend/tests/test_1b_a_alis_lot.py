@@ -156,7 +156,7 @@ def test_product_lots_YAZICISI_YALNIZ_parti_defteri_py() -> None:
     idi ve iddiası `app/routers/transactions.py` idi; satış yolu ikinci bir
     yönlendiriciden parti tüketmeye başlayınca iki seçenek vardı ve kapıyı
     GENİŞLETEN reddedildi (gerekçe `app/parti_defteri.py` başlığında). AD VE
-    İDDİA BİRLİKTE HAREKET ETTİ: `test_pg_test_population_exact_*`ın ölçtüğü
+    İDDİA BİRLİKTE HAREKET ETTİ: PG ikiz envanterinin (`pg_twins.txt`) ölçtüğü
     tuzak burada da geçerlidir — değeri doğru olan ama adı onu yalanlayan bir
     çivi, sonraki okuyucu için tuzaktır.
 
