@@ -33,6 +33,7 @@ from .db import SessionLocal, engine
 from .backup_errors import MaintenanceActiveError
 from .bootstrap_data import seed_bootstrap_data
 from .disa_aktarim_errors import DisaAktarimError
+from . import idempotency
 from .request_limits import RequestBodyLimitMiddleware
 from .runtime_migrations import (
     database_bootstrap_lock,
@@ -265,6 +266,9 @@ async def security_and_audit(request: Request, call_next):
     request_id = supplied_request_id if REQUEST_ID_RE.fullmatch(supplied_request_id) else uuid4().hex
     request.state.request_id = request_id
     path = request.url.path
+    # GENEL IDEMPOTENSI IDDIASI. Kiraci cozumunden SONRA dolar, `call_next`
+    # cevrelenirken okunur; asagidaki her cikis yolu onu bilerek gecer.
+    idem: idempotency.Iddia | None = None
 
     def audited_response(status_code: int, detail: str, *, code: str | None = None) -> JSONResponse:
         payload = {"detail": detail}
@@ -359,16 +363,72 @@ async def security_and_audit(request: Request, call_next):
         except HTTPException as exc:
             return audited_response(exc.status_code, str(exc.detail), code="COMPANY_ACCESS_DENIED")
 
+        # --- GENEL IDEMPOTENSI (5.4b) -------------------------------------
+        # BURADA, cunku anahtarin kapsami `(company_id, user_id, key)` ve
+        # firma cozulmeden o uclunun IKI bileseni YOKTUR. Ayrica yukaridaki
+        # her 401/403 (kimlik, CSRF, zorunlu parola rotasyonu, yetki, firma)
+        # ONCE duser: reddedilen bir istek anahtar IDDIA ETMEZ.
+        #
+        # Gerekce ve kapali listeler `app/idempotency.py`de; burada YALNIZ
+        # baglama var.
+        if (
+            request.method in idempotency.YAZAN_METOTLAR
+            and not idempotency.kendi_defterini_tutuyor(request.method, path)
+        ):
+            try:
+                anahtar = idempotency.anahtar_gecerli(
+                    request.headers.get(idempotency.BASLIK)
+                )
+                if anahtar is not None:
+                    # GOVDE OKUNMADAN ONCE BOYUTU SORULUR. Bu ara katman
+                    # `RequestBodyLimitMiddleware`in DISINDADIR (add_middleware
+                    # listeye bastan ekler), yani govde sinir kapisi HENUZ
+                    # kosmamistir; sormasaydik 10 MiB'lik bir ice aktarma
+                    # istegi reddedilmeden ONCE bellege alinirdi.
+                    idempotency.govde_tamponlanabilir(request.headers)
+                    # GOVDE ARA KATMANDA OKUNUYOR ve isleyici onu YINE
+                    # OKUYABILIR: Starlette'in `BaseHTTPMiddleware`i istegi
+                    # `_CachedRequest` ile sariyor ve tamponlanmis govdeyi
+                    # asagi akisa TEKRAR OYNATIYOR (olculdu, varsayilmadi:
+                    # `tests/test_54b_idempotency.py` govdeli bir POST'un
+                    # isleyicide dogru okundugunu gercek semada olcuyor).
+                    sonuc = idempotency.iddia_et(
+                        company_id=int(request.state.company_id),
+                        user_id=int(user["id"]),
+                        key=anahtar,
+                        metot=request.method,
+                        yol=path,
+                        govde=await request.body(),
+                    )
+                    if isinstance(sonuc, idempotency.Tekrar):
+                        tekrar = idempotency.tekrar_cevabi(sonuc)
+                        _write_security_audit(request, tekrar, started_at)
+                        _apply_response_headers(request, tekrar, request_id)
+                        return tekrar
+                    idem = sonuc
+            except idempotency.IdempotensiReddi as exc:
+                return audited_response(exc.status_code, exc.detail, code=exc.code)
+
     try:
         response = await call_next(request)
     except MaintenanceActiveError as exc:
+        if idem is not None:
+            idempotency.iptal_et(idem)
         return audited_response(503, str(exc), code="RESTORE_MAINTENANCE")
     except Exception:
+        # ISLEYICI PATLADI: iddia GERI ALINIR. Birakilsaydi anahtar 24 saat
+        # boyunca 409 dondururdu ve HICBIR yan etki uygulanmamis olurdu.
+        if idem is not None:
+            idempotency.iptal_et(idem)
         if path.startswith("/api"):
             synthetic = JSONResponse(status_code=500, content={"detail": "Sunucu hatası"})
             _write_security_audit(request, synthetic, started_at, failure_reason="UNHANDLED_EXCEPTION")
         logger.exception("İstek işlenirken beklenmeyen hata", extra={"request_id": request_id, "path": path})
         raise
+
+    if idem is not None:
+        # Cevap TAMPONLANIR (saklamak icin zorunlu) ve AYNI cevap geri doner.
+        response = await idempotency.tamamla(idem, response)
 
     _write_security_audit(request, response, started_at)
     _apply_response_headers(request, response, request_id)

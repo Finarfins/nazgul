@@ -81,6 +81,12 @@ TENANT_TABLES = frozenset({
     "finance_accounts", "finance_transactions", "financial_instruments",
     "harvest_calendars", "harvest_due_rules", "harvest_regions", "income_expenses",
     "invoice_audit", "invoice_counters", "invoice_history",
+    # GENEL IDEMPOTENSI DEFTERI (goc 20260909_0076). `company_id` tasiyor:
+    # anahtarin kapsami (company_id, user_id, key) uclusudur ve kiraci sutunu
+    # DUSSEYDI bir firmanin gonderdigi anahtar BASKA firmanin istegini 409'a
+    # dusurur, ozet tutarsa o firmanin CEVABINI tekrar oynatirdi. `user_id`
+    # yabanci anahtari CIPLAK cunku `app_users` firma sutunu TASIMAZ.
+    "idempotency_keys",
     "invoice_items", "invoices", "machine_hour_readings", "machine_idempotency",
     "machine_ownership_history", "machines",
     "late_fee_policies", "notification_consent_events", "notification_consents",
