@@ -3,6 +3,7 @@ test_1b_b_satis_fefo_postgresql.py
 test_1b_c_ayarlama_lot_postgresql.py
 test_1b_d_transfer_lot_postgresql.py
 test_1b_e_iade_lot_postgresql.py
+test_1b_f_hasat_lot_postgresql.py
 test_54b_idempotency_postgresql.py
 test_absorption_labor_source_postgresql.py
 test_absorption_rate_postgresql.py
