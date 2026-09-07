@@ -2094,9 +2094,11 @@ def test_alt_surec_yinelenen_satir_adiyla_kirmizi(tmp_path: Path) -> None:
 
 def test_alt_surec_toplam_civi_yok() -> None:
     """Tree-wide 122/203 integers must not return; totals are derived."""
+    ad_dosya = "BEKLENEN_ALT_SUREC_SQL_" + "DOSYA"
+    ad_metin = "BEKLENEN_ALT_SUREC_SQL_" + "METIN"
     kaynak = Path(__file__).read_text(encoding="utf-8")
-    assert "BEKLENEN_ALT_SUREC_SQL_DOSYA" not in kaynak
-    assert "BEKLENEN_ALT_SUREC_SQL_METIN" not in kaynak
+    assert ad_dosya not in kaynak
+    assert ad_metin not in kaynak
 
 
 # GEÇİŞ YARDIMCISI GÖRÜNÜRLÜĞÜ — BOŞLUK KARŞITI ÇAPA
