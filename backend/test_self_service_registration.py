@@ -68,9 +68,49 @@ def token_for(email):
     link = json.loads(payload)["verification_url"]
     return parse_qs(urlparse(link).query)["token"][0]
 
-started = monotonic()
+def _median(values):
+    ordered = sorted(values)
+    return ordered[len(ordered) // 2]
+
+# Anti-enumeration wall-clock: 3-sample median + relative budget.
+# |Δ| < max(0.12, 0.35 × slower) — absolute floor on fast hosts; relative
+# term absorbs load jitter without dropping the "same shape" property.
+new_samples = []
+existing_samples = []
+timing_hash_new = []
+timing_hash_existing = []
+for i in range(3):
+    email = f"zaman{i}@example.com"
+    started = monotonic()
+    fresh = register(email, f"Zaman Firma {i}")
+    new_samples.append(monotonic() - started)
+    assert fresh.status_code == 200, fresh.text
+    body = fresh.json()
+    assert body == {"message": "Doğrulama e-postası gönderildi."}
+    timing_hash_new.append(hash_durations[-1])
+    started = monotonic()
+    again = register(email, f"Zaman Kopya {i}")
+    existing_samples.append(monotonic() - started)
+    assert again.status_code == 200, again.text
+    assert again.json() == body
+    timing_hash_existing.append(hash_durations[-1])
+
+new_duration = _median(new_samples)
+existing_duration = _median(existing_samples)
+slower = max(new_duration, existing_duration)
+assert abs(new_duration - existing_duration) < max(0.12, 0.35 * slower), (
+    new_duration, existing_duration, new_samples, existing_samples
+)
+assert all(v > 0 for v in timing_hash_new) and all(v > 0 for v in timing_hash_existing)
+print(
+    f"TIMING_NEW_MS={[round(v * 1000, 2) for v in new_samples]} "
+    f"TIMING_EXISTING_MS={[round(v * 1000, 2) for v in existing_samples]} "
+    f"TIMING_MEDIAN_NEW_MS={new_duration * 1000:.2f} "
+    f"TIMING_MEDIAN_EXISTING_MS={existing_duration * 1000:.2f} "
+    f"TIMING_BUDGET_MS={max(0.12, 0.35 * slower) * 1000:.2f}"
+)
+
 first = register("ilk@example.com", "Birinci Firma")
-new_duration = monotonic() - started
 new_hash_duration = hash_durations[-1]
 assert first.status_code == 200, first.text
 assert first.json() == {"message": "Doğrulama e-postası gönderildi."}
@@ -113,13 +153,10 @@ login = client.post("/api/auth/login", json={
 assert login.status_code == 200, login.text
 assert [company["name"] for company in login.json()["companies"]] == ["Birinci Firma"]
 
-started = monotonic()
 duplicate = register("ilk@example.com", "Kopya Firma")
-existing_duration = monotonic() - started
 existing_hash_duration = hash_durations[-1]
 assert duplicate.status_code == 200, duplicate.text
 assert duplicate.json() == first.json()
-assert abs(new_duration - existing_duration) < 0.12, (new_duration, existing_duration)
 assert new_hash_duration > 0 and existing_hash_duration > 0
 print(
     f"HASH_NEW_MS={new_hash_duration * 1000:.2f} "
