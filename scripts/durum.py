@@ -1,107 +1,132 @@
 #!/usr/bin/env python3
-"""İnen iş kaydını EN YENİ ÜSTTE olacak şekilde basar.
+"""İnen iş kaydını basar / kapıdan geçirir (Option B — sıra git log'dan).
 
-Kayıt tek bir dosyada DEĞİL, `docs/durum/` altında girdi başına bir dosyada
-tutulur. Sebebi ölçülmüştür: aynı dosyanın aynı satırına ekleyen iki dal,
-İÇERİK çakışmadan yalnız KONUM yüzünden çakışır. Ayrı dosyalar aynı yolu
-paylaşmadığı için birleşme çakışması YAPISAL olarak imkânsızdır.
+Kayıt `docs/durum/` altında girdi başına bir dosyada tutulur.
+
+Biçimler:
+  * ESKİ (kesmeden önce): `<sıra>-pr-<PR>.md` — sıra dosya ADINDADIR.
+  * YENİ (kesmeden sonra): `pr-<PR>.md` — sıra adda YOKTUR; görüntüleme
+    sırası `git log --first-parent` ile türetilir.
 
 Kullanım:
-    python scripts/durum.py            # en yeni üstte bas
-    python scripts/durum.py --sonraki 67   # yeni girdinin dosya adını söyle
+    python scripts/durum.py                 # --sira ile aynı (en yeni üstte)
+    python scripts/durum.py --sonraki 67    # docs/durum/pr-0067.md
+    python scripts/durum.py --sira          # merge sırasıyla listele
+    python scripts/durum.py --kapi BASE --pr N
 """
 from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
+from typing import NamedTuple
 from pathlib import Path
 
 KAYIT_DIZINI = Path(__file__).resolve().parent.parent / "docs" / "durum"
-AD_DESENI = re.compile(r"^(\d{4})-pr-(\d{4})\.md$")
+DEPO_KOKU = KAYIT_DIZINI.parent.parent
+
+# ESKİ ad: sıra dosya adında. YENİ ad: yalnız pr.
+LEGACY_AD_DESENI = re.compile(r"^(\d{4})-pr-(\d{4})\.md$")
+YENI_AD_DESENI = re.compile(r"^pr-(\d{4})\.md$")
+# Geriye dönük uyumluluk: eski testler AD_DESENI bekleyebilir.
+AD_DESENI = LEGACY_AD_DESENI
+
+# KESME — develop `1e6ce3c` (#70 birleşmesi) üzerindeki en büyük legacy sıra.
+# Bu sabitten SONRA eklenen her girdi `pr-NNNN.md` olmalı; yeni
+# `SSSS-pr-NNNN.md` DOSYASI kapıyı kırar. Mevcut legacy korpus olduğu gibi
+# kalır (yeniden adlandırılmaz). Ölçüldü: 114 girdi, max sıra 114
+# (`0114-pr-0070.md`; #71 `0113-pr-0071.md` bir önce indi).
+KESME_SIRA = 114
+KESME_GEREKCE = "develop 1e6ce3c (Merge #70): 0114-pr-0070.md"
+
+
+class KayitAdi(NamedTuple):
+    """Bir girdi dosya adının ayrıştırılmış hali."""
+
+    ad: str
+    pr: int
+    legacy_sira: int | None  # None = yeni biçim
+
+    @property
+    def yeni(self) -> bool:
+        return self.legacy_sira is None
+
+
+def kayit_adi_ayikla(ad: str) -> KayitAdi | None:
+    """Girdi dosya adını ayrıştırır; girdi olmayan .md için None."""
+    isim = Path(ad).name
+    eslesme = LEGACY_AD_DESENI.match(isim)
+    if eslesme:
+        return KayitAdi(isim, int(eslesme.group(2)), int(eslesme.group(1)))
+    eslesme = YENI_AD_DESENI.match(isim)
+    if eslesme:
+        return KayitAdi(isim, int(eslesme.group(1)), None)
+    return None
+
+
+def sonraki_ad(pr: int = 0, dizin: Path = KAYIT_DIZINI) -> str:
+    """Yeni girdinin dosya adı — sıra HESAPLANMAZ (Option B).
+
+    `dizin` imzada durur: eski çağrıları kırmamak için; kullanılmaz.
+    """
+    del dizin  # sıra ağaçtan üretilmez
+    return f"pr-{pr:04d}.md"
+
+
+def _metin_dogrula(yol: Path) -> str:
+    metin = yol.read_text(encoding="utf-8").strip("\n")
+    if "\n" in metin:
+        raise ValueError(f"{yol.name}: bir girdi TEK satırdır")
+    if not metin.strip():
+        raise ValueError(f"{yol.name}: girdi boş olamaz")
+    return metin
 
 
 def girdileri_oku(dizin: Path = KAYIT_DIZINI) -> list[tuple[int, int, str, Path]]:
-    """(sıra, pr, metin, yol) demetlerini EN YENİDEN ESKİYE döndürür.
+    """(görünen_sıra, pr, metin, yol) — EN YENİDEN ESKİYE.
 
-    Sıralama anahtarı (sıra, pr): `sıra` insanın gördüğü okuma sırasını
-    taşır. İkisi de dosya ADINDA olduğu için sıralamayı okumak hiçbir dosyanın
-    İÇİNİ değiştirmeyi gerektirmez.
-
-    `pr` İKİNCİL ANAHTARDIR VE BİR LİSANS DEĞİLDİR. Aynı sırayı taşıyan iki
-    girdi okunabilir kalsın diye vardır; o durumun İNMESİ serbest demek
-    DEĞİLDİR. Ölçüldü: develop'ın 284 tepe durumunun hiçbirinde yinelenen sıra
-    yok — sıra inen kayıtta benzersizdir ve `yinelenen_sira_denetle` bunu
-    zorlar. `pr` yalnız birleşme sonucu geçici olarak yinelendiğinde okumayı
-    belirlenimci tutar.
+    Görünen sıra: legacy dosyada addaki sayı; yeni dosyada henüz git'siz
+    okumada `KESME_SIRA + 1` tabanlı geçici anahtar (asıl sıra `--sira` /
+    `sira_listesi` ile gelir). Girdi olmayan `.md` yok sayılır.
     """
-    girdiler: list[tuple[int, int, str, Path]] = []
+    kayitlar: list[tuple[int, int, str, Path]] = []
+    yeni_prler: list[tuple[int, str, Path]] = []
     for yol in sorted(dizin.glob("*.md")):
-        eslesme = AD_DESENI.match(yol.name)
-        if not eslesme:
-            raise ValueError(
-                f"{yol.name}: dosya adı <sıra>-pr-<numara>.md biçiminde olmalı"
-            )
-        metin = yol.read_text(encoding="utf-8").strip("\n")
-        if "\n" in metin:
-            raise ValueError(f"{yol.name}: bir girdi TEK satırdır")
-        if not metin.strip():
-            raise ValueError(f"{yol.name}: girdi boş olamaz")
-        girdiler.append((int(eslesme.group(1)), int(eslesme.group(2)), metin, yol))
-    girdiler.sort(key=lambda girdi: (girdi[0], girdi[1]), reverse=True)
-    return girdiler
-
-
-def sonraki_ad(dizin: Path = KAYIT_DIZINI, pr: int = 0) -> str:
-    """Yeni bir girdinin alması gereken dosya adı.
-
-    İki eşzamanlı PR aynı `sıra` değerini alır — bu SORUN DEĞİLDİR: PR
-    numaraları farklı olduğu için dosya adları da farklıdır, dolayısıyla
-    aynı yolu yazmazlar ve çakışmazlar.
-    """
-    mevcut = girdileri_oku(dizin)
-    sira = (mevcut[0][0] + 1) if mevcut else 1
-    return f"{sira:04d}-pr-{pr:04d}.md"
+        ad = kayit_adi_ayikla(yol.name)
+        if ad is None:
+            continue
+        metin = _metin_dogrula(yol)
+        if ad.legacy_sira is not None:
+            kayitlar.append((ad.legacy_sira, ad.pr, metin, yol))
+        else:
+            yeni_prler.append((ad.pr, metin, yol))
+    # Git yokken yeni girdileri pr'ye göre sıralı göster; sıra = kesme+konum.
+    yeni_prler.sort(key=lambda t: t[0])
+    for konum, (pr, metin, yol) in enumerate(yeni_prler, start=1):
+        kayitlar.append((KESME_SIRA + konum, pr, metin, yol))
+    kayitlar.sort(key=lambda girdi: (girdi[0], girdi[1]), reverse=True)
+    return kayitlar
 
 
 def sira_ayikla(adlar: list[str]) -> list[tuple[int, int]]:
-    """Dosya adlarından (sıra, pr) çiftlerini çıkarır."""
+    """Legacy adlardan (sıra, pr) çıkarır; yeni biçim ValueError.
+
+    Bayat kapısı testleri hâlâ legacy listeleriyle çalışır.
+    """
     cikti: list[tuple[int, int]] = []
     for ad in adlar:
-        eslesme = AD_DESENI.match(Path(ad).name)
+        eslesme = LEGACY_AD_DESENI.match(Path(ad).name)
         if not eslesme:
-            raise ValueError(f"{ad}: dosya adı <sıra>-pr-<numara>.md biçiminde olmalı")
+            raise ValueError(
+                f"{ad}: legacy dosya adı <sıra>-pr-<numara>.md biçiminde olmalı"
+            )
         cikti.append((int(eslesme.group(1)), int(eslesme.group(2))))
     return cikti
 
 
 def bayat_sira_denetle(base_adlari: list[str], head_adlari: list[str]) -> list[str]:
-    """BAYAT sıra ihlallerini döndürür; boş liste = temiz.
-
-    Bu denetim TASARIM GEREĞİ ağaç-yerel DEĞİLDİR. `sonraki_ad()` sırayı
-    dalın KENDİ ağacından hesaplar; dolayısıyla dal bayatladığında üretilen
-    sıra sessizce geride kalır ve okuyucu o girdiyi, ondan ÖNCE inmiş
-    girdilerin ÜSTÜNDE gösterir. Kayıt "hangi iş ne zaman indi" demeyi
-    bırakır. Kusur yalnız base ile head'in BİRLEŞİMİNDE vardır, bu yüzden
-    yalnız birleşme sonucundan görülebilir — `alembic-chain` kapısının
-    aynı sebeple açık birleşme kurmasıyla aynı ders.
-
-    AYRIM — eşzamanlılık MEŞRU, bayatlık DEĞİL:
-      * Eşzamanlı bir girdi base'in EN BÜYÜK sırasındadır ya da bir
-        fazlasındadır: aynı kuşaktan iki PR aynı sırayı seçer ve `pr`
-        onları ayırır. Bu, tasarımın var olma sebebidir.
-      * Bayat bir girdi base'in en büyüğünün ALTINDADIR: aradan başka
-        kuşaklar inmiştir ve bu girdi onların üstünde görünür.
-
-    ALT SINIR — `sıra < base_max` BAYATTIR. Bloklayan kusur budur.
-
-    ÜST SINIR — eklenen sıralar base'in üstünde BOŞLUKSUZ olmalı. Tek girdi
-    ekleyen normal bir PR için bu `base_max + 1` demektir; ama bir PR birden
-    çok girdi ekleyebilir (bu PR göçte 31 tane ekliyor) ve o durumda 1..31
-    meşrudur. Bu yüzden sınır sabit değil, EKLENEN SAYISINA bağlı:
-    `max(eklenen) <= base_max + eklenen_farkli_sira_sayisi`. Boşluk bırakarak
-    sırayı olduğundan yeni göstermek böylece hâlâ kırmızıdır.
-    """
+    """Legacy-only bayat denetimi (kesme öncesi sözleşme; --kapi ARTIK ÇAĞIRMAZ)."""
     base_ciftler = sira_ayikla(base_adlari)
     base_max = max((sira for sira, _ in base_ciftler), default=0)
     eklenen = sorted(set(sira_ayikla(head_adlari)) - set(base_ciftler))
@@ -113,127 +138,193 @@ def bayat_sira_denetle(base_adlari: list[str], head_adlari: list[str]) -> list[s
         if sira < base_max:
             ihlaller.append(
                 f"{sira:04d}-pr-{pr:04d}.md: BAYAT sıra — base'in en büyüğü "
-                f"{base_max:04d}, bu girdi {sira:04d}. Dal, kayıt sırası "
-                f"bakımından geride kalmış: bu girdi kendisinden ÖNCE inmiş "
-                f"girdilerin üstünde okunur. Çare: develop'ı dala merge edip "
-                f"girdi dosyasını `python scripts/durum.py --sonraki {pr}` "
-                f"adıyla yeniden adlandırın."
+                f"{base_max:04d}, bu girdi {sira:04d}."
             )
         elif sira > ust_sinir:
             ihlaller.append(
                 f"{sira:04d}-pr-{pr:04d}.md: sıra BOŞLUK bırakmış — base'in en "
-                f"büyüğü {base_max:04d}, bu PR {len(eklenen_siralar)} farklı sıra "
-                f"ekliyor, izin verilen en büyük {ust_sinir:04d}. Sırayı "
-                f"olduğundan yeni göstermek okuma sırasını yanlışlar."
+                f"büyüğü {base_max:04d}, izin verilen en büyük {ust_sinir:04d}."
             )
     return ihlaller
 
 
-# VARLIK KAPISI — girdinin DOĞRULUĞU değil, VAR OLUŞU ölçülür.
-#
-# NİYE AYRI BİR KAPI: `bayat_sira_denetle` yalnız VAR OLAN bir girdinin sırasını
-# denetler. Girdi HİÇ yoksa denetleyecek bir şey bulamaz ve sessizce yeşil
-# kalır. Ölçüldü (2026-08-17, develop f244c8f): bu depoda birleşmiş 50 PR'ın
-# 17'si girdisiz indi; kaydın kendi döneminde bile #68, #71 ve #72 girdisiz
-# geçti. Kayıt bugüne kadar YALNIZ iki birleşmeyle büyüdü: #67 (göç, 31 girdi)
-# ve #70 (kendi girdisi + #68'inki). Yani "PR başına bir girdi" kuralı bir kez
-# uygulandı; kuralı ölçen bir şey olmadığı için gerisi kaydedilmedi.
-#
-# MUAFİYET YOK — ARANDI VE BULUNAMADI. `docs/DURUM.md`, `scripts/durum.py` ve
-# `backend/tests/test_durum_kaydi.py` içinde muafiyet/istisna bildiren HİÇBİR
-# metin yok. Ölçüm aracı olarak açılan ve hiç birleşmeyen PR'lar (#69, #74)
-# muafiyet gerektirmez: bunlar gerçek PR'ın head'ini DEĞİŞTİRMEDEN taşır, o
-# yüzden gerçek PR'ın girdisini de taşır — gerçek PR yeşilse araç da yeşildir.
+def _kayitlari_ayikla(adlar: list[str]) -> list[KayitAdi]:
+    cikti: list[KayitAdi] = []
+    for ad in adlar:
+        isim = Path(ad).name
+        if not isim.endswith(".md"):
+            continue
+        ayr = kayit_adi_ayikla(isim)
+        if ayr is None:
+            # Girdi olmayan markdown (ör. tasarım notu) yok sayılır.
+            continue
+        cikti.append(ayr)
+    return cikti
+
+
 def girdi_varligi_denetle(
     base_adlari: list[str], head_adlari: list[str], pr: int | None = None
 ) -> list[str]:
-    """Birleşme sonucu KENDİ girdisini eklemiş olmalı.
+    """Birleşme sonucu kendi girdisini eklemiş olmalı (yeni biçim: pr-NNNN.md)."""
+    base_set = {k.ad for k in _kayitlari_ayikla(base_adlari)}
+    head_set = {k.ad for k in _kayitlari_ayikla(head_adlari)}
+    eklenen_adlar = sorted(head_set - base_set)
+    eklenen = [kayit_adi_ayikla(ad) for ad in eklenen_adlar]
+    eklenen = [k for k in eklenen if k is not None]
 
-    KURAL SIKI: eklenen girdilerden EN AZ BİRİ birleşen PR'ın kendi numarasını
-    taşımalı. Başkasının girdisini geriye dönük yazmak (backfill) SERBESTTİR ve
-    yasaklanmadı — #70 tam bunu yaptı: `0032-pr-0068` ile `0033-pr-0070`. Sıkı
-    kural bunu reddetmez, çünkü ikincisi #70'i adlandırır.
-
-    NİYE GEVŞEK KURAL YETMEZ: yalnız "bir girdi eklendi mi" diye sorulursa, bir
-    PR BAŞKASININ girdisini yazıp kendi girdisi olmadan inebilir — kapatmaya
-    çalıştığımız boşluğun aynısını bir kat aşağıda, üstelik yeşil kapıdan
-    geçerek üretir.
-
-    ÖLÇÜLDÜ (2026-08-17, develop f244c8f3): 64 birleşme geriye dönük sınandı.
-    Gevşek kuraldan geçen 2 (#67, #70), sıkı kuraldan geçen de AYNI 2. Gevşekten
-    geçip sıkıdan kalan birleşme sayısı SIFIR — yani sıkı kural bugüne kadarki
-    hiçbir meşru işi reddetmezdi; bedeli yok, kapattığı delik gerçek.
-    """
-    eklenen = sorted(set(sira_ayikla(head_adlari)) - set(sira_ayikla(base_adlari)))
-    if eklenen and pr is not None and not any(p == pr for _, p in eklenen):
-        yazilanlar = ", ".join(f"#{p}" for _, p in eklenen)
+    if not eklenen:
         return [
-            f"KENDİ GİRDİSİ YOK — bu PR (#{pr}) `docs/durum/` altına girdi "
-            f"ekliyor ama hiçbiri kendisini adlandırmıyor: eklenen {yazilanlar}. "
-            "Başkasının girdisini yazmak serbesttir, kendi girdisinin YERİNE "
-            "geçemez: aksi hâlde iş, yeşil bir kapıdan geçerek kayıtsız iner. "
-            f"Çare: `python scripts/durum.py --sonraki {pr}` komutunun verdiği "
-            "adla kendi girdinizi de ekleyin."
+            "GİRDİ YOK — bu PR'ın birleşme sonucu `docs/durum/` altına hiçbir yeni "
+            "girdi eklemiyor. Kayıt PR başına bir girdiyle büyür. Çare: "
+            "`python scripts/durum.py --sonraki <PR numarası>` → `pr-NNNN.md`."
         ]
-    if eklenen:
+    if pr is None:
         return []
-    return [
-        "GİRDİ YOK — bu PR'ın birleşme sonucu `docs/durum/` altına hiçbir yeni "
-        "girdi eklemiyor. Kayıt PR başına bir girdiyle büyür; girdisiz inen iş "
-        "kayıttan düşer ve sonradan ancak hatırlanarak geri konur. Çare: "
-        "`python scripts/durum.py --sonraki <PR numarası>` komutunun verdiği "
-        "adla dosyayı oluşturup tek satırlık girdinizi yazın."
-    ]
+    if not any(k.pr == pr for k in eklenen):
+        yazilanlar = ", ".join(f"#{k.pr}" for k in eklenen)
+        return [
+            f"KENDİ GİRDİSİ YOK — bu PR (#{pr}) girdi ekliyor ama hiçbiri "
+            f"kendisini adlandırmıyor: eklenen {yazilanlar}. Çare: "
+            f"`python scripts/durum.py --sonraki {pr}` → `pr-{pr:04d}.md`."
+        ]
+    return []
 
 
-# YİNELENEN SIRA — TEK BİR AĞAÇ LİSTESİ ÜZERİNDE.
-#
-# İLK SÜRÜM YANLIŞTI: `set(base) | set(head)` bir BİRLEŞME SONUCU DEĞİL, iki
-# listenin BİRLEŞİMİdir. Head bir girdiyi SİLİP başkasını eklerse (silme,
-# yeniden adlandırma, base/head sınırını geçen taşıma) birleşimde ikisi de
-# durur ve kapı GEÇERLİ bir birleşmeyi reddeder. Kapının işi sonucu
-# BELGELEMEKken, ölçmediği bir şeyi reddediyordu.
-#
-# ARTIK TEK GİRDİ: ölçülen ağacın dosya listesi. Silme ve yeniden adlandırma
-# MODELLENMEZ — çünkü ağaç zaten sonucu taşır.
-#
-# BU AĞAÇ NEREDEN GELİR:
-#   * CI: `durum-kaydi` işi base'i alıp `git merge --no-edit --no-ff $HEAD_SHA`
-#     çalıştırır ("Merge made by the 'ort' strategy"), yani ÇALIŞAN AĞAÇ
-#     birleşme sonucudur ve `--kapi` onu okur.
-#   * pytest: gerçek bir dizin kurulur (`tmp_path`) ve dosyaları listelenir;
-#     yani testler de LİSTE ÇİFTİ değil AĞAÇ verir. Kusuru üreten şey liste
-#     çiftiydi.
-#
-# SINIR (COST, HOLE DEĞİL): yerelde `--kapi` çalışan ağacı okur; dal develop'ı
-# merge etmemişse o ağaç birleşme sonucu DEĞİLDİR ve yinelenme görünmez. Kapı
-# bozulmaz, yalnız yerelde erken uyarmaz; kararın verildiği yer CI'dır.
 def yinelenen_sira_denetle(agac_adlari: list[str]) -> list[str]:
-    """Ölçülen AĞAÇTA aynı sırayı iki girdi taşıyorsa İHLAL — ikisini de adlandırır."""
+    """Yalnız LEGACY adlarda yinelenen sıra — yeni biçimde sıra adda yoktur."""
     gruplar: dict[int, list[int]] = {}
-    for sira, pr in sira_ayikla(agac_adlari):
-        gruplar.setdefault(sira, []).append(pr)
+    for kayit in _kayitlari_ayikla(agac_adlari):
+        if kayit.legacy_sira is None:
+            continue
+        gruplar.setdefault(kayit.legacy_sira, []).append(kayit.pr)
     ihlaller: list[str] = []
     for sira in sorted(gruplar):
         prler = sorted(set(gruplar[sira]))
         if len(prler) < 2:
             continue
         dosyalar = ", ".join(f"{sira:04d}-pr-{pr:04d}.md" for pr in prler)
-        ihlaller.append(
-            f"YİNELENEN sıra {sira:04d}: {dosyalar}. Sıra İNİŞ SIRASIDIR ve "
-            "benzersiz olmalıdır; aynı numarayı taşıyan iki girdi, hangisinin "
-            "önce indiğini kayıttan okunamaz kılar. Çare: sonra inen girdiyi "
-            f"`python scripts/durum.py --sonraki <PR>` ile yeniden adlandırın."
-        )
+        ihlaller.append(f"YİNELENEN sıra {sira:04d}: {dosyalar}.")
     return ihlaller
 
 
-def _git_girdi_adlari(revizyon: str) -> list[str]:
-    """Bir revizyondaki girdi dosyalarının adlarını git'ten okur."""
-    import subprocess
+def kesme_sonrasi_legacy_denetle(
+    base_adlari: list[str], head_adlari: list[str]
+) -> list[str]:
+    """Kesmeden sonra YENİ legacy-adlı dosya eklemek yasak."""
+    base_set = {k.ad for k in _kayitlari_ayikla(base_adlari)}
+    ihlaller: list[str] = []
+    for kayit in _kayitlari_ayikla(head_adlari):
+        if kayit.ad in base_set:
+            continue
+        if kayit.legacy_sira is not None:
+            ihlaller.append(
+                f"KESME SONRASI LEGACY AD — `{kayit.ad}` eklendi ama kesme "
+                f"sıra={KESME_SIRA} ({KESME_GEREKCE}). Yeni girdi "
+                f"`pr-{kayit.pr:04d}.md` olmalı; legacy ad yeniden seçilmez."
+            )
+    return ihlaller
 
+
+def cift_kayit_denetle(
+    base_adlari: list[str], head_adlari: list[str]
+) -> list[str]:
+    """Eklenenler içinde çift kayıt / legacy+yeni biçim yasak.
+
+    Tarihsel göç korpusunda aynı PR numarasına ait İKİ legacy dosya olabilir
+    (ölçüldü); ayrıca göç PR numaraları gelecekteki GitHub PR numaralarıyla
+    çakışabilir (ör. `0034-pr-0073.md` varken yeni `#73` → `pr-0073.md`).
+    O tarihe dokunulmaz. Yasak olan yalnız BU birleşmenin deltasıdır:
+      * aynı PR için birden fazla girdi eklemek (iki `pr-NNNN`, iki legacy,
+        veya legacy+`pr-NNNN` birlikte)
+    """
+    base_set = {k.ad for k in _kayitlari_ayikla(base_adlari)}
+    eklenen = [k for k in _kayitlari_ayikla(head_adlari) if k.ad not in base_set]
+    ihlaller: list[str] = []
+
+    by_pr: dict[int, list[KayitAdi]] = {}
+    for kayit in eklenen:
+        by_pr.setdefault(kayit.pr, []).append(kayit)
+    for pr, kayitlar in sorted(by_pr.items()):
+        if len(kayitlar) < 2:
+            continue
+        adlar = ", ".join(sorted(k.ad for k in kayitlar))
+        yeniler = [k for k in kayitlar if k.yeni]
+        legacyler = [k for k in kayitlar if not k.yeni]
+        if yeniler and legacyler:
+            ihlaller.append(
+                f"LEGACY+YENİ #{pr}: bu birleşmede hem legacy ad hem "
+                f"`pr-{pr:04d}.md` eklendi ({adlar})."
+            )
+        else:
+            ihlaller.append(
+                f"ÇİFT KAYIT #{pr}: bu birleşmede birden fazla girdi eklendi "
+                f"({adlar}). Bir PR için tam bir girdi eklenir."
+            )
+    return ihlaller
+
+
+def tek_satir_denetle(dizin: Path = KAYIT_DIZINI) -> list[str]:
+    """Çalışan ağaçtaki her girdinin tek satır olduğunu doğrular."""
+    ihlaller: list[str] = []
+    for yol in sorted(dizin.glob("*.md")):
+        if kayit_adi_ayikla(yol.name) is None:
+            continue
+        try:
+            _metin_dogrula(yol)
+        except ValueError as exc:
+            ihlaller.append(str(exc))
+    return ihlaller
+
+
+def tam_bir_kayit_denetle(
+    base_adlari: list[str], head_adlari: list[str], pr: int
+) -> list[str]:
+    """`--pr N` için eklenen kendi kaydı tam bir tane ve `pr-NNNN.md` olmalı."""
+    base_set = {k.ad for k in _kayitlari_ayikla(base_adlari)}
+    eklenen = [
+        k for k in _kayitlari_ayikla(head_adlari)
+        if k.ad not in base_set and k.pr == pr
+    ]
+    if not eklenen:
+        return []  # varlık kapısı ayrıca söyler
+    if len(eklenen) != 1:
+        adlar = ", ".join(sorted(k.ad for k in eklenen))
+        return [
+            f"TAM BİR KAYIT DEĞİL #{pr}: eklenen {adlar}. "
+            f"Beklenen tek dosya: `pr-{pr:04d}.md`."
+        ]
+    if not eklenen[0].yeni:
+        return [
+            f"TAM BİR KAYIT DEĞİL #{pr}: `{eklenen[0].ad}` legacy ad; "
+            f"kesmeden sonra kendi girdisi `pr-{pr:04d}.md` olmalı."
+        ]
+    return []
+
+
+def kapi_denetle(
+    base_adlari: list[str],
+    head_adlari: list[str],
+    pr: int | None = None,
+    dizin: Path = KAYIT_DIZINI,
+) -> list[str]:
+    """Option B birleşme kapısı."""
+    ihlaller: list[str] = []
+    ihlaller += tek_satir_denetle(dizin)
+    ihlaller += kesme_sonrasi_legacy_denetle(base_adlari, head_adlari)
+    ihlaller += cift_kayit_denetle(base_adlari, head_adlari)
+    ihlaller += girdi_varligi_denetle(base_adlari, head_adlari, pr)
+    ihlaller += yinelenen_sira_denetle(head_adlari)
+    if pr is not None:
+        ihlaller += tam_bir_kayit_denetle(base_adlari, head_adlari, pr)
+    return ihlaller
+
+
+def _git_girdi_adlari(revizyon: str, repo: Path | None = None) -> list[str]:
+    """Bir revizyondaki docs/durum/*.md yollarını git'ten okur."""
+    cmd = ["git", "ls-tree", "--name-only", revizyon, "docs/durum/"]
     sonuc = subprocess.run(
-        ["git", "ls-tree", "--name-only", revizyon, "docs/durum/"],
+        cmd,
+        cwd=repo or DEPO_KOKU,
         capture_output=True,
         text=True,
         check=True,
@@ -241,30 +332,129 @@ def _git_girdi_adlari(revizyon: str) -> list[str]:
     return [s.strip() for s in sonuc.stdout.split("\n") if s.strip().endswith(".md")]
 
 
+def _git_merge_sirali_eklemeler(
+    dal: str = "develop", repo: Path | None = None
+) -> list[str]:
+    """docs/durum/ girdi dosyalarını first-parent ekleme/rename sırasıyla.
+
+    `git log --first-parent --reverse --name-status` ile A (add) ve R (rename)
+    satırlarından sıra kurulur. Rename kaynağı listeden çıkarılıp yerine hedef
+    konur (aynı yuva). Sonra dalın tepe ağacıyla kesişilir — silinen/ghost ad
+    kalmaz. mtime KULLANILMAZ.
+    """
+    kok = repo or DEPO_KOKU
+    sonuc = subprocess.run(
+        [
+            "git",
+            "log",
+            "--first-parent",
+            "--reverse",
+            "--name-status",
+            "--pretty=format:",
+            dal,
+            "--",
+            "docs/durum/",
+        ],
+        cwd=kok,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    gorulen: list[str] = []
+    gorulen_set: set[str] = set()
+    for satir in sonuc.stdout.splitlines():
+        satir = satir.strip()
+        if not satir:
+            continue
+        parts = satir.split("\t")
+        durum = parts[0]
+        if durum.startswith("A") and len(parts) >= 2:
+            ad = Path(parts[1]).name
+            if kayit_adi_ayikla(ad) is None:
+                continue
+            if ad in gorulen_set:
+                continue
+            gorulen_set.add(ad)
+            gorulen.append(ad)
+        elif durum.startswith("R") and len(parts) >= 3:
+            eski = Path(parts[1]).name
+            yeni = Path(parts[2]).name
+            if kayit_adi_ayikla(yeni) is None:
+                continue
+            if eski in gorulen_set:
+                idx = gorulen.index(eski)
+                gorulen[idx] = yeni
+                gorulen_set.discard(eski)
+                gorulen_set.add(yeni)
+            elif yeni not in gorulen_set:
+                gorulen_set.add(yeni)
+                gorulen.append(yeni)
+    tip = {
+        Path(p).name
+        for p in _git_girdi_adlari(dal, kok)
+        if kayit_adi_ayikla(Path(p).name) is not None
+    }
+    return [ad for ad in gorulen if ad in tip]
+
+
+def sira_listesi(
+    dal: str = "develop",
+    repo: Path | None = None,
+    dizin: Path | None = None,
+) -> list[tuple[int, int, str, str]]:
+    """(sıra, pr, ad, metin) merge sırasıyla ESKİDEN YENİYE.
+
+    Legacy: dosya adındaki sıra korunur.
+    Yeni: `KESME_SIRA + konum` (konum = yeni dosyaların merge sırasındaki yeri).
+    """
+    kok = repo or DEPO_KOKU
+    kayit_dizin = dizin or (kok / "docs" / "durum")
+    sirali_adlar = _git_merge_sirali_eklemeler(dal, kok)
+    # Ağaçta olup log'da görünmeyen (henüz commit edilmemiş) yok — yalnız log.
+    sonuc: list[tuple[int, int, str, str]] = []
+    yeni_konum = 0
+    for ad in sirali_adlar:
+        kayit = kayit_adi_ayikla(ad)
+        if kayit is None:
+            continue
+        yol = kayit_dizin / ad
+        metin = yol.read_text(encoding="utf-8").strip("\n") if yol.is_file() else ""
+        if kayit.legacy_sira is not None:
+            sira = kayit.legacy_sira
+        else:
+            yeni_konum += 1
+            sira = KESME_SIRA + yeni_konum
+        sonuc.append((sira, kayit.pr, ad, metin))
+    return sonuc
+
+
 def main() -> int:
-    # Kayıt Türkçe ve "→" gibi işaretler taşıyor; Windows konsolunun
-    # varsayılan kod sayfası bunları basamıyor. Çıktıyı açıkça UTF-8'e
-    # sabitliyoruz ki araç her iki platformda da aynı metni versin.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     if hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8")
-    ayristirici = argparse.ArgumentParser(description="İnen iş kaydı")
+    ayristirici = argparse.ArgumentParser(description="İnen iş kaydı (Option B)")
     ayristirici.add_argument("--sonraki", type=int, metavar="PR", default=None)
     ayristirici.add_argument(
         "--pr",
         type=int,
         metavar="NUMARA",
         default=None,
-        help="birleşen PR numarası; verilirse VARLIK kapısı SIKI çalışır "
-        "(eklenen girdilerden biri bu numarayı adlandırmalı)",
+        help="birleşen PR numarası; varlık kapısı sıkı çalışır",
     )
     ayristirici.add_argument(
         "--kapi",
         metavar="BASE",
         default=None,
-        help="BAYAT sıra kapısı: verilen base revizyonuna karşı ÇALIŞILAN "
-        "AĞACI (birleşme sonucunu) denetler",
+        help="Option B kapısı: base revizyonuna karşı çalışan ağaç",
+    )
+    ayristirici.add_argument(
+        "--sira",
+        nargs="?",
+        const="develop",
+        metavar="DAL",
+        default=None,
+        help="merge sırasıyla listele (varsayılan dal: develop)",
     )
     argumanlar = ayristirici.parse_args()
     if argumanlar.sonraki is not None:
@@ -272,23 +462,37 @@ def main() -> int:
         return 0
     if argumanlar.kapi is not None:
         base_adlari = _git_girdi_adlari(argumanlar.kapi)
-        head_adlari = [f"docs/durum/{yol.name}" for _, _, _, yol in girdileri_oku()]
-        print(f"base girdi sayısı: {len(base_adlari)}")
-        print(f"ölçülen ağaçtaki girdi sayısı: {len(head_adlari)}")
-        ihlaller = bayat_sira_denetle(base_adlari, head_adlari)
-        ihlaller += girdi_varligi_denetle(base_adlari, head_adlari, argumanlar.pr)
-        # TEK AĞAÇ: çalışan ağaç (CI'da birleşme sonucu).
-        ihlaller += yinelenen_sira_denetle(head_adlari)
+        head_adlari = [
+            f"docs/durum/{yol.name}"
+            for yol in sorted(KAYIT_DIZINI.glob("*.md"))
+            if kayit_adi_ayikla(yol.name) is not None
+        ]
+        print(f"base girdi sayısı: {len(_kayitlari_ayikla(base_adlari))}")
+        print(f"ölçülen ağaçtaki girdi sayısı: {len(_kayitlari_ayikla(head_adlari))}")
+        ihlaller = kapi_denetle(base_adlari, head_adlari, argumanlar.pr)
         for ihlal in ihlaller:
             print(f"::error::{ihlal}", file=sys.stderr)
         if ihlaller:
             return 1
-        print("BAYAT SIRA YOK")
-        print("YİNELENEN SIRA YOK")
-        print("GİRDİ VAR" if argumanlar.pr is None else f"GİRDİ VAR (#{argumanlar.pr} kendi girdisini ekliyor)")
+        print("KESME KURALI TAMAM")
+        print("ÇİFT KAYIT YOK")
+        print("YİNELENEN LEGACY SIRA YOK")
+        if argumanlar.pr is None:
+            print("GİRDİ VAR")
+        else:
+            print(f"GİRDİ VAR (#{argumanlar.pr} kendi girdisini ekliyor)")
         return 0
-    for _, _, metin, _ in girdileri_oku():
-        print(metin)
+    if argumanlar.sira is not None:
+        for sira, pr, ad, metin in reversed(sira_listesi(dal=argumanlar.sira)):
+            print(f"{sira:04d}  {ad}  {metin}")
+        return 0
+    # Varsayılan: merge sırası (HEAD — dal-yerel girdiler dahil; develop için --sira)
+    try:
+        for _, _, _, metin in reversed(sira_listesi(dal="HEAD")):
+            print(metin)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        for _, _, metin, _ in girdileri_oku():
+            print(metin)
     return 0
 
 

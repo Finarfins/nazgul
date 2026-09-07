@@ -1,8 +1,10 @@
 # Harman Zamanı — inen iş kaydı
 
 **Yeni bir PR şunu yapar:** `python scripts/durum.py --sonraki <PR numarası>`
-komutunun verdiği ada sahip dosyayı `docs/durum/` altında oluşturur ve içine
-tek satırlık girdisini yazar — bu dosyanın kendisini DEĞİŞTİRMEZ.
+komutunun verdiği `pr-NNNN.md` ada sahip dosyayı `docs/durum/` altında
+oluşturur ve içine tek satırlık girdisini yazar — bu dosyanın kendisini
+DEĞİŞTİRMEZ. (Option B: dosya adında `sıra` yoktur; görünen sıra
+`python scripts/durum.py --sira` ile first-parent git log'dan türetilir.)
 
 Kaydı en yeni üstte okumak için:
 
@@ -10,6 +12,13 @@ Kaydı en yeni üstte okumak için:
 python scripts/durum.py
 ```
 
+Merge sırasıyla (sıra + ad + metin) listelemek için (varsayılan dal
+`develop`; dal-yerel önizleme: `--sira HEAD`):
+
+```
+python scripts/durum.py --sira
+python scripts/durum.py --sira HEAD
+```
 ## Kaydın bilinen boşluğu (donmuş sayı, 2026-08-17)
 
 Kayıt, kendisini ölçen bir kapı olmadan yaşadı: girdinin DOĞRULUĞUNU ölçen
@@ -66,10 +75,11 @@ kurulamayacak bir merge ref'i on sekiz dakika yoklattı.
 
 Şimdi her girdi KENDİ dosyasında. İki dal aynı yolu yazmadığı sürece git'in
 birleştirecek bir şeyi yoktur; çakışma olasılık değil, YAPISAL olarak
-imkânsızdır. Dosya adı `<sıra>-pr-<numara>.md` biçimindedir: `sıra` insanın
-gördüğü okuma sırasını taşır, `pr` ise aynı sırayı seçen iki eşzamanlı PR'ın
-dosya adlarını birbirinden ayırır. İkisi de ADDA olduğu için sıralamayı
-değiştirmek hiçbir dosyanın İÇİNİ değiştirmeyi gerektirmez.
+imkânsızdır. Kesmeden önceki (legacy) ad `<sıra>-pr-<numara>.md` idi; kesmeden
+sonra yeni girdi `pr-<numara>.md`dır — `sıra` adda yoktur, görünen sıra
+`python scripts/durum.py --sira` ile first-parent git log'dan türetilir.
+Eşzamanlı PR'lar farklı `pr` yolları yazar; dosya adı çakışması yapısal olarak
+yoktur.
 
 Elenen seçenekler ve neden elendikleri:
 
@@ -86,20 +96,15 @@ Elenen seçenekler ve neden elendikleri:
   bugünkü kayıt birleşme sırasında tutuluyor, numara sırasında değil; numaraya
   geçmek mevcut okuma sırasını yeniden yazardı.
 
-## Sıra bayatlarsa
+## Sıra bayatlarsa (Option B — yapısal olarak kapandı)
 
-`--sonraki` sırayı DALIN KENDİ ağacından hesaplar. Dal bekledikçe bu sayı
-geride kalabilir: aradan başka PR'lar inerse, dalın girdisi kendisinden ÖNCE
-inmiş girdilerin üstünde okunur ve kayıt "hangi iş ne zaman indi" demeyi
-bırakır. Bunu hiçbir dal-yerel test göremez — kusur yalnız base ile head'in
-BİRLEŞİMİNDE vardır. `durum-kaydi` CI işi bu yüzden `alembic-chain` gibi
-birleşmeyi AÇIKÇA kurar ve ölçtüğü ağacı yazdırır.
-
-Ayrım şudur: **eşzamanlılık meşru, bayatlık değil.** Aynı kuşaktan iki PR
-aynı sırayı seçer ve `pr` onları ayırır — tasarımın var olma sebebi budur.
-Base'in en büyüğünün ALTINDA kalan bir sıra ise bayattır ve kırmızı olur.
-Çaresi zaten kullandığımız kural: develop'ı dala merge edip girdi dosyasını
-`--sonraki`nin verdiği yeni adla yeniden adlandırmak.
+Eski düzende `--sonraki` sırayı DALIN KENDİ ağacından hesaplardı; dal
+bekledikçe bu sayı geride kalabilirdi. Option B ile `--sonraki` yalnız
+`pr-NNNN.md` yolunu basar; sıra seçilmez, dolayısıyla bayat sıra imkânsızdır.
+Görünen sıra merge anında `git log --first-parent` ile okunur. `durum-kaydi`
+CI işi hâlâ birleşmeyi AÇIKÇA kurar: varlık, kesme-sonrası-legacy, çift kayıt
+ve tek-satır kapıları birleşme sonucunda ölçülür. İnsan artık sıra için
+yeniden adlandırmaz — bu PR (H6) o zorunluluğun sonudur.
 
 ## Çapanın kapsamı — bilerek sınırlı
 
@@ -107,8 +112,9 @@ Base'in en büyüğünün ALTINDA kalan bir sıra ise bayattır ve kırmızı ol
 ile kilitler. Bundan sonraki girdilerin metni çapayı hareket ettirmez; bu
 BİLİNÇLİ bir seçimdir, çünkü çapayı her girdide hareket ettirmek, kaldırdığımız
 paylaşılan-çapa çakışmasını testin içine geri taşırdı. Yeni girdiler için
-garanti içerik değişmezliği DEĞİL, YAPISAL bütünlüktür: ad deseni, tek satır
-kuralı, `(sıra, pr)` biricikliği, azalan okuma sırası ve bayat sıra kapısı.
+garanti içerik değişmezliği DEĞİL, YAPISAL bütünlüktür: ad deseni (legacy veya
+`pr-NNNN.md`), tek satır kuralı, kesme-sonrası-legacy yasağı, birleşme
+deltasında çift kayıt yasağı ve azalan/merge okuma sırası.
 Kilitlenmesi gereken şey geçmiştir; bugünün girdisi zaten incelemeden geçer.
 
 ## Geçiş
