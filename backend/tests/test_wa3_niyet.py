@@ -447,7 +447,7 @@ def test_e164_ayni_numaraya_iner(ham: str) -> None:
     assert telefon.e164(ham) == "+905405995959"
 
 
-@pytest.mark.parametrize("ham", ["", "abc", "12345", "1" * 16, "+90 540"])
+@pytest.mark.parametrize("ham", ["", "abc", "12345", "1" * 9, "+90" + "1" * 7, "1" * 16, "+90 540"])
 def test_e164_gecersiz_numara_yukseltir(ham: str) -> None:
     with pytest.raises(telefon.TelefonGecersiz):
         telefon.e164(ham)
