@@ -1513,6 +1513,14 @@ with SessionLocal() as db:
     db.execute(_sql("DELETE FROM farm_parcels WHERE id >= 960000"))
     db.execute(_sql("DELETE FROM farms WHERE id >= 960000"))
     db.execute(_sql("DELETE FROM warehouse_stocks WHERE product_id >= 960000"))
+    # 1B-F: HASAT ARTIK PARTİ AÇIYOR ve `product_lots` ürüne BİLEŞİK
+    # YABANCI ANAHTARLA bağlı (göç 0067/0073). Bu satır olmadan İKİNCİ
+    # kurulum — aynı dosyanın ikinci hasat testi — ürünü SİLEMEZ ve
+    # `ForeignKeyViolation` ile ölür. ÖLÇÜLDÜ, varsayılmadı; ve YALNIZ bu
+    # kulvarda ısırıyor, çünkü SQLite yabancı anahtarları varsayılan
+    # olarak UYGULAMAZ. Sıra ZORUNLU: `stock_movements` yukarıda zaten
+    # silindi — parti satırına bakan hareket kalsaydı bu silme de düşerdi.
+    db.execute(_sql("DELETE FROM product_lots WHERE product_id >= 960000"))
     db.execute(_sql("DELETE FROM products WHERE id >= 960000"))
     depo = db.execute(_sql(
         "SELECT id FROM warehouses WHERE company_id = 1 AND is_active "

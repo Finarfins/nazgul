@@ -77,6 +77,13 @@ CAGIRANLAR = {
     # 1B-D: transfer, adiyla verilen partiyi kaynaktan dusurup hedefte ayni
     # SKT ile acar; dogrudan product_lots yazmaz, tek defteri cagirir.
     "app/routers/warehouses.py",
+    # 1B-F: HASAT PARTI ACAR. ILK YONLENDIRICI OLMAYAN CAGIRAN ve bu bir
+    # gevseme DEGIL: kume "yonlendiriciler" diye DEGIL "defteri cagiranlar"
+    # diye tanimliydi (test_parti_defterini_CAGIRANLAR_kapali_kume). Outbox
+    # tuketicisi de stok yaziyor; yazdigi satir `lot_id` tasimasaydi ayni
+    # urunun bir kismi partili bir kismi partisiz olurdu ve satis FEFO'su
+    # partisiz kismi HIC GORMEZDI — kapinin savundugu ayrismanin ta kendisi.
+    "app/field_stok_tuketici.py",
 }
 
 _YAZMA_FIILLERI = ("INSERT", "UPDATE", "DELETE")

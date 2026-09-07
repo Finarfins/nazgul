@@ -81,6 +81,7 @@ tests/test_1b_b_satis_fefo.py	1
 tests/test_1b_c_ayarlama_lot.py	1
 tests/test_1b_d_transfer_lot.py	1
 tests/test_1b_e_iade_lot.py	1
+tests/test_1b_f_hasat_lot.py	4
 tests/test_54a_mobil_auth.py	1
 tests/test_54b_idempotency.py	1
 tests/test_activity_cost_snapshot.py	1

@@ -12,12 +12,28 @@ TASARIM KARARLARI, hepsi ÖLÇÜLEREK verildi:
   Ters işaret hata vermez — CEVAP verir ve cevap yanlıştır. Bu yüzden yön
   kaynak tipinden TÜRETİLİR (`_YON`) ve kaynak başına sınanır.
 
-* **HASAT BUGÜN UYGULANAMAZ, ÇÜNKÜ ÜRÜNE GİDEN YOL YOK.** Ölçüldü
-  (c9d3eb1): `field_harvests` içinde `product_id` yok, `crop_seasons.crop`
-  serbest metin, ikisinden de `products`a bağ yok. Ürün eşlemesi UYDURMAK
-  yanlış ürünün stoğunu artırırdı; hasat olayı bu yüzden ADI KONMUŞ bir
-  kovaya (`SKIPPED_NO_PRODUCT`) düşer ve SAYILIR. Kova bir karardır:
-  şema hasadı bir ürüne bağladığı gün bu kovanın boşalması beklenir.
+* **HASADIN ÜRÜNÜ SEZONDAN GELİR; KOVA BOŞALDI AMA KAPANMADI.** Bu madde
+  önce "hasat bugün uygulanamaz, çünkü ürüne giden yol yok" diyordu
+  (ölçüm c9d3eb1: `field_harvests.product_id` yok, `crop_seasons.crop`
+  serbest metin). O gün GEÇTİ: göç `20260827_0062` `crop_seasons.product_id`
+  sütununu getirdi ve `_hasat_kalemleri` yolu ORADAN okuyor. Kova
+  (`SKIPPED_NO_PRODUCT`) KALDIRILMADI, KAÇINILABİLİR oldu: sütun NULL kabul
+  ediyor (etmek zorunda) ve ürünü bildirilmemiş sezonun hasadı hâlâ ürün
+  UYDURULMADAN sayılarak biter.
+
+* **HASAT PARTİ AÇAR (1B-F).** Hasadın yazdığı stok satırı `lot_id` TAŞIR ve
+  parti `app/parti_defteri.py::_parti_ac` ile açılır — bu dosya deftere
+  DOĞRUDAN yazmaz, defterin ALTINCI çağıranıdır. Kod hasadın kimliğinden
+  TÜRETİLİR (`HASAT-<id>`), depo hareketin deposudur, SKT SORULMAZ. Üçünün
+  de gerekçesi `_parti_kodu` sabitinin ve parti dalının yanındadır.
+
+  KAPSAM SINIRI ADIYLA BİLDİRİLİYOR: faaliyet girdisi ve kantar fişi FARKI
+  bugünkü davranışlarını AYNEN korur (`lot_id` NULL). Fiş farkı bir hasadın
+  KENDİ satırını düzelttiği için partiye de yazılabilirmiş gibi görünüyor ve
+  YAZILMADI, çünkü fark EKSİ olabilir: eksi bir farkı partiye uygulamak bir
+  DÜŞME'dir ve düşme yetersiz partide 409 üretir — yani bir kantar
+  düzeltmesi olayı `DEAD` kovasına atabilirdi. O yol ayrı ölçülmeden
+  açılmaz; sınır `tests/test_1b_f_hasat_lot.py`de ADIYLA çivilidir.
 
 * **KAYNAĞI GÖRÜNMEYEN OLAY UYGULANMAZ.** Kaynak satırı bu kiracıda yoksa
   hareket YAZILMAZ: olmayan bir faaliyet için envanter düşülemez. Sessizce
@@ -57,6 +73,12 @@ from sqlalchemy.orm import Session
 from .auth import utcnow
 from .inventory import adjust_warehouse_stock, default_warehouse, sync_product_stock
 from .money import quantity as normalize_quantity
+# PARTİ DEFTERİ İTHAL EDİLİYOR, TABLOYA DOKUNULMUYOR. `product_lots`a yazan
+# TEK modül `app/parti_defteri.py`dir (1B-A/1B-B kapısı) ve bu dosya onun
+# ALTINCI çağıranıdır — ilk beşi yönlendiricilerdi, bu ise bir TÜKETİCİ.
+# Çağıran kümesi `tests/test_1b_a_alis_lot.py::CAGIRANLAR` içinde TAM
+# EŞİTLİKLE dondurulmuştur.
+from .parti_defteri import SKT_SORULMADI, _parti_ac
 # NET FORMÜLÜ İTHAL EDİLİYOR, KOPYALANMIYOR. `_turetilmis_net` okuma
 # yüzeyinin (`derived_net_quantity`) de kaynağıdır; iki kopya bir gün ayrışır
 # ve ayrışma "ekranda başka, defterde başka net" demek olurdu. Yönlendirici
@@ -124,6 +146,42 @@ def _faaliyet_kaynagi(db: Session, firma: int, sid: int):
     ).mappings().first()
 
 
+#: Hasat kaynağının ADI, TEK YERDE — `KAYNAK_FIS`in kardeşi ve AYNI
+#: gerekçeyle: bu ad artık ÜÇ yerde birden okunuyor (`_KAYNAK` anahtarı,
+#: `_KALEM_OKUYUCU` anahtarı ve 1B-F'nin parti dalı). Üçü ayrı ayrı yazılıp
+#: biri değişirse parti dalı SESSİZCE ölür: hasat yine stok yazar ama
+#: partisiz, ve defter ile stok hiçbir kırmızı vermeden ayrışır.
+KAYNAK_HASAT = "field_harvest"
+
+#: Hasat partisinin kodu, HASADIN KİMLİĞİNDEN TÜRETİLİR (1B-F).
+#:
+#: BELİRLENİMCİ OLMAK ZORUNDA VE ÖLÇÜLDÜ Kİ BAŞKA KAYNAK YOK: `field_harvests`
+#: bir parti/seri sütunu TAŞIMIYOR (göç 20260807_0044'ün sütun listesi:
+#: id, company_id, season_id, harvested_on, quantity, unit,
+#: harvested_area_decare, quality_grade, moisture_percent, notes, status;
+#: 0046/0047/0048 yalnız güvenlik ve gelir alanları ekledi). Yani kod ya
+#: operatöre SORULACAKTI ya da hasadın kimliğinden TÜRETİLECEKTİ. Sormak,
+#: outbox tüketicisinde SORULAMAZ: tüketici bir HTTP isteği değil, arka plan
+#: döngüsüdür ve soracağı kimse yoktur.
+#:
+#: KODUN TAŞIDIĞI CÜMLE "BİR HASAT = BİR PARTİ"DİR ve İLK GEREKÇE ÖLÇÜLÜP
+#: DÜZELTİLDİ. Önce "sayaç/rastgele kod, tekrar teslimde ikinci bir parti
+#: açardı" deniyordu; SINANAMAZ çıktı, çünkü tekrar teslim parti katmanına
+#: VARMADAN önce düşüyor (göç 20260821_0060'ın kısmi benzersiz indeksi
+#: hareketi reddediyor ve `_kurtar`ın `db.rollback()`u parti artışını da geri
+#: alıyor). Gerçek ve SINANABİLİR bedel şudur: kod hasada bağlı olmazsa AYNI
+#: ürünün İKİ FARKLI HASADI tek parti satırında birleşir. Toplam miktar yine
+#: doğrudur, hiçbir kısıt ısırmaz ve kaybolan tek şey "hangi hasat sahada"
+#: sorusunun cevabıdır. Ayrım `tests/test_1b_f_hasat_lot.py`de İKİ HASATLA
+#: ölçülüyor ve mutasyonu ADIYLA kırmızı.
+PARTI_KODU_ONEKI = "HASAT-"
+
+
+def _parti_kodu(hasat_id: int) -> str:
+    """`HASAT-<id>`. Tek yerde, çünkü okuyan ve yazan aynı kodu üretmeli."""
+    return "%s%d" % (PARTI_KODU_ONEKI, int(hasat_id))
+
+
 def _hasat_kaynagi(db: Session, firma: int, sid: int):
     return db.execute(
         text(
@@ -161,7 +219,7 @@ def _fis_kaynagi(db: Session, firma: int, sid: int):
 #: kez daha ters çevirirdi.
 _KAYNAK = {
     "field_activity": ("field_activities", Decimal("-1"), _faaliyet_kaynagi),
-    "field_harvest": ("field_harvests", Decimal("1"), _hasat_kaynagi),
+    KAYNAK_HASAT: ("field_harvests", Decimal("1"), _hasat_kaynagi),
     KAYNAK_FIS: ("field_harvest_tickets", Decimal("1"), _fis_kaynagi),
 }
 
@@ -592,22 +650,30 @@ def _denemeyi_kaydet(
 
 def _hareket_yaz(
     db: Session, firma: int, urun: int, depo: int, miktar: Decimal, olay_id: int,
-    not_metni: str,
+    not_metni: str, lot_id: int | None = None,
 ) -> None:
-    """Defter satırı + depo/ürün stoğu. Miktar İŞARETLİDİR."""
+    """Defter satırı + depo/ürün stoğu. Miktar İŞARETLİDİR.
+
+    `lot_id` VARSAYILAN OLARAK `None`DUR ve bu bir eksiklik değil KAPSAM
+    sınırıdır: 1B-F YALNIZ hasat yolunu partiye bağlar. Faaliyet girdisi
+    (tüketim) ve kantar fişi farkı (düzeltme) bugünkü davranışlarını AYNEN
+    korur — `lot_id` NULL. Sınır aşağıda `_bir_olayi_isle`de ADIYLA yazılı ve
+    testte çivili; sessiz bırakılmadı.
+    """
     db.execute(
         text(
             """INSERT INTO stock_movements(
             product_id,movement_type,quantity,movement_date,reference_type,
-            reference_id,note,company_id,warehouse_id
+            reference_id,note,company_id,warehouse_id,lot_id
             ) VALUES(:urun,:tip,:miktar,:tarih,:ref_tip,:ref_id,:not_metni,
-                     :company_id,:depo)"""
+                     :company_id,:depo,:lot)"""
         ),
         {
             "urun": int(urun), "tip": HAREKET_TIPI, "miktar": miktar,
             "tarih": utcnow(), "ref_tip": HAREKET_REFERANSI,
             "ref_id": int(olay_id), "not_metni": not_metni,
             "company_id": int(firma), "depo": int(depo),
+            "lot": None if lot_id is None else int(lot_id),
         },
     )
     # Tarla tüketimi stoğu EKSİYE düşürebilir ve düşürmelidir: ölçülen kusurda
@@ -932,7 +998,7 @@ def _hasat_kalemleri(db: Session, firma: int, hasat_id: int) -> list[dict]:
 #: `tests/test_field_stok_tuketici.py` içinde dondurulmuştur.
 _KALEM_OKUYUCU = {
     "field_activity": _faaliyet_kalemleri,
-    "field_harvest": _hasat_kalemleri,
+    KAYNAK_HASAT: _hasat_kalemleri,
     KAYNAK_FIS: _fis_kalemleri,
 }
 
@@ -943,7 +1009,7 @@ _KALEM_OKUYUCU = {
 #: bilmeden bırakırdı.
 _URUNSUZ_VARSAYILAN = "stok taşıyacak ürün bağı yok (%s)"
 _URUNSUZ_GEREKCE = {
-    "field_harvest": (
+    KAYNAK_HASAT: (
         "sezonun ürünü bildirilmemiş; hasat stok taşıyamaz "
         "(%s -> crop_seasons.product_id NULL)"
     ),
@@ -1258,9 +1324,52 @@ def _bir_olayi_isle(
             # yine de TERMİNAL biter (`SENT`): iş yapıldı, sonucu sıfır.
             if fark_kaynagi and miktar == 0:
                 continue
+            # --- 1B-F: HASAT PARTİ AÇAR -------------------------------
+            #
+            # Hasat stoğa mal ÜRETİR ve üretilen malın hangi hasattan geldiği
+            # bir TERCİH değil bir OLGUDUR. Parti açılmasaydı `lot_id` NULL
+            # kalırdı ve o gün geri çağırma sorusu — "bu ürünün hangi hasadı
+            # sahada" — SORULAMAZ olurdu; ürün alışla da girdiği için defter
+            # "bir kısmı partili, bir kısmı partisiz" derdi ve satış FEFO'su
+            # partisiz kısmı hiç göremezdi.
+            #
+            # ÜÇ ALANIN ÜÇÜ DE ÖLÇÜLDÜ, HİÇBİRİ UYDURULMADI:
+            #
+            #   * KOD hasadın kimliğinden TÜRETİLİR (`_parti_kodu`);
+            #     `field_harvests` bir parti sütunu taşımıyor ve tüketicinin
+            #     soracağı bir operatör yok. Gerekçenin tamamı sabitin
+            #     yanındadır.
+            #   * DEPO, HAREKETİN deposudur (`default_warehouse`) ve BAŞKA
+            #     bir kaynağı YOKTUR: `field_harvests` bir hedef depo sütunu
+            #     TAŞIMIYOR (göç 0044 ölçüldü). Ayrı bir depo seçmek malı bir
+            #     depoya sokup partiyi başka depoda açardı — `_parti_ac`ın
+            #     tekilliği depoyu İÇERİR, yani ikisi sessizce ayrışırdı.
+            #   * SKT SORULMADI ve UYDURULMADI. Hasadın son kullanma tarihi
+            #     YOKTUR (sütun yok) ve `None` göndermek "SKT'si yoktur"
+            #     BEYANI olurdu; sentinel ise hiçbir şey söylemez. Ayrım
+            #     1B-C'de ölçüldü ve `_parti_ac`ın çatışma denetimini bu
+            #     yolda HİÇ çalıştırmaz.
+            #
+            # SIRA: parti ÖNCE açılır çünkü hareket satırı `lot_id`yi TAŞIYOR
+            # ve satır yazılırken kimlik ELDE olmalı. 1B-B'nin "önce stok,
+            # sonra parti" kuralı BURADA GEÇERSİZDİR ve gerekçesi ölçüldü:
+            # o kural stok korumasının REDDEDEBİLECEĞİ bir ÇIKIŞ içindi;
+            # bu yol bir GİRİŞTİR (`yon=+1`, `quantity>0` kısıtlı) ve
+            # `adjust_warehouse_stock` burada `allow_negative=True` ile
+            # çağrılıyor, yani reddetmesi mümkün değildir.
+            lot_id = None
+            if tip == KAYNAK_HASAT:
+                lot_id = _parti_ac(
+                    db, firma,
+                    product_id=int(kalem["product_id"]),
+                    warehouse_id=depo,
+                    lot_code=_parti_kodu(int(kalem["id"])),
+                    expiry_date=SKT_SORULMADI,
+                    miktar=miktar,
+                )
             _hareket_yaz(
                 db, firma, int(kalem["product_id"]), depo, miktar, olay_id,
-                "tarla olayı #%d (%s)" % (olay_id, tip),
+                "tarla olayı #%d (%s)" % (olay_id, tip), lot_id,
             )
         _olayi_sonlandir(db, firma, olay_id, DURUM_UYGULANDI, None, deneme)
         # TALEP + HAREKET + SONLANDIRMA TEK COMMIT. Arada ölen bir süreç
