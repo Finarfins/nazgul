@@ -153,13 +153,26 @@ def q(value):
     return Decimal(str(value))
 
 
+PAROLA = 'TransferLot!123'
+
 with TestClient(app) as client:
-    login = ok(client.post('/api/auth/login', json={'username':'admin','password':'admin123'}))
+    # GIRIS IKI ADAYI DA DENER ve denemesi ZORUNLUDUR: PostgreSQL ikizleri
+    # CI'da AYNI veritabanini paylasiyor, yani acilis parolasini BASKA bir
+    # dosya (ya da bu dosyanin onceki kosusu) coktan degistirmis olabilir.
+    # Tek adaya bagli bir giris, sirasi degisen ilk gunde 401 ile duserdi --
+    # OLCULDU: ayni veritabanina ikinci kosu 401 verdi.
+    for aday in ('admin123', PAROLA):
+        giris = client.post(
+            '/api/auth/login', json={'username':'admin','password':aday})
+        if giris.status_code == 200:
+            break
+    login = ok(giris)
     headers = {'Authorization':'Bearer '+login['access_token'],
                'X-Company-ID':str(login['companies'][0]['id'])}
-    changed = ok(client.post('/api/auth/change-password', headers=headers, json={
-        'current_password':'admin123','new_password':'TransferLot!123'}))
-    headers['Authorization'] = 'Bearer ' + changed['access_token']
+    if aday != PAROLA:
+        changed = ok(client.post('/api/auth/change-password', headers=headers, json={
+            'current_password':aday,'new_password':PAROLA}))
+        headers['Authorization'] = 'Bearer ' + changed['access_token']
     cid = int(headers['X-Company-ID'])
     source = ok(client.get('/api/warehouses', headers=headers))[0]['id']
     target = ok(client.post('/api/warehouses', headers=headers,

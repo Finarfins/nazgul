@@ -14,6 +14,59 @@ BACKEND = Path(__file__).resolve().parent
 YARIS_TURU = 20
 
 
+def _acilisa_cek() -> None:
+    """Admin sifresini ACILIS DURUMUNA (`admin123` + `must_change_password`) yaz.
+
+    1B-B ikizinden DEVRALINDI ve gerekcesi BU DOSYADA YENIDEN OLCULDU:
+    PostgreSQL ikizleri CI'da AYNI veritabanini paylasiyor ve her biri
+    girisden sonra admin sifresini KENDI sabitine cekiyor. Bu dosya cekilmis
+    sifreyi geri birakmiyordu; ayni veritabanina IKINCI kosu
+
+        AssertionError: (401, 'Kullanici adi veya sifre hatali')
+
+    ile dustu -- iddia degil, olculdu. Tek yonlu bir care (yalniz teardown)
+    dosyayi iyi bir komsu yapar ama KENDISINI korumaz, cunku sifreyi bozan
+    ONCEKI dosya olabilir. Bu yuzden IKI UCTAN cagriliyor.
+    """
+    from app.auth import hash_password
+    from app.db import SessionLocal, engine
+    from sqlalchemy import text as _text
+
+    # DİYALEKT KAPISI ve ATLANAMAZ: `to_regclass` PostgreSQL'e ÖZGÜDÜR ve
+    # SQLite'ta `OperationalError` atar. Bu dosya PG-ikizidir ama modülü
+    # kanonik koşucu SQLite altında da TOPLAR; kapı olmasaydı ATLAMA
+    # (`skip`) yerine KURULUM HATASI verirdi -- ÖLÇÜLDÜ.
+    if engine.dialect.name != "postgresql":
+        return
+
+    with SessionLocal() as db:
+        if db.execute(_text("SELECT to_regclass('public.app_users')")).scalar() is None:
+            return
+        db.execute(
+            _text(
+                "UPDATE app_users SET password_hash=:h, "
+                "must_change_password=true WHERE username='admin'"
+            ),
+            {"h": hash_password("admin123")},
+        )
+        db.commit()
+
+
+@pytest.fixture()
+def acilis():
+    """Acilis sifresi, IKI UCTAN. Bkz. `_acilisa_cek`.
+
+    ATLAMA ÖNCE gelir: `_postgres_url` yapılandırma yoksa testi ATLAR ve
+    fixture hiçbir şeye dokunmaz.
+    """
+    _postgres_url()
+    _acilisa_cek()
+    try:
+        yield
+    finally:
+        _acilisa_cek()
+
+
 def _postgres_url() -> str:
     url = os.environ.get("APP_TEST_DATABASE_URL")
     if not url:
@@ -35,7 +88,7 @@ def _sqlite_twin_source() -> str:
 
 
 @pytest.mark.postgresql
-def test_TRANSFER_PARTI_DAVRANISI_ve_ESZAMANLILIK_postgresql() -> None:
+def test_TRANSFER_PARTI_DAVRANISI_ve_ESZAMANLILIK_postgresql(acilis) -> None:
     env = os.environ.copy()
     url = _postgres_url()
     env["DATABASE_URL"] = url
