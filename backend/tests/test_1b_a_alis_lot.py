@@ -57,8 +57,28 @@ YAZICI = "app/parti_defteri.py"
 #: okuması ihtimaline karşı AÇILMIŞ bir üst sınır DEĞİLDİR: `ananlar` kümesi
 #: TAM EŞİTLİKLE ölçülmüyor (üst sınır), çünkü okuma eklemek yazma eklemekle
 #: aynı ağırlıkta değildir.
+#:
+#: 1B-G ile ÜÇÜNCÜ bir okuyucu girdi ve kapı bunu ADIYLA sordu (kırmızı
+#: yandı, sessizce geçmedi) — bu satır o sorunun CEVABIDIR, sınırın
+#: gevşetilmesi değil:
+#:
+#: `app/parti_mutabakat.py` defteri `warehouse_stocks` ile KARŞILAŞTIRMAK için
+#: okuyor ve yazma ekseni (yukarıdaki `yazanlar` iddiası) onun YAZMADIĞINI
+#: ZATEN ölçtü — bu dosya kırmızı yanarken o iddia YEŞİLDİ, yani eklenen şey
+#: bir yazıcı DEĞİL.
+#:
+#: OKUMA NEDEN AYRI BİR DOSYADA: mutabakat sorgusu İKİ tabloyu birden okur ve
+#: `parti_defteri.py`ye konsaydı, defterin TEK YAZICISI olan dosya aynı
+#: zamanda stok tablosunu da okuyan dosya olurdu — yazma tekelinin taşıdığı
+#: iddia ("bu dosya YALNIZ parti defterini yönetir") o gün bulanıklaşırdı.
+#: `routers/products.py`ye konsaydı kural bir YÖNLENDİRİCİDE dururdu ve
+#: ikinci bir uç onu ikinci kez yazardı.
+#:
+#: Kendi kapısı da var: `tests/test_1b_g_mutabakat.py::
+#: test_mutabakat_YAZMIYOR_YALNIZ_OKUYOR` aynı ayrımı O DOSYA İÇİN ölçüyor.
 OKUYUCULAR = {
     YAZICI,
+    "app/parti_mutabakat.py",
     "app/routers/products.py",
     "app/routers/warehouse_counts.py",
 }

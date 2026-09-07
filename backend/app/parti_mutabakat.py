@@ -204,7 +204,15 @@ class Mutabakat(NamedTuple):
 # (`ws.company_id=p.company_id`), yani yüklem birleştirmenin İÇİNDE kurulur —
 # `WHERE`e bırakılan bir dış-birleştirme yüklemi, birleştirmeyi sessizce İÇ
 # birleştirmeye çevirirdi.
-_MUTABAKAT_SQL = """SELECT p.product_id, p.warehouse_id,
+# METİN `text()`e MODÜL DÜZEYİNDE veriliyor ve bu bir üslup tercihi DEĞİL:
+# `text(DEGISKEN)` biçiminde bir çağrı, kiracı nöbetçisinin (
+# `tests/test_tenant_scoping_guard.py`) DİNAMİK SQL yüzeyine girer ve o
+# listenin değeri, üzerindeki her girdinin GERÇEKTEN çalışma zamanında
+# kurulmuş olmasıdır. Bu sorgu kurulmuyor: metin donmuş, tek değişken kiracı
+# ve o da BAĞLI PARAMETRE. Sabiti burada derlemek, olguyu YAPISAL olarak
+# görünür kılıyor — `app/routers/farm.py`nin `_GIRIS_SORGU`/`_PLANTBACK_SORGU`
+# sabitleriyle AYNI kalıp.
+_MUTABAKAT_SORGU = text("""SELECT p.product_id, p.warehouse_id,
     COALESCE(ws.quantity, 0) AS stok,
     COALESCE(lt.toplam, 0) AS parti_toplami,
     COALESCE(lt.satir_sayisi, 0) AS parti_satir_sayisi
@@ -228,7 +236,13 @@ LEFT JOIN (
     ON lt.company_id = p.company_id
    AND lt.product_id = p.product_id
    AND lt.warehouse_id = p.warehouse_id
-ORDER BY p.product_id, p.warehouse_id"""
+ORDER BY p.product_id, p.warehouse_id""")
+
+#: Sorgunun HAM metni — kapılar (kiracı yüklemi sayımı, diyalekt dalı
+#: taraması) onu buradan okur. `TextClause`tan türetiliyor, İKİNCİ BİR KOPYA
+#: OLARAK yazılmıyor: iki metin ayrıştığı gün kapı, koşan sorguyu DEĞİL
+#: kendi kopyasını ölçerdi.
+_MUTABAKAT_SQL = str(_MUTABAKAT_SORGU)
 
 
 def kova_sec(stok: Decimal, parti_toplami: Decimal, parti_satir_sayisi: int) -> str:
@@ -278,7 +292,7 @@ def mutabakat(
 
     satirlar: list[Satir] = []
     sayimlar = {kova: 0 for kova in KOVALAR}
-    for ham in db.execute(text(_MUTABAKAT_SQL), {"cid": int(company_id)}).mappings():
+    for ham in db.execute(_MUTABAKAT_SORGU, {"cid": int(company_id)}).mappings():
         # HER İKİ SAYI DA karşılaştırmadan ÖNCE aynı kuantuma çekilir; SQLite
         # aynı sütun için `float` döndürebilir ve ham karşılaştırma sessiz bir
         # `SAPMA` uydururdu (bkz. başlık).
