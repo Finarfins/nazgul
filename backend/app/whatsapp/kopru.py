@@ -179,10 +179,10 @@ def dogrula(
 # ---------------------------------------------------------------------------
 
 #: (url, gövde, başlıklar, zaman aşımı) -> ham yanıt baytları.
-Gonderici = Callable[[str, bytes, dict[str, str], float], bytes]
+Gonderici = Callable[[str, bytes, dict[str, str], int], bytes]
 
 
-def _urllib_gonderici(url: str, govde: bytes, basliklar: dict[str, str], zaman_asimi: float) -> bytes:
+def _urllib_gonderici(url: str, govde: bytes, basliklar: dict[str, str], zaman_asimi: int) -> bytes:
     istek = urllib.request.Request(url, data=govde, method="POST", headers=basliklar)
     with urllib.request.urlopen(istek, timeout=zaman_asimi) as yanit:  # noqa: S310 - https URL ayar dosyasından
         return yanit.read(_YANIT_EN_COK_BAYT)
