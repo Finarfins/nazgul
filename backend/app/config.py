@@ -120,6 +120,15 @@ class Settings(BaseSettings):
     # app/einvoice/endpoints.py: izibiz_endpoint_violation().
     izibiz_env: str = "test"
 
+    # WA3-core: Harman AI köprüsü (WhatsApp danışman soruları web ucuna
+    # imzalı HTTP ile gider). ÜÇÜ DE VARSAYILAN BOŞ = köprü KAPALI:
+    # app/whatsapp/kopru.py KopruKapali yükseltir ve ağa çıkmaz. İmza her
+    # zaman birincil sırla atılır; ikincil yalnız DOĞRULAMADA kabul edilir
+    # (sır döndürme penceresi). Sözleşme: docs/whatsapp/KOPRU_SOZLESMESI.md
+    harman_kopru_url: str | None = None
+    harman_kopru_sirri: SecretStr | None = None
+    harman_kopru_sirri_ikincil: SecretStr | None = None
+
     # Notification delivery seam. The safe default is inert and never performs
     # a network call; Twilio/WhatsApp are wiring-only stubs for a later adapter.
     notification_provider: str = "noop"
