@@ -32,15 +32,13 @@ YENI_AD_DESENI = re.compile(r"^pr-(\d{4})\.md$")
 # Geriye dönük uyumluluk: eski testler AD_DESENI bekleyebilir.
 AD_DESENI = LEGACY_AD_DESENI
 
-# KESME — develop `eb3a0c2` (#69 birleşmesi) üzerindeki en büyük legacy sıra.
+# KESME — develop `1e6ce3c` (#70 birleşmesi) üzerindeki en büyük legacy sıra.
 # Bu sabitten SONRA eklenen her girdi `pr-NNNN.md` olmalı; yeni
 # `SSSS-pr-NNNN.md` DOSYASI kapıyı kırar. Mevcut legacy korpus olduğu gibi
-# kalır (yeniden adlandırılmaz). Ölçüldü: 112 girdi, max sıra 112.
-KESME_SIRA = 112
-KESME_GEREKCE = (
-    "develop eb3a0c2 (Merge #69): en büyük legacy sıra 0112-pr-0069.md = 112; "
-    "H6 Option B kesmesi"
-)
+# kalır (yeniden adlandırılmaz). Ölçüldü: 114 girdi, max sıra 114
+# (`0114-pr-0070.md`; #71 `0113-pr-0071.md` bir önce indi).
+KESME_SIRA = 114
+KESME_GEREKCE = "develop 1e6ce3c (Merge #70): 0114-pr-0070.md"
 
 
 class KayitAdi(NamedTuple):
