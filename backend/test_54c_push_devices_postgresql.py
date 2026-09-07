@@ -324,6 +324,41 @@ def test_ETKIN_SUZGECI_GERCEK_BOOLEAN_uzerinde_kosuyor(motor) -> None:
     assert jetonlar == {KOSU + "-taban"}, jetonlar
 
 
+# ------------------------------------------------------- GÖÇ TURU --------
+
+def test_GOC_TURU_up_down_up_GERCEK_PostgreSQLde(motor) -> None:
+    """0077 PostgreSQL'de de GERİ ALINABİLİYOR — SQLite turu bunu SÖYLEYEMEZ.
+
+    İki diyalektin `DROP TABLE` semantiği AYNI DEĞİL: PostgreSQL yabancı
+    anahtar ve indeks bağımlılıklarını GERÇEKTEN uygular, SQLite ise
+    `PRAGMA foreign_keys` kapalıyken çoğunu görmezden gelir. `downgrade`
+    SQLite'ta yeşil kalıp burada `DependentObjectsStillExist` ile ölebilirdi.
+
+    MUTASYON: `downgrade`den `op.drop_index` çağrısını kaldırmak ya da
+    `drop_table`ı kaldırmak bunu KIRMIZI yapar — SQLite ikizindeki turla AYNI
+    iddia, ama GERÇEK diyalektte.
+
+    TUR SONUNDA ŞEMA `head`TE BIRAKILIYOR: fixture'ın teardown'ı bu tabloyu
+    temizliyor ve KOMŞU dosyalar (CI'da aynı konteyneri paylaşan koşularda)
+    şemayı VAR bulmak zorunda.
+    """
+    config = Config(str(BACKEND / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", _url())
+
+    def gorunen() -> set[str]:
+        return set(inspect(motor).get_table_names())
+
+    assert DEFTER in gorunen(), "başlangıç: defter yok"
+    command.downgrade(config, "20260909_0076")
+    assert DEFTER not in gorunen(), "aşağı: defter düşmedi"
+    command.upgrade(config, "head")
+    assert DEFTER in gorunen(), "ikinci yukarı: tur kapanmadı"
+    # İNDEKS DE GERİ GELDİ: `drop_table` onu düşürdü, `upgrade` yeniden kurdu.
+    assert "ix_push_devices_company_user" in {
+        i["name"] for i in inspect(motor).get_indexes(DEFTER)
+    }
+
+
 # ------------------------------------------------------------- YARIŞ ------
 
 YARIS_ISTEK = 20
