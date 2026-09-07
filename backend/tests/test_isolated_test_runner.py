@@ -16,6 +16,7 @@ from aggregate_isolated_test_reports import (
 )
 from merge_postgresql_test_reports import merge_postgresql_report_payloads
 from run_isolated_tests import (
+    _decode_captured_output,
     canonical_collection_manifest,
     collect_canonical_manifest_single_process,
     execution_manifest,
@@ -521,3 +522,69 @@ def test_parallel_collection_failure_is_attributed_to_the_right_file(tmp_path: P
     assert len(failed_outcomes) == 1
     assert next(iter(failed_outcomes)).endswith("test_collection_broken.py")
     assert next(iter(failed_outcomes.values())) == "collection-failed"
+
+
+def test_decode_captured_output_never_none_and_replaces_bad_bytes() -> None:
+    assert _decode_captured_output(None) == ""
+    assert _decode_captured_output(b"") == ""
+    assert _decode_captured_output("hazır") == "hazır"
+    # Bytes that are not valid UTF-8 (and that PYTHONUTF8=1 / Linux would
+    # reject under errors='strict') must not raise; replacement keeps the rest.
+    with pytest.raises(UnicodeDecodeError):
+        b"before\xff\xfeafter".decode("utf-8", errors="strict")
+    decoded = _decode_captured_output(b"before\xff\xfeafter")
+    assert decoded.startswith("before")
+    assert decoded.endswith("after")
+    assert "\ufffd" in decoded
+
+
+def test_non_cp1254_child_bytes_are_reported_not_crashed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Child emitting undecodable bytes: runner reports the file, no crash.
+
+    Locale-default ``text=True`` under UTF-8 mode (canonical ``PYTHONUTF8=1``,
+    also Linux CI) raised UnicodeDecodeError before a ``TestResult`` existed,
+    so the file was never reported and ``result.stdout`` was unreachable.
+    Pin ``encoding='utf-8'`` + ``errors='replace'``; inject the replaced
+    noise into the captured pipe so we prove the report path stays intact
+    (pytest's own FD capture would otherwise swallow a raw ``os.write``).
+    """
+    real_run = subprocess.run
+    seen_kwargs: list[dict] = []
+
+    def run_and_inject_noise(*args, **kwargs):
+        seen_kwargs.append(kwargs)
+        assert kwargs.get("encoding") == "utf-8", kwargs
+        assert kwargs.get("errors") == "replace", kwargs
+        completed = real_run(*args, **kwargs)
+        noise = _decode_captured_output(b"NOISE\xff\xfeMARKER\n")
+        return subprocess.CompletedProcess(
+            completed.args,
+            completed.returncode,
+            noise + (completed.stdout or ""),
+            completed.stderr or "",
+        )
+
+    monkeypatch.setattr(subprocess, "run", run_and_inject_noise)
+
+    noisy = _write_test(
+        tmp_path / "test_noisy_stdout_bytes.py",
+        "def test_ok():\n    assert True\n",
+    )
+
+    results = run_test_files([noisy], workers=1, timeout=20, emit=False)
+
+    assert len(results) == 1
+    result = results[0]
+    assert result.rel_path == noisy.name
+    assert result.stdout is not None
+    assert isinstance(result.stdout, str)
+    assert result.passed, (result.reason, result.stdout, result.stderr)
+    assert "NOISE" in result.stdout
+    assert "MARKER" in result.stdout
+    assert "\ufffd" in result.stdout
+    worker_calls = [k for k in seen_kwargs if k.get("capture_output")]
+    assert worker_calls, seen_kwargs
+    assert all(k.get("encoding") == "utf-8" for k in worker_calls)
+    assert all(k.get("errors") == "replace" for k in worker_calls)
