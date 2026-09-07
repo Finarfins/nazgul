@@ -535,7 +535,11 @@ jobs:
           # wc -l`), önceki ölçümün üzerine aritmetik yapılarak değil.
           # 110 -> 111: `test_1b_d_transfer_lot_postgresql.py`; göç yok,
           # PostgreSQL'e özgü korumalı parti UPDATE yarışını x20 ölçer.
-          BEKLENEN_PG_DOSYA_SAYISI=111
+          # 111 -> 112: `test_1b_e_iade_lot_postgresql.py`; göç yok, satış
+          # iadesinin ters FEFO ile partiye geri verilmesini gerçek
+          # diyalektte ölçer. BİRLEŞMİŞ AĞAÇTA YENİDEN ÖLÇÜLDÜ
+          # (`ls backend/test_*postgresql*.py | wc -l` -> 110, + 2 özel).
+          BEKLENEN_PG_DOSYA_SAYISI=112
           if [ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]; then
             echo "FAIL: tam $BEKLENEN_PG_DOSYA_SAYISI PG dosyası bekleniyor, ${#all_files[@]} bulundu" >&2
             exit 1

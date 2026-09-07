@@ -351,7 +351,7 @@ def test_parti_geri_alma_HAREKET_SILINMEDEN_ONCE_cagriliyor() -> None:
 def test_parti_geri_alma_YONU_HAREKETIN_ISARETINDEN_gelir() -> None:
     """1B-B ÖLÇÜMÜNÜN ÇİVİSİ: geri alma İKİ YÖNÜ TEK ifadeyle çözüyor.
 
-    `_parti_geri_al` satış yolu için ÇOĞALTILMADI (`_parti_iade` YAZILMADI) ve
+    `_parti_geri_al` satış yolu için ÇOĞALTILMADI ve
     bunun tek dayanağı bir SAYI SÖZLEŞMESİDİR: `stock_movements.quantity`
     İŞARETLİ yazılır (alışta `+`, çıkışta `-`) ve parti defterine uygulanan
     delta o işaretli sayının KENDİSİDİR. O yüzden tek bir
@@ -364,9 +364,13 @@ def test_parti_geri_alma_YONU_HAREKETIN_ISARETINDEN_gelir() -> None:
     hiçbir şey bağırmaz — çünkü ne bir istisna atılır ne bir kısıt ısırır.
 
     Kapı üç şeyi birden ölçüyor, üçü de AST üzerinde:
-      1. Geri alma tek bir ÇIKARMA ifadesi kullanıyor (ekleyen ikizi YOK).
+      1. Geri alma tek bir ÇIKARMA ifadesi kullanıyor (ekleyen ikizi YOK) ve
+         defterin miktar yazması TAM OLARAK dört fonksiyonda durur.
       2. `_config`in iki `stock_sign`ı ZIT işaretli (+1 / -1).
       3. `CONFIG`teki çıkış türlerinin `stock`u NEGATİF.
+
+    1B-E'DE BİR AD YASAĞI YAZMA TEKELİNE ÇEVRİLDİ; gerekçe kapının içinde,
+    çevrildiği yerde duruyor.
     """
     defter = (BACKEND / "app" / "parti_defteri.py").read_text(encoding="utf-8")
     geri_al = defter[defter.index("def _parti_geri_al"):]
@@ -384,19 +388,52 @@ def test_parti_geri_alma_YONU_HAREKETIN_ISARETINDEN_gelir() -> None:
         "İŞARETİNDEN gelir; ikinci bir (ekleyen) ifade, yönü belgenin "
         "türünden yeniden türetmek zorunda kalırdı."
     )
-    # ARAMA AST ÜZERİNDE, HAM METİNDE DEĞİL: `_parti_geri_al`ın KENDİ belgesi
-    # `_parti_iade`yi ADIYLA anıyor (neden yazılmadığını anlatmak için) ve ham
-    # bir `in` araması onu ihlal sanardı. Bu dosyanın emekli edilen kapısının
-    # ölçülmüş dersi: DÜZYAZIDA ANMAK TANIMLAMAK DEĞİLDİR.
-    tanimlar = {
-        dugum.name
-        for dugum in ast.walk(ast.parse(defter))
-        if isinstance(dugum, (ast.FunctionDef, ast.AsyncFunctionDef))
+    # --- KAPI 1B-E'DE DARALTILDI: AD YASAĞI -> YAZMA TEKELİ ---------------
+    #
+    # ESKİ HÂLİ `_parti_iade` ADININ TANIMLANMASINI yasaklıyordu ve 1B-E o
+    # yasağın ÖLÇTÜĞÜNDEN FAZLASINI yasakladığını gösterdi. Korunan şey bir ad
+    # değil bir SÖZLEŞMEDİR: "geri alma yönü hareketin işaretinden gelir ve o
+    # yön TEK ifadede durur". `_parti_iade` (1B-E) o sözleşmeye HİÇ dokunmuyor
+    # — geri alma DEĞİLDİR, İLERİ yöndür: satışın çıktığı partilere yeni bir
+    # belgeyle mal EKLER ve kendi hareketleri sırası geldiğinde yine
+    # `_parti_geri_al` tarafından geri alınır. Adı yasaklamak, sözleşmeyi
+    # bozmayan bir işi yalnızca ADI yüzünden reddediyordu ve bir gün onu
+    # `_parti_geri_ver` diye yazan biri kapıyı SESSİZCE aşardı — ad yasağı
+    # kaçmayı ödüllendirir.
+    #
+    # YERİNE GELEN DAHA DARDIR: defterin miktar YAZMASI (`UPDATE product_lots
+    # ... quantity=quantity±`) MODÜLDE TAM OLARAK DÖRT YERDE durur ve dördü de
+    # ADIYLA biliniyor — ekleme `_parti_ac`, adıyla düşme `_parti_dus`, FEFO
+    # tüketimi `_parti_tuket`, geri alma `_parti_geri_al`. BEŞİNCİ bir yazıcı
+    # — hangi adla yazılırsa yazılsın — kırmızıdır. `_parti_iade` bu kapıyı
+    # GEÇİYOR çünkü KENDİSİ YAZMIYOR: `_parti_ac`ı çağırıyor, yani ekleme
+    # hâlâ TEK yerdedir ve 1B-E defterin yazma yüzeyini BÜYÜTMEDİ.
+    agac = ast.parse(defter)
+    yazmalar: dict[str, list[str]] = {}
+    for dugum in ast.walk(agac):
+        if not isinstance(dugum, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for sabit in _calistirilabilir_sabitler(ast.parse(ast.unparse(dugum))):
+            if "UPDATE product_lots" in sabit.value:
+                yazmalar.setdefault(dugum.name, []).append(sabit.value)
+    assert set(yazmalar) == {
+        "_parti_ac",
+        "_parti_dus",
+        "_parti_geri_al",
+        "_parti_tuket",
+    }, (
+        f"Parti miktarını YAZAN fonksiyon kümesi değişmiş: {sorted(yazmalar)}. "
+        "Ekleme `_parti_ac`ta, adıyla düşme `_parti_dus`ta, FEFO tüketimi "
+        "`_parti_tuket`te, geri alma `_parti_geri_al`dadır; beşinci bir "
+        "yazıcı yönü belgenin türünden yeniden türetmek zorunda kalır."
+    )
+    # EKLEYEN İFADE TEK: `quantity=quantity+` yalnız `_parti_ac`ta geçer.
+    ekleyenler = {
+        ad for ad, sabitler in yazmalar.items()
+        if any("quantity=quantity+" in sabit for sabit in sabitler)
     }
-    assert "_parti_iade" not in tanimlar, (
-        "`_parti_iade` TANIMLANMIŞ — iki yön TEK ifadeyle çözülüyor (bkz. "
-        "`_parti_geri_al` belgesi); ikinci bir yön fonksiyonu, sözleşmeyi iki "
-        "yere böler ve ikisi yönü ayrı ayrı türetmek zorunda kalır."
+    assert ekleyenler == {"_parti_ac"}, (
+        f"Partiye EKLEYEN ifade `_parti_ac` dışına çıkmış: {sorted(ekleyenler)}."
     )
 
     islemler = ISLEMLER.read_text(encoding="utf-8")

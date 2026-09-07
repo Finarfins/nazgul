@@ -427,9 +427,15 @@ assert client.delete(f"/api/workflow/purchase_return/{iade['id']}",
                      headers=baslik).status_code in (200, 204)
 assert partiler(iade_urun) == {'LOT-AI1': Decimal('3'), 'LOT-AI2': Decimal('3')}
 
-# SATIŞ İADESİ (`stock=+1`) PARTİ AÇMAZ VE TÜKETMEZ — kapsam sınırı ADIYLA
-# çivili: iade edilen malın hangi partiden çıktığı bu dilimde ÖLÇÜLMEDİ ve
-# uydurmak defteri yalan söyletirdi. Hareket yazılır, `lot_id` NULL kalır.
+# KAYNAKSIZ SATIŞ İADESİ (`stock=+1`, `source_id` YOK) PARTİYE DOKUNMAZ.
+#
+# 1B-B'de bu satır "satış iadesi parti açmaz" DİYORDU ve 1B-E o cümleyi
+# DARALTTI, KALDIRMADI: kaynak belgesi OLAN bir satış iadesi artık malı
+# çıktığı partiye GERİ VERİR (`tests/test_1b_e_iade_lot.py`). Buradaki iade
+# `source_type`/`source_id` TAŞIMIYOR, yani hangi partiden çıktığı
+# SORULAMAZ ve uydurmak defteri yalan söyletirdi — hareket yazılır, `lot_id`
+# NULL kalır. Kapı yerinde DURUYOR çünkü ölçtüğü şey hâlâ doğru bir cümle ve
+# 1B-E'nin dokunmadığı yarıyı savunuyor.
 satis_iadesi = ok(client.post('/api/workflow/sale_return', headers=baslik, json={
     'entity_id': musteri, 'document_date': '2026-09-11', 'status': 'completed',
     'warehouse_id': depo_a, 'items': [kalem(iade_urun, 1, fiyat=20)]}))

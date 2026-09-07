@@ -56,6 +56,7 @@ __all__ = [
     "_parti_bul",
     "_parti_dus",
     "_parti_geri_al",
+    "_parti_iade",
     "_parti_tuket",
 ]
 
@@ -662,6 +663,203 @@ def _parti_tuket(
         ),
         defter_bosaldi=False,
     )
+
+
+def _asiyor(istenen: Decimal, mevcut: Decimal) -> dict:
+    """`IADE_SATISI_ASIYOR` gövdesi — İKİ ÇAĞIRAN, TEK METİN.
+
+    İki dal aynı cümleyi söylüyor ("bu satıştan bu kadar mal geri
+    verilemez") ve ikisi ayrı ayrı yazılsaydı biri güncellenip öteki
+    unutulduğunda operatör aynı kusur için İKİ FARKLI mesaj görürdü.
+    SAYILAR GÖVDEDE DURUYOR: "olmaz" tek başına kaç birimin fazla olduğunu
+    SÖYLEMEZ (`PARTI_YETERSIZ`in ölçülmüş dersi).
+    """
+    return {
+        "code": "IADE_SATISI_ASIYOR",
+        "message": (
+            f"Iade edilen {istenen} birim, kaynak satistan bu urun icin geri "
+            f"verilebilecek {mevcut} birimi ASIYOR ({istenen - mevcut} fazla). "
+            "Satilmamis mal iade edilemez; iade miktarini duzeltin ya da dogru "
+            "kaynak belgeyi secin."
+        ),
+        "istenen": str(istenen),
+        "mevcut": str(mevcut),
+        "fazla": str(istenen - mevcut),
+    }
+
+
+def _parti_iade(
+    db: Session,
+    cid: int,
+    *,
+    product_id: int,
+    warehouse_id: int,
+    satis_tablosu: str,
+    satis_id: int,
+    iade_kaynak_turu: str,
+    miktar,
+) -> tuple[tuple[int, Decimal], ...] | None:
+    """İade edilen malı ÇIKTIĞI PARTİYE geri ver; dağıtımı döndür (1B-E).
+
+    ÜÇ AYRI CEVAP VAR VE ÜÇÜ DE AYRI BİR CÜMLE SÖYLÜYOR:
+
+      * 422 `IADE_SATISI_ASIYOR` — ürün o satışta HİÇ YOK, ya da geri
+        verilebilecek miktarı AŞIYOR. Yanlış kaynak belge ile fazla miktar
+        AYNI kapıdan geçiyor çünkü ikisi de tek bir cümlenin halleri: "bu
+        satıştan bu kadar mal geri verilemez".
+      * `None` — ürün satışta VAR ama partisiz çıktı (`lot_id` NULL). Çağıran
+        BUGÜNKÜ davranışını korur: tek satır, `lot_id` NULL. Bu yolda MİKTAR
+        DA DENETLENMEZ ve bu bir KAPSAM SINIRIDIR, gözden kaçma değil —
+        1B-E parti defterini kapatıyor, partisiz satışın sayısal
+        doğrulamasını değil. Sınır testte ADIYLA çivili.
+      * Dolu demet — dağıtım. BOŞ demet HİÇ dönmez: kapasitesi sıfır olan
+        her durum yukarıdaki 422'ye düşüyor, yani "sessiz boşluk" diye bir
+        cevap YOKTUR.
+
+    --- NEDEN FEFO DEĞİL, TERS FEFO ---------------------------------------
+
+    `_parti_tuket` SEÇER; bu fonksiyon SEÇMEZ, HATIRLAR. İade edilen malın
+    hangi partiden çıktığı bir tercih değil bir OLGUDUR ve o olgu tek bir
+    yerde yazılıdır: satışın `stock_movements` satırlarındaki `lot_id`.
+    Burada yeniden FEFO çalıştırmak — ya da yeni bir parti açmak — defteri
+    YALAN SÖYLETİRDİ: geri çağırma kaydı, iade edilen malı hiç çıkmadığı bir
+    partinin üstüne yazardı.
+
+    Sıra `ORDER BY id DESC`tir, yani SON TÜKETİLEN İLK GERİ VERİLİR. Düz
+    sıra (FEFO'nun kendisi) da "toplamı doğru" bir cevap üretirdi ve tam bu
+    yüzden tehlikelidir: kısmi bir iadede yanlış partiyi şişirir ve kusur
+    yalnız TOPLAM bakan bir gözden KAÇAR. Ters sıra tersine çevirme
+    kuralıdır — satış L1'i bitirip L2'ye geçtiyse, iade önce L2'yi geri
+    verir ve defter satışın AYNADAKİ hâline döner.
+
+    --- KAPASİTE SATILANIN KENDİSİ DEĞİL, KALANIDIR -----------------------
+
+    Aynı satışa İKİNCİ bir iade kesilebilir. Kapasite yalnız "bu partiden ne
+    kadar satıldı" olsaydı, tam iadeyi iki kez kesmek partiyi satılanın İKİ
+    KATI kadar şişirirdi ve hiçbir kapı ısırmazdı. Bu yüzden ÖNCEKİ satış
+    iadelerinin aynı partiye geri verdiği miktar DÜŞÜLÜYOR; kapasite
+    `satılan - önceden iade edilen`dir.
+
+    Güncelleme yolunda BELGENİN KENDİ satırları bu toplama GİRMEZ ve bu bir
+    şans değil SIRA sonucudur: `_save_doc` önce `_parti_geri_al` çağırıp
+    hareketleri SİLİYOR, bu okuma ondan SONRA yapılıyor. Sıra bozulursa belge
+    kendi iadesini "önceden iade edilmiş" sayar ve ikinci kaydetme 422 alır.
+
+    --- DEPO: İADE BELGESİNİN DEPOSU, SATIŞINKİ DEĞİL ---------------------
+
+    `_parti_ac` iade BELGESİNİN deposuyla çağrılıyor çünkü stok da oraya
+    yazılıyor (`adjust_warehouse_stock` aynı `warehouse_id`yi alıyor). Satışın
+    deposu kullanılsaydı mal bir depoya girer, parti başka bir depoda açılır
+    ve ikisi SESSİZCE ayrışırdı. Parti kodu ve SKT ise KAYNAK partiden
+    kopyalanıyor — iade edilen mal, çıktığı partinin malıdır ve başka bir
+    depoya girse bile aynı kodu ve aynı SKT'yi taşır.
+    """
+    istenen = quantity(miktar)
+    # SÜZGEÇ `lot_id IS NOT NULL` TAŞIMIYOR ve bu KASITLIDIR: partisiz satırın
+    # VARLIĞI bir bilgidir. Süzgeç SQL'de olsaydı "bu ürün bu satışta HİÇ
+    # geçmiyor" ile "geçiyor ama partisiz çıktı" AYNI boş sonuca düşerdi ve
+    # ikisi AYRI iki cevap gerektiriyor — biri 422, öteki bugünkü davranış.
+    # Ayrım Python'da, İKİNCİ bir sorguyla DEĞİL (`_parti_tuket`in aynı
+    # dersi): iki okuma arasında hareketler değişebilir ve o zaman cevap
+    # kendi okuduğu satırları anlatmazdı.
+    cikislar = db.execute(
+        text(
+            "SELECT lot_id,quantity FROM stock_movements "
+            "WHERE company_id=:cid AND reference_type=:rt AND reference_id=:rid "
+            "AND product_id=:pid AND quantity<0 ORDER BY id DESC"
+        ),
+        {"cid": cid, "rt": satis_tablosu, "rid": satis_id, "pid": product_id},
+    ).mappings().all()
+    if not cikislar:
+        # ÜRÜN O SATIŞTA HİÇ YOK. Kapasite hesabı yapmanın anlamı yok: hiç
+        # satılmamış maldan iade, miktarı ne olursa olsun YANLIŞ kaynaktır.
+        raise HTTPException(422, _asiyor(istenen, Decimal("0")))
+    borclar = [satir for satir in cikislar if satir["lot_id"] is not None]
+    if not borclar:
+        return None
+
+    # AYNI PARTİ İKİ SATIRDA GÖRÜNEBİLİR (aynı ürün belgede iki kalem olarak
+    # geçerse). Toplanıyor ama SIRA korunuyor: sözlük ekleme sırasını tutar
+    # ve ilk görülme sırası zaten TERS FEFO'nun kendisidir.
+    satilan: dict[int, Decimal] = {}
+    for satir in borclar:
+        lot_id = int(satir["lot_id"])
+        satilan[lot_id] = satilan.get(lot_id, Decimal("0")) - quantity(
+            satir["quantity"]
+        )
+
+    onceki = dict(
+        db.execute(
+            text(
+                "SELECT h.lot_id, SUM(h.quantity) FROM stock_movements h "
+                "JOIN returns i ON i.id=h.reference_id AND i.company_id=h.company_id "
+                "WHERE h.company_id=:cid AND h.reference_type='returns' "
+                "AND h.product_id=:pid AND h.lot_id IS NOT NULL AND h.quantity>0 "
+                "AND i.return_type='sale_return' AND i.source_type=:kt "
+                "AND i.source_id=:rid GROUP BY h.lot_id"
+            ),
+            {"cid": cid, "pid": product_id, "kt": iade_kaynak_turu, "rid": satis_id},
+        ).all()
+    )
+
+    kapasiteler = [
+        (lot_id, kalan)
+        for lot_id, borc in satilan.items()
+        if (kalan := borc - quantity(onceki.get(lot_id, 0))) > 0
+    ]
+    mevcut = sum((kalan for _, kalan in kapasiteler), Decimal("0"))
+    if istenen > mevcut:
+        raise HTTPException(422, _asiyor(istenen, mevcut))
+
+    paylar: list[tuple[int, Decimal]] = []
+    kalan_istek = istenen
+    for lot_id, kapasite in kapasiteler:
+        if kalan_istek <= 0:
+            break
+        pay = kapasite if kapasite < kalan_istek else kalan_istek
+        kalan_istek -= pay
+        kaynak = db.execute(
+            text(
+                "SELECT lot_code,expiry_date FROM product_lots "
+                "WHERE company_id=:cid AND id=:id"
+            ),
+            {"cid": cid, "id": lot_id},
+        ).mappings().first()
+        if kaynak is None:
+            # Parti satırı SİLİNMİŞ. Uydurmak yerine 409: hangi partiye geri
+            # verileceği artık SORULAMAZ ve sessizce yeni bir parti açmak
+            # geri çağırma kaydını yalan söyletirdi.
+            raise HTTPException(
+                409,
+                {
+                    "code": "IADE_PARTISI_YOK",
+                    "message": (
+                        f"#{lot_id} partisi defterde YOK; satisin ciktigi parti "
+                        "silinmis. Iade hangi partiye girecegini soyleyemez."
+                    ),
+                },
+            )
+        # SKT METNE ÇEVRİLİYOR: sütun PostgreSQL'de `date`, SQLite'ta `str`
+        # döner (`_skt`/`_parti_ac`ın aynı diyalekt ayrımı). Ham `date`
+        # nesnesini geri yazmak SQLite sürücüsünde tip hatası olurdu; metin
+        # her iki diyalektte de kabul ediliyor ve `_parti_ac`ın karşılaştırması
+        # zaten metin üzerinde.
+        skt = kaynak["expiry_date"]
+        paylar.append(
+            (
+                _parti_ac(
+                    db,
+                    cid,
+                    product_id=product_id,
+                    warehouse_id=warehouse_id,
+                    lot_code=str(kaynak["lot_code"]),
+                    expiry_date=skt.isoformat() if hasattr(skt, "isoformat") else skt,
+                    miktar=pay,
+                ),
+                pay,
+            )
+        )
+    return tuple(paylar)
 
 
 #: `stock_movements.note` alanına basılan damga. Sabit MODÜL DÜZEYİNDEDİR ki
