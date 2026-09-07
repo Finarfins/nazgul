@@ -376,6 +376,13 @@ class WarehouseCreate(BaseModel):
 class StockTransferItem(BaseModel):
     product_id: int
     quantity: Decimal = Field(gt=0)
+    # PARTI, 1B-D. Sinir diger parti girdileri ve 0073 sutunuyla aynidir.
+    lot_code: str | None = Field(default=None, max_length=80)
+
+    @field_validator('lot_code')
+    @classmethod
+    def validate_lot_code(cls, value: str | None) -> str | None:
+        return _clean_optional(value)
 
 
 class StockTransferCreate(BaseModel):

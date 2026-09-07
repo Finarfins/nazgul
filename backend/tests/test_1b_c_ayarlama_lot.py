@@ -279,8 +279,8 @@ print("TAZE FK TAMAM")
 # ----------------------------------------------------- sınır ve şekil kapıları ---
 
 
-def test_lot_kodu_sinirlari_UC_YERDE_de_AYNI() -> None:
-    """80 karakter: göç, alış kalemi, ayarlama ve sayım — DÖRDÜ de aynı.
+def test_lot_kodu_sinirlari_DORT_GIRISTE_de_AYNI() -> None:
+    """80 karakter: göç ile alış, ayarlama, sayım ve transfer — BEŞİ de aynı.
 
     İki yerde iki farklı sınır olsaydı büyük olan sessizce kesilir ve kesilen
     kod defterdeki partiyle EŞLEŞMEZDİ — aynı parti için İKİNCİ bir satır
@@ -291,7 +291,7 @@ def test_lot_kodu_sinirlari_UC_YERDE_de_AYNI() -> None:
         BACKEND / "alembic" / "versions" / "20260908_0073_parti_depo_alis.py"
     ).read_text(encoding="utf-8")
     assert "KALEM_KODU_UZUNLUK = 80" in goc
-    assert semalar.count('lot_code: str | None = Field(default=None, max_length=80)') == 2
+    assert semalar.count('lot_code: str | None = Field(default=None, max_length=80)') == 3
     assert (
         'lot_code: str | None = Field(default=None, max_length=80)'
         in SAYIM.read_text(encoding="utf-8")

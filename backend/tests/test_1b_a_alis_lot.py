@@ -74,6 +74,9 @@ CAGIRANLAR = {
     "app/routers/workflow.py",
     "app/routers/products.py",
     "app/routers/warehouse_counts.py",
+    # 1B-D: transfer, adiyla verilen partiyi kaynaktan dusurup hedefte ayni
+    # SKT ile acar; dogrudan product_lots yazmaz, tek defteri cagirir.
+    "app/routers/warehouses.py",
 }
 
 _YAZMA_FIILLERI = ("INSERT", "UPDATE", "DELETE")

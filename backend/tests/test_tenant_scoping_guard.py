@@ -1929,8 +1929,12 @@ print("TENANT_TABLES_JSON=" + json.dumps(tables))
 # otekinin yerine koymak sayiyi duzeltip gerekceyi YALAN yapardi, o yuzden
 # UCU DE korundu. Bu satir #64 SONRASI develop (5ac6658) uzerinde YENIDEN
 # OLCULDU, aritmetikle devralinmadi.
-BEKLENEN_ALT_SUREC_SQL_DOSYA = 119
-BEKLENEN_ALT_SUREC_SQL_METIN = 200
+# 119/200 -> 121/202 (1B-D, GOC YOK), birlesmis agacta yeniden OLCULDU:
+# SQLite davranis dosyasi ve PostgreSQL ikizi birer alt surec/gomulu SQL metni
+# ekler. Ikisinde de SQL test betigindedir; app/ uretim kodu alt surece SQL
+# vermiyor. PG ikizi ayni davranisi gercek diyalektte ve x20 yarista olcer.
+BEKLENEN_ALT_SUREC_SQL_DOSYA = 121
+BEKLENEN_ALT_SUREC_SQL_METIN = 202
 
 
 def _alt_surecte_sql() -> tuple[list[str], int]:
