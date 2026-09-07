@@ -122,11 +122,31 @@ def _temizle(engine) -> None:
         )
 
 
+def _acilisi_kostur() -> None:
+    """Uygulamanın AÇILIŞINI bir kez koştur: açılış verisi (admin + firma) doğsun.
+
+    ÖLÇÜLDÜ, VARSAYILMADI: `alembic upgrade head` ŞEMAYI kurar ama AÇILIŞ
+    VERİSİNİ kurmaz. CI her `*_postgresql*.py` dosyasını TAZE bir şemaya karşı
+    koşturuyor ve bu dosyanın `_kimlik()`i `app_users`ta `admin` satırını
+    arıyor — açılış koşturulmasaydı dosya TAZE şemada `NoResultFound` ile
+    ölürdü ve PAYLAŞIK bir şemada (önceki dosyanın açılışını devralarak)
+    YEŞİL kalırdı. Kusur tam olarak öyle bulundu: 5432'deki paylaşık sunucuda
+    15 test yeşildi, 5433'teki taze şemada 13'ü kırmızı oldu.
+    """
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app):
+        pass
+
+
 @pytest.fixture()
 def motor():
     config = Config(str(BACKEND / "alembic.ini"))
     engine = create_engine(_url())
     command.upgrade(config, "head")
+    _acilisi_kostur()
     _acilisa_cek()
     _temizle(engine)
     try:
