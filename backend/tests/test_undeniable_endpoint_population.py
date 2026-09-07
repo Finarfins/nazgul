@@ -34,6 +34,16 @@ hiçbir test gerçek bir istekle reddedildiklerini göstermiyordu. ``_authorize`
 çağrısı bir gün silinse, uçlar altı rolün altısına da açılırdı ve hiçbir kapı
 ateşlemezdi. Bu dosya o boşluğu kapatır.
 
+**Kendi kapsamlı yazan uçlar (5.4c'de eklendi) — ÜÇÜNCÜ kategori.** Yukarıdaki
+iki kategori "reddedilemez olması sorun değil, çünkü okuma" ya da "reddedilemez
+görünüyor ama router zaten reddediyor" diyor. Push cihaz uçları İKİSİ DE
+değildir: yazıyorlar VE her rolde gerçekten çalışıyorlar. Onları atıl ilan
+etmek yalan, bir rolden men etmek ise ürünü bozmak olurdu (depo görevlisi de
+telefonuna bildirim alabilmelidir). Kural bu yüzden DARALTILARAK genişletildi:
+bir yazan uç evrensel izinle korunabilir, ANCAK VE ANCAK yazdığı satırın
+öznesi ÇAĞIRANIN KENDİSİYSE — ve o sahiplik sınırı GERÇEK bir istekle
+kanıtlanmak zorundadır. Ayrıntı ``SELF_SCOPED_WRITE_EXEMPTIONS``ın üstünde.
+
 --- SINIF SABİTLENİR, ÖRNEKLER DEĞİL -------------------------------------------
 
 Kural: **evrensel bir izinle korunan her GET-DIŞI operasyon, tek tek çapalanmak
@@ -88,6 +98,38 @@ INERT_WRITE_EXEMPTIONS = frozenset({
     ("POST", "/api/platform/backups"),
     ("POST", "/api/platform/backups/{name}/restore"),
     ("POST", "/api/platform/backups/{name}/verify"),
+})
+
+#: İKİNCİ ÇAPA — ve NEDEN İKİNCİ BİR KATEGORİ GEREKTİ (5.4c).
+#:
+#: Yukarıdaki çapa "middleware izni ATIL, router daha güçlü denetliyor" diyor
+#: ve atıllığı GERÇEK bir istekle kanıtlıyor. Push cihaz uçları o cümleyi
+#: KURAMAZ ve kurmaya çalışmak YALAN olurdu: `POST /api/push/devices` her
+#: rolde GERÇEKTEN çalışmalıdır — depo görevlisi de telefonuna bildirim
+#: alabilmelidir. Yani middleware izni atıl DEĞİL; sadece hiçbir rolü
+#: reddetmiyor, çünkü reddetmesi İSTENMİYOR.
+#:
+#: O hâlde dosyanın sınıf kuralı ("yazan uçta tasarım kararı YOKTUR") bu uçlar
+#: için YENİDEN yazılıyor ve DARALTILARAK yazılıyor: bir yazan uç evrensel
+#: izinle korunabilir, ANCAK VE ANCAK yazdığı satırın öznesi ÇAĞIRANIN
+#: KENDİSİYSE. Sınır o zaman ROL değil SAHİPLİKTİR ve sahiplik denetimi
+#: middleware'de değil router'da olmak ZORUNDADIR (rol tablosu "bu satır
+#: kimin" sorusunu soramaz).
+#:
+#: İDDİA EDİLMİYOR, ÖLÇÜLÜYOR. Aşağıdaki smoke İKİ YÖNÜ de gerçek istekle
+#: gösteriyor:
+#:   * YÖN C — `admin` OLMAYAN bir rol (satis) KENDİ cihazını kaydedebiliyor
+#:     ve düşürebiliyor. Bu, "atıl" iddiasının burada GEÇERSİZ olduğunun
+#:     tanığıdır; uçlar gerçekten açıktır ve açık olmaları karardır.
+#:   * YÖN D — AYNI rol BAŞKASININ cihazını düşüremiyor (403). Bu, kararın
+#:     bedelinin NEREDE durduğunun tanığıdır. Router'daki sahiplik yüklemi
+#:     silinirse bu satır KIRMIZI olur.
+#:
+#: `GET /api/push/devices` bu kümede DEĞİL: GET'ler zaten "tasarım gereği
+#: açık" kategorisindedir ve bu dosyanın yazma kuralına hiç girmezler.
+SELF_SCOPED_WRITE_EXEMPTIONS = frozenset({
+    ("POST", "/api/push/devices"),
+    ("DELETE", "/api/push/devices/{device_id}"),
 })
 
 ROLES = ("admin", "yonetici", "muhasebe", "satis", "depo", "rapor")
@@ -170,6 +212,7 @@ def test_no_unanchored_write_is_gated_by_a_universal_permission() -> None:
         if method != "GET"
         and required_permission(method, concrete) in UNIVERSAL_PERMISSIONS
         and (method, path) not in INERT_WRITE_EXEMPTIONS
+        and (method, path) not in SELF_SCOPED_WRITE_EXEMPTIONS
     )
     assert not offenders, (
         "Evrensel izinle korunan ve ÇAPALANMAMIŞ yazan uç(lar) var; middleware "
@@ -177,10 +220,20 @@ def test_no_unanchored_write_is_gated_by_a_universal_permission() -> None:
     )
 
 
+def test_iki_capa_AYRIK() -> None:
+    """Bir uç HEM atıl HEM kendi-kapsamlı olamaz — iki gerekçe birbirini yalanlar.
+
+    Kesişselerdi hangi kanıtın o ucu koruduğu SORULAMAZ hâle gelirdi: atıllık
+    "hiçbir rol geçemez" der, kendi-kapsamlılık "her rol geçer ama yalnız
+    kendi satırına" der.
+    """
+    assert INERT_WRITE_EXEMPTIONS & SELF_SCOPED_WRITE_EXEMPTIONS == frozenset()
+
+
 def test_every_anchored_exemption_still_exists_and_still_needs_the_anchor() -> None:
     """Çapa BAYATLAMAZ: silinmiş ya da artık evrensel olmayan bir giriş kırmızıdır."""
     gated = {(method, path): concrete for method, path, concrete in _gated_operations()}
-    for method, path in sorted(INERT_WRITE_EXEMPTIONS):
+    for method, path in sorted(INERT_WRITE_EXEMPTIONS | SELF_SCOPED_WRITE_EXEMPTIONS):
         assert (method, path) in gated, (
             f"{method} {path} artık yetki kapısından geçmiyor; çapa bayat"
         )
@@ -272,6 +325,31 @@ for method, path, body in YAZAN:
     answer = sc.request(method, path, headers=SH, json=body)
     assert answer.status_code == 403, ("YON-B satis", path, answer.status_code, answer.text)
 
+# --- YON C: KENDI KAPSAMLI YAZMA GERCEKTEN ACIK (5.4c) -------------------
+# Bu bolum yukaridakinin TERSINI olcuyor ve olcmesi ZORUNLU: push uclarinin
+# capasi "middleware izni atil" DEMIYOR, "her rol gecer ama YALNIZ kendi
+# satirina" diyor. Ilk yari o cumlenin ILK yarisini kanitlar.
+CIHAZ = "/api/push/devices"
+admin_cihaz = c.post(CIHAZ, headers=AH,
+                     json={"platform": "android", "token": "atil-admin-jeton"})
+assert admin_cihaz.status_code == 201, ("YON-C admin kayit", admin_cihaz.status_code, admin_cihaz.text)
+satis_cihaz = sc.post(CIHAZ, headers=SH,
+                      json={"platform": "ios", "token": "atil-satis-jeton"})
+assert satis_cihaz.status_code == 201, ("YON-C satis kayit", satis_cihaz.status_code, satis_cihaz.text)
+# Liste de yalniz KENDI cihazlarini veriyor.
+kendi = sc.get(CIHAZ, headers=SH)
+assert kendi.status_code == 200, ("YON-C satis liste", kendi.status_code, kendi.text)
+assert [d["token"] for d in kendi.json()] == ["atil-satis-jeton"], kendi.json()
+
+# --- YON D: BASKASININ CIHAZI -> 403 -------------------------------------
+# Kararin BEDELI tam olarak burada duruyor. Router'daki sahiplik yuklemi
+# silinirse bu satir KIRMIZI olur ve capa gerekcesini kaybeder.
+yasak = sc.delete("%s/%d" % (CIHAZ, admin_cihaz.json()["id"]), headers=SH)
+assert yasak.status_code == 403, ("YON-D baskasinin cihazi", yasak.status_code, yasak.text)
+# KENDI cihazini ise dusurebiliyor: red SAHIPLIKTEN geliyor, ROLDEN degil.
+kendi_sil = sc.delete("%s/%d" % (CIHAZ, satis_cihaz.json()["id"]), headers=SH)
+assert kendi_sil.status_code == 204, ("YON-D kendi cihazi", kendi_sil.status_code, kendi_sil.text)
+
 print("ATIL-KAPI-TAMAM")
 '''
 
@@ -301,5 +379,14 @@ def _run_smoke(database_url: str, workspace: Path) -> None:
 
 
 def test_anchored_write_exemptions_are_provably_inert(tmp_path: Path) -> None:
-    """Çapalı üç uç GERÇEKTEN reddediyor mu — router denetimi silinirse kırmızı."""
+    """Beş çapalı uç GERÇEKTEN iddia ettikleri şeyi yapıyor mu.
+
+    Tek smoke, İKİ AYRI iddiayı ölçüyor ve ikisi birbirinin TERSİDİR:
+
+      * `INERT_WRITE_EXEMPTIONS` (üç yedek ucu): hiçbir rol geçemiyor (YÖN A/B).
+        Router'ın `_authorize` çağrısı silinirse KIRMIZI.
+      * `SELF_SCOPED_WRITE_EXEMPTIONS` (iki push ucu): her rol geçiyor ama
+        YALNIZ kendi satırına (YÖN C/D). Router'ın sahiplik yüklemi silinirse
+        KIRMIZI; uçlar bir rolden men edilirse de KIRMIZI.
+    """
     _run_smoke(f"sqlite:///{(tmp_path / 'atil.db').as_posix()}", tmp_path)

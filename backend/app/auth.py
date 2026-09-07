@@ -921,6 +921,18 @@ def required_permission(method: str, path: str) -> str:
     # önce çalışsaydı tarla uçları sessizce SAHA SERVİS iznine düşerdi —
     # yani satış/rapor rolleri tarla verisini göremez, buna karşılık saha
     # teknisyeni parsel yazabilirdi. İkisi de yanlış.
+    # PUSH CİHAZ DEFTERİ (5.4c) — gerekçenin TAMAMI `routers/push.py`nin
+    # başlığında. Kısaca: bu satır YAZILMASAYDI "/api/push/..." hiçbir mevcut
+    # önekle eşleşmediği için (ölçüldü) POST ve DELETE dosyanın SONUNDAKİ
+    # deny-by-default nöbetçisine düşerdi ve `admin` dışında hiç kimse kendi
+    # telefonunu bildirimlere kaydedemezdi. GET ise üstteki genel SAFE_METHODS
+    # kuralına düşüp aynı `read`i alırdı — yani kural olmadan aynı uç ailesi
+    # metoda göre İKİ FARKLI kapıdan geçerdi.
+    #
+    # ÖNEK, TAM EŞLEŞME DEĞİL: "/api/push/devices/{id}" de aynı izne bağlı
+    # olmalı; sahiplik denetimi router'ın işidir ve orada yapılıyor.
+    if path.startswith("/api/push/"):
+        return "read"
     if path.startswith(_COST_RATE_PREFIX):
         return "finance"
     if any(path.startswith(prefix) for prefix in _HERD_PATH_PREFIXES):

@@ -33,7 +33,10 @@ class TemplateError(ValueError):
     """Şablon kaydı reddedildi."""
 
 
-CHANNELS: frozenset[str] = frozenset({"SMS", "WHATSAPP", "EMAIL"})
+# PUSH 5.4c'de eklendi: bir push şablonu TANIMLANABİLİR olmalı, aksi hâlde
+# kanalın gövdesi yalnız koda gömülebilirdi. Kural motorunun kanal kümesi
+# (`rules.CHANNELS`) BİLEREK DOKUNULMADI — gerekçe `schema.PUSH`ın üstünde.
+CHANNELS: frozenset[str] = frozenset({"SMS", "WHATSAPP", "EMAIL", "PUSH"})
 
 _COLUMNS = """id, company_id, code, channel, name, body, message_class,
     is_active, version, created_by, created_at, updated_by, updated_at,

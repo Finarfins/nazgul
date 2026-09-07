@@ -255,9 +255,33 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 #     edilen altı rolün hepsinde var. İKİ YAZMA ucu bu sayaca GİRMİYOR
 #     (`herd.health`; taşımayan roller var) ve girmemesi ayrımın tanığıdır —
 #     "karantinayı görmek" ile "karantinayı açıp kapatmak" AYRI izinlerdir.
-EXPECTED_AUTHENTICATED = 369
-EXPECTED_READ = 95
-EXPECTED_UNDENIABLE = 110
+# 369 -> 372 / 95 -> 98 / 110 -> 113 (TABAN develop `77be889`, yani 5.4b #72
+# indikten SONRA; YENİDEN ÖLÇÜLDÜ). 5.4b HİÇBİR UÇ EKLEMEDİ — ara katman bir
+# rota değildir — ve o yüzden üç sayaç da 5.4a'dan beri kımıldamamıştı; bu
+# satırın tabanı yine de BİRLEŞMİŞ AĞAÇTIR, önceki ölçümün üzerine
+# aritmetik yapılarak DEĞİL. 5.4c — PUSH CİHAZ DEFTERİ (göç 20260909_0077),
+# ÜÇ uç. Hangi sayaç NİYE kımıldadı:
+#   * KİMLİKLENMİŞ +3: üç uç da kimlik ister (PUBLIC_API'de değiller).
+#   * `read` +3 ve BU BİR TANIKTIR: üçü de `auth.py`ye YAZILAN
+#     "/api/push/" önek kuralı üzerinden `read`e çözülüyor. Kural
+#     silinseydi bu sayaç YALNIZ 1 artardı (GET, genel SAFE_METHODS
+#     kuralından) ve POST ile DELETE dosyanın SONUNDAKİ deny-by-default
+#     nöbetçisine düşerdi — yani `admin` dışında hiç kimse telefonunu
+#     kaydedemezdi. ÖLÇÜLDÜ: satır silinince `required_permission` ikisi
+#     için de `__admin_only__` veriyor.
+#   * UNDENIABLE +3: üçü de ÇIPLAK read'e düşüyor. DELETE'in handler
+#     kapısı SAHİPLİK sorar, ROL değil — bu küme "hiçbir ROL DEĞERİYLE
+#     reddedilemeyen uçlar"ı sayıyor ve sahiplik denetimi o soruya cevap
+#     değildir (her rol KENDİ cihazını düşürebilir).
+#   * `FARM_HERD_VIEW_OPERATIONS` KIMILDAMADI: uçlar tarla/sürü
+#     ailesinden değil.
+#   BEDEL AÇIKÇA YAZILIYOR: `read` taşıyan HER rol kendi cihazını
+#   kaydedebilir ve okuyabilir. Yüzey DAR — okunan ve yazılan şey yalnız
+#   ÇAĞIRANIN KENDİ cihazlarıdır (`user_id` istekten değil OTURUMDAN
+#   geliyor), yani bu uçlar başka bir aktörün verisine HİÇ ulaşmıyor.
+EXPECTED_AUTHENTICATED = 372
+EXPECTED_READ = 98
+EXPECTED_UNDENIABLE = 113
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
 #: sonra kendi kapılarına takılırlar. 89'a dahil, 94'e DEĞİL.
@@ -432,6 +456,18 @@ def _walk(routes, prefix: str = ""):
 #: dosyanın koruduğu metrik tam olarak o kümedir; diğer iki popülasyon zaten
 #: üyelikle çapalıydı, güvenlik iddiasını taşıyan popülasyon değildi.
 NAKED_READ_OPERATIONS = {
+    # PUSH CİHAZ UÇLARI (5.4c) — ÜÇÜ DE bu kümededir ve her biri için
+    # gerekçe AYRIDIR:
+    #   * GET/POST: handler'da ikinci bir YETKİ kapısı YOK.
+    #   * DELETE: handler'da bir SAHİPLİK kapısı VAR (başkasının cihazı
+    #     403) ama o kapı ROL DEĞİL SAHİPLİK sorar. Bu küme "middleware'in
+    #     hiçbir ROL DEĞERİYLE reddedemediği uçlar"ı sayıyor; sahiplik
+    #     denetimi o soruya cevap DEĞİLDİR — her rol kendi cihazını
+    #     düşürebilir. Uç bu yüzden ÇIPLAK read sayılıyor ve bu, kümenin
+    #     tanımının AYNEN uygulanmasıdır, bir istisna değil.
+    ("DELETE", "/api/push/devices/{device_id}"),
+    ("GET", "/api/push/devices"),
+    ("POST", "/api/push/devices"),
     ("GET", "/api/analytics/seasonal-plan"),
     ("GET", "/api/auth/me"),
     ("GET", "/api/branches"),
@@ -605,7 +641,10 @@ def test_eightynine_partitions_into_sixtysix_and_twentythree() -> None:
     # gerekçeyle — handler'da ikinci bir yetki kapısı YOK.
     # 68 -> 69: 5.4a'nin ``POST /api/auth/logout-all``u, AYNI gerekceyle —
     # handler'da ikinci bir yetki kapisi YOK.
-    assert len(naked_read) == 69
+    # 69 -> 72: 5.4c'nin ÜÇ push cihaz ucu (göç 20260909_0077). Gerekçeleri
+    # kümenin girdisinde tek tek yazılı; özeti: `/api/push/` öneki `read`e
+    # çözülüyor ve handler'daki tek denetim SAHİPLİKTİR, ROL DEĞİL.
+    assert len(naked_read) == 72
     # Bölünme: kesişim boş ve birleşim TAM. Sayılar tutup üyelik tutmazsa burası kırmızı.
     assert guarded <= read_ops
     assert naked_read | guarded == read_ops

@@ -124,6 +124,48 @@ class WhatsAppNotificationProvider(NotificationProvider):
         raise NotImplementedError(_NOT_CONFIGURED)
 
 
+class PushNotificationProvider(NotificationProvider):
+    """PUSH kanalının taşıyıcı yeri — 5.4c'de AĞA ÇIKMIYOR.
+
+    GERÇEK TESLİMAT ÖLÇÜLMEDİ VE İDDİA EDİLMİYOR. Bu turda depoda FCM ya da
+    APNs kimlik bilgisi YOKTUR (ölçüldü: `app/config.py`de `fcm`/`apns`
+    literali SIFIR kez geçiyor), yani gönderilecek bir yer yoktur. Bu sınıf
+    DENEMEYİ KAYDEDER ve `SIMULATED` döner.
+
+    `SENT` YAZMIYOR ve bu, `SimulationNotificationProvider`ın yıllardır
+    yazılı kuralının AYNEN uygulanmasıdır: gerçekten gönderilmemiş bir mesajı
+    "gönderildi" diye raporlamak denetim izini yalan söyler hâle getirir.
+    `SIMULATED` terminaldir (`schema.TERMINAL_STATUSES`), yani satır yeniden
+    denemeye TAKILMAZ; raporlarda gerçek gönderimlerden AYRI sayılır.
+
+    `supports_idempotency = True`: bu sağlayıcının yan etkisi YOKTUR, yani
+    süresi dolmuş bir lease'in geri alınması aynı mesajı iki kez GÖNDEREMEZ.
+    Gerçek adaptör geldiğinde bu değer YENİDEN ÖLÇÜLMELİDİR — FCM'in kendi
+    tekilleştirme anahtarı vardır, APNs'in `apns-collapse-id`si ise farklı
+    çalışır.
+
+    CİHAZ JETONUNUN GEÇERSİZLEŞMESİ (FCM `NotRegistered`, APNs `Unregistered`)
+    bu turda ELE ALINMIYOR: gerçek bir cevap olmadığı için hangi jetonun ölü
+    olduğunu söyleyecek bir kaynak yok. Cihazı pasifleştiren tek yol bugün
+    açıktır ve ölçülüdür — `DELETE /api/push/devices/{id}` ve `logout-all`.
+    """
+
+    supports_idempotency = True
+
+    def send(self, notification: dict[str, Any]) -> NotificationResult:
+        jeton = str(notification.get("recipient") or "").strip()
+        if not jeton:
+            # İÇERİK HATASI, AĞ HATASI DEĞİL: hedefi olmayan bir satır
+            # yeniden denenerek düzelmez.
+            raise ValueError("Push bildiriminde cihaz jetonu yok")
+        anahtar = str(notification.get("provider_idempotency_key") or "push")
+        return NotificationResult(
+            status="SIMULATED",
+            message="Push simülasyonu: sağlayıcı yapılandırılmadı",
+            external_id="push-" + anahtar.replace(":", "-"),
+        )
+
+
 class SmtpEmailNotificationProvider(NotificationProvider):
     """SMTP taşıyıcısı — F0-email'in tek gerçek gönderim noktası.
 
@@ -214,15 +256,41 @@ class SmtpEmailNotificationProvider(NotificationProvider):
 
 
 _PROVIDERS: dict[str, type[NotificationProvider]] = {
+    "push": PushNotificationProvider,
     "simulation": SimulationNotificationProvider,
     "smtp": SmtpEmailNotificationProvider,
     "twilio": TwilioNotificationProvider,
     "whatsapp": WhatsAppNotificationProvider,
 }
 
+#: KANALA ÇİVİLİ SAĞLAYICILAR — ayarlardan BAĞIMSIZ (5.4c).
+#:
+#: Bu eşleme olmasaydı ölçülen kusur şu olurdu: `notification_provider="smtp"`
+#: ayarlı bir kurulumda PUSH kanalındaki bir outbox satırı SMTP adaptörüne
+#: giderdi ve o adaptör alıcı alanındaki CİHAZ JETONUNU bir e-posta adresi
+#: sanıp ona mail atmaya çalışırdı. Kanal, taşıyıcıyı BELİRLER; ayar yalnız
+#: kanalın BİRDEN ÇOK adaptörü olduğu yerde (SMS: twilio/simulation) seçer.
+#:
+#: Küme KAPALI ve bugün TEK üyesi var: SMS/WHATSAPP/EMAIL kanalları
+#: TARİHSEL olarak ayardan seçiliyor ve o davranış BU TURDA KIMILDAMADI —
+#: kımıldatmak, çalışan üç kanalı tek turda değiştirmek olurdu.
+KANAL_SAGLAYICILARI: dict[str, type[NotificationProvider]] = {
+    "PUSH": PushNotificationProvider,
+}
 
-def get_notification_provider(settings: Any) -> NotificationProvider:
-    """Resolve the configured adapter, failing safely to NoOp."""
+
+def get_notification_provider(
+    settings: Any, *, channel: str | None = None
+) -> NotificationProvider:
+    """Resolve the adapter: channel-pinned first, then configured, then NoOp.
+
+    `channel` VERİLMEZSE davranış 5.4c ÖNCESİYLE BİREBİR AYNIDIR — mevcut
+    çağıranların hiçbiri kımıldamadı.
+    """
+    if channel:
+        cihaz_tipi = KANAL_SAGLAYICILARI.get(channel.strip().upper())
+        if cihaz_tipi is not None:
+            return cihaz_tipi(settings)
     name = (
         getattr(settings, "notification_provider", "noop") or "noop"
     ).strip().lower()

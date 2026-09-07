@@ -76,6 +76,7 @@ from .routers import (
     platform_backups,
     pos,
     products,
+    push,
     quick_pick,
     reports,
     search,
@@ -615,6 +616,10 @@ app.include_router(quick_pick.router, prefix="/api")
 app.include_router(imports.router, prefix="/api")
 app.include_router(invoices.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
+# PUSH CİHAZ DEFTERİ (5.4c). Bildirim uçlarının HEMEN YANINDA:
+# cihaz kaydı bir bildirim KANALININ hedef defteridir, ayrı bir modül
+# değil — okuyan kişi ikisini yan yana görmeli.
+app.include_router(push.router, prefix="/api")
 app.include_router(workflow.router, prefix="/api")
 app.include_router(work_orders.router, prefix="/api")
 app.include_router(work_order_parts.router, prefix="/api")

@@ -4373,6 +4373,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/push/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Push Devices
+         * @description YALNIZ çağıranın cihazları — `user_id` istekten DEĞİL oturumdan geliyor.
+         *
+         *     Sorgu parametresi olarak alınsaydı bir kullanıcı başka bir kullanıcının
+         *     cihaz jetonlarını okuyabilirdi ve o jetonlar, gönderim tarafının TEK
+         *     kimlik bilgisidir.
+         */
+        get: operations["list_push_devices_api_push_devices_get"];
+        put?: never;
+        /**
+         * Register Push Device
+         * @description Jetonu kaydeder ya da VAR OLAN satırı günceller.
+         *
+         *     AYNI JETON İKİNCİ KEZ = TEK SATIR: `uq_push_devices_company_token` tekildir
+         *     ve `push_devices.kaydet` önce `UPDATE` dener. Cevap her iki durumda da
+         *     201'dir ve bu bilinçli — istemci için "kaydoldum" olgusu aynıdır ve
+         *     200/201 ayrımı ona satırın daha önce var olup olmadığını, yani BAŞKA BİR
+         *     KURULUMUN izini söylerdi.
+         *
+         *     5.4b'nin GENEL İDEMPOTENSİ ara katmanı (`app/idempotency.py`) bu uca
+         *     OLDUĞU GİBİ uygulanır ve BU DOSYADA ONA AİT TEK SATIR KOD YOKTUR — uç
+         *     `ATLANAN_UCLAR` listesinde DEĞİLDİR. Başlığın adı bu dosyada BİLEREK
+         *     GEÇMİYOR: 5.4b'nin kapısı `app/routers/` altında o adı ARAYARAK "kendi
+         *     defterini tutan uçlar" kümesini ölçüyor ve adı anmak bu ucu o kümeye
+         *     SOKARDI — yani ara katman onu ATLARDI. Kapıda ölçülüyor.
+         */
+        post: operations["register_push_device_api_push_devices_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/push/devices/{device_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Push Device
+         * @description Cihazı düşürür (satır SİLİNMEZ, `is_active=false` olur).
+         *
+         *     SAHİPLİK YÜKLEMİ ZORUNLU: olmasaydı aynı firmadaki herhangi bir kullanıcı
+         *     bir başkasının telefonunu bildirimlerden sessizce koparabilirdi.
+         */
+        delete: operations["delete_push_device_api_push_devices__device_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/quick-pick": {
         parameters: {
             query?: never;
@@ -8732,6 +8796,21 @@ export interface components {
             quantity?: number | string | null;
             /** Supplier Id */
             supplier_id: number;
+        };
+        /**
+         * PushDeviceWrite
+         * @description Kayıt gövdesi. `extra="forbid"`: sessizce yok sayılan alan YOK.
+         */
+        PushDeviceWrite: {
+            /**
+             * Platform
+             * @enum {string}
+             */
+            platform: "android" | "ios" | "web";
+            /** Session Family Id */
+            session_family_id?: string | null;
+            /** Token */
+            token: string;
         };
         /**
          * QuarantineClose
@@ -18757,6 +18836,88 @@ export interface operations {
                 content: {
                     "application/json": unknown;
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_push_devices_api_push_devices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    register_push_device_api_push_devices_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushDeviceWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_push_device_api_push_devices__device_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -425,7 +425,7 @@ def test_BAS_TEK_ve_0073_zincirin_UCUNDA(motor) -> None:
     """Göç 0073 zincire İKİNCİ bir baş EKLEMEDİ.
 
     Ölçülen şey başın HANGİ göç olduğu değil, TEK olduğudur. Baş ARTIK
-    `20260909_0076`dır (5.4b, genel idempotensi defteri) ve 0073 hâlâ zincirin
+    `20260909_0077`dır (5.4c, push cihaz defteri) ve 0073 hâlâ zincirin
     İÇİNDE — yukarıdaki `test_GOC_TURU_BOS_TABLO_...` turu onu MUTLAK hedefle
     adıyla sürüyor.
     """
@@ -433,4 +433,4 @@ def test_BAS_TEK_ve_0073_zincirin_UCUNDA(motor) -> None:
 
     config = Config(str(BACKEND / "alembic.ini"))
     baslar = ScriptDirectory.from_config(config).get_heads()
-    assert tuple(baslar) == ("20260909_0076",), baslar
+    assert tuple(baslar) == ("20260909_0077",), baslar
