@@ -71,6 +71,27 @@ DISPATCHABLE_STATUSES: frozenset[str] = frozenset({PENDING, RETRY_SCHEDULED})
 MESSAGE_CLASSES: frozenset[str] = frozenset({"SERVICE_TRANSACTIONAL", "COMMERCIAL"})
 CONSENT_REQUIRED_CHANNELS: frozenset[str] = frozenset({"SMS", "WHATSAPP", "EMAIL"})
 
+# PUSH KANALI (5.4c, göç 20260909_0077). Değer büyük harfli, kardeşleriyle
+# AYNI biçimde; hedefi bir telefon numarası ya da e-posta adresi DEĞİL, bir
+# CİHAZ JETONUDUR (`push_devices.token`).
+#
+# `CONSENT_REQUIRED_CHANNELS`TE BİLEREK YOK — ÖLÇÜLDÜ, ATLANMADI. Rıza defteri
+# (`notification_consents`) DB seviyesinde yalnız CUSTOMER/SUPPLIER taraflarını
+# kabul eder (0033 `ck_notification_consents_party_type`) ve bir push bildirimi
+# bir MÜŞTERİYE değil, uygulamanın KENDİ KULLANICISINA, onun KENDİ kaydettiği
+# cihazına gider. Kanal listeye konsaydı her push satırı taraf araması yapar,
+# taraf bulamaz ve `TARGET_MISSING` ile terminal `REJECTED` olurdu — yani push
+# kanalı DOĞDUĞU ANDA ölü olurdu. Aynı gerekçe `AUTH_SYSTEM_TYPES` şeridinin
+# muafiyetinin de gerekçesidir; fark, oradaki muafiyetin TİP bazlı, buradakinin
+# KANAL bazlı olmasıdır: push kanalının TAMAMI kullanıcının kendi hesabına
+# gider, bir alt kümesi değil.
+#
+# `rules.CHANNELS`E DE EKLENMEDİ ve bu da ölçülmüş bir karardır: kural motoru
+# (`SERVICE_DUE`, `HARVEST_DUE_SOON`, `HARVEST_OVERDUE`) alıcıyı MÜŞTERİ
+# kaydından çözer ve müşterinin cihaz jetonu YOKTUR — `push_devices` satırları
+# `app_users`a bağlıdır. Eklenseydi kural motoru alıcısı boş satırlar üretirdi.
+PUSH = "PUSH"
+
 # F0-email sistem şeridi. Bu tipler kullanıcının kendi hesabına, kendi eylemi
 # üzerine giden kimlik doğrulama mesajlarıdır: alıcı bir müşteri/tedarikçi
 # değil, hesabın sahibidir. ``notification_consents`` DB seviyesinde yalnız

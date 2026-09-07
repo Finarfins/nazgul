@@ -57,6 +57,7 @@ from ..email_verification import (
 )
 from ..firma_profilleri import FirmaProfili, profilleri_birlestir
 from ..password_reset import create_reset_token, queue_reset_email
+from ..push_devices import kullanicinin_cihazlarini_dusur
 from ..tenancy import branches, companies, memberships, user_companies
 from ..platform_access import is_platform_operator
 
@@ -1085,9 +1086,29 @@ def logout_all(
     user_id = int(user["id"])
     revoke_user_access_tokens(db, user_id)
     revoke_user_refresh_tokens(db, user_id)
-    # İki yardımcı da BİLEREK commit etmiyor (app/auth.py): çağıran ikisini tek
-    # işlemde kapatabilsin diye. Tek commit, "access düştü ama refresh yaşıyor"
-    # ara durumunu imkansız kılar.
+    # PUSH CİHAZLARI DA DÜŞÜYOR (5.4c) ve bu ZORUNLU: "cihaz kaybı yolu"nun
+    # vaadi, kaybolan telefonun artık bu hesaba erişememesidir. Oturum
+    # jetonları düşüp cihaz kaydı ETKİN kalsaydı, çalınmış telefon bildirim
+    # ALMAYA DEVAM ederdi — ve bir push bildiriminin gövdesi (sipariş, ödeme,
+    # hatırlatma) tam olarak hesabın gizli tutmak istediği şeydir.
+    #
+    # SATIR SİLİNMİYOR, PASİFLEŞTİRİLİYOR: kullanıcı telefonu geri
+    # kazandığında istemci jetonu yeniden kaydeder (upsert) ve satır
+    # CANLANIR; geçmişi (`created_at`) korunur.
+    #
+    # FİRMA FİRMA DOLAŞILIYOR — gerekçe `app/push_devices.py`nin başlığında:
+    # `push_devices` KİRACI TABLOSUDUR ve her yazımı `company_id` yüklemi
+    # taşımak zorundadır; `revoke_user_refresh_tokens`ın süpürgesi ise
+    # kiracısızdır çünkü `auth_refresh_tokens` kiracı tablosu DEĞİLDİR.
+    kullanicinin_cihazlarini_dusur(
+        db,
+        company_ids=[int(f["id"]) for f in user_companies(db, user_id)],
+        user_id=user_id,
+    )
+    # Üç yardımcı da BİLEREK commit etmiyor (app/auth.py, app/push_devices.py):
+    # çağıran üçünü tek işlemde kapatabilsin diye. Tek commit, "access düştü
+    # ama refresh yaşıyor" ya da "oturumlar düştü ama cihaz hâlâ hedef" ara
+    # durumlarını imkansız kılar.
     db.commit()
     # Çağıran tarayıcıysa çerezleri de düşür; mobil istemcide silinecek çerez
     # yoktur ve bu satır zararsızdır.

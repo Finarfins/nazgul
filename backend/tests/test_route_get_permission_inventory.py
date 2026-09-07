@@ -255,6 +255,12 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/platform/audit"): "read",
     ("GET", "/api/platform/backups"): "read",
     ("GET", "/api/platform/backups/{name}/download"): "read",
+    # PUSH CİHAZ DEFTERİ OKUMASI (5.4c, göç 20260909_0077). İzin
+    # `/api/push/` önek kuralından geliyor (`app/auth.py`) ve BİLİNÇLİDİR:
+    # uç YALNIZ çağıranın KENDİ cihazlarını döndürür — `user_id` istekten
+    # değil OTURUMDAN okunuyor. Ayrı bir izne bağlamak, `read` taşıyan bir
+    # rolün kendi telefonunu göremediği bir sistem üretirdi.
+    ("GET", "/api/push/devices"): "read",
     ("GET", "/api/pos/lookup"): "read",
     ("GET", "/api/products"): "read",
     ("GET", "/api/products/stock/movements/all"): "read",
@@ -361,9 +367,20 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # `missing`/`stale`/`changed` ÜÇÜ DE BOŞ — artış YALNIZ eklemedir, hiçbir
 # ucun izni DEĞİŞMEDİ.
 # 179 -> 181: E3 karantina defterinin İKİ OKUMA ucu (göç 20260909_0075).
-GET_INVENTORY_COUNT = 181
+# 181 -> 182: 5.4c push cihaz defterinin TEK OKUMA ucu
+# (`GET /api/push/devices`, göç 20260909_0077). Drift raporu ÖLÇÜLDÜ:
+# `missing`/`stale`/`changed` ÜÇÜ DE BOŞ — artış YALNIZ eklemedir, hiçbir
+# ucun izni DEĞİŞMEDİ. 5.4c'nin diğer İKİ ucu (POST ve DELETE) bu
+# envantere GİRMEZ: bu dosya YALNIZ GET'leri sayar; o ikisi
+# `test_undeniable_endpoint_population.py`nin `SELF_SCOPED_WRITE_
+# EXEMPTIONS` çapasında ve orada GERÇEK istekle kanıtlanıyor.
+GET_INVENTORY_COUNT = 182
 GET_INVENTORY_FINGERPRINT = (
-    "1a615fb127e29fa17383eeb7f69820da62b5e702756391e0229aae9c57bf69f7"
+    # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
+    # sonra `auth.py`ye `/api/push/` önek kuralı eklendi, sonra izin
+    # `required_permission` ile ÖLÇÜLDÜ ("read"), sonra envantere ve
+    # `ROUTE_REASONS`a girdi. 1a615fb1 -> cfb171c3.
+    "cfb171c349b53dc24e78d3cbe4a94c50fb9f8afe5d27b8c87deef55f6ffc9962"
 )
 
 

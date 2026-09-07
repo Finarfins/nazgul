@@ -186,6 +186,28 @@ ROUTE_REASON_GROUPS = (
             ("GET", "/api/platform/audit"),
         },
     ),
+    (
+        # PUSH CİHAZ DEFTERİ (5.4c, göç 20260909_0077). AYRI BİR GEREKÇE
+        # GRUBU ve bu ZORUNLU: üstteki "kiracı kapsamlı okuma" gerekçesi
+        # yalnız `company_id` süzgecini vaat eder; bu üç uç ONDAN DAHA
+        # DARDIR — `user_id` de OTURUMDAN geliyor, yani aynı firmadaki başka
+        # bir kullanıcının cihazları da görünmez. O daralmayı üstteki grubun
+        # metnine sığdırmak, orada duran ~90 ucun vaadini SESSİZCE
+        # büyütmek olurdu.
+        #
+        # `SELF_SERVICE_API` grubuna da girmediler: o küme yetki kapısından
+        # TAMAMEN muaftır ve üyeliği TAM EŞLEŞMEDİR (`{device_id}` taşıyan
+        # bir yol oraya giremez). Bu uçlar kapıdan GEÇİYOR, izinleri
+        # `/api/push/` önek kuralından geliyor.
+        "Caller-scoped push device registry; the handler filters by "
+        "request.state.company_id AND by the session's own user id, and the "
+        "delete path additionally requires ownership (or admin).",
+        {
+            ("GET", "/api/push/devices"),
+            ("POST", "/api/push/devices"),
+            ("DELETE", "/api/push/devices/{device_id}"),
+        },
+    ),
 )
 ROUTE_REASONS = {
     route: reason
@@ -355,8 +377,26 @@ DYNAMIC_PERMISSION_CASES = {
 # yazılmasaydı dördü de genel `read` iznine düşerdi. Ayrı bir `review_reason`
 # GEREKMİYOR: dört uç da kiracı kapsamlıdır ve izinleri mevcut `herd.*`
 # ailesindendir. Başka hiçbir ucun sözleşmesi değişmedi.
-EXPECTED_OPERATION_COUNT = 379
-EXPECTED_PATH_COUNT = 291
+# 379/291 -> 382/293 (TABAN develop `77be889`, yani 5.4b #72 indikten SONRA;
+# YENIDEN OLCULDU, onceki turun olcumu ARITMETIKLE tasinmadi): 5.4c — PUSH
+# CIHAZ DEFTERI (goc 20260909_0077). UC islem, IKI yol: GET/POST
+# /api/push/devices ve DELETE /api/push/devices/{device_id}. 5.4b HICBIR
+# UC EKLEMEMISTI (ara katman bir rota degildir), o yuzden bu sayilar 5.4a'dan
+# beri kimildamamisti.
+#
+# `auth.py`ye TEK onek satiri EKLENDI (`/api/push/`) ve gerekcesi OLCULDU:
+# mevcut hicbir onekle eslesmiyor, yani yazilmasaydi POST ve DELETE
+# dosyanin SONUNDAKI deny-by-default nobetcisine duserdi (`__admin_only__`)
+# ve `admin` disinda hic kimse telefonunu kaydedemezdi; GET ise genel
+# SAFE_METHODS kuralindan `read` alirdi — yani ayni uc ailesi metoda gore
+# IKI FARKLI kapidan gecerdi.
+#
+# AYRI BIR `review_reason` GEREKTI ve gerekcesi grubun kendi girdisinde:
+# ucu de kiraci kapsamlidir AMA ondan DAHA DARDIR (`user_id` de OTURUMDAN
+# geliyor), ve DELETE ayrica SAHIPLIK ister. Baska hicbir ucun sozlesmesi
+# degismedi.
+EXPECTED_OPERATION_COUNT = 382
+EXPECTED_PATH_COUNT = 293
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -494,7 +534,16 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # Parmak izi 411caebd -> yeniden turetildi (TABAN develop `77aa5b0`, yani
     # #59 + #62 + #63 indikten SONRA; onceki turun 367/283 -> 368/284 olcumu
     # taban degistigi anda GECERSIZ oldu ve ARITMETIKLE tasinmadi).
-    "25fa635c03f06271804f35f7542b27dba981c4a62d5e69fe0553f3b977e32da9"
+    # 5.4c (goc 20260909_0077): UC yeni sozlesme girdi ve SIRA bu dosyanin
+    # notundaki kurala gore izlendi — parmak izi EN SON alindi. (1) uclar
+    # yazildi, (2) `auth.py`ye `/api/push/` onek kurali eklendi, (3) izin
+    # `required_permission` ile OLCULDU ("read", uc metotta da), (4)
+    # `ROUTE_REASONS`a KENDI gerekce grubuyla girdiler, (5) sayim 379/291 ->
+    # 382/293 olarak yeniden olculdu, (6) EN SON parmak izi turetildi. Bu
+    # dosyanin notu parmak izini YANLIS izinle dondurmanin iki kez
+    # yasandigini soyluyor; sira o yuzden yazili.
+    # Parmak izi 25fa635c -> 16a0ec60 (TABAN develop `77be889`).
+    "16a0ec609c4de00b0fac173f241b33fddd6bc4e246d505258258fafd0f30e36c"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

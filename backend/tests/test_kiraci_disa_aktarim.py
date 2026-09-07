@@ -341,6 +341,9 @@ def test_yuz_iki_tablo_dosyasi_tam(hazir) -> None:
     gorulen = {a for a in hazir["adlar"] if a.startswith("tables/")}
     assert gorulen == beklenen, {
         "eksik": sorted(beklenen - gorulen), "fazla": sorted(gorulen - beklenen)}
+    # 115 -> 116: 5.4c (göç 0077) BİR kiracı tablosu ekledi (`push_devices`).
+    # Sayı burada ELLE güncellendi, uygulama tarafı yine DOKUNULMADI. Bir
+    # öncesi
     # 114 -> 115: 5.4b (göç 0076) BİR kiracı tablosu ekledi
     # (`idempotency_keys`). Sayı burada ELLE güncellendi, uygulama tarafı yine
     # DOKUNULMADI. Bir öncesi
@@ -365,7 +368,7 @@ def test_yuz_iki_tablo_dosyasi_tam(hazir) -> None:
     # çalıştı: `_kiraci_tablolari` kümeyi ŞEMADAN türetiyor, yani yeni
     # tablolar dosyaya kendiliğinden girdi. Elle yazılmış bir liste
     # olsaydı bu iki tablo SESSİZCE dışarıda kalırdı.
-    assert len(gorulen) == 115
+    assert len(gorulen) == 116
     # Uygulamanın ŞEMADAN türettiği küme ile kapının listesi AYNI olmalı.
     assert set(hazir["sonuc"]["kiraci_tablolar"]) == set(TENANT_TABLES)
     assert f"companies/{hazir['sonuc']['a_id']}.json" in hazir["adlar"]
@@ -380,7 +383,7 @@ def test_tablo_sirasi_topolojik_ve_tam(hazir) -> None:
     değiştirmek (alfabetik sıra) bunu KIRMIZI yapar."""
     sonuc = hazir["sonuc"]
     sira = hazir["manifest"]["table_order"]
-    assert len(sira) == 115 and len(set(sira)) == 115
+    assert len(sira) == 116 and len(set(sira)) == 116
     assert set(sira) == set(sonuc["kiraci_tablolar"])
 
     # Testin KENDİ bağımsız Kahn tanığı: her bağımlılık, bağımlıdan ÖNCE.
@@ -512,7 +515,7 @@ with TestClient(app) as client:
     zf = zipfile.ZipFile(io.BytesIO(r.content))
     man = json.loads(zf.read("manifest.json"))
     ndjson = [a for a in zf.namelist() if a.startswith("tables/")]
-    assert len(ndjson) == 115, len(ndjson)
+    assert len(ndjson) == 116, len(ndjson)
     # ÖLÇÜLDÜ: "tamamen boş" bir firma dışa AKTARILAMAZ. Dışa aktarımın
     # kendisi ÜYELİK ister ve üyelik satırı `user_company_memberships`
     # tablosundadır — yani erişilebilir HER firmada en az bir satır vardır.
@@ -594,7 +597,7 @@ with TestClient(app) as client:
     print("GOVDE_ARTIS", govde_artis, "TEPE_ARTIS", tepe_artis)
 
     # NEDEN FARKSAL ÖLÇÜM — SABİT EŞİK KULLANILAMAZ (ölçüldü):
-    # tepe belleğin büyük kısmı YÜKTEN BAĞIMSIZ sabit bir maliyettir; 115
+    # tepe belleğin büyük kısmı YÜKTEN BAĞIMSIZ sabit bir maliyettir; 116
     # tablonun `MetaData.reflect`i tek başına ~14 MB ayırıyor. Sabit bir eşik
     # ya bu gürültüye takılıp yanlış kırmızı verir ya da onu örtmek için o
     # kadar gevşer ki asıl aradığımız tamponlamayı kaçırır. Fark, sabit

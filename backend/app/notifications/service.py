@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from ..auth import utcnow
 from ..config import settings
+from .. import push_devices
 from . import consents as consent_service
 from .provider import (
     NotificationProvider,
@@ -50,10 +51,13 @@ from .schema import (
     NONE_STATUS,
     PENDING,
     PROCESSING,
+    PUSH,
     REJECTED,
     RETRY_SCHEDULED,
     SENT,
     SIMULATED,
+    SYSTEM_APPROVAL_MODE,
+    SYSTEM_APPROVER_ID,
     TERMINAL_STATUSES,
     VERIFICATION_TTL_HOURS,
     notifications,
@@ -369,6 +373,88 @@ def enqueue_notification(
     ).scalar_one()
     notification_id = int(existing_id)
     return (notification_id, False) if return_created else notification_id
+
+
+# ---------------------------------------------------------------------------
+# PUSH KANALI (5.4c): kullanıcının ETKİN cihazlarına fan-out
+# ---------------------------------------------------------------------------
+def enqueue_push_notification(
+    db: Session,
+    *,
+    company_id: int,
+    user_id: int,
+    type_: str,
+    template: str,
+    payload_dict: dict[str, Any],
+    dedupe_key: str | None = None,
+    created_by: int | None = None,
+) -> list[int]:
+    """Kullanıcının ETKİN her cihazı için BİR outbox satırı yazar.
+
+    --- NEDEN CİHAZ BAŞINA BİR SATIR, KULLANICI BAŞINA BİR SATIR DEĞİL -----
+
+    Outbox satırının `recipient`i TEK bir hedeftir ve durum/hata/yeniden deneme
+    sayacı O SATIRA aittir. Kullanıcı başına tek satır yazsaydık, üç cihazdan
+    biri başarısız olduğunda satır ya "başarısız" olurdu (öteki ikisine giden
+    mesaj kaybolmuş gibi görünürdü) ya da "gönderildi" (ölü cihaz sessizce
+    kaybolurdu). Cihaz başına satır, her hedefin kendi sonucunu taşır.
+
+    --- PASİF CİHAZ KUYRUĞA HİÇ GİRMEZ ------------------------------------
+
+    Süzgeç `push_devices.etkin_hedefler`tedir, yani SQL'dedir. Uygulama
+    tarafında süzülseydi mutasyon (süzgeci kaldırmak) satırları yine üretir ve
+    sağlayıcı onları teslim edilemez diye yeniden denemeye takardı. Cihazı
+    OLMAYAN bir kullanıcı için dönen liste BOŞTUR ve bu bir hata DEĞİLDİR:
+    push, ulaşılabilir cihaz yoksa sessizce yok olan bir kanaldır.
+
+    --- SATIRLAR SİLAHLI (`armed=True`) DOĞUYOR ---------------------------
+
+    Dört-göz onayı TİCARİ İÇERİK kararı içindir (§6). Push bildiriminde
+    onaylanacak bir içerik kararı yoktur: gövde kodda, alıcı KULLANICININ
+    KENDİ cihazı, tetikleyici kullanıcının kendi hesabındaki bir olay. Bu,
+    `AUTH_SYSTEM_TYPES` şeridinin gerekçesinin AYNISIDIR ve aynı sentineller
+    kullanılıyor (`SYSTEM_APPROVER_ID`/`SYSTEM_APPROVAL_MODE`) — yeni bir
+    onay modu uydurmak, o modu bir gün TİCARİ içeriğe yazma yolunu açardı.
+
+    --- `dedupe_key` CİHAZLA GENİŞLETİLİYOR --------------------------------
+
+    Tekillik `(company_id, dedupe_key)` kapsamındadır. Anahtar cihaz kimliğiyle
+    genişletilmeseydi üç cihazdan yalnız BİRİ satır alırdı ve ötekiler
+    `ON CONFLICT DO NOTHING` ile SESSİZCE düşerdi.
+    """
+    hedefler = push_devices.etkin_hedefler(
+        db, company_id=company_id, user_id=user_id
+    )
+    kimlikler: list[int] = []
+    for hedef in hedefler:
+        anahtar = (
+            None if dedupe_key is None else f"{dedupe_key}:{int(hedef['id'])}"
+        )
+        kimlikler.append(
+            int(
+                enqueue_notification(
+                    db,
+                    company_id=company_id,
+                    type_=type_,
+                    channel=PUSH,
+                    recipient=str(hedef["token"]),
+                    template=template,
+                    payload_dict={
+                        **payload_dict,
+                        # TEŞHİS: hangi cihaz satırının hedeflendiği, jetonu
+                        # yeniden aramadan görülebilsin.
+                        "push_device_id": int(hedef["id"]),
+                        "push_platform": str(hedef["platform"]),
+                    },
+                    dedupe_key=anahtar,
+                    created_by=created_by,
+                    armed=True,
+                    approved_by=SYSTEM_APPROVER_ID,
+                    approval_mode=SYSTEM_APPROVAL_MODE,
+                )
+            )
+        )
+    return kimlikler
 
 
 # ---------------------------------------------------------------------------
@@ -836,7 +922,20 @@ def send_notification(
     key derived from the immutable outbox identity is included in the provider
     payload, allowing future adapters to deduplicate ambiguous retries.
     """
-    selected_provider = provider or get_notification_provider(settings)
+    # KANAL, CLAIM'DEN ÖNCE OKUNUYOR ve bu FAZLADAN BİR SELECT'tir — bilinçli.
+    # Sağlayıcı seçimi claim'in ÖNÜNDE olmak ZORUNDA çünkü
+    # `allow_expired_reclaim` sağlayıcının `supports_idempotency`sinden geliyor;
+    # kanal ise ancak satır okununca bilinir. Okumayı claim'den SONRAYA almak
+    # bu bağı kırardı. Alternatif — kanalı çağırandan istemek — outbox'ın kendi
+    # satırındaki olguyu ÇAĞIRANIN İDDİASINA çevirirdi: yanlış kanal söyleyen
+    # bir çağıran, push satırını SMTP adaptörüne verdirebilirdi.
+    if provider is None:
+        onizleme = _notification_row(db, company_id, notification_id)
+        selected_provider = get_notification_provider(
+            settings, channel=str(onizleme.get("channel") or "")
+        )
+    else:
+        selected_provider = provider
     row, lock_token = _claim_notification(
         db,
         company_id=company_id,
