@@ -20,8 +20,8 @@ CALL_SITE_GATE = REPO_ROOT / "deploy" / "ci-verify-cagri-kapisi.py"
 BACKEND = REPO_ROOT / "backend"
 
 
-def test_pg_test_population_exact_110() -> None:
-    """PostgreSQL test population must be exactly 110 files.
+def test_pg_test_population_exact_111() -> None:
+    """PostgreSQL test population must be exactly 111 files.
 
     106 -> 107: E2 veteriner ilaç / arınma ikizi
     (`test_e2_tedavi_arinma_postgresql.py`, göç 20260908_0074). SAYIM
@@ -274,33 +274,40 @@ def test_pg_test_population_exact_110() -> None:
     devralınmayacak — 98 -> 99 ölçümünün taban değişince geçersiz olması bu
     dosyada zaten yaşandı.
 
+    110 -> 111: 1B-D adli depo transferi ikizi
+    (`test_1b_d_transfer_lot_postgresql.py`, GOC YOK). Bu dalda sayim yeniden
+    yapildi: 109 `postgresql`-adli dosya + 2 ozel = 111. Ikiz zorunludur;
+    ayni partiden iki transferin korumali UPDATE uzerinde siralanmasi SQLite'in
+    tek-yazar modelinde uretilemez ve x20 gercek PostgreSQL yarisi bunu olcer.
+
     Bu sayaç ile `ci.yml`deki eşi birlikte artmak ZORUNDA — ikisi aynı
     popülasyonu sayıyor ve biri güncellenip diğeri unutulursa kapı kendi
     kendisiyle çelişir.
     """
+
     pg_glob = sorted(BACKEND.glob("test_*postgresql*.py"))
     named = [
         BACKEND / "tests" / "test_company_id_default_contract.py",
         BACKEND / "tests" / "test_ci_playwright_hazirlik.py",
     ]
     all_files = pg_glob + [p for p in named if p.exists()]
-    assert len(all_files) == 110, (
-        f"PostgreSQL test population changed: expected 110, got {len(all_files)}"
+    assert len(all_files) == 111, (
+        f"PostgreSQL test population changed: expected 111, got {len(all_files)}"
     )
 
 
 def test_ci_workflow_has_frozen_pg_population_constant() -> None:
-    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=110 and strict equality.
+    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=111 and strict equality.
 
     ÜÇÜNCÜ ÇİVİ. Sayı bu depoda ÜÇ yerde yaşıyor: `ci.yml`in sabiti,
-    `test_pg_test_population_exact_110`in adı/iddiası, ve BURASI. Üçü aynı
+    `test_pg_test_population_exact_111`in adı/iddiası, ve BURASI. Üçü aynı
     popülasyonu sayıyor; biri güncellenip öteki unutulursa kapı KENDİ
-    KENDİSİYLE ÇELİŞİR — ve bu tam olarak `test_pg_test_population_exact_110`
+    KENDİSİYLE ÇELİŞİR — ve bu tam olarak `test_pg_test_population_exact_111`
     düzyazısının anlattığı tuzaktır (bir tur boyunca ad `_99`, iddia `100`,
     `ci.yml` yorumu `97 + 2 = 99` idi).
     """
     content = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BEKLENEN_PG_DOSYA_SAYISI=110" in content
+    assert "BEKLENEN_PG_DOSYA_SAYISI=111" in content
     assert '[ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]' in content
 
 

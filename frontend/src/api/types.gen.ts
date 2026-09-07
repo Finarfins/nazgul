@@ -9204,6 +9204,8 @@ export interface components {
         };
         /** StockTransferItem */
         StockTransferItem: {
+            /** Lot Code */
+            lot_code?: string | null;
             /** Product Id */
             product_id: number;
             /** Quantity */

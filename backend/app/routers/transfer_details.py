@@ -62,7 +62,8 @@ def transfer_detail(
     movements = db.execute(
         text(
             """SELECT sm.id,sm.product_id,p.name product_name,sm.movement_type,
-            sm.quantity,sm.movement_date,sm.warehouse_id,w.name warehouse_name,sm.note
+            sm.quantity,sm.movement_date,sm.warehouse_id,w.name warehouse_name,
+            sm.lot_id,sm.note
             FROM stock_movements sm
             JOIN products p ON p.id=sm.product_id AND p.company_id=sm.company_id
             LEFT JOIN warehouses w ON w.id=sm.warehouse_id AND w.company_id=sm.company_id

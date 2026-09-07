@@ -61,15 +61,16 @@ __all__ = [
 
 
 class PartiSatiri(NamedTuple):
-    """`_parti_bul`un cevabı: KİMLİK ve ELDEKİ MİKTAR, birlikte.
+    """`_parti_bul`un cevabı: KİMLİK, MİKTAR ve SKT, birlikte.
 
-    İkisi AYRI iki çağrıyla alınabilirdi ve ALINMADI: sayım yolu "bu partide
-    sistemde ne yazıyor" sorusunu sorar ve cevabı kimlikten AYRI okusaydı,
-    iki okuma arasında satır değişebilirdi. Tek okuma tek cevaptır.
+    Bu üç alan AYRI çağrılarla alınabilirdi ve ALINMADI: sayım yolu miktarı,
+    transfer ise SKT'yi kimlikten ayrı okusaydı iki okuma arasında satır
+    değişebilirdi. Tek okuma, tek ve kendi içinde tutarlı cevaptır.
     """
 
     id: int
     quantity: Decimal
+    expiry_date: str | None
 
 
 class _SktSorulmadi:
@@ -233,7 +234,7 @@ def _parti_bul(
     """
     satir = db.execute(
         text(
-            "SELECT id,quantity FROM product_lots "
+            "SELECT id,quantity,expiry_date FROM product_lots "
             "WHERE company_id=:cid AND product_id=:pid AND lot_code=:kod "
             "AND warehouse_id=:wid"
         ),
@@ -241,7 +242,12 @@ def _parti_bul(
     ).mappings().first()
     if satir is None:
         return None
-    return PartiSatiri(int(satir["id"]), quantity(satir["quantity"]))
+    skt = satir["expiry_date"]
+    return PartiSatiri(
+        int(satir["id"]),
+        quantity(satir["quantity"]),
+        skt.isoformat() if hasattr(skt, "isoformat") else skt,
+    )
 
 
 def _parti_dus(db: Session, cid: int, *, lot_id: int, miktar, care: str) -> None:

@@ -17,6 +17,7 @@ from ..inventory import (
     warehouse_stocks,
     warehouses,
 )
+from ..parti_defteri import _parti_ac, _parti_bul, _parti_dus
 from ..schemas import CriticalStockUpdate, StockTransferCreate, WarehouseCreate
 from ..tenancy import branches, company_id
 
@@ -274,6 +275,43 @@ def create_transfer(
                 {"id": item.product_id, "cid": cid},
             ).first():
                 raise ValueError("Ürün bulunamadı")
+            kaynak_parti = None
+            hedef_parti_id = None
+            if item.lot_code is not None:
+                kaynak_parti = _parti_bul(
+                    db,
+                    cid,
+                    product_id=item.product_id,
+                    warehouse_id=payload.source_warehouse_id,
+                    lot_code=item.lot_code,
+                )
+                if kaynak_parti is None:
+                    raise HTTPException(
+                        409,
+                        {
+                            "code": "LOT_MIKTARI_EKSIYE_DUSER",
+                            "message": (
+                                f"`{item.lot_code}` partisi kaynak depoda YOK; "
+                                f"ondan {item.quantity} birim transfer edilemez."
+                            ),
+                        },
+                    )
+                # Toplam depo stogu da yetersizse genel stok korumasi once
+                # kosup adli parti hata kodunu gizlememeli. Bu yalniz erken,
+                # yazmayan bir red; yarista yeten satirin tek otoritesi asagida
+                # depo kilidinden SONRA bir kez calisan korumali `_parti_dus`tur.
+                if kaynak_parti.quantity < item.quantity:
+                    raise HTTPException(
+                        409,
+                        {
+                            "code": "LOT_MIKTARI_EKSIYE_DUSER",
+                            "message": (
+                                f"`{item.lot_code}` partisinde "
+                                f"{kaynak_parti.quantity} birim var; "
+                                f"{item.quantity} birim transfer edilemez."
+                            ),
+                        },
+                    )
             adjust_warehouse_stock(
                 db,
                 cid,
@@ -282,6 +320,14 @@ def create_transfer(
                 -item.quantity,
                 allow_negative=False,
             )
+            if kaynak_parti is not None:
+                _parti_dus(
+                    db,
+                    cid,
+                    lot_id=kaynak_parti.id,
+                    miktar=item.quantity,
+                    care="Transfer miktarini kaynak partide olan miktara dusurun.",
+                )
             adjust_warehouse_stock(
                 db,
                 cid,
@@ -289,6 +335,28 @@ def create_transfer(
                 item.product_id,
                 item.quantity,
             )
+            if kaynak_parti is not None:
+                hedef_parti_id = _parti_ac(
+                    db,
+                    cid,
+                    product_id=item.product_id,
+                    warehouse_id=payload.target_warehouse_id,
+                    lot_code=item.lot_code,
+                    expiry_date=kaynak_parti.expiry_date,
+                    miktar=item.quantity,
+                )
+                hedef_parti = _parti_bul(
+                    db,
+                    cid,
+                    product_id=item.product_id,
+                    warehouse_id=payload.target_warehouse_id,
+                    lot_code=item.lot_code,
+                )
+                assert (
+                    hedef_parti is not None
+                    and hedef_parti.id == hedef_parti_id
+                    and hedef_parti.expiry_date == kaynak_parti.expiry_date
+                ), "Transfer edilen parti hedefte kaynak SKT'sini korumalidir"
             db.execute(
                 insert(stock_transfer_items).values(
                     company_id=cid,
@@ -297,17 +365,27 @@ def create_transfer(
                     quantity=item.quantity,
                 )
             )
-            for warehouse_id, amount, label in (
-                (payload.source_warehouse_id, -item.quantity, "transfer_out"),
-                (payload.target_warehouse_id, item.quantity, "transfer_in"),
+            for warehouse_id, amount, label, lot_id in (
+                (
+                    payload.source_warehouse_id,
+                    -item.quantity,
+                    "transfer_out",
+                    None if kaynak_parti is None else kaynak_parti.id,
+                ),
+                (
+                    payload.target_warehouse_id,
+                    item.quantity,
+                    "transfer_in",
+                    hedef_parti_id,
+                ),
             ):
                 db.execute(
                     text(
                         """INSERT INTO stock_movements(
                         product_id,movement_type,quantity,movement_date,reference_type,
-                        reference_id,note,company_id,warehouse_id
+                        reference_id,note,company_id,warehouse_id,lot_id
                         ) VALUES(
-                        :pid,:mt,:q,:d,'transfer',:tid,:note,:cid,:wid)"""
+                        :pid,:mt,:q,:d,'transfer',:tid,:note,:cid,:wid,:lot_id)"""
                     ),
                     {
                         "pid": item.product_id,
@@ -318,6 +396,7 @@ def create_transfer(
                         "note": payload.note or f"Depo transferi #{transfer_id}",
                         "cid": cid,
                         "wid": warehouse_id,
+                        "lot_id": lot_id,
                     },
                 )
         log_request_activity(
