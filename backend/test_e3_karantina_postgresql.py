@@ -504,6 +504,13 @@ def test_kilit_GERCEK_PostgreSQLde_isiriyor(motor, acilis_sifresi) -> None:
         assert detay["blocking"][0]["ended_on"] is None, detay
 
         # SÜRÜ YOLU: bireysel karantina GRUP sağımını da kesiyor.
+        # Kurulum ADIYLA önce: group_id persist etmezse kilit kaçağı gibi görünür.
+        inek_okuma = client.get("/api/animals/%d" % inek["id"], headers=h)
+        assert inek_okuma.status_code == 200, inek_okuma.text
+        assert inek_okuma.json()["group_id"] == suru["id"], (
+            "animals.group_id persist etmedi; sürü sağımı kilidi kurulmamış "
+            "kurulum hatasıdır, kilit kaçağı değil: %r" % (inek_okuma.json(),)
+        )
         grup = client.post("/api/milk-yields", headers=h, json={
             "group_id": suru["id"], "milked_on": "2026-09-05",
             "quantity_liters": "100"})
