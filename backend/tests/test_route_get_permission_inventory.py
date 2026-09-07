@@ -166,6 +166,13 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/health"): "public",
     ("GET", "/api/live"): "public",
     ("GET", "/api/ready"): "public",
+    # META WEBHOOK DOGRULAMASI (WA1, goc 20260910_0078). "public" burada bir
+    # IZIN ADI DEGIL, bu envanterin PUBLIC_API uyeligine verdigi addir: uc
+    # yetki kapisina HIC GIRMEZ. Yerini alan sey `hub.verify_token`in SABIT
+    # ZAMANLI karsilastirmasidir ve uc HICBIR SEY YAZMAZ, yalniz
+    # `hub.challenge`i aynen doner. Ustelik uc ancak UC AYAR birden doluyken
+    # vardir; yapilandirilmamis bir kurulumda 404 doner.
+    ("GET", "/api/whatsapp/webhook"): "public",
 
     # --- purchases — `/api/purchase-comparison` ve tedarikçi fiyat okuma önekleri.
     ("GET", "/api/products/{product_id}/supplier-prices"): "purchases",
@@ -386,7 +393,17 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # (`required_permission("GET", "/api/products/lots/mutabakat") -> "read"`),
 # varsayılmadı. Drift raporu ÖLÇÜLDÜ: `missing`/`stale`/`changed` ÜÇÜ DE BOŞ
 # — artış YALNIZ eklemedir, hiçbir ucun izni DEĞİŞMEDİ.
-GET_INVENTORY_COUNT = 183
+# 183 -> 184: WA1 Meta webhook DOGRULAMA ucu (`GET /api/whatsapp/webhook`,
+# goc 20260910_0078). Sayi 1B-G (#79) develop'a INDIKTEN SONRA YENIDEN
+# OLCULDU: iki dal da kendi tabaninda `182 -> 183` diyordu ve ikisi de
+# KENDI tabaninda DOGRUYDU; ayni sayiyi AYRI uclar icin soyleyen dallar
+# birlesince sayi SECILMEZ, TOPLANIR — iki duzyazidan biri otekinin yerine
+# konsaydi sayi duzelir ama GEREKCE YALAN olurdu, o yuzden IKISI DE duruyor.
+# Drift raporu YENIDEN OLCULDU: `missing`/`stale`/`changed` UCU DE BOS.
+# Ucun POST ikizi bu envantere GIRMEZ (bu dosya YALNIZ GET sayar); o uc
+# `test_undeniable_endpoint_population.py`nin `PUBLIC_WEBHOOK_EXEMPTIONS`
+# capasindadir ve orada GERCEK istekle kanitlaniyor.
+GET_INVENTORY_COUNT = 184
 GET_INVENTORY_FINGERPRINT = (
     # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
     # sonra `auth.py`ye `/api/push/` önek kuralı eklendi, sonra izin
@@ -395,7 +412,14 @@ GET_INVENTORY_FINGERPRINT = (
     # 1B-G (GOC YOK): parmak izi EN SON alindi — once uc yazildi, sonra izin
     # `required_permission` ile OLCULDU ("read"), sonra envantere ve
     # `ROUTE_REASONS`a girdi, EN SON parmak izi. cfb171c3 -> 070f4e0a.
-    "070f4e0acd98146c05a5f2e285b166687aca9eb2eed0960889db54983873bef2"
+    # WA1 (göç 20260910_0078): aynı sıra izlendi — önce uç yazıldı, sonra
+    # TAM YOL `PUBLIC_API`ye eklendi, sonra izin ÖLÇÜLDÜ ("public": uç yetki
+    # kapısına HİÇ girmiyor), sonra envantere ve `ROUTE_REASONS`a girdi, EN
+    # SON parmak izi alındı. 1B-G (#79) SONRASI BİRLEŞMİŞ AĞAÇTA yeniden
+    # türetildi: bu dalın önceki `cfb171c3 -> efd2dfc0` ölçümü, taban
+    # değiştiği anda GEÇERSİZ oldu ve ARİTMETİKLE taşınamazdı — parmak izi
+    # envanterin TAMAMINDAN türüyor. 070f4e0a -> bdf500d3.
+    "bdf500d36f73e7239085e4dc6116f450fdbba2861f6b8b034caf2a90193ac658"
 )
 
 

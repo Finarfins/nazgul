@@ -44,6 +44,19 @@ bir yazan uç evrensel izinle korunabilir, ANCAK VE ANCAK yazdığı satırın
 öznesi ÇAĞIRANIN KENDİSİYSE — ve o sahiplik sınırı GERÇEK bir istekle
 kanıtlanmak zorundadır. Ayrıntı ``SELF_SCOPED_WRITE_EXEMPTIONS``ın üstünde.
 
+**PUBLIC yazan uçlar (WA1'de eklendi) — DÖRDÜNCÜ kategori ve AYRI BİR
+EVREN.** Yukarıdaki üç kategori de "yetki kapısından geçen" uçlarla ilgili.
+ÖLÇÜLDÜ: `_gated_operations()` `PUBLIC_API` üyelerini SESSİZCE atıyor, yani
+`PUBLIC_API`ye eklenen YAZAN bir uç bu dosyanın hiçbir kuralına girmiyordu.
+Kapının o uçlar için koşmaması doğru; GÖRÜNMEZ olmaları kusurdu — ve WA1'in
+Meta webhook'u tam o sınıftan bir uçtur (public, yazan, hiçbir rol tarafından
+reddedilemez çünkü hiçbir rol ona bakmaz).
+
+Sınıf kuralı bu yüzden İKİNCİ EVRENE de yazıldı: `PUBLIC_API` ile muaf
+tutulan her GET-DIŞI operasyon tek tek çapalanmak zorundadır
+(`PUBLIC_SESSION_WRITE_EXEMPTIONS` ve `PUBLIC_WEBHOOK_EXEMPTIONS`), ve
+webhook'un imza kapısı GERÇEK isteklerle kanıtlanır (YÖN E/F/G).
+
 --- SINIF SABİTLENİR, ÖRNEKLER DEĞİL -------------------------------------------
 
 Kural: **evrensel bir izinle korunan her GET-DIŞI operasyon, tek tek çapalanmak
@@ -132,6 +145,49 @@ SELF_SCOPED_WRITE_EXEMPTIONS = frozenset({
     ("DELETE", "/api/push/devices/{device_id}"),
 })
 
+#: ÜÇÜNCÜ ÇAPA SINIFI — VE NEDEN GEREKTİ (WA1).
+#:
+#: ÖLÇÜLDÜ, VARSAYILMADI: `_gated_operations()` `PUBLIC_API` üyelerini
+#: SESSİZCE atlıyor. Yani bu dosyanın bütün kuralları — sınıf kuralı dâhil —
+#: yalnız YETKİ KAPISINDAN GEÇEN uçlar üzerinde koşuyordu. `PUBLIC_API`ye
+#: eklenen YAZAN bir uç, yukarıdaki iki çapadan HİÇBİRİNE düşmüyordu ve bu
+#: dosya onu HİÇ GÖRMÜYORDU. Kapının atlaması bir kusur değil (kapı
+#: gerçekten koşmuyor); GÖRÜNMEZLİK kusurdu.
+#:
+#: WA1'in Meta webhook'u tam da bu sınıftandır: PUBLIC, YAZIYOR, ve hiçbir
+#: rol tablosu onu reddedemez çünkü hiçbir rol ona hiç bakmaz.
+#:
+#: Kural bu yüzden İKİNCİ BİR EVRENE genişletildi ve orada da SINIF olarak
+#: yazıldı: `PUBLIC_API` ile muaf tutulan her GET-DIŞI operasyon tek tek
+#: çapalanmak zorundadır. Çapalanmamış yeni bir tanesi KIRMIZIDIR.
+#:
+#: İki alt küme AYRI, çünkü kimliğin yerini alan şey AYRI:
+#:
+#:   * `PUBLIC_SESSION_WRITE_EXEMPTIONS` — oturum KURAN ya da oturumsuz
+#:     kimlik akışını yürüten uçlar. Oturum isteyemezler çünkü oturumu
+#:     onlar üretir. Korumaları IP başına hız sınırı + tek kullanımlık
+#:     token'dır (`app/routers/auth.py`).
+#:   * `PUBLIC_WEBHOOK_EXEMPTIONS` — Meta webhook'u. Oturum isteyemez
+#:     çünkü çağıran bir KULLANICI DEĞİL, üçüncü bir tarafın sunucusudur.
+#:     Koruması, JSON AYRIŞTIRILMADAN ÖNCE HAM GÖVDE üzerinde doğrulanan
+#:     `X-Hub-Signature-256` HMAC'idir — ve o koruma AŞAĞIDA GERÇEK
+#:     İSTEKLERLE kanıtlanıyor (YÖN E/F/G), iddia edilmiyor.
+#:
+#: `GET /api/whatsapp/webhook` bu kümede DEĞİL: GET'ler bu dosyanın yazma
+#: kuralına hiç girmez (`GET /api/push/devices` ile AYNI gerekçe).
+PUBLIC_SESSION_WRITE_EXEMPTIONS = frozenset({
+    ("POST", "/api/auth/forgot-password"),
+    ("POST", "/api/auth/login"),
+    ("POST", "/api/auth/refresh"),
+    ("POST", "/api/auth/register"),
+    ("POST", "/api/auth/resend-verification"),
+    ("POST", "/api/auth/reset-password"),
+})
+
+PUBLIC_WEBHOOK_EXEMPTIONS = frozenset({
+    ("POST", "/api/whatsapp/webhook"),
+})
+
 ROLES = ("admin", "yonetici", "muhasebe", "satis", "depo", "rapor")
 
 
@@ -177,6 +233,30 @@ def _gated_operations() -> list[tuple[str, str, str]]:
     return gated
 
 
+def _public_write_operations() -> list[tuple[str, str]]:
+    """`PUBLIC_API` ile muaf tutulan GET-DIŞI operasyonlar.
+
+    `_gated_operations()`in TAM TERSİ: o, kapıdan geçenleri toplar ve
+    `PUBLIC_API` üyelerini atar; bu, atılanların YAZAN olanlarını toplar.
+    İkisi birlikte yazma yüzeyinin TAMAMINI kapsar — arada kalan hiçbir uç
+    yoktur ve bu kapsamı `test_yazma_yuzeyi_ARADA_UC_BIRAKMIYOR` ölçer.
+    """
+    operations = sorted({
+        (method, path)
+        for path, route in _walk(app.routes)
+        for method in sorted(route.methods or ())
+        if method not in ("HEAD", "OPTIONS")
+    })
+    public: list[tuple[str, str]] = []
+    for method, path in operations:
+        if method == "GET":
+            continue
+        concrete = _concrete(path)
+        if (method, path) in PUBLIC_API or path in PUBLIC_API or concrete in PUBLIC_API:
+            public.append((method, path))
+    return public
+
+
 def _universal_permissions() -> frozenset[str]:
     """Altı rolün de taşıdığı izinler — rota tablosundan değil, ROL tablosundan."""
     every = {permission for granted in ROLE_PERMISSIONS.values() for permission in granted}
@@ -218,6 +298,75 @@ def test_no_unanchored_write_is_gated_by_a_universal_permission() -> None:
         "Evrensel izinle korunan ve ÇAPALANMAMIŞ yazan uç(lar) var; middleware "
         "katmanında hiçbir rolden men edilemezler: " + repr(offenders)
     )
+
+
+def test_no_unanchored_PUBLIC_write_exists() -> None:
+    """SINIF KURALI, İKİNCİ EVREN — varsayılan RED.
+
+    `PUBLIC_API`ye eklenen yazan bir uç, hiçbir rol tablosunun reddedemediği
+    bir uçtur: kapı onun için HİÇ KOŞMAZ. Çapalanmamış yeni bir tanesi
+    KIRMIZIDIR.
+
+    MUTASYON: `main.py`nin `PUBLIC_API` kümesine yeni bir yazan yol eklemek
+    (ya da mevcut bir yazan ucu oraya taşımak) bunu KIRMIZI yapar.
+    """
+    capali = PUBLIC_SESSION_WRITE_EXEMPTIONS | PUBLIC_WEBHOOK_EXEMPTIONS
+    offenders = sorted(op for op in _public_write_operations() if op not in capali)
+    assert not offenders, (
+        "PUBLIC_API ile muaf tutulmuş ve ÇAPALANMAMIŞ yazan uç(lar) var; "
+        "yetki kapısı onlar için HİÇ koşmuyor: " + repr(offenders)
+    )
+
+
+def test_yazma_yuzeyi_ARADA_UC_BIRAKMIYOR() -> None:
+    """Yazan her operasyon ÜÇ evrenden BİRİNDE — dördüncü bir kaçış yolu yok.
+
+    Muafiyetin ÜÇ yolu var ve üçü de bilinçli:
+      1. Yetki kapısından GEÇEN uçlar — bu dosyanın ilk iki çapası.
+      2. `PUBLIC_API` — yukarıdaki iki PUBLIC çapası.
+      3. `SELF_SERVICE_API` — kimliği doğrulanmış kullanıcının KENDİ oturumu
+         üzerindeki işlemleri; kendi kapısı `tests/test_self_service_
+         exemption.py`de ve üyeliği orada TEK TEK gerekçeli.
+
+    Üçüncüsü burada TÜRETİLİYOR, çapalanmıyor: onun envanteri başka bir
+    dosyanın işidir ve iki yerde tutmak sürüklenme üretirdi. Bu kapının
+    ölçtüğü şey KAPSAMDIR — dördüncü bir muafiyet yolu açılırsa (ya da bir
+    uç hiçbirine düşmezse) burası KIRMIZI olur.
+    """
+    tum_yazan = {
+        (method, path)
+        for path, route in _walk(app.routes)
+        for method in sorted(route.methods or ())
+        if method not in ("HEAD", "OPTIONS", "GET")
+    }
+    kapili = {(m, p) for m, p, _ in _gated_operations() if m != "GET"}
+    self_servis = {
+        (method, path)
+        for method, path in tum_yazan
+        if (method, path) in SELF_SERVICE_API
+        or path in SELF_SERVICE_API
+        or _concrete(path) in SELF_SERVICE_API
+    }
+    assert self_servis, "ölçüm boşa düştü: self-servis yazan uç bulunamadı"
+    kapsanan = kapili | set(_public_write_operations()) | self_servis
+    assert tum_yazan - kapsanan == set(), sorted(tum_yazan - kapsanan)
+
+
+def test_UC_capa_AYRIK() -> None:
+    """Bir uç aynı anda iki gerekçeye ait olamaz — gerekçeler birbirini yalanlar."""
+    assert PUBLIC_SESSION_WRITE_EXEMPTIONS & PUBLIC_WEBHOOK_EXEMPTIONS == frozenset()
+    kapisiz = PUBLIC_SESSION_WRITE_EXEMPTIONS | PUBLIC_WEBHOOK_EXEMPTIONS
+    kapili = INERT_WRITE_EXEMPTIONS | SELF_SCOPED_WRITE_EXEMPTIONS
+    assert kapisiz & kapili == frozenset()
+
+
+def test_PUBLIC_capalar_BAYAT_DEGIL() -> None:
+    """Silinmiş ya da artık public OLMAYAN bir giriş KIRMIZIDIR."""
+    public = set(_public_write_operations())
+    for op in sorted(PUBLIC_SESSION_WRITE_EXEMPTIONS | PUBLIC_WEBHOOK_EXEMPTIONS):
+        assert op in public, (
+            f"{op[0]} {op[1]} artık PUBLIC_API ile muaf değil; çapa bayat"
+        )
 
 
 def test_iki_capa_AYRIK() -> None:
@@ -350,6 +499,53 @@ assert yasak.status_code == 403, ("YON-D baskasinin cihazi", yasak.status_code, 
 kendi_sil = sc.delete("%s/%d" % (CIHAZ, satis_cihaz.json()["id"]), headers=SH)
 assert kendi_sil.status_code == 204, ("YON-D kendi cihazi", kendi_sil.status_code, kendi_sil.text)
 
+# --- YON E/F/G: PUBLIC WEBHOOK'UN KAPISI HMAC (WA1) ----------------------
+# Bu bolum ucuncu capa sinifini kanitliyor ve digerlerinden FARKLI bir sey
+# olcuyor: burada REDDEDEN sey bir ROL DEGIL, bir IMZADIR. Rol tablosu bu
+# uc icin HIC calismaz (`PUBLIC_API`), yani "hangi rol gecer" sorusunun
+# cevabi yoktur; sorulabilecek tek soru "imzasiz gecer mi"dir.
+import hashlib, hmac, json
+
+WH = "/api/whatsapp/webhook"
+SIR = os.environ["WHATSAPP_APP_SECRET"]
+PNID = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
+GOVDE = json.dumps({
+    "object": "whatsapp_business_account",
+    "entry": [{"changes": [{"value": {
+        "metadata": {"phone_number_id": PNID},
+        "messages": [{"id": "atil-wamid-1", "from": "905405995959",
+                      "type": "text", "text": {"body": "merhaba"}}],
+    }}]}],
+}).encode("utf-8")
+
+
+def imza(govde, sir):
+    return "sha256=" + hmac.new(sir.encode("utf-8"), govde, hashlib.sha256).hexdigest()
+
+
+# OTURUMSUZ ISTEMCI: ne Authorization ne cerez ne CSRF jetonu tasiyor.
+# Gecmesi, `PUBLIC_API` uyeliginin GERCEKTEN etkili oldugunun kanitidir.
+wc = TestClient(m.app)
+
+# YON E: GECERLI IMZA -> 200. Uc GERCEKTEN aciktir ve acik olmasi karardir.
+acik = wc.post(WH, content=GOVDE,
+               headers={"Content-Type": "application/json",
+                        "X-Hub-Signature-256": imza(GOVDE, SIR)})
+assert acik.status_code == 200, ("YON-E gecerli imza", acik.status_code, acik.text)
+
+# YON F: BOZUK IMZA -> 403. Kararin BEDELI burada duruyor: `verify_signature`
+# cagrisi silinirse bu satir KIRMIZI olur ve capa gerekcesini kaybeder.
+sahte = wc.post(WH, content=GOVDE,
+                headers={"Content-Type": "application/json",
+                         "X-Hub-Signature-256": imza(GOVDE, SIR + "x")})
+assert sahte.status_code == 403, ("YON-F bozuk imza", sahte.status_code, sahte.text)
+
+# YON G: IMZA HIC YOK -> 403, AYNI kod. Ayrim sizdirilmiyor: "secret
+# yapilandirilmis mi" sorusu kimliksiz bir cagirana cevaplanmaz.
+ciplak = wc.post(WH, content=GOVDE, headers={"Content-Type": "application/json"})
+assert ciplak.status_code == 403, ("YON-G imzasiz", ciplak.status_code, ciplak.text)
+assert ciplak.status_code == sahte.status_code, (ciplak.status_code, sahte.status_code)
+
 print("ATIL-KAPI-TAMAM")
 '''
 
@@ -363,6 +559,12 @@ def _run_smoke(database_url: str, workspace: Path) -> None:
     env["BOOTSTRAP_ADMIN_PASSWORD"] = "AtilBootstrap!2026"
     # Operatör listesi BİLEREK boş: admin bile geçememeli.
     env["SUNGUR_PLATFORM_OPERATORS"] = ""
+    # WA1: webhook UCU ANCAK bu uc ayar birden doluyken VARDIR; boş
+    # bırakılsalardı YÖN E/F/G'nin üçü de 404 alır ve kapı hiçbir şey
+    # ölçmezdi (ölçüldü, varsayılmadı).
+    env["WHATSAPP_APP_SECRET"] = "AtilWebhookSir!2026"
+    env["WHATSAPP_VERIFY_TOKEN"] = "AtilWebhookJeton!2026"
+    env["WHATSAPP_PHONE_NUMBER_ID"] = "111222333444555"
     env["BACKEND"] = str(BACKEND)
     env["PYTHONPATH"] = str(BACKEND)
     # Alt süreç KATI UTF-8 ile okunur. Windows'ta varsayılan kod sayfası
@@ -388,5 +590,9 @@ def test_anchored_write_exemptions_are_provably_inert(tmp_path: Path) -> None:
       * `SELF_SCOPED_WRITE_EXEMPTIONS` (iki push ucu): her rol geçiyor ama
         YALNIZ kendi satırına (YÖN C/D). Router'ın sahiplik yüklemi silinirse
         KIRMIZI; uçlar bir rolden men edilirse de KIRMIZI.
+      * `PUBLIC_WEBHOOK_EXEMPTIONS` (Meta webhook POST'u): OTURUMSUZ bir
+        istemci geçiyor ama YALNIZ GEÇERLİ İMZAYLA (YÖN E/F/G). Burada
+        reddeden şey bir ROL değil, HMAC'tir; `verify_signature` çağrısı
+        silinirse KIRMIZI olur.
     """
     _run_smoke(f"sqlite:///{(tmp_path / 'atil.db').as_posix()}", tmp_path)

@@ -197,6 +197,33 @@ ROUTE_REASON_GROUPS = (
         },
     ),
     (
+        # META WEBHOOK (WA1, göç 20260910_0078). AYRI BİR GEREKÇE GRUBU ve
+        # bu ZORUNLU. En üstteki "public authentication or health endpoint"
+        # grubuna GİREMEZ: o metin ucun kimlik doğrulaması OLMADIĞINI söyler
+        # ve orada duran on uç için bu DOĞRUDUR (login gövdesini doğrular,
+        # health hiçbir şey doğrulamaz). Bu iki uç ise doğrulama YAPAR,
+        # yalnız OTURUMLA değil — GET'te sabit zamanlı `hub.verify_token`,
+        # POST'ta JSON AYRIŞTIRILMADAN ÖNCE HAM GÖVDE üzerinde hesaplanan
+        # `X-Hub-Signature-256` HMAC'i. O cümleyi genel gruba sığdırmak,
+        # orada duran sağlık uçlarının vaadini SESSİZCE büyütmek olurdu.
+        #
+        # `SELF_SERVICE_API`ya da girmezler: o küme OTURUM AÇMIŞ bir
+        # kullanıcının kendi kimliği üzerindeki işlemleri içindir ve burada
+        # kullanıcı YOKTUR — çağıran Meta'nın sunucusudur.
+        #
+        # POST YAZIYOR ve bu grubun taşıdığı en ağır iddia budur: yazdığı
+        # satır PLATFORM satırıdır (`whatsapp_inbound`, `company_id` YOK),
+        # yani hiçbir kiracının verisine dokunamaz. Kiracı sınırı burada
+        # ihlal EDİLEMEZ çünkü sınırın konusu olan sütun YOKTUR.
+        "Public Meta webhook, HMAC-verified over the raw body, no session "
+        "and no tenant context; the rows it writes are platform rows with "
+        "no company_id.",
+        {
+            ("GET", "/api/whatsapp/webhook"),
+            ("POST", "/api/whatsapp/webhook"),
+        },
+    ),
+    (
         # PUSH CİHAZ DEFTERİ (5.4c, göç 20260909_0077). AYRI BİR GEREKÇE
         # GRUBU ve bu ZORUNLU: üstteki "kiracı kapsamlı okuma" gerekçesi
         # yalnız `company_id` süzgecini vaat eder; bu üç uç ONDAN DAHA
@@ -422,8 +449,29 @@ DYNAMIC_PERMISSION_CASES = {
 # OLCULDU, (5) EN SON parmak izi turetildi.
 #
 # Baska hicbir ucun sozlesmesi degismedi.
-EXPECTED_OPERATION_COUNT = 383
-EXPECTED_PATH_COUNT = 294
+# 383/294 -> 385/295: WA1 — META WEBHOOK GIRISI (goc 20260910_0078). IKI
+# islem, TEK yol: GET ve POST /api/whatsapp/webhook.
+#
+# SAYILAR 1B-G (#79) DEVELOP'A INDIKTEN SONRA, BIRLESMIS AGACTA YENIDEN
+# OLCULDU. Bu dalin onceki `382/293 -> 384/294` olcumu KENDI tabaninda
+# (`4d30597`) DOGRUYDU ve taban degistigi anda GECERSIZ oldu; aritmetikle
+# tasinmadi. `EXPECTED_PATH_COUNT` bu birlesmede OZELLIKLE tehlikeliydi:
+# iki dal da kendi tabaninda `294` yaziyordu ve git ikisini CATISMASIZ
+# birlestirdi — dogru sayi ise `295`tir (iki dal AYRI yol ekledi:
+# `/api/products/lots/mutabakat` ve `/api/whatsapp/webhook`). Sayi bu yuzden
+# birlesik agacta OLCULDU, catismanin yokluguna GUVENILMEDI.
+#
+# `auth.py`ye ONEK SATIRI EKLENMEDI ve gerekcesi OLCULDU: iki ucun ikisi de
+# `PUBLIC_API`dedir, yani `security_and_audit`in yetki blogunun TAMAMINI
+# atlarlar ve `required_permission` onlar icin HIC CAGRILMAZ. Onek yazmak,
+# hicbir zaman sorulmayacak bir soruya cevap yazmak olurdu.
+#
+# AYRI BIR `review_reason` GEREKTI ve gerekcesi grubun kendi girdisinde:
+# ikisi de PUBLIC ama kimliksiz DEGIL — dogrulama oturumla degil HMAC ve
+# sabit zamanli token karsilastirmasiyla yapiliyor. Baska hicbir ucun
+# sozlesmesi degismedi.
+EXPECTED_OPERATION_COUNT = 385
+EXPECTED_PATH_COUNT = 295
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -574,7 +622,16 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # `required_permission` ile OLCULDU ("read"), sonra `ROUTE_REASONS`a
     # gerekcesiyle girdi, sonra sayim 383/294 olarak yeniden olculdu, EN SON
     # parmak izi turetildi. 16a0ec60 -> c0b0754c (TABAN develop `0538a4a`).
-    "c0b0754cf68828fd0cdc5afe32dc4f4826e4ace6910f6836b3528d540ada5750"
+    # WA1 (goc 20260910_0078): IKI yeni sozlesme girdi ve SIRA bu dosyanin
+    # notundaki kurala gore izlendi — parmak izi EN SON alindi. (1) uclar
+    # yazildi, (2) TAM YOL `PUBLIC_API`ye eklendi (onek DEGIL) ve `auth.py`ye
+    # onek kurali EKLENMEDI cunku `required_permission` bu iki uc icin HIC
+    # cagrilmaz, (3) `ROUTE_REASONS`a KENDI gerekce grubuyla girdiler,
+    # (4) sayim 383/294 -> 385/295 olarak YENIDEN olculdu, (5) EN SON parmak
+    # izi turetildi. Bu dalin onceki `16a0ec60 -> e2757afc` olcumu, taban
+    # 1B-G (#79) ile degistigi anda GECERSIZ oldu.
+    # Parmak izi c0b0754c -> c7357d03 (TABAN develop `3a388d5`).
+    "c7357d03ad6754bec98493926d30c10bd455fd8d3737bd1125e517e417ca4057"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 
