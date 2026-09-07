@@ -230,42 +230,37 @@ def kesme_sonrasi_legacy_denetle(
 def cift_kayit_denetle(
     base_adlari: list[str], head_adlari: list[str]
 ) -> list[str]:
-    """Çift kayıt / legacy+yeni biçim yasak.
+    """Eklenenler içinde çift kayıt / legacy+yeni biçim yasak.
 
     Tarihsel göç korpusunda aynı PR numarasına ait İKİ legacy dosya olabilir
-    (ölçüldü); onlara dokunulmaz. Yasak olan:
-      * bu birleşmede aynı PR için birden fazla girdi eklemek
-      * ağaçta aynı PR için hem legacy ad hem `pr-NNNN.md` bulunması
-        (yeni biçim eklenince eski adla yan yana olamaz)
+    (ölçüldü); ayrıca göç PR numaraları gelecekteki GitHub PR numaralarıyla
+    çakışabilir (ör. `0034-pr-0073.md` varken yeni `#73` → `pr-0073.md`).
+    O tarihe dokunulmaz. Yasak olan yalnız BU birleşmenin deltasıdır:
+      * aynı PR için birden fazla girdi eklemek (iki `pr-NNNN`, iki legacy,
+        veya legacy+`pr-NNNN` birlikte)
     """
     base_set = {k.ad for k in _kayitlari_ayikla(base_adlari)}
-    head_kayitlar = _kayitlari_ayikla(head_adlari)
-    eklenen = [k for k in head_kayitlar if k.ad not in base_set]
+    eklenen = [k for k in _kayitlari_ayikla(head_adlari) if k.ad not in base_set]
     ihlaller: list[str] = []
 
-    by_pr_eklenen: dict[int, list[KayitAdi]] = {}
+    by_pr: dict[int, list[KayitAdi]] = {}
     for kayit in eklenen:
-        by_pr_eklenen.setdefault(kayit.pr, []).append(kayit)
-    for pr, kayitlar in sorted(by_pr_eklenen.items()):
-        if len(kayitlar) > 1:
-            adlar = ", ".join(sorted(k.ad for k in kayitlar))
-            ihlaller.append(
-                f"ÇİFT KAYIT #{pr}: bu birleşmede birden fazla girdi eklendi "
-                f"({adlar}). Bir PR için tam bir girdi eklenir."
-            )
-
-    by_pr_head: dict[int, list[KayitAdi]] = {}
-    for kayit in head_kayitlar:
-        by_pr_head.setdefault(kayit.pr, []).append(kayit)
-    for pr, kayitlar in sorted(by_pr_head.items()):
+        by_pr.setdefault(kayit.pr, []).append(kayit)
+    for pr, kayitlar in sorted(by_pr.items()):
+        if len(kayitlar) < 2:
+            continue
+        adlar = ", ".join(sorted(k.ad for k in kayitlar))
         yeniler = [k for k in kayitlar if k.yeni]
         legacyler = [k for k in kayitlar if not k.yeni]
         if yeniler and legacyler:
-            adlar = ", ".join(sorted(k.ad for k in kayitlar))
             ihlaller.append(
-                f"LEGACY+YENİ #{pr}: aynı PR için hem legacy ad hem "
-                f"`pr-{pr:04d}.md` var ({adlar}). `pr-NNNN.md` olan PR'da "
-                "legacy ad bulunamaz."
+                f"LEGACY+YENİ #{pr}: bu birleşmede hem legacy ad hem "
+                f"`pr-{pr:04d}.md` eklendi ({adlar})."
+            )
+        else:
+            ihlaller.append(
+                f"ÇİFT KAYIT #{pr}: bu birleşmede birden fazla girdi eklendi "
+                f"({adlar}). Bir PR için tam bir girdi eklenir."
             )
     return ihlaller
 

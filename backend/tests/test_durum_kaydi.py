@@ -496,24 +496,27 @@ def test_KESME_SONRASI_legacy_adli_yeni_dosya_KIRMIZI() -> None:
 
 
 def test_AYNI_PR_icin_iki_kayit_KIRMIZI() -> None:
-    """Aynı PR için birleşmede iki girdi → ÇİFT KAYIT."""
+    """Aynı PR için birleşmede iki girdi → ÇİFT KAYIT / LEGACY+YENİ."""
     arac = _okuyucu()
     base = [f"{i:04d}-pr-{i:04d}.md" for i in range(1, arac.KESME_SIRA + 1)]
     head = base + ["pr-0999.md", "0113-pr-0999.md"]
     ihlaller = arac.cift_kayit_denetle(base, head)
     assert ihlaller, "aynı PR için iki kayıt kırmızı olmalıydı"
-    assert any("ÇİFT KAYIT" in i for i in ihlaller), ihlaller
+    assert any("ÇİFT KAYIT" in i or "LEGACY+YENİ" in i for i in ihlaller), ihlaller
 
 
-def test_LEGACY_var_iken_yeni_pr_NNNN_KIRMIZI() -> None:
-    """Aynı PR için base'de legacy varken `pr-NNNN.md` eklemek → LEGACY+YENİ."""
+def test_GÖÇ_PR_numarasi_cakismasi_YESIL() -> None:
+    """Base'de göç legacy `SSSS-pr-NNNN` varken yeni `pr-NNNN.md` yeşil.
+
+    Göç PR numaraları gelecekteki GitHub PR'larıyla çakışabilir; tarih
+    yeniden adlandırılmaz, yeni girdi `pr-NNNN.md` eklenir.
+    """
     arac = _okuyucu()
     base = [f"{i:04d}-pr-{i:04d}.md" for i in range(1, arac.KESME_SIRA + 1)]
-    # 0050 zaten base'de legacy; head'e pr-0050.md eklemek yasak.
+    # 0050 zaten base'de; head'e yalnız pr-0050.md — tarihsel çakışma, yeşil.
     head = base + ["pr-0050.md"]
     ihlaller = arac.cift_kayit_denetle(base, head)
-    assert ihlaller, "legacy+yeni yan yana kırmızı olmalıydı"
-    assert any("LEGACY+YENİ" in i for i in ihlaller), ihlaller
+    assert not ihlaller, ihlaller
 
 
 def test_sira_mtime_degil_git_log_ile_siralanir(tmp_path: Path) -> None:
