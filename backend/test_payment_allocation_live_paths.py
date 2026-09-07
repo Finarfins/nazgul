@@ -375,7 +375,16 @@ with TestClient(app) as client:
     company_b = client.post(
         "/api/companies", headers=headers, json={"name": "Tahsis Tenant B"}
     ).json()["id"]
-    headers_b = {**headers, "X-Company-ID": str(company_b), "Idempotency-Key": "cross-tenant"}
+    # `Idempotency-Key` BU SOZLUKTEN CIKARILDI ve tek bir cagriya tasindi
+    # (asagidaki `POST /api/payments`). Paylasilan bir baslik sozlugu anahtari
+    # ALAKASIZ isteklere de sizdiriyordu — `POST /api/customers` onu ONCE
+    # iddia ediyor, sonraki `PUT /api/payments/{id}` ise AYNI anahtarla BASKA
+    # bir govde gonderiyordu. 5.4b'nin genel idempotensi ara katmani bunu 422
+    # `IDEMPOTENCY_KEY_REUSED` ile REDDEDER ve REDDETMESI DOGRUDUR: bir anahtar
+    # TEK bir istegi temsil eder. Anahtarin gercek hedefi zaten `/api/payments`
+    # ucudur (kendi `payment_idempotency` defterini tutan, ara katmanin
+    # ATLADIGI uclardan biri).
+    headers_b = {**headers, "X-Company-ID": str(company_b)}
     customer_b = client.post(
         "/api/customers", headers=headers_b, json={"name": "Tenant B Cari"}
     ).json()["id"]
@@ -415,7 +424,7 @@ with TestClient(app) as client:
         ).one() == (None, None)
     cross = client.post(
         "/api/payments",
-        headers=headers_b,
+        headers={**headers_b, "Idempotency-Key": "cross-tenant"},
         json={
             "entity_type": "customer",
             "entity_id": customer_b,
