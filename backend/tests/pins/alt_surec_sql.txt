@@ -82,6 +82,7 @@ tests/test_1b_c_ayarlama_lot.py	1
 tests/test_1b_d_transfer_lot.py	1
 tests/test_1b_e_iade_lot.py	1
 tests/test_54a_mobil_auth.py	1
+tests/test_54b_idempotency.py	1
 tests/test_activity_cost_snapshot.py	1
 tests/test_cost_rates_api.py	1
 tests/test_d2_avans_tescil.py	1
