@@ -612,6 +612,14 @@ with TestClient(app) as client:
     assert sagim(client, h, '2026-08-31', animal_id=inek).status_code == 201
 
     # --- 4) SÜRÜ YOLU ------------------------------------------------------
+    # Kurulum ADIYLA: `animals.group_id` persist etmiş olmalı. Persist etmeden
+    # sürü sağımı bireysel karantinayı görmez ve bu "kilit kaçağı" gibi görünür.
+    inek_okuma = client.get('/api/animals/%d' % inek, headers=h)
+    assert inek_okuma.status_code == 200, inek_okuma.text
+    assert inek_okuma.json()['group_id'] == suru['id'], (
+        'animals.group_id persist etmedi; sürü sağımı kilidi kurulmamış '
+        'kurulum hatasıdır, kilit kaçağı değil: %r' % (inek_okuma.json(),)
+    )
     # `inek` sürüde; sürünün toplu sağımı onun sütünü de içerir.
     grup_ihlal = sagim(client, h, '2026-09-05', group_id=suru['id'])
     assert grup_ihlal.status_code == 422, grup_ihlal.text
