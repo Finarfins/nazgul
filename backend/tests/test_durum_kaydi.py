@@ -551,6 +551,13 @@ def test_sira_mtime_degil_git_log_ile_siralanir(tmp_path: Path) -> None:
 
     _ekle_ve_commit("0001-pr-0001.md", "#1 — ilk", "add 0001")
     _ekle_ve_commit("0002-pr-0002.md", "#2 — ikinci", "add 0002")
+    # Rename: eski ad ghost olmamalı; sıra yuvası korunur.
+    (durum / "0002-pr-0002.md").rename(durum / "0002-pr-0099.md")
+    subprocess.run(["git", "add", "-A", "docs/durum"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "rename 0002"],
+        cwd=repo, check=True, capture_output=True,
+    )
     _ekle_ve_commit("pr-0003.md", "#3 — yeni biçim", "add pr-0003")
 
     # mtime'ı tersine çevir: sıra yine commit sırasını izlemeli.
@@ -564,9 +571,10 @@ def test_sira_mtime_degil_git_log_ile_siralanir(tmp_path: Path) -> None:
     liste = arac.sira_listesi(dal="main", repo=repo, dizin=durum)
     assert [(s, p, a) for s, p, a, _ in liste] == [
         (1, 1, "0001-pr-0001.md"),
-        (2, 2, "0002-pr-0002.md"),
+        (2, 99, "0002-pr-0099.md"),
         (arac.KESME_SIRA + 1, 3, "pr-0003.md"),
     ], liste
+    assert "0002-pr-0002.md" not in [a for _, _, a, _ in liste]
 
 
 def test_kapi_yeni_pr_NNNN_YESIL(tmp_path: Path) -> None:

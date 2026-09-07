@@ -340,7 +340,9 @@ def _git_merge_sirali_eklemeler(
     """docs/durum/ girdi dosyalarını first-parent ekleme/rename sırasıyla.
 
     `git log --first-parent --reverse --name-status` ile A (add) ve R (rename)
-    satırlarından dosyanın İLK görünen adı alınır. mtime KULLANILMAZ.
+    satırlarından sıra kurulur. Rename kaynağı listeden çıkarılıp yerine hedef
+    konur (aynı yuva). Sonra dalın tepe ağacıyla kesişilir — silinen/ghost ad
+    kalmaz. mtime KULLANILMAZ.
     """
     kok = repo or DEPO_KOKU
     sonuc = subprocess.run(
@@ -369,21 +371,32 @@ def _git_merge_sirali_eklemeler(
         parts = satir.split("\t")
         durum = parts[0]
         if durum.startswith("A") and len(parts) >= 2:
-            yol = parts[1]
+            ad = Path(parts[1]).name
+            if kayit_adi_ayikla(ad) is None:
+                continue
+            if ad in gorulen_set:
+                continue
+            gorulen_set.add(ad)
+            gorulen.append(ad)
         elif durum.startswith("R") and len(parts) >= 3:
-            yol = parts[2]  # rename hedefi
-        else:
-            continue
-        if not yol.startswith("docs/durum/") or not yol.endswith(".md"):
-            continue
-        ad = Path(yol).name
-        if kayit_adi_ayikla(ad) is None:
-            continue
-        if ad in gorulen_set:
-            continue
-        gorulen_set.add(ad)
-        gorulen.append(ad)
-    return gorulen
+            eski = Path(parts[1]).name
+            yeni = Path(parts[2]).name
+            if kayit_adi_ayikla(yeni) is None:
+                continue
+            if eski in gorulen_set:
+                idx = gorulen.index(eski)
+                gorulen[idx] = yeni
+                gorulen_set.discard(eski)
+                gorulen_set.add(yeni)
+            elif yeni not in gorulen_set:
+                gorulen_set.add(yeni)
+                gorulen.append(yeni)
+    tip = {
+        Path(p).name
+        for p in _git_girdi_adlari(dal, kok)
+        if kayit_adi_ayikla(Path(p).name) is not None
+    }
+    return [ad for ad in gorulen if ad in tip]
 
 
 def sira_listesi(
@@ -475,9 +488,9 @@ def main() -> int:
         for sira, pr, ad, metin in reversed(sira_listesi(dal=argumanlar.sira)):
             print(f"{sira:04d}  {ad}  {metin}")
         return 0
-    # Varsayılan: --sira develop (en yeni üstte metin)
+    # Varsayılan: merge sırası (HEAD — dal-yerel girdiler dahil; develop için --sira)
     try:
-        for _, _, _, metin in reversed(sira_listesi(dal="develop")):
+        for _, _, _, metin in reversed(sira_listesi(dal="HEAD")):
             print(metin)
     except (subprocess.CalledProcessError, FileNotFoundError):
         for _, _, metin, _ in girdileri_oku():

@@ -12,10 +12,12 @@ Kaydı en yeni üstte okumak için:
 python scripts/durum.py
 ```
 
-Merge sırasıyla (sıra + ad + metin) listelemek için:
+Merge sırasıyla (sıra + ad + metin) listelemek için (varsayılan dal
+`develop`; dal-yerel önizleme: `--sira HEAD`):
 
 ```
 python scripts/durum.py --sira
+python scripts/durum.py --sira HEAD
 ```
 ## Kaydın bilinen boşluğu (donmuş sayı, 2026-08-17)
 
@@ -110,8 +112,9 @@ yeniden adlandırmaz — bu PR (H6) o zorunluluğun sonudur.
 ile kilitler. Bundan sonraki girdilerin metni çapayı hareket ettirmez; bu
 BİLİNÇLİ bir seçimdir, çünkü çapayı her girdide hareket ettirmek, kaldırdığımız
 paylaşılan-çapa çakışmasını testin içine geri taşırdı. Yeni girdiler için
-garanti içerik değişmezliği DEĞİL, YAPISAL bütünlüktür: ad deseni, tek satır
-kuralı, `(sıra, pr)` biricikliği, azalan okuma sırası ve bayat sıra kapısı.
+garanti içerik değişmezliği DEĞİL, YAPISAL bütünlüktür: ad deseni (legacy veya
+`pr-NNNN.md`), tek satır kuralı, kesme-sonrası-legacy yasağı, birleşme
+deltasında çift kayıt yasağı ve azalan/merge okuma sırası.
 Kilitlenmesi gereken şey geçmiştir; bugünün girdisi zaten incelemeden geçer.
 
 ## Geçiş
