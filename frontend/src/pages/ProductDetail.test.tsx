@@ -248,3 +248,98 @@ describe('hızlı işlemler',()=>{
   });
  });
 });
+
+// ---------------------------------------------------------------- Partiler ---
+//
+// Sekme, ürün gövdesinden AYRI bir uçtan besleniyor (`/products/{id}/lots`),
+// bu yüzden testler `api.get`i YOLA GÖRE cevaplıyor. Tek bir toplu cevap
+// vermek, partilerin ürün gövdesinden geldiği izlenimini bırakırdı — sekmenin
+// varlık sebebi tam olarak o ayrımdır.
+const lotsPayload=(lots:any[])=>({data:{product:baseProduct,lots,total_quantity:0}});
+
+function mockByPath(lots:any[]){
+ get.mockImplementation((url:string)=>{
+  if(String(url).endsWith('/lots'))return Promise.resolve(lotsPayload(lots));
+  if(String(url).endsWith('/current'))return Promise.resolve({data:{}});
+  return Promise.resolve({data:payload()});
+ });
+}
+
+const LOTS=[
+ {id:1,lot_code:'LOT-A',warehouse_id:3,warehouse_name:'Merkez Depo',
+  expiry_date:'2027-01-31',quantity:12,created_at:'2026-07-01T08:30:00'},
+ {id:2,lot_code:'LOT-B',warehouse_id:4,warehouse_name:'Şube Depo',
+  expiry_date:null,quantity:0,created_at:'2026-07-02T09:00:00'},
+];
+
+describe('Partiler sekmesi',()=>{
+ it('parti defterini kod, depo, SKT, miktar ve açılış tarihiyle listeler',async()=>{
+  mockByPath(LOTS);
+  mount();
+  await screen.findByText('Hidrolik Pompa');
+  await openTab(/Partiler/);
+  expect(await screen.findByText('LOT-A')).toBeInTheDocument();
+  expect(screen.getByText(/Merkez Depo/)).toBeInTheDocument();
+  expect(screen.getByText(/SKT: 2027-01-31/)).toBeInTheDocument();
+  expect(screen.getByText(/Açılış: 2026-07-01/)).toBeInTheDocument();
+  expect(screen.getByText('12')).toBeInTheDocument();
+ });
+
+ it('SKT taşımayan partiyi boş bırakmaz, YOKLUĞUNU söyler',async()=>{
+  // SKT isteğe bağlıdır; "-" göstermek "tarih girilmemiş" ile "tarihi yok"
+  // arasındaki farkı silerdi.
+  mockByPath(LOTS);
+  mount();
+  await screen.findByText('Hidrolik Pompa');
+  await openTab(/Partiler/);
+  expect(await screen.findByText(/SKT yok/)).toBeInTheDocument();
+ });
+
+ it('tükenmiş partiyi GİZLEMEZ, adıyla işaretler',async()=>{
+  // Miktarı 0 olan satır göç 0067'de bilinçli olarak silinmiyor: o satır
+  // geri çağırmanın kanıtıdır. Listeden düşürmek, kanıtı veritabanında tutup
+  // operatörden saklamak olurdu. Renk tek başına anlam taşımasın diye durum
+  // ayrıca METİNLE veriliyor.
+  mockByPath(LOTS);
+  mount();
+  await screen.findByText('Hidrolik Pompa');
+  await openTab(/Partiler/);
+  expect(await screen.findByText('LOT-B')).toBeInTheDocument();
+  expect(screen.getByText('Tükendi')).toBeInTheDocument();
+ });
+
+ it('parti yokken boş listeyi açıklar',async()=>{
+  mockByPath([]);
+  mount();
+  await screen.findByText('Hidrolik Pompa');
+  await openTab(/Partiler/);
+  expect(await screen.findByText('Bu ürün için parti kaydı bulunmuyor.')).toBeInTheDocument();
+ });
+
+ it('parti ucu düşerse sayfayı değil YALNIZ sekmeyi bozar',async()=>{
+  get.mockImplementation((url:string)=>{
+   if(String(url).endsWith('/lots'))return Promise.reject({response:{status:500}});
+   if(String(url).endsWith('/current'))return Promise.resolve({data:{}});
+   return Promise.resolve({data:payload()});
+  });
+  mount();
+  await screen.findByText('Hidrolik Pompa');
+  await openTab(/Partiler/);
+  expect(await screen.findByText('Parti bilgileri yüklenemedi.')).toBeInTheDocument();
+  // Ürün başlığı AYAKTA: sekmenin hatası sayfayı yıkmıyor.
+  expect(screen.getByText('Hidrolik Pompa')).toBeInTheDocument();
+ });
+
+ it('parti ucunu sekme açılana kadar HİÇ çağırmaz',async()=>{
+  // Sekme kapalıyken istek gitmemeli: aksi hâlde partiye hiç bakmayan her
+  // ziyaret de ikinci bir uca ödeme yapardı.
+  mockByPath(LOTS);
+  mount();
+  await screen.findByText('Hidrolik Pompa');
+  expect(get.mock.calls.some(([url]:any[])=>String(url).endsWith('/lots'))).toBe(false);
+  await openTab(/Partiler/);
+  await waitFor(()=>{
+   expect(get.mock.calls.some(([url]:any[])=>String(url).endsWith('/lots'))).toBe(true);
+  });
+ });
+});

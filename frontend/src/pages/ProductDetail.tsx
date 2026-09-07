@@ -16,10 +16,12 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import PriceCheckIcon from '@mui/icons-material/PriceCheck';
+import LayersIcon from '@mui/icons-material/Layers';
 import {useNavigate,useParams} from 'react-router-dom';
 import ProductDialog from '../components/ProductDialog';
 import ProductLabelDialog from '../components/ProductLabelDialog';
 import SupplierPricesPanel from '../components/SupplierPricesPanel';
+import ProductLotsPanel from '../components/ProductLotsPanel';
 import TransactionDialog from '../components/TransactionDialog';
 import TransferDialog from '../components/TransferDialog';
 import {api,errorDetail,money,openAuthenticated} from '../api';
@@ -206,6 +208,10 @@ export default function ProductDetail(){
     <Tab icon={<ShoppingCartIcon/>} iconPosition="start" label={`Satış Geçmişi (${salesHistory.length})`}/>
     <Tab icon={<LocalShippingIcon/>} iconPosition="start" label={`Alış Geçmişi (${purchaseHistory.length})`}/>
     <Tab icon={<PriceCheckIcon/>} iconPosition="start" label="Tedarikçi Fiyatları"/>
+    {/* SONA eklendi ve bu bilinçli: araya girmek mevcut `tab===N`
+        koşullarının HEPSİNİ bir kaydırır ve her panel sessizce yanlış
+        sekmeye bağlanırdı. */}
+    <Tab icon={<LayersIcon/>} iconPosition="start" label="Partiler"/>
    </Tabs>
    <Divider/>
    <CardContent>
@@ -273,6 +279,11 @@ export default function ProductDetail(){
     </Stack>:<Empty>Bu ürün için alış kaydı bulunmuyor.</Empty>)}
 
     {tab===4&&<SupplierPricesPanel productId={productId}/>}
+
+    {/* Panel YALNIZ sekme açıkken monte edilir; parti isteği de o an gider.
+        Sayfayla birlikte istemek, partiye hiç bakmayan her ziyareti de
+        yavaşlatırdı. */}
+    {tab===5&&<ProductLotsPanel productId={productId}/>}
 
    </CardContent>
   </Card>
