@@ -47,13 +47,50 @@ from .parti import Parti, ParticiYetersiz, PartiSecilemedi, Secim, fefo_sec
 
 __all__ = [
     "DEFTER_BOSALDI_DAMGASI",
+    "SKT_SORULMADI",
     "SURESI_GECMIS_DAMGASI",
+    "PartiSatiri",
     "Tuketim",
     "_hareket_notu",
     "_parti_ac",
+    "_parti_bul",
+    "_parti_dus",
     "_parti_geri_al",
     "_parti_tuket",
 ]
+
+
+class PartiSatiri(NamedTuple):
+    """`_parti_bul`un cevabı: KİMLİK ve ELDEKİ MİKTAR, birlikte.
+
+    İkisi AYRI iki çağrıyla alınabilirdi ve ALINMADI: sayım yolu "bu partide
+    sistemde ne yazıyor" sorusunu sorar ve cevabı kimlikten AYRI okusaydı,
+    iki okuma arasında satır değişebilirdi. Tek okuma tek cevaptır.
+    """
+
+    id: int
+    quantity: Decimal
+
+
+class _SktSorulmadi:
+    """`None`DAN AYRI bir yokluk. Tekil ve karşılaştırması KİMLİKLEDİR."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - yalnız hata ayıklama
+        return "SKT_SORULMADI"
+
+
+#: Çağıranın SKT hakkında HİÇBİR ŞEY söylemediği anlamına gelir. `None` ise
+#: "SKT'si YOKTUR" BEYANIDIR ve var olan TARİHLİ bir partiyle ÇELİŞİR.
+#:
+#: AYRIM 1B-C'DE ÖLÇÜLDÜ VE ZORUNLUDUR: sayım yolu bir parti kodu sayar ama
+#: SKT'yi SORMAZ, yani `None` göndermesi "bu partinin son kullanma tarihi
+#: yoktur" DİYE OKUNURDU ve tarihli bir partiyi saymak 422 `LOT_SKT_CELISKI`
+#: ile REDDEDİLİRDİ — sayım, saydığı malı reddetmiş olurdu. Varsayılan bu
+#: sentineldir; `None` göndermek AÇIK bir beyandır ve 1B-A'nın çatışma kuralı
+#: onun için AYNEN geçerlidir.
+SKT_SORULMADI = _SktSorulmadi()
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +120,7 @@ def _parti_ac(
     product_id: int,
     warehouse_id: int,
     lot_code: str,
-    expiry_date: str | None,
+    expiry_date: "str | None | _SktSorulmadi" = SKT_SORULMADI,
     miktar,
 ) -> int:
     """Partiyi AÇ ya da VAR OLANA EKLE; kimliğini döndür.
@@ -94,10 +131,17 @@ def _parti_ac(
     sorusu sorulabilir kalmalıdır.
 
     SKT ÇATIŞMASI 422'dir, sessiz kabul DEĞİL: var olan bir partinin SKT'si
-    ile yeni alışın söylediği SKT ayrışıyorsa iki cümleden biri YALANDIR ve
+    ile yeni girdinin söylediği SKT ayrışıyorsa iki cümleden biri YALANDIR ve
     hangisi olduğunu depo bilemez. Var olanı ezmek geçmiş hareketleri
     yeniden yorumlardı; yeni geleni yok saymak ise operatöre yazdığı şeyin
     kaydedilmediğini SÖYLEMEZDİ.
+
+    `expiry_date` VERİLMEZSE (`SKT_SORULMADI`, VARSAYILAN) çatışma denetimi
+    HİÇ ÇALIŞMAZ ve YENİ satır SKT'siz açılır. Sentinelin `None`dan ayrı
+    durmasının gerekçesi sabitin yanındadır; özeti: `None` bir BEYANDIR
+    ("SKT'si yoktur") ve tarihli bir partiyle ÇELİŞİR, oysa sayım yolu SKT
+    hakkında hiçbir şey söylemez. Alış yolu (1B-A) argümanı AÇIKÇA yazar,
+    yani onun için çatışma kuralı BİREBİR eskisi gibidir.
     """
     varolan = db.execute(
         text(
@@ -107,6 +151,11 @@ def _parti_ac(
         ),
         {"cid": cid, "pid": product_id, "kod": lot_code, "wid": warehouse_id},
     ).mappings().first()
+    # SENTİNEL BURADA `None`A DÜŞÜYOR: sütun NULL kabul ediyor ve "sorulmadı"
+    # ile "yoktur" DEFTERDE aynı satırı üretir. Ayrım YAZMADA değil
+    # KARŞILAŞTIRMADA anlamlıdır (aşağıdaki dal), yani sentinel veritabanına
+    # HİÇ inmez ve üçüncü bir durum uydurulmaz.
+    beyan = None if isinstance(expiry_date, _SktSorulmadi) else expiry_date
     if varolan is None:
         yeni = db.execute(
             text(
@@ -119,7 +168,7 @@ def _parti_ac(
                 "cid": cid,
                 "pid": product_id,
                 "kod": lot_code,
-                "skt": expiry_date,
+                "skt": beyan,
                 "miktar": miktar,
                 "wid": warehouse_id,
                 "now": utcnow(),
@@ -127,24 +176,28 @@ def _parti_ac(
         )
         return int(yeni.scalar_one())
 
-    # KARŞILAŞTIRMA METİN ÜZERİNDE: `expiry_date` PostgreSQL'de `date`,
-    # SQLite'ta `str` olarak geri gelir ve ikisi doğrudan karşılaştırılamaz.
-    # ÖLÇÜLDÜ — iki diyalekt aynı satırda iki farklı tip verir.
-    mevcut_skt = varolan["expiry_date"]
-    mevcut_metin = mevcut_skt.isoformat() if hasattr(mevcut_skt, "isoformat") else mevcut_skt
-    if (mevcut_metin or None) != (expiry_date or None):
-        raise HTTPException(
-            422,
-            {
-                "code": "LOT_SKT_CELISKI",
-                "message": (
-                    f"`{lot_code}` partisi bu depoda "
-                    f"{mevcut_metin or 'SKT’siz'} olarak kayıtlı; alış "
-                    f"{expiry_date or 'SKT’siz'} diyor. İki tarihten hangisinin "
-                    "doğru olduğunu depo bilemez — partiyi ya da alışı düzeltin."
-                ),
-            },
+    if not isinstance(expiry_date, _SktSorulmadi):
+        # KARŞILAŞTIRMA METİN ÜZERİNDE: `expiry_date` PostgreSQL'de `date`,
+        # SQLite'ta `str` olarak geri gelir ve ikisi doğrudan karşılaştırılamaz.
+        # ÖLÇÜLDÜ — iki diyalekt aynı satırda iki farklı tip verir.
+        mevcut_skt = varolan["expiry_date"]
+        mevcut_metin = (
+            mevcut_skt.isoformat() if hasattr(mevcut_skt, "isoformat") else mevcut_skt
         )
+        if (mevcut_metin or None) != (beyan or None):
+            raise HTTPException(
+                422,
+                {
+                    "code": "LOT_SKT_CELISKI",
+                    "message": (
+                        f"`{lot_code}` partisi bu depoda "
+                        f"{mevcut_metin or 'SKT’siz'} olarak kayıtlı; girdi "
+                        f"{beyan or 'SKT’siz'} diyor. İki tarihten hangisinin "
+                        "doğru olduğunu depo bilemez — partiyi ya da girdiyi "
+                        "düzeltin."
+                    ),
+                },
+            )
     db.execute(
         text(
             "UPDATE product_lots SET quantity=quantity+:miktar "
@@ -153,6 +206,91 @@ def _parti_ac(
         {"miktar": miktar, "cid": cid, "id": int(varolan["id"])},
     )
     return int(varolan["id"])
+
+
+def _parti_bul(
+    db: Session,
+    cid: int,
+    *,
+    product_id: int,
+    warehouse_id: int,
+    lot_code: str,
+) -> PartiSatiri | None:
+    """Partiyi BUL: kimliği ve eldeki miktarı; yoksa `None`. YAZMAZ.
+
+    `_parti_ac` BU İŞİ GÖREMEZ ve ayrı durmasının sebebi budur: `_parti_ac`
+    bulamadığı partiyi AÇAR. Eksi yönlü bir ayarlama ise var OLMAYAN bir
+    partiden mal düşemez ve o durumda 409 vermelidir — `_parti_ac` ile
+    sorulsaydı, olmayan parti SESSİZCE açılır ve ardından sıfırdan düşülmeye
+    çalışılırdı.
+
+    Tekillik `(company_id, product_id, lot_code, warehouse_id)`tır (göç
+    20260908_0073), yani bu sorgu EN FAZLA bir satır görür.
+
+    `None` ile SIFIR MİKTARLI SATIR AYNI ŞEY DEĞİLDİR: birincisi "böyle bir
+    parti bu depoda hiç açılmadı", ikincisi "açıldı ve tükendi" der. Sayım
+    yolu ikisini de sıfır sayar ama fark defterde durur.
+    """
+    satir = db.execute(
+        text(
+            "SELECT id,quantity FROM product_lots "
+            "WHERE company_id=:cid AND product_id=:pid AND lot_code=:kod "
+            "AND warehouse_id=:wid"
+        ),
+        {"cid": cid, "pid": product_id, "kod": lot_code, "wid": warehouse_id},
+    ).mappings().first()
+    if satir is None:
+        return None
+    return PartiSatiri(int(satir["id"]), quantity(satir["quantity"]))
+
+
+def _parti_dus(db: Session, cid: int, *, lot_id: int, miktar, care: str) -> None:
+    """BELLİ BİR partiden `miktar` kadar DÜŞ. EKSİYE DÜŞÜRMEZ, 409 ATAR.
+
+    `_parti_tuket`TEN AYRI DURUR VE AYRILMASI KARARDIR: o FEFO ile hangi
+    partiden düşüleceğine KARAR VERİR, bu ise partiyi ÇAĞIRANDAN alır.
+    Ayarlama ve sayım yollarında parti SEÇİLMEZ, operatör tarafından ADIYLA
+    YAZILIR — oraya bir seçici koymak, operatörün yazdığı koddan BAŞKA bir
+    partiyi düşürebilirdi.
+
+    KORUMA YAZMANIN KENDİ `WHERE`ÜNDE ve bu `_parti_tuket`in ölçülmüş
+    dersidir: okuma ile yazma arasındaki aralıkta başka bir işlem aynı
+    partiyi tüketmiş olabilir, yani "önce SELECT, sonra UPDATE" iki eşzamanlı
+    ayarlamayı ayırt EDEMEZ. Koşul `WHERE`e girmeseydi bu satır partiyi
+    eksiye indirirdi: PostgreSQL'de 0067'nin `CHECK`i ile `IntegrityError`,
+    SQLite'ta SESSİZCE.
+
+    OKUMA YALNIZ MESAJ İÇİNDİR ve YAZMADAN SONRA yapılır: veritabanının reddi
+    operatöre NE YAPACAĞINI söylemez, `IntegrityError` söyler. `care`
+    ÇAĞIRANDAN gelir çünkü çare çağırana göre değişir (belgeyi geri alan önce
+    tüketimi geri almalı; ayarlama yapan sayıyı düzeltmeli). Kuralın KENDİSİ
+    ve hata KODU çağırana göre DEĞİŞMEZ.
+    """
+    dusecek = quantity(miktar)
+    sonuc = db.execute(
+        text(
+            "UPDATE product_lots SET quantity=quantity-:miktar "
+            "WHERE company_id=:cid AND id=:id AND quantity>=:miktar"
+        ),
+        {"miktar": dusecek, "cid": cid, "id": lot_id},
+    )
+    if sonuc.rowcount == 1:
+        return
+    kalan = db.execute(
+        text("SELECT quantity FROM product_lots WHERE company_id=:cid AND id=:id"),
+        {"cid": cid, "id": lot_id},
+    ).scalar_one_or_none()
+    raise HTTPException(
+        409,
+        {
+            "code": "LOT_MIKTARI_EKSIYE_DUSER",
+            "message": (
+                f"#{lot_id} partisinde düşülecek {dusecek} birim YOK "
+                f"(elde {quantity(kalan) if kalan is not None else 0}). "
+                + care
+            ),
+        },
+    )
 
 
 def _parti_geri_al(db: Session, cid: int, *, reference_type: str, reference_id: int) -> None:

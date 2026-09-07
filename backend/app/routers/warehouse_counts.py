@@ -13,6 +13,7 @@ from ..core_schema import products, stock_movements
 from ..db import get_db
 from ..inventory import adjust_warehouse_stock, warehouse_stocks, warehouses
 from ..money import quantity
+from ..parti_defteri import _parti_ac, _parti_bul, _parti_dus
 from ..tenancy import company_id
 
 router = APIRouter(prefix="/warehouses/counts", tags=["Depo Sayımları"])
@@ -26,6 +27,30 @@ class InventoryCountItem(BaseModel):
     product_id: int = Field(gt=0)
     counted_quantity: Decimal = Field(ge=0)
     critical_stock: Decimal | None = Field(default=None, ge=0)
+    # PARTİ, 1B-C. Sınır `TransactionItem.lot_code` ve göçün sütunuyla AYNI
+    # (80); iki yerde iki farklı sınır olsaydı kesilen kod defterdeki
+    # partiyle EŞLEŞMEZDİ.
+    #
+    # SKT ALANI BİLEREK YOKTUR ve bu bir eksiklik değil KAPSAM kararıdır:
+    # sayım ELDEKİNİ ÖLÇER, partinin tarihini BEYAN ETMEZ. Bir SKT alanı
+    # olsaydı sayımcı onu yazmak zorunda kalır ve yazdığı tarih defterdekiyle
+    # çelişince sayım 422 ile ölürdü — defteri düzeltmek için var olan yol,
+    # defterin kendisi yüzünden kapanırdı. Bu yüzden bu yol
+    # `parti_defteri.SKT_SORULMADI` ile çağırır (argümanı HİÇ yazmaz).
+    lot_code: str | None = Field(default=None, max_length=80)
+
+    @field_validator("lot_code")
+    @classmethod
+    def clean_lot_code(cls, value: str | None) -> str | None:
+        """Boşluk KIRPILIR, boş dizgi `None`a düşer.
+
+        Bir form alanı boş bırakıldığında tarayıcı `""` gönderir; onu parti
+        kodu saymak kodu OLMAYAN bir parti satırı açardı.
+        """
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
 
 
 class InventoryCountCreate(BaseModel):
@@ -49,9 +74,38 @@ class InventoryCountCreate(BaseModel):
 
     @model_validator(mode="after")
     def unique_products(self):
-        ids = [item.product_id for item in self.items]
-        if len(ids) != len(set(ids)):
-            raise ValueError("Aynı ürün sayım belgesinde birden fazla satırda bulunamaz")
+        """Tekillik anahtarı ÜRÜN DEĞİL, (ÜRÜN, PARTİ)dir — 1B-C.
+
+        1B-C'den önce anahtar yalnız üründü ve o doğruydu: sayım satırı ürün
+        stoğunun MUTLAK gözlemiydi, ikinci satır birinciyi ezerdi.
+
+        Parti geldiğinde AYNI ürünün İKİ PARTİSİNİ ayrı satırlarda saymak
+        MEŞRU ve gereklidir. Ama anahtarı tamamen kaldırmak da olmazdı: aynı
+        (ürün, parti) çiftinin iki satırı, ikisi de "sistemde X vardı" diyen
+        iki mutlak gözlem üretir ve İKİNCİSİ birincinin farkını GÖRMEZ —
+        ikinci satır sistem miktarını satır-öncesi değerden okuduğu için fark
+        İKİ KEZ uygulanırdı. Anahtar bu yüzden GENİŞLETİLDİ, kaldırılmadı.
+        """
+        anahtarlar = [(item.product_id, item.lot_code) for item in self.items]
+        if len(anahtarlar) != len(set(anahtarlar)):
+            raise ValueError(
+                "Aynı ürün ve aynı parti sayım belgesinde birden fazla satırda "
+                "bulunamaz"
+            )
+        # PARTİLİ VE PARTİSİZ SATIR AYNI ÜRÜNDE KARIŞAMAZ ve reddin sebebi
+        # anahtarın kendisiyle AYNI: partisiz satır "bu üründen depoda toplam
+        # şu kadar var" der (MUTLAK), partili satır "şu partide şu kadar var"
+        # der (PARÇA). İkisi aynı belgede olsaydı ikisi de depo stoğuna
+        # kendi farkını uygular ve toplam, partisiz satırın SÖYLEDİĞİ sayı
+        # OLMAZDI — üstelik hangisinin kazandığı satır SIRASINA bağlı olurdu.
+        partili = {item.product_id for item in self.items if item.lot_code}
+        partisiz = {item.product_id for item in self.items if not item.lot_code}
+        karisan = sorted(partili & partisiz)
+        if karisan:
+            raise ValueError(
+                "Bir ürün aynı sayım belgesinde hem partili hem partisiz "
+                f"sayılamaz: {karisan}"
+            )
         return self
 
 
@@ -160,7 +214,31 @@ def create_count(
     try:
         for item in payload.items:
             existing = stock_map.get(item.product_id)
-            system_quantity = quantity(existing["quantity"] if existing else 0)
+            # PARTİLİ SATIRIN "SİSTEMDE NE VAR"I DEPO STOĞU DEĞİL, PARTİNİN
+            # KENDİ MİKTARIDIR — 1B-C. Depo stoğundan okusaydık, aynı ürünün
+            # ikinci partisi sayıldığında fark BİRİNCİ partinin de miktarını
+            # içerir ve düzeltme İKİ KEZ uygulanırdı; üstelik bir partiyi
+            # sıfıra saymak, o üründeki BÜTÜN stoğu sıfırlardı.
+            #
+            # Parti hiç açılmamışsa sistem SIFIRDIR ve bu "elde yok"tur;
+            # sayılan miktar `ge=0` olduğu için fark o durumda ASLA eksi
+            # olamaz, yani aşağıdaki eksi dalı partinin VAR olduğunu bilir.
+            parti = (
+                None
+                if item.lot_code is None
+                else _parti_bul(
+                    db,
+                    cid,
+                    product_id=item.product_id,
+                    warehouse_id=payload.warehouse_id,
+                    lot_code=item.lot_code,
+                )
+            )
+            lot_id = None if parti is None else parti.id
+            if item.lot_code is None:
+                system_quantity = quantity(existing["quantity"] if existing else 0)
+            else:
+                system_quantity = quantity(parti.quantity if parti else 0)
             counted_quantity = quantity(item.counted_quantity)
             difference = counted_quantity - system_quantity
 
@@ -188,6 +266,37 @@ def create_count(
                     )
                 )
 
+            # DEFTER STOKTAN SONRA, HAREKETTEN ÖNCE: hareket `lot_id`i taşır
+            # ve parti YENİ açılmışsa kimliği ancak burada doğar.
+            if item.lot_code is not None:
+                if difference < 0:
+                    _parti_dus(
+                        db,
+                        cid,
+                        lot_id=lot_id,
+                        miktar=-difference,
+                        care=(
+                            "Sayılan miktarı partide gerçekten olan kadara "
+                            "yükseltin ya da eksiği bir çıkış hareketiyle "
+                            "kaydedin."
+                        ),
+                    )
+                else:
+                    # SIFIR FARK DA PARTİYİ AÇAR: sayımcı o partiyi ADIYLA
+                    # saydı ve "saydım, doğruydu" ile "hiç bakmadım" aynı şey
+                    # değildir. `quantity + 0` defterde hiçbir sayıyı
+                    # kımıldatmaz, ama hareket artık hangi partinin sayıldığını
+                    # SÖYLER. SKT argümanı BİLEREK YAZILMIYOR (`SKT_SORULMADI`):
+                    # sayım tarih BEYAN ETMEZ, bkz. `InventoryCountItem`.
+                    lot_id = _parti_ac(
+                        db,
+                        cid,
+                        product_id=item.product_id,
+                        warehouse_id=payload.warehouse_id,
+                        lot_code=item.lot_code,
+                        miktar=difference,
+                    )
+
             if item.critical_stock is not None:
                 db.execute(
                     update(warehouse_stocks)
@@ -212,6 +321,7 @@ def create_count(
                         note=_movement_note(system_quantity, counted_quantity, payload.note),
                         company_id=cid,
                         warehouse_id=payload.warehouse_id,
+                        lot_id=lot_id,
                     )
                     .returning(stock_movements.c.id)
                 ).scalar_one()
@@ -232,6 +342,7 @@ def create_count(
                 {
                     "product_id": item.product_id,
                     "product_name": product["name"],
+                    "lot_code": item.lot_code,
                     "unit": product["unit"],
                     "system_quantity": system_quantity,
                     "counted_quantity": counted_quantity,

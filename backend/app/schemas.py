@@ -293,6 +293,61 @@ class StockAdjust(BaseModel):
     quantity: Decimal
     movement_date: str
     note: str | None = None
+    # PARTİ + SKT, 1B-C. Sınır `TransactionItem.lot_code` ve göçün sütunuyla
+    # AYNI (80) ve bu bir üslup değil zorunluluktur: iki yerde iki farklı
+    # sınır olsaydı büyük olan sessizce kesilir ve kesilen kod defterdeki
+    # partiyle EŞLEŞMEZDİ — aynı parti için İKİNCİ bir satır açılırdı.
+    lot_code: str | None = Field(default=None, max_length=80)
+    # `None` BİR BEYANDIR («bu parti SKT'sizdir») ve var olan tarihli bir
+    # partiyle ÇELİŞİR (422). ALANIN HİÇ GÖNDERİLMEMESİ ise beyanın
+    # YOKLUĞUdur ve çatışma denetimini HİÇ çalıştırmaz. İkisini ayıran şey
+    # `model_fields_set`tir ve ayrım `app/routers/products.py`de okunur;
+    # `app/parti_defteri.SKT_SORULMADI`nın gerekçesi orada yazılı.
+    expiry_date: str | None = None
+
+    @field_validator('lot_code')
+    @classmethod
+    def validate_lot_code(cls, value: str | None) -> str | None:
+        return _clean_optional(value)
+
+    @model_validator(mode='before')
+    @classmethod
+    def bos_skt_BEYAN_DEGILDIR(cls, veri):
+        """BOŞ DİZGİ, SKT ALANINI HİÇ GÖNDERMEMEKLE AYNI ŞEYDİR.
+
+        ÖLÇÜLEN KUSUR: değeri boş dizgi olsa bile ANAHTAR
+        `model_fields_set` içine giriyordu ve `products.py` o kümeye bakarak
+        "beyan var" diyordu. Alan doğrulayıcısı boşu `None`a çevirdiği için
+        beyanın İÇERİĞİ «SKT'siz» oluyordu — yani BOŞ BIRAKILMIŞ bir form
+        alanı, TARİHLİ bir partiye eklemeyi 422 `LOT_SKT_CELISKI` ile
+        ÖLDÜRÜYORDU. Operatör hiçbir şey yazmamıştı ve hiçbir şey BEYAN
+        ETMEMİŞTİ.
+
+        Tarayıcıların boş alanı `""` göndermesi bu dosyada zaten ADIYLA
+        sayılıyor (`TransactionItem.validate_lot_code`); orada öğrenilen ders
+        SKT için UYGULANMAMIŞTI.
+
+        ÇARE ANAHTARI DÜŞÜRMEKTİR, değeri değiştirmek DEĞİL: ayrım
+        `model_fields_set` üzerinden okunuyor ve ikinci bir bayrak taşımak
+        "yok" ile "boş"u İKİ YERDE birden tutmak olurdu. Anahtar burada
+        düşünce `parti_defteri.SKT_SORULMADI` sentineli DOĞAL OLARAK devreye
+        girer — `products.py` DEĞİŞMEDEN.
+
+        AÇIK `null` DOKUNULMAZ ve bu bir eksiklik değil karardır: bir JSON
+        istemcisinin `"expiry_date": null` yazması BİR BEYANDIR («bu partinin
+        SKT'si yoktur») ve tarihli bir partiyle çelişmesi DOĞRUDUR. Boş dizgi
+        ise bir insanın boş bıraktığı alandır. İkisini aynı kefeye koymak,
+        çelişki kapısını ya herkese açar ya herkese kapatırdı.
+        """
+        if isinstance(veri, dict) and isinstance(veri.get('expiry_date'), str):
+            if not veri['expiry_date'].strip():
+                veri = {k: v for k, v in veri.items() if k != 'expiry_date'}
+        return veri
+
+    @field_validator('expiry_date')
+    @classmethod
+    def validate_expiry_date(cls, value: str | None) -> str | None:
+        return _iso_date(value, 'Son kullanma tarihi', optional=True)
 
 
 class BulkPriceUpdate(BaseModel):

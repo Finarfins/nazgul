@@ -287,16 +287,41 @@ def upgrade() -> None:
     # Mevcut hareketlerin hangi partiden çıktığı BİLİNMİYOR ve bilinemez —
     # ölçülen kusur zaten budur. NULL "bu hareket parti öncesindendir" der ve
     # bu DOĞRUDUR.
+    #
+    # SÜTUN VE KISIT AYRI SORULUR — TEK KOŞUL 1B-C'DE ÖLÇÜLDÜ VE KIRIKTI.
+    #
+    # Bu blok başlangıçta TEK bir `if "lot_id" not in ...` idi ve KISITI DA
+    # o koşulun İÇİNDE kuruyordu. 1B-C `stock_movements.lot_id`i
+    # `app/core_schema.py`de BİLDİRDİĞİ an (sayım yolu hareketi Core
+    # `insert()` ile yazar ve Core bildirilmemiş sütuna değer yazamaz) TAZE
+    # veritabanında sütunu artık `20260712_0000`ın `create_all`ı açıyor;
+    # koşul YANLIŞ oluyor ve BİLEŞİK YABANCI ANAHTAR HİÇ KURULMUYORDU.
+    #
+    # ÖLÇÜLDÜ, VARSAYILMADI (taze SQLite, `alembic upgrade head`):
+    # bildirimden ÖNCE `stock_movements` üzerinde 1 yabancı anahtar
+    # (`fk_stock_movements_lot_same_company`), bildirimden SONRA tek koşulla
+    # 0. Sessiz kayıp: çapraz kiracı `lot_id` artık veritabanı seviyesinde
+    # ENGELLENMEZDİ ve hiçbir kırmızı bunu söylemezdi.
+    #
+    # İKİ SORU AYRI OLDUĞU İÇİN bu göç ZATEN GEÇMİŞ veritabanlarında hiçbir
+    # şey yapmaz (ikisi de VAR, blok atlanır) ve taze veritabanında yalnız
+    # EKSİK OLANI kurar.
     inspector = sa.inspect(bind)
-    if "lot_id" not in _sutunlar(inspector, HAREKET):
+    sutun_var = "lot_id" in _sutunlar(inspector, HAREKET)
+    kisit_var = FK_HAREKET_PARTI in {
+        kisit.get("name") for kisit in inspector.get_foreign_keys(HAREKET)
+    }
+    if not sutun_var or not kisit_var:
         with op.batch_alter_table(HAREKET) as batch:
-            batch.add_column(sa.Column("lot_id", sa.Integer(), nullable=True))
-            batch.create_foreign_key(
-                FK_HAREKET_PARTI,
-                PARTI,
-                ["company_id", "lot_id"],
-                ["company_id", "id"],
-            )
+            if not sutun_var:
+                batch.add_column(sa.Column("lot_id", sa.Integer(), nullable=True))
+            if not kisit_var:
+                batch.create_foreign_key(
+                    FK_HAREKET_PARTI,
+                    PARTI,
+                    ["company_id", "lot_id"],
+                    ["company_id", "id"],
+                )
 
 
 def downgrade() -> None:

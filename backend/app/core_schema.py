@@ -286,6 +286,30 @@ stock_movements = Table(
     Column("note", Text),
     Column("company_id", Integer, nullable=False, index=True),
     Column("warehouse_id", Integer),
+    # PARTİ DEFTERİ, 1B-C. Hareketin hangi partiden çıktığı/hangisine
+    # girdiğinin kaydı; göç `20260903_0067` sütunu ZATEN açtı. Burada
+    # BİLDİRİLMESİNİN tek sebebi ŞUDUR: `app/routers/warehouse_counts.py`
+    # hareketi Core `insert(stock_movements)` ile yazar ve Core, metadata'da
+    # BİLDİRİLMEMİŞ bir sütuna değer YAZAMAZ (`CompileError`). Ham `text()`
+    # yazan yollar (products.py, transactions.py) bildirimsiz de yazabilirdi;
+    # sayım yolu yazamaz.
+    #
+    # 0067 BURAYA DOKUNMAMIŞTI ve gerekçesi SAYISAL GÖÇ MUTABAKAT KAPISIYDI:
+    # bildirim, sayısal manifestoda bir VARLIK FARKI üretir ve kapıyı kırar.
+    # O gerekçe bir NUMERIC sütun içindi ve BU SÜTUN İÇİN ÖLÇÜLDÜ, VARSAYILMADI
+    # (bkz. `tests/test_1b_c_ayarlama_lot.py`): `lot_id` `Integer`dır, NE
+    # `MONEY` NE `QUANTITY` ailesindendir, `app/numeric_manifest.py`nin iki
+    # sözlüğünden HİÇBİRİNE girmez ve `capture_numeric_snapshot` onu GÖRMEZ —
+    # manifesto elle yazılan bir sütun ADI listesidir, `metadata`dan
+    # TÜRETİLMEZ, yani buraya sütun eklemek onu KIMILDATAMAZ.
+    #
+    # ÖLÇÜLEN ASIL BEDEL BAŞKAYDI ve gerçekti: 0067'nin sütunu `if "lot_id"
+    # not in ...` koşuluyla ekliyordu ve BİLEŞİK YABANCI ANAHTARI da AYNI
+    # koşulun İÇİNDE kuruyordu. Bu bildirimle taze veritabanında sütunu
+    # `20260712_0000`ın `create_all`ı açar, koşul YANLIŞ olur ve FK HİÇ
+    # KURULMAZDI — sessizce. 0067'nin koşulu bu yüzden İKİYE AYRILDI (sütun
+    # ayrı, kısıt ayrı) ve taze veritabanında FK'nin durduğu ADIYLA çivili.
+    Column("lot_id", Integer),
 )
 Index("ix_stock_movements_company_product", stock_movements.c.company_id, stock_movements.c.product_id, stock_movements.c.id)
 

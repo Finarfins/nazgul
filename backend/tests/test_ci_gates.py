@@ -20,8 +20,8 @@ CALL_SITE_GATE = REPO_ROOT / "deploy" / "ci-verify-cagri-kapisi.py"
 BACKEND = REPO_ROOT / "backend"
 
 
-def test_pg_test_population_exact_109() -> None:
-    """PostgreSQL test population must be exactly 109 files.
+def test_pg_test_population_exact_110() -> None:
+    """PostgreSQL test population must be exactly 110 files.
 
     106 -> 107: E2 veteriner ilaç / arınma ikizi
     (`test_e2_tedavi_arinma_postgresql.py`, göç 20260908_0074). SAYIM
@@ -67,7 +67,16 @@ def test_pg_test_population_exact_109() -> None:
     çağıranın sorgusundadır ve gerçekten ısırdığı ancak iki kiracılı gerçek
     bir şemada sorulabilir.
 
-    108 -> 109: E3 karantina ikizi (`test_e3_karantina_postgresql.py`, göç
+    BİRLEŞİK ÖLÇÜM: İKİ DAL DA `108 -> 109` diyordu ve İKİSİ DE KENDİ
+    TABANINDA DOĞRUYDU — E3 `test_e3_karantina_postgresql.py`yi, 1B-C
+    `test_1b_c_ayarlama_lot_postgresql.py`yi ekliyor. AYNI SAYIYI İKİ AYRI
+    dosya için söyleyen iki dal birleşince sayı SEÇİLMEZ, TOPLANIR. İki
+    gerekçe de KORUNDU çünkü birini ötekinin yerine koymak sayıyı doğru
+    bırakıp GEREKÇEYİ yalan yapardı. Sayım #64 SONRASI develop (5ac6658)
+    üzerinde YENİDEN yapıldı, aritmetikle devralınmadı:
+    `ls backend/test_*postgresql*.py | wc -l` -> 108, yani 108 + 2 özel = 110.
+
+    109 -> 110 (E3 YARISI): E3 karantina ikizi (`test_e3_karantina_postgresql.py`, göç
     20260909_0075). SAYIM ÖLÇÜLDÜ, önceki ölçümün ÜZERİNE ARİTMETİK
     YAPILARAK DEĞİL: bu dalda `ls backend/test_*postgresql*.py | wc -l` ->
     107 (yeni dosya DAHİL), yani 107 `postgresql`-adlı + 2 özel = 109.
@@ -90,6 +99,28 @@ def test_pg_test_population_exact_109() -> None:
     yansıtmıyor) ve 0072'de ölçülen kusur tam orada görünür; (d)
     `ck_animal_quarantines_aralik` ile `ck_animal_quarantines_sebep_dolu`
     yalnız gerçek katalogda reddeder.
+    109 -> 110 (1B-C YARISI): 1B-C ayarlama/sayım parti ikizi
+    (`test_1b_c_ayarlama_lot_postgresql.py`, GÖÇ YOK). SAYIM ÖLÇÜLDÜ,
+    aritmetikle devralınmadı: bu dalda `ls backend/test_*postgresql*.py | wc -l`
+    -> 107 (yeni dosya DAHİL), yani 107 `postgresql`-adlı + 2 özel = 109.
+    Bu dal iki kez ölçüldü ve İKİ ÖLÇÜM DE tabanı değişince GEÇERSİZ OLDU
+    (#62 inince 107, #63 inince 108); bu satır #63 SONRASI develop üstünde
+    ÜÇÜNCÜ kez ölçüldü.
+
+    İKİZ ZORUNLU ve gerekçesi DÖRT tanedir, dördü de yalnız üretim
+    diyalektinde görünür: (a) `fk_stock_movements_lot_same_company` GERÇEKTEN
+    ISIRIYOR MU — bu dilimin en ciddi ölçülmüş riski budur ve SQLite'ta
+    GÖRÜNMEZ (temiz bir şemada `PRAGMA foreign_keys` **0** döner, yani bir
+    kiracının hareketi BAŞKA kiracının partisini işaret edebilir ve orada
+    SESSİZCE kabul edilir); risk bu turda GERÇEKTEN DOĞDU, çünkü `lot_id`
+    `core_schema`da bildirilince taze veritabanında sütunu açılış DDL'i
+    açıyor ve 0067'nin TEK koşulu yanlış olup FK'yi HİÇ KURMUYORDU (koşul
+    İKİYE AYRILDI); (b) `CHECK (quantity >= 0 ...)` `_parti_dus`un 409'unun
+    ARDINDAKİ son savunmadır ve SQLite'ta dayatılmaz; (c) `NUMERIC(18,4)`
+    ölçeği dayatılmaz, oysa sayım yolu farkı `products.stock` ile
+    `product_lots.quantity` arasında dolaştırıyor; (d) sayım yolu hareketi
+    Core `insert()` ile yazıyor ve bildirim ile üretim şemasının ÖRTÜŞTÜĞÜ
+    yalnız gerçek şemaya karşı görülür.
 
     105 -> 106: 1B-A alış-kalemi-parti ikizi
     (`test_1b_a_alis_lot_postgresql.py`, göç 20260908_0073). İkiz ZORUNLU:
@@ -217,6 +248,32 @@ def test_pg_test_population_exact_109() -> None:
     `ls backend/test_*postgresql*.py | wc -l` -> 105 (yeni dosya DAHİL), yani
     105 `postgresql`-adlı + 2 özel = 107.
 
+    107 -> 108: 1B-C ayarlama/sayım parti ikizi
+    (`test_1b_c_ayarlama_lot_postgresql.py`, GÖÇ YOK). İKİZ ZORUNLU ve
+    gerekçesi ÖLÇÜLDÜ, iddia edilmedi: bu dilim `stock_movements.lot_id`i
+    `app/core_schema.py`de BİLDİRDİ ve o bildirim, 0067'nin sütun/kısıt
+    koşulunu tek bıraktığı sürece `fk_stock_movements_lot_same_company`yi
+    TAZE veritabanında SESSİZCE düşürüyordu (taze SQLite + `alembic upgrade
+    head`: önce 1 yabancı anahtar, sonra 0). Koşul ikiye ayrıldı — ama
+    "kısıt duruyor" ile "kısıt REDDEDİYOR" aynı cümle DEĞİLDİR ve ikincisi
+    SQLite'ta SORULAMAZ: temiz bir SQLite şemasında `PRAGMA foreign_keys`
+    **0** döner, yani A firmasının hareketi B firmasının partisini işaret
+    edebilir ve orada SESSİZCE kabul edilir. Ayrıca (a) `product_lots`un
+    `CHECK (quantity >= 0)`ı `_parti_dus`un 409'unun ARDINDAKİ son savunmadır
+    ve SQLite'ta dayatılmaz; (b) `NUMERIC(18,4)` ölçeği de dayatılmaz, oysa
+    sayım yolu farkı `products.stock` ile `product_lots.quantity` arasında
+    dolaştırıyor; (c) sayım yolu hareketi Core `insert()` ile yazıyor ve
+    bildirimle üretim şemasının ÖRTÜŞTÜĞÜ yalnız gerçek şemaya karşı
+    görülür.
+
+    SAYI PROVİZYONELDİR — TABAN HENÜZ İNMEDİ. Bu dal `feat/1b-b-satis-fefo`
+    (#63) ÜSTÜNE yığılı ve #62 (E2, göç 0074) ile #63 develop'a inmeden
+    ölçülen taban GERÇEK taban DEĞİLDİR: ikisi de birer ikiz getiriyor, yani
+    develop 106 -> 108 olacak ve bu dal onu 109'a çıkaracak. Sayı, ikisi
+    indikten SONRA develop üstünde YENİDEN ÖLÇÜLECEK ve aritmetikle
+    devralınmayacak — 98 -> 99 ölçümünün taban değişince geçersiz olması bu
+    dosyada zaten yaşandı.
+
     Bu sayaç ile `ci.yml`deki eşi birlikte artmak ZORUNDA — ikisi aynı
     popülasyonu sayıyor ve biri güncellenip diğeri unutulursa kapı kendi
     kendisiyle çelişir.
@@ -227,23 +284,23 @@ def test_pg_test_population_exact_109() -> None:
         BACKEND / "tests" / "test_ci_playwright_hazirlik.py",
     ]
     all_files = pg_glob + [p for p in named if p.exists()]
-    assert len(all_files) == 109, (
-        f"PostgreSQL test population changed: expected 109, got {len(all_files)}"
+    assert len(all_files) == 110, (
+        f"PostgreSQL test population changed: expected 110, got {len(all_files)}"
     )
 
 
 def test_ci_workflow_has_frozen_pg_population_constant() -> None:
-    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=109 and strict equality.
+    """ci.yml must contain BEKLENEN_PG_DOSYA_SAYISI=110 and strict equality.
 
     ÜÇÜNCÜ ÇİVİ. Sayı bu depoda ÜÇ yerde yaşıyor: `ci.yml`in sabiti,
-    `test_pg_test_population_exact_109`in adı/iddiası, ve BURASI. Üçü aynı
+    `test_pg_test_population_exact_110`in adı/iddiası, ve BURASI. Üçü aynı
     popülasyonu sayıyor; biri güncellenip öteki unutulursa kapı KENDİ
-    KENDİSİYLE ÇELİŞİR — ve bu tam olarak `test_pg_test_population_exact_109`
+    KENDİSİYLE ÇELİŞİR — ve bu tam olarak `test_pg_test_population_exact_110`
     düzyazısının anlattığı tuzaktır (bir tur boyunca ad `_99`, iddia `100`,
     `ci.yml` yorumu `97 + 2 = 99` idi).
     """
     content = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BEKLENEN_PG_DOSYA_SAYISI=109" in content
+    assert "BEKLENEN_PG_DOSYA_SAYISI=110" in content
     assert '[ "${#all_files[@]}" -ne "$BEKLENEN_PG_DOSYA_SAYISI" ]' in content
 
 

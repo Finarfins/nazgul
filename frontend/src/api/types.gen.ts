@@ -7375,6 +7375,8 @@ export interface components {
             counted_quantity: number | string;
             /** Critical Stock */
             critical_stock?: number | string | null;
+            /** Lot Code */
+            lot_code?: string | null;
             /** Product Id */
             product_id: number;
         };
@@ -9169,6 +9171,10 @@ export interface components {
         };
         /** StockAdjust */
         StockAdjust: {
+            /** Expiry Date */
+            expiry_date?: string | null;
+            /** Lot Code */
+            lot_code?: string | null;
             /**
              * Mode
              * @default add
