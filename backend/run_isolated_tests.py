@@ -217,6 +217,8 @@ def _prepare_database_template(root: Path, timeout: int) -> Path:
         cwd=template_workdir,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=max(timeout, 1),
     )
@@ -224,7 +226,8 @@ def _prepare_database_template(root: Path, timeout: int) -> Path:
     if completed.returncode != 0 or not database_template.is_file():
         raise RuntimeError(
             "İzole test veritabanı şablonu hazırlanamadı:\n"
-            f"{completed.stdout}{completed.stderr}"
+            f"{_decode_captured_output(completed.stdout)}"
+            f"{_decode_captured_output(completed.stderr)}"
         )
     wal_path = database_template.with_name(f"{database_template.name}-wal")
     if wal_path.is_file() and wal_path.stat().st_size:
@@ -257,12 +260,23 @@ def _prepare_database_template(root: Path, timeout: int) -> Path:
     return database_template
 
 
-def _decode_timeout_output(value: str | bytes | None) -> str:
+def _decode_captured_output(value: str | bytes | None) -> str:
+    """Child stdout/stderr as text; never None; never raises on bad bytes.
+
+    Locale-default ``text=True`` (Windows cp1254) raised UnicodeDecodeError
+    when a child emitted non-encodable bytes, so the runner crashed before a
+    ``TestResult`` existed and ``result.stdout`` was unreachable. Pin UTF-8
+    with ``errors='replace'`` so the file is still reported.
+    """
     if value is None:
         return ""
     if isinstance(value, bytes):
-        return value.decode(errors="replace")
+        return value.decode("utf-8", errors="replace")
     return value
+
+
+def _decode_timeout_output(value: str | bytes | None) -> str:
+    return _decode_captured_output(value)
 
 
 def _read_worker_report(path: Path) -> tuple[tuple[str, ...], dict[str, str]]:
@@ -324,12 +338,14 @@ def _execute_test_file(
                 cwd=workdir,
                 env=env,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 capture_output=True,
                 timeout=max(timeout, 1),
             )
             returncode = completed.returncode
-            stdout = completed.stdout
-            stderr = completed.stderr
+            stdout = _decode_captured_output(completed.stdout)
+            stderr = _decode_captured_output(completed.stderr)
             reason = (
                 "collected"
                 if collect_only and returncode == 0
@@ -337,8 +353,8 @@ def _execute_test_file(
             )
         except subprocess.TimeoutExpired as exc:
             returncode = 124
-            stdout = _decode_timeout_output(exc.stdout)
-            stderr = _decode_timeout_output(exc.stderr)
+            stdout = _decode_captured_output(exc.stdout)
+            stderr = _decode_captured_output(exc.stderr)
             reason = "timeout"
 
         try:
@@ -573,11 +589,13 @@ def collect_canonical_manifest_single_process(
                 cwd=workdir,
                 env=env,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 capture_output=True,
                 timeout=max(timeout, 1),
             )
         except subprocess.TimeoutExpired as exc:
-            output = _decode_timeout_output(exc.stdout) + _decode_timeout_output(
+            output = _decode_captured_output(exc.stdout) + _decode_captured_output(
                 exc.stderr
             )
             raise ValueError(
@@ -585,7 +603,10 @@ def collect_canonical_manifest_single_process(
             ) from exc
 
         if completed.returncode != 0:
-            output = f"{completed.stdout}{completed.stderr}".strip()
+            output = (
+                f"{_decode_captured_output(completed.stdout)}"
+                f"{_decode_captured_output(completed.stderr)}"
+            ).strip()
             raise ValueError(
                 "Canonical collection subprocess failed "
                 f"(exit={completed.returncode}):\n{output}"
