@@ -165,7 +165,32 @@ from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND))
-os.environ.setdefault("DATABASE_URL", "sqlite:///./__outbox_gate.db")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
+    """``app.main`` bir URL ister; paylaşılan cwd sqlite kardeş modüllere sızıyordu.
+
+    İçe aktarma anındaki ``setdefault("DATABASE_URL", ...)`` aynı süreçte
+    toplanan sonraki dosyaların (ör. slice1) atlamak yerine çalışma
+    dizinindeki paylaşılan ``__outbox_gate.db`` dosyasına yazmasına yol
+    açıyordu. URL yalnız henüz yoksa tmp altına konur, ``Settings``/
+    ``app.main`` o URL altında içe aktarılır, sonra süreç ortamından
+    silinir — böylece kardeş modülün ``os.environ`` okuması etkilenmez.
+    """
+    owned = "DATABASE_URL" not in os.environ
+    if owned:
+        db = tmp_path_factory.mktemp("outbox_gate") / "outbox.db"
+        os.environ["DATABASE_URL"] = f"sqlite:///{db.as_posix()}"
+    try:
+        import importlib
+
+        importlib.import_module("app.main")
+    finally:
+        if owned:
+            os.environ.pop("DATABASE_URL", None)
+    yield
+
 
 #: Kaynak tablo, outbox ve yazıcının adı. ELLE yazıldı: ``farm.py``dan
 #: türetilseydi, yazıcıyı silen bir mutasyon çapayı da silerdi.
