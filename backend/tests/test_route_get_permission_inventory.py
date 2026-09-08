@@ -345,6 +345,14 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/history/{entity_type}/{entity_id}"): "users",
     ("GET", "/api/policy-overrides"): "users",
     ("GET", "/api/users"): "users",
+    # WHATSAPP ESLESTIRME DEFTERI (WA2, goc 20260910_0079). `users` ve bu
+    # OLCULDU, varsayilmadi: kural yazilmadan once `required_permission`
+    # bu yol icin "read" veriyordu (genel SAFE_METHODS kurali) — yani okuma
+    # yetkisi olan HER rol firmanin hangi numaralarinin bota bagli oldugunu
+    # gorurdu. "Kime WhatsApp'tan ulasilabilir" listesi bir KULLANICI
+    # YONETIMI yuzeyidir ve `/api/users` ile AYNI kapidan gecmelidir.
+    # Telefon CEVAPTA MASKELI doner; tam numara hicbir uctan cikmaz.
+    ("GET", "/api/whatsapp/links"): "users",
     # KİRACI DIŞA AKTARIMI. Deny-by-default nöbetçisiyle AYNI ad: yalnız
     # `admin` ("*" jokeri) taşır, yani var olan EN YÜKSEK rol. `read` olsaydı
     # HER rol firmanın tüm defterini indirebilirdi.
@@ -403,7 +411,19 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # Ucun POST ikizi bu envantere GIRMEZ (bu dosya YALNIZ GET sayar); o uc
 # `test_undeniable_endpoint_population.py`nin `PUBLIC_WEBHOOK_EXEMPTIONS`
 # capasindadir ve orada GERCEK istekle kanitlaniyor.
-GET_INVENTORY_COUNT = 184
+# 184 -> 185: WA2 esleştirme defterinin TEK OKUMA ucu
+# (`GET /api/whatsapp/links`, goc 20260910_0079). Izin `users` ve
+# `auth.py`ye `/api/whatsapp/` ONEK KURALI EKLENDI — bu VARSAYILMADI,
+# OLCULDU: kural yazilmadan once `required_permission("GET",
+# "/api/whatsapp/links")` -> "read" veriyordu ve ayni ailenin POST/DELETE
+# uclari `__admin_only__`e dusuyordu, yani ayni uc ailesi metoda gore IKI
+# FARKLI kapidan geciyordu. Webhook uclarinin degeri DEGISMEDI ve bu da
+# OLCULDU: ikisi de `PUBLIC_API`dedir, envanter onlari `required_permission`a
+# HIC sormaz. Drift raporu OLCULDU: `missing`/`stale`/`changed` UCU DE BOS —
+# artis YALNIZ eklemedir, hicbir ucun izni DEGISMEDI. Ucun uc yazma ikizi bu
+# envantere GIRMEZ (bu dosya YALNIZ GET sayar); onlar
+# `test_route_security_contracts.py`nin sozlesme envanterindedir.
+GET_INVENTORY_COUNT = 185
 GET_INVENTORY_FINGERPRINT = (
     # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
     # sonra `auth.py`ye `/api/push/` önek kuralı eklendi, sonra izin
@@ -412,6 +432,11 @@ GET_INVENTORY_FINGERPRINT = (
     # 1B-G (GOC YOK): parmak izi EN SON alindi — once uc yazildi, sonra izin
     # `required_permission` ile OLCULDU ("read"), sonra envantere ve
     # `ROUTE_REASONS`a girdi, EN SON parmak izi. cfb171c3 -> 070f4e0a.
+    # WA2 (goc 20260910_0079): AYNI SIRA izlendi — (1) uclar yazildi, (2)
+    # `auth.py`ye `/api/whatsapp/` onek kurali eklendi, (3) izin
+    # `required_permission` ile OLCULDU ("users"), (4) envantere ve
+    # `ROUTE_REASONS`a girdi, (5) sayim 184 -> 185 olarak yeniden olculdu,
+    # (6) EN SON parmak izi turetildi. bdf500d3 -> 22fcac03.
     # WA1 (göç 20260910_0078): aynı sıra izlendi — önce uç yazıldı, sonra
     # TAM YOL `PUBLIC_API`ye eklendi, sonra izin ÖLÇÜLDÜ ("public": uç yetki
     # kapısına HİÇ girmiyor), sonra envantere ve `ROUTE_REASONS`a girdi, EN
@@ -419,7 +444,7 @@ GET_INVENTORY_FINGERPRINT = (
     # türetildi: bu dalın önceki `cfb171c3 -> efd2dfc0` ölçümü, taban
     # değiştiği anda GEÇERSİZ oldu ve ARİTMETİKLE taşınamazdı — parmak izi
     # envanterin TAMAMINDAN türüyor. 070f4e0a -> bdf500d3.
-    "bdf500d36f73e7239085e4dc6116f450fdbba2861f6b8b034caf2a90193ac658"
+    "22fcac033cb894b08aaedb813b6964bb80d24f2adcc47c85fe8d23967aca765b"
 )
 
 

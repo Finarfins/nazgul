@@ -284,7 +284,26 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 # ve bu bir aritmetik degil bir SINIFLANDIRMADIR: uc kimlik dogrulanmis
 # (authenticated +1), izni `read` (read +1) ve handler'da ikinci bir yetki
 # kapisi YOK, yani REDDEDILEMEYENLER kumesine giriyor (undeniable +1).
-EXPECTED_AUTHENTICATED = 373
+# 373/99/114 -> 377/99/114 (TABAN develop `27916d7`, YENIDEN OLCULDU):
+# WA2 — ESLESTIRME YONETIMI (goc 20260910_0079), DORT uc. YALNIZ BIR sayac
+# kimildadi ve UCU DE bir SINIFLANDIRMADIR, aritmetik degil:
+#   * KIMLIKLENMIS +4: dordu de kimlik ister. WA1'in IKI webhook ucu bu
+#     sayaca HIC girmemisti (`PUBLIC_API`) ve girmemeye devam ediyor —
+#     ayni dosyada olmalari bunu degistirmiyor, cunku muafiyet TAM YOL
+#     eslesmesidir.
+#   * `read` KIMILDAMADI (99'da SABIT) ve BU BIR TANIKTIR: dordu de
+#     `auth.py`ye YAZILAN "/api/whatsapp/" onek kurali uzerinden "users"a
+#     cozuluyor. Kural silinseydi bu sayac 1 ARTARDI (GET /links, genel
+#     SAFE_METHODS kuralindan `read`e duserdi) — yani okuma yetkisi olan
+#     HER rol firmanin bota bagli numaralarini gorurdu. OLCULDU: satir
+#     yazilmadan once `required_permission("GET", "/api/whatsapp/links")`
+#     -> "read" veriyordu.
+#   * REDDEDILEMEYENLER KIMILDAMADI (114'te SABIT): "users" ciplak `read`
+#     degildir; tasimayan roller VAR, yani dort uc de bir ROL DEGERIYLE
+#     reddedilebiliyor.
+#   * `FARM_HERD_VIEW_OPERATIONS` KIMILDAMADI: uclar tarla/suru ailesinden
+#     degil.
+EXPECTED_AUTHENTICATED = 377
 EXPECTED_READ = 99
 EXPECTED_UNDENIABLE = 114
 

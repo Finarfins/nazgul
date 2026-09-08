@@ -390,7 +390,7 @@ def test_BAS_TEK_ve_0073_zincirin_UCUNDA(motor) -> None:
     """Göç 0073 zincire İKİNCİ bir baş EKLEMEDİ.
 
     Ölçülen şey başın HANGİ göç olduğu değil, TEK olduğudur. Baş ARTIK
-    `20260910_0078`dir (WA1, WhatsApp giriş kuyruğu) ve 0073 hâlâ zincirin
+    `20260910_0079`dur (WA2, WhatsApp eşleştirme defteri) ve 0073 hâlâ zincirin
     İÇİNDE — yukarıdaki `test_GOC_TURU_BOS_TABLO_...` turu onu MUTLAK hedefle
     adıyla sürüyor.
     """
@@ -398,4 +398,4 @@ def test_BAS_TEK_ve_0073_zincirin_UCUNDA(motor) -> None:
 
     config = Config(str(BACKEND / "alembic.ini"))
     baslar = ScriptDirectory.from_config(config).get_heads()
-    assert tuple(baslar) == ("20260910_0078",), baslar
+    assert tuple(baslar) == ("20260910_0079",), baslar

@@ -109,6 +109,16 @@ ACTION_TYPES: dict[str, str] = {
     # v1'de emisyonu yoktur. Rol değişikliği ucu geldiğinde katalog hazırdır.
     "user.role_change": "Kullanıcı rol değişikliği",
     "user.status_change": "Kullanıcı durum değişikliği",
+    # WhatsApp eşleştirme (WA2, göç 20260910_0079). ÜÇÜ DE `user` kaynağına
+    # bağlıdır çünkü üçü de bir KULLANICIYA erişim aracı verir ya da geri
+    # alır — kaynak linki bu sayede kullanıcı kartına gider. `details`
+    # YAZILMAZ: kod, özet ve ham telefon aktivite kaydına GİRMEZ; özet
+    # metninde yalnız kod satırının kimliği ve numaranın son dört hanesi
+    # görünür. Kataloğa GİRMEDEN çağrılamaz (`log_activity` bilinmeyen tipi
+    # `ValueError` ile reddeder), bu yüzden bu üç satır uçların ÖNKOŞULUDUR.
+    "user.whatsapp_pairing_code_created": "WhatsApp eşleştirme kodu üretildi",
+    "user.whatsapp_pairing_code_cancelled": "WhatsApp eşleştirme kodu iptal edildi",
+    "user.whatsapp_link_deactivated": "WhatsApp bağlantısı kapatıldı",
     # Panelin kendisi
     "activity_log.archive": "Aktivite kaydı arşivleme",
     "activity_log.unarchive": "Aktivite kaydı arşivden çıkarma",

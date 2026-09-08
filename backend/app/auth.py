@@ -933,6 +933,22 @@ def required_permission(method: str, path: str) -> str:
     # olmalı; sahiplik denetimi router'ın işidir ve orada yapılıyor.
     if path.startswith("/api/push/"):
         return "read"
+    # WHATSAPP ESLESTIRME (WA2) — gerekcenin TAMAMI `routers/whatsapp.py`nin
+    # basliginda. Kisaca: bu satir YAZILMASAYDI ayni uc ailesi metoda gore
+    # IKI FARKLI kapidan gecerdi ve bu OLCULDU (kural yazilmadan once
+    # `required_permission` cagrildi): `GET /api/whatsapp/links` -> "read"
+    # (genel SAFE_METHODS kurali), `POST`/`DELETE` -> "__admin_only__"
+    # (dosyanin SONUNDAKI deny-by-default nobetcisi). Yani okuma yetkisi olan
+    # HER rol firmanin hangi numaralarinin bota bagli oldugunu gorurdu —
+    # "kime WhatsApp'tan ulasilabilir" listesi bir KULLANICI YONETIMI
+    # yuzeyidir ve `/api/users` ile AYNI kapidan gecmelidir.
+    #
+    # ONEK, TAM ESLESME DEGIL: "/api/whatsapp/links/{id}" de ayni izne bagli
+    # olmali. Webhook uclari bu kuraldan ETKILENMEZ ve bu OLCULDU: ikisi de
+    # `PUBLIC_API`dedir, yani `security_and_audit`in yetki blogunun TAMAMINI
+    # atlarlar ve `required_permission` onlar icin HIC CAGRILMAZ.
+    if path.startswith("/api/whatsapp/"):
+        return "users"
     if path.startswith(_COST_RATE_PREFIX):
         return "finance"
     if any(path.startswith(prefix) for prefix in _HERD_PATH_PREFIXES):
