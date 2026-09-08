@@ -1006,25 +1006,25 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     # `**degerler` yayilimi yerine ACIK SUTUN KUMESI kullaniyor — yoksa
     # `desteksiz` listesine WA4'ten BIR satir girerdi.
     ("app/whatsapp/bekleyen.py", "_baglanti_dogrula", "select",
-     "d00a9da8586db7f4a8c7ed33afec688efa6b723f08b7fe7270ff64adc3c675b0"): (1, "whatsapp_links", "arg0"),  # satir [304]
+     "d00a9da8586db7f4a8c7ed33afec688efa6b723f08b7fe7270ff64adc3c675b0"): (1, "whatsapp_links", "arg0"),  # satir [308]
     ("app/whatsapp/bekleyen.py", "_jetonla_kapat", "update",
-     "13d8bef11c335a6a35c54498959f4dd080a7f3e5f0293a0a0f98960c3eb3ec5e"): (1, "whatsapp_pending_actions", "arg0"),  # satir [554]
+     "2302d6c23726be1750fef05becf4c5579e0eae9160878209989b0127d094d347"): (1, "whatsapp_pending_actions", "arg0"),  # satir [582]
     ("app/whatsapp/bekleyen.py", "_sahip_mi", "select",
-     "c9381fef938a951260b0fcc10a63e8b54323dc88fce315250721cd3d6d466793"): (1, "whatsapp_pending_actions", "arg0"),  # satir [513]
+     "c096cf4e9287fce7602e6b5a5477d5abc66bca979ccb4e8489687af0c4b45788"): (1, "whatsapp_pending_actions", "arg0"),  # satir [537]
     ("app/whatsapp/bekleyen.py", "_suresi_doldur", "update",
-     "d0bbfdc0cad3d6a6fd8f0ea05bb4d58a755073f2a068d7e5c39ceb7313bd1947"): (1, "whatsapp_pending_actions", "arg0"),  # satir [791]
+     "c50614cdc83ccbfbb0853c599d21ba2369023ca119f68cf71f63dc724bc548a2"): (1, "whatsapp_pending_actions", "arg0"),  # satir [836]
     ("app/whatsapp/bekleyen.py", "aktif_taslak", "select",
-     "01fa6422b22dc2b6803e537776b4524f31dee4644b23847502d19e8a0cd3f769"): (1, "whatsapp_pending_actions", "arg0"),  # satir [328]
+     "85df2cddcdac5ade2d4765adfd996ff7ff46f6c7ebeba1e04e5e1bd552369f7c"): (1, "whatsapp_pending_actions", "arg0"),  # satir [332]
     ("app/whatsapp/bekleyen.py", "claim_et", "update",
-     "c1c770cdd45d468c1b2c52463e73e00d92ed9e2ea558717a030213ed6840ce21"): (1, "whatsapp_pending_actions", "arg0"),  # satir [484]
+     "7e699d50548ecae782039d1c0fd6db6f13a706f469b13b6745c50747facf0389"): (1, "whatsapp_pending_actions", "arg0"),  # satir [499]
     ("app/whatsapp/bekleyen.py", "iptal_et", "select",
-     "00825ac3504d4c2496316885e4ce4a73e17951954a3ebdacec54b4f80ab98edc"): (1, "whatsapp_pending_actions", "arg0"),  # satir [434]
+     "b36ac447498a136a97f6f248134207c3a8887c6c1ad5d6f399b96d961217c831"): (1, "whatsapp_pending_actions", "arg0"),  # satir [446]
     ("app/whatsapp/bekleyen.py", "iptal_et", "update",
-     "03359e108e7df3ebf26da01b48bfb3cec900bf15939b82834408797d08ad0cbe"): (1, "whatsapp_pending_actions", "arg0"),  # satir [442]
+     "d68d49d1136170a21ef40cc53d821d2ece0a02c385a02349ab7ac43c039fb2f9"): (1, "whatsapp_pending_actions", "arg0"),  # satir [456]
     ("app/whatsapp/bekleyen.py", "suresi_gecenleri_kapat", "select",
-     "75e8eed511794f5b58123fec242b46063f14b4f8a4aee18f9fe6ac0bf2a8de07"): (1, "whatsapp_pending_actions", "arg0"),  # satir [825]
+     "75e8eed511794f5b58123fec242b46063f14b4f8a4aee18f9fe6ac0bf2a8de07"): (1, "whatsapp_pending_actions", "arg0"),  # satir [873]
     ("app/whatsapp/bekleyen.py", "taslak_olustur", "select",
-     "5a3307b9296775a5039af207bba35fec2af4fc14c262c6f7e2a398849eedf560"): (1, "whatsapp_pending_actions", "arg0"),  # satir [410]
+     "d23339edbb978405335c326e4d4adb15923d8ffe28800478cba47f4fb3f5ac9b"): (1, "whatsapp_pending_actions", "arg0"),  # satir [419]
 }
 
 TOTAL_CORE_QUERIES = 165
