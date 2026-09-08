@@ -52,6 +52,8 @@ PDF = b"%PDF-1.4 sahte-saglayici-pdf"
 IPTAL_KABUL = {"deger": False}
 KANAL = {"deger": "EARSIV"}
 GONDERIM = {"deger": "PENDING"}
+SIZINTI = {"deger": False}
+GIZLI = "parola-sifre-baglanti-dizesi"
 
 
 class SahteSaglayici:
@@ -74,6 +76,10 @@ class SahteSaglayici:
                               gib_status_code="130", web_key=WEB_KEY)
 
     def fetch_pdf(self, external_id, *, channel=None, web_key=None):
+        if SIZINTI["deger"]:
+            # Saglayici KATMANININ HIC gormedigi bir istisna: metni
+            # temizlenmemis. Uc bunu istemciye YANSITMAMALI.
+            raise RuntimeError("SIZAN-IC-AYRINTI-" + GIZLI)
         # Anahtar secimi KANALA gore ve bu OLCULUYOR: e-Arsiv WEB_KEY ister,
         # e-Fatura saglayici belge kimligi.
         if channel == "EARSIV":
@@ -107,6 +113,20 @@ if MUTANT == "INDIRME_KIRACISIZ":
             raise inv.HTTPException(404, "Fatura bulunamadi")
         return dict(row)
     inv._invoice = _kiracisiz
+if MUTANT == "SIZINTI_YANSITILIR":
+    # DUZELTMEDEN ONCEKI HAL: uc, `EInvoiceError` DISINDAKI bir istisnanin
+    # METNINI de govdeye koyuyordu. Mutant bunu ucun kendi `HTTPException`ini
+    # sararak taklit ediyor — 502'nin SABIT cumlesi, istisnanin ham metniyle
+    # degistiriliyor.
+    _EskiHTTPException = inv.HTTPException
+
+    class _SizdiranHTTPException(_EskiHTTPException):
+        def __init__(self, status_code, detail=None, **kw):
+            if status_code == 502 and detail == "e-Belge PDF alınamadı":
+                detail = "e-Belge PDF alınamadı: SIZAN-IC-AYRINTI-" + GIZLI
+            super().__init__(status_code, detail, **kw)
+
+    inv.HTTPException = _SizdiranHTTPException
 if MUTANT == "CANCELLED_FAILEDDEN":
     # Kume IKI YERDE okunuyor ve mutant IKISINI DE degistirmek zorunda; bu
     # OLCULDU, varsayilmadi: yalniz `status` modulunu degistiren ilk deneme
@@ -239,6 +259,23 @@ with TestClient(app) as c:
     # Gonderilmemis belgenin sureti de YOK: FAILED bir satirda indirme 404.
     assert c.get(f'/api/invoices/{iid3}/einvoice/download?format=pdf', headers=h).status_code == 404
 
+    # ================= 6) SIZINTI: BEKLENMEYEN ISTISNA YANSITILMAZ =========
+    # `EInvoiceError` mesaji saglayici katmaninda `scrub`lanmis SABIT bir
+    # cumledir ve yansitilabilir; ama katmanin HIC gormedigi bir istisnanin
+    # metni temizlenmemistir. Ikisi ayni yoldan cikarsa, ikincisi ic ayrinti
+    # sizdirir.
+    SIZINTI["deger"] = True
+    KANAL["deger"] = "EARSIV"
+    GONDERIM["deger"] = "PENDING"
+    iid4 = kur(c, h, uid, 'E2 Sizinti Musteri', 'SN-E2-D')
+    assert c.post(f'/api/invoices/{iid4}/einvoice/submit', headers=h).status_code == 200
+    sizan = c.get(f'/api/invoices/{iid4}/einvoice/download?format=pdf', headers=h)
+    assert sizan.status_code == 502, (sizan.status_code, sizan.text)
+    assert GIZLI not in sizan.text, sizan.text
+    assert 'SIZAN-IC-AYRINTI' not in sizan.text, sizan.text
+    assert 'RuntimeError' not in sizan.text, sizan.text
+    SIZINTI["deger"] = False
+
     print('E2_UC_OK')
 '''
 
@@ -289,6 +326,12 @@ def test_UC_SOZLESMESI_UCTAN_UCA(tmp_path: Path) -> None:
             "INDIRME_KIRACISIZ",
             "`_invoice` firma yüklemini kaybederse, sızmış bir fatura kimliği "
             "BAŞKA firmanın resmî mali belgesini indirtir.",
+        ),
+        (
+            "SIZINTI_YANSITILIR",
+            "Beklenmeyen bir istisnanın METNİ 502 gövdesine konursa, sağlayıcı "
+            "katmanının hiç görmediği (dolayısıyla `scrub`lanmamış) iç ayrıntı "
+            "istemciye sızar.",
         ),
         (
             "CANCELLED_FAILEDDEN",

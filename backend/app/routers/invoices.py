@@ -9,8 +9,8 @@ from ..activity_log import format_money_tr, log_request_activity
 from ..auth import utcnow
 from ..config import settings
 from ..db import get_db
-from ..einvoice import (CANCELLABLE,CANCELLED,UblBuildError,advance_status,build_invoice_xml,
-    einvoice_configuration,get_einvoice_provider,resolve_channel)
+from ..einvoice import (CANCELLABLE,CANCELLED,EInvoiceError,UblBuildError,advance_status,
+    build_invoice_xml,einvoice_configuration,get_einvoice_provider,resolve_channel)
 from ..einvoice.ubl import CHANNEL_EARSIV,CHANNEL_EFATURA
 from ..invoice_pdf import build_invoice_pdf
 from ..invoice_schemas import InvoiceCancelRequest,InvoiceGenerateRequest
@@ -135,8 +135,15 @@ def _einvoice_cancel_gate(db:Session,cid:int,invoice_id:int,invoice:dict,now)->b
         # Sağlayıcı katmanı `cancel` için `FAILED` döndürmeyi taahhüt ediyor;
         # yine de bir istisna sızarsa YEREL İPTAL YAPILMAZ. "Beklenmeyen hata"
         # bir iptal izni değildir.
+        #
+        # İSTİSNANIN METNİ İSTEMCİYE GİTMEZ, yalnız SINIF ADI log'a gider.
+        # Aşağıdaki `result.error` güvenlidir çünkü sağlayıcı katmanı onu
+        # `scrub` ediyor; BURAYA düşen şey ise sağlayıcı katmanının HİÇ
+        # görmediği bir istisnadır (ör. bir veritabanı/kod hatası) ve metni
+        # temizlenmemiştir — 400 karakterini istemciye yansıtmak, iç ayrıntıyı
+        # dışarı sızdırmanın en sessiz yoludur.
         logger.warning("e-Arşiv iptali istisnayla düştü: %s",type(exc).__name__)
-        raise HTTPException(409,f"{EARSIV_CANCEL_FAILED}: {str(exc)[:400]}") from None
+        raise HTTPException(409,f"{EARSIV_CANCEL_FAILED}: sağlayıcı çağrısı tamamlanamadı") from None
     if result.status!=CANCELLED:
         raise HTTPException(409,f"{EARSIV_CANCEL_FAILED}: {(result.error or '')[:400]}")
     # İleri-yönlü makine: `CANCELLED` yalnız üç canlı durumdan kabul edilir
@@ -314,10 +321,18 @@ def einvoice_download(invoice_id:int,request:Request,format:str=Query("pdf"),db:
             raise HTTPException(404,EINVOICE_DOCUMENT_MISSING)
         try:
             icerik=build_invoice_xml(json.loads(ham))
-        except (UblBuildError,ValueError) as exc:
+        except UblBuildError as exc:
             # Saklanan payload'dan belge YENİDEN ÜRETİLEMİYOR. Yarım bir XML
             # döndürmek, mali belge diye eksik bir dosya vermek olurdu.
+            # `UblBuildError`in metni BİZİM alan adlarımızdır (ör. "alıcı
+            # VKN/TCKN"), sağlayıcı gövdesi değil — o yüzden yansıtılabilir.
             raise HTTPException(409,f"Gönderilen UBL yeniden üretilemedi: {str(exc)[:300]}") from None
+        except ValueError as exc:
+            # Saklanan payload JSON olarak OKUNAMIYOR. `ValueError`in metni
+            # gövdenin BİR PARÇASINI taşıyabilir (json ayrıştırıcısı bağlam
+            # basar), o yüzden istemciye SABİT bir cümle gider.
+            logger.warning("e-Belge XML üretilemedi: saklanan payload okunamadı (%s)",type(exc).__name__)
+            raise HTTPException(409,"Gönderilen UBL yeniden üretilemedi: saklanan veri okunamadı") from None
         log_invoice_action(db,request,cid,invoice_id,"EINVOICE_DOWNLOAD",metadata={"format":"xml"}); db.commit()
         return Response(icerik,media_type="application/xml",
             headers={"Content-Disposition":f'attachment; filename="{invoice["invoice_number"]}.xml"'})
@@ -328,12 +343,19 @@ def einvoice_download(invoice_id:int,request:Request,format:str=Query("pdf"),db:
     provider=get_einvoice_provider(settings,company_id=cid)
     try:
         icerik=provider.fetch_pdf(ext,channel=kanal,web_key=invoice.get("einvoice_web_key"))
-    except Exception as exc:
+    except EInvoiceError as exc:
         # `fetch_pdf` boş `bytes` DÖNDÜRMEZ, fırlatır (sağlayıcı katmanının
         # sözleşmesi): boş bir gövde çağıran tarafta boş bir PDF'ten ayırt
         # edilemezdi. Burada da aynı çizgi: 502, çünkü hata BİZDE değil.
-        logger.warning("e-Belge PDF indirmesi başarısız: %s",type(exc).__name__)
-        raise HTTPException(502,f"e-Belge PDF alınamadı: {str(exc)[:400]}") from None
+        # `EInvoiceError.message` sağlayıcı katmanında `scrub`lanmış SABİT
+        # cümledir (kimlik/gövde taşımaz), o yüzden yansıtılabilir.
+        logger.warning("e-Belge PDF indirmesi başarısız (sınıf=%s)",exc.code)
+        raise HTTPException(502,f"e-Belge PDF alınamadı: {exc.message[:400]}") from None
+    except Exception as exc:
+        # Sağlayıcı katmanının HİÇ görmediği bir istisna: metni temizlenmemiş,
+        # o yüzden istemciye GİTMEZ — yalnız sınıf adı log'a düşer.
+        logger.warning("e-Belge PDF indirmesi istisnayla düştü: %s",type(exc).__name__)
+        raise HTTPException(502,"e-Belge PDF alınamadı") from None
     log_invoice_action(db,request,cid,invoice_id,"EINVOICE_DOWNLOAD",metadata={"format":"pdf"}); db.commit()
     return Response(icerik,media_type="application/pdf",
         headers={"Content-Disposition":f'attachment; filename="{invoice["invoice_number"]}-ebelge.pdf"'})
