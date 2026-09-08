@@ -22,9 +22,20 @@ BACKEND = Path(__file__).resolve().parent
 # GOC demekti ve bu dilim goc acmiyor; `platform_maintenance` ise BAKIM
 # ISLEMININ kalp atisidir (goc 20260728_0034) ve oraya yazmak kilit
 # sahipligi hakkinda YALAN soylerdi.
+#
+# `app/whatsapp/zamanlayici.py` — WA3-full, AYNI SINIFTAN ve AYNI GEREKCEYLE.
+# Tek anahtar: `whatsapp_zamanlayici.heartbeat`. Isci de SUREC DUZEYINDE tek
+# bir thread'dir ve gezdigi kuyruk (`whatsapp_inbound`) zaten bir PLATFORM
+# tablosudur — `company_id` sutunu YOKTUR ve gerekcesi goc 20260910_0078'in
+# basligindadir: webhook'a gelen mesaj henuz hicbir firmaya ait degildir.
+# Yani buradaki kalp atisi icin bir kiraci UYDURULAMAZ bile: satirin govdesi
+# (started_at, finished_at, messages_processed, dead_marked, last_error) TEK
+# BIR FIRMANIN verisini DEGIL, turun TAMAMININ sayaclarini tasir. Yeni bir
+# tablo alternatifi yine GOC demekti ve bu dilim goc ACMIYOR.
 ALLOWED_SETTINGS_WRITERS = {
     Path("seed_demo_data.py"),
     Path("app/field_stok_zamanlayici.py"),
+    Path("app/whatsapp/zamanlayici.py"),
 }
 RAW_SETTINGS_WRITE = re.compile(
     r"\b(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|REPLACE\s+INTO|UPDATE|DELETE\s+FROM)"

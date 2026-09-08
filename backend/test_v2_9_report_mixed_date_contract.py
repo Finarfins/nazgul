@@ -6,7 +6,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 
-from app.routers.reports import _date_conditions, _normalized_date_sql, summary
+from app.routers.reports import (
+    _date_conditions,
+    _normalized_date_sql,
+    ozet_verisi,
+    summary,
+)
 
 
 def test_date_sql_supports_sqlite_and_postgresql() -> None:
@@ -101,5 +106,16 @@ def test_summary_combines_iso_and_legacy_dates_in_sqlite() -> None:
 
 
 def test_top_customer_join_is_tenant_consistent() -> None:
-    source = inspect.getsource(summary)
+    """Birleştirme kiracı İÇİNDE kuruluyor: `c.company_id=o.company_id`.
+
+    KAYNAK `summary` DEĞİL `ozet_verisi` OKUNUYOR — WA3-full (WhatsApp
+    işçisi) gövdeyi `Request` bağımlılığından arındırıp modül düzeyine
+    taşıdı ve uç artık onu ÇAĞIRIYOR. Sorgu metni KARAKTERİ KARAKTERİNE
+    aynıdır; değişen yalnız gövdenin YAŞADIĞI FONKSİYONDUR. Uçtan
+    okumaya devam etseydi kapı, yüklem düşürülse bile YEŞİL kalırdı —
+    çünkü uçta artık hiç SQL yok.
+    """
+    source = inspect.getsource(ozet_verisi)
     assert "c.company_id=o.company_id" in source
+    # Uç GERÇEKTEN o gövdeyi çağırıyor: kapı boşa düşmesin.
+    assert "ozet_verisi(" in inspect.getsource(summary)
