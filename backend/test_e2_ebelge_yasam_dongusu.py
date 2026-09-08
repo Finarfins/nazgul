@@ -203,6 +203,31 @@ def test_DURUM_SORGUSU_CANCELLED_URETEMEZ() -> None:
     assert CANCELLED not in QUERYABLE
 
 
+def test_SAGLAYICI_CANCELLED_DESE_BILE_BELGE_IPTAL_OLMAZ() -> None:
+    """Sorgu yanıtında ÇIPLAK "CANCELLED" jetonu belgeyi iptal ETMEZ.
+
+    Bu test, `CANCELLED`ın `KNOWN` kümesine EKLENMESİNİN açtığı deliği
+    kapatıyor ve ÖLÇÜLDÜ: `map_provider_status` "bilinen bir jeton mu"
+    diye `KNOWN`a bakıyor, dolayısıyla jeton ARTIK eşleniyor (eskiden
+    `None`a düşerdi). Eşlenmesi bir sorun DEĞİL — sorun, oradan bir
+    GEÇİŞ doğsaydı olurdu: sağlayıcının kelime tercihi, hiç yapmadığımız
+    bir iptali yerel satıra yazabilirdi.
+
+    İki kapı birden kapalı ve ikisi de burada ölçülüyor: `QUERYABLE`
+    jetonu sorgu cevabı olarak kabul etmiyor (uç `UNRESOLVED`a düşüyor),
+    ve `UNRESOLVED` bir geçiş sayılmadığı için belge OLDUĞU YERDE kalıyor.
+    """
+    from app.einvoice.status import QUERYABLE, UNRESOLVED, map_provider_status
+
+    # 1) Jeton artık eşleniyor (KNOWN büyüdü) — bu ölçülüyor, varsayılmıyor.
+    assert map_provider_status("CANCELLED") == CANCELLED
+    # 2) Ama bir SORGU cevabı olamaz; uç bunu UNRESOLVED'a çevirir.
+    assert CANCELLED not in QUERYABLE
+    # 3) Ve UNRESOLVED bir geçiş değildir: belge nerede duruyorsa orada kalır.
+    for durum in (PENDING, SENT, ACCEPTED):
+        assert advance_status(durum, UNRESOLVED) == durum, durum
+
+
 # ==========================================================================
 # 2) SAĞLAYICI: e-ARŞİV İPTALİ
 # ==========================================================================
