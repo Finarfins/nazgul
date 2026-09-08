@@ -9,9 +9,12 @@
    (_parti_bos_olmali) ardışık koşularda tetiklenmez.
 """
 from __future__ import annotations
-
 from typing import Sequence
-from sqlalchemy import text
+
+try:
+    from sqlalchemy import text
+except ImportError:
+    text = None  # type: ignore
 
 
 def acilisa_cek(engine=None) -> None:
