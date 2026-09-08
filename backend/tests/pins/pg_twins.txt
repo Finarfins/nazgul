@@ -108,6 +108,7 @@ test_uretici_kayit_defteri_postgresql.py
 test_wa1_ingress_postgresql.py
 test_wa2_eslestirme_postgresql.py
 test_wa3_worker_postgresql.py
+test_wa4_bekleyen_postgresql.py
 test_work_order_billing_postgresql.py
 test_work_order_immediate_availability_postgresql.py
 test_work_order_parts_postgresql.py

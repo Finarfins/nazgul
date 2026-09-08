@@ -27,6 +27,7 @@ NotificationStatus = Literal[
 ]
 _NOT_CONFIGURED = "Bildirim sağlayıcısı şirket entegrasyonu sonrası yapılandırılacak"
 _SMTP_NOT_CONFIGURED = "SMTP yapılandırılmamış"
+_WHATSAPP_NOT_CONFIGURED = "WhatsApp Cloud API yapılandırılmamış"
 # Lease 5 dakikadır (service._LEASE_MINUTES); taşıyıcı hiçbir koşulda lease'i
 # aşacak kadar beklememelidir, aksi hâlde satır başka bir sürece kapılabilir.
 SMTP_TIMEOUT_SECONDS = 15
@@ -116,12 +117,103 @@ class TwilioNotificationProvider(NotificationProvider):
 
 
 class WhatsAppNotificationProvider(NotificationProvider):
-    """Wiring-only stub for a later WhatsApp adapter."""
+    """WHATSAPP kanalının taşıyıcısı — Meta Cloud API (WA4).
+
+    Artık bir "wiring-only stub" DEĞİL: yapılandırılmış bir kurulumda
+    gerçekten ağa çıkar. Taşıyıcının kendisi
+    ``app.whatsapp.cloud_api.metin_gonder``dedir ve orada olması bir
+    gelenektir, tercih değil: ``SmtpEmailNotificationProvider`` için yazılı
+    olan "taşıyıcı YALNIZ tek modülde" kuralının aynısı — böylece "kim,
+    nereden WhatsApp mesajı gönderiyor" sorusunun tek bir cevabı olur.
+
+    ÜÇ YOL VAR ve üçü de AYRI bir şey söyler:
+
+    * **Jeton ya da numara kimliği BOŞ → ``NONE``.** Ağa HİÇ çıkılmaz.
+      "Denenmedi, başarısız da olmadı" demektir ve ``SmtpEmailNotification
+      Provider``ın yapılandırılmamış davranışıyla BİREBİR aynıdır: motor
+      satırı sonlandırır, yapılandırma gelince satır elle retry ile canlanır.
+      Varsayılan kurulumda (``.env``de WhatsApp yok) BU yol koşar, yani bu
+      sınıfın eklenmesi hiçbir kurulumda dışarı mesaj ÇIKARMAZ.
+    * **``notification_provider = "simulation"`` → ``SIMULATED``.** Ağa
+      çıkmadan akışı uçtan uca koşturur. ``SENT`` YAZMAZ ve bu kural
+      ``PushNotificationProvider``dan devralınmıştır: gerçekten
+      gönderilmemiş bir mesajı "gönderildi" diye raporlamak denetim izini
+      yalan söyler hâle getirir. ``SIMULATED`` terminaldir
+      (``schema.TERMINAL_STATUSES``), yani satır yeniden denemeye TAKILMAZ
+      ve raporlarda gerçek gönderimlerden AYRI sayılır.
+    * **Yapılandırılmış → gerçek gönderim.** ``SENT`` YALNIZ Meta bir mesaj
+      kimliği (``wamid``) döndürdüğünde yazılır; kimliksiz bir 2xx bile
+      ``GonderimHatasi``dır. Kanıtsız ``SENT`` yazmamak, yukarıdaki iki
+      yolun da dayandığı aynı kuraldır.
+
+    ``supports_idempotency = False`` ve bu ÖLÇÜLMÜŞ bir karardır: Meta Cloud
+    API'nin gönderim ucunda istemci tarafı tekilleştirme anahtarı YOKTUR
+    (``messages`` uç noktası bir ``Idempotency-Key`` kabul etmez). ``True``
+    demek, süresi dolmuş bir lease'in otomatik geri alınmasını açar ve AYNI
+    mesajı kullanıcıya İKİ KEZ gönderirdi — ``SmtpEmailNotificationProvider``
+    ile aynı gerekçe.
+
+    KAPSAM SINIRI — ASİSTAN CEVAPLARI BURADAN GEÇMEZ. Bu adaptör
+    ``notification_outbox`` satırlarını taşır ve o defterin rıza kaydı
+    (``notification_consents``) yalnız ``CUSTOMER``/``SUPPLIER`` taraflarını
+    tanır. WhatsApp asistanının kullanıcıya verdiği cevap (özet, ``ONAY``
+    sonucu, hata metni) bir PAZARLAMA/BİLDİRİM mesajı değil, kullanıcının
+    KENDİ başlattığı bir oturumun cevabıdır ve outbox'a girmez. Gerekçenin
+    tamamı ``docs/whatsapp/WA4_KANALLAR.md``dedir.
+    """
 
     supports_idempotency = False
 
     def send(self, notification: dict[str, Any]) -> NotificationResult:
-        raise NotImplementedError(_NOT_CONFIGURED)
+        from ..whatsapp.cloud_api import GonderimHatasi, metin_gonder
+
+        config = self.settings
+        token = _secret_value(getattr(config, "whatsapp_access_token", None)).strip()
+        phone_number_id = str(
+            getattr(config, "whatsapp_phone_number_id", "") or ""
+        ).strip()
+        if not token or not phone_number_id:
+            return NotificationResult(
+                status="NONE", message=_WHATSAPP_NOT_CONFIGURED
+            )
+
+        recipient = str(notification.get("recipient") or "").strip()
+        if not recipient:
+            # İÇERİK HATASI, AĞ HATASI DEĞİL: hedefi olmayan bir satır
+            # yeniden denenerek düzelmez.
+            raise ValueError("WhatsApp bildiriminde alıcı numarası yok")
+        payload = notification.get("payload") or {}
+        body = str(payload.get("body") or "").strip()
+        if not body:
+            raise ValueError("WhatsApp bildirimi payload'ında gövde yok")
+
+        provider_name = (
+            getattr(config, "notification_provider", "") or ""
+        ).strip().lower()
+        if provider_name == "simulation":
+            anahtar = str(
+                notification.get("provider_idempotency_key") or "whatsapp"
+            )
+            return NotificationResult(
+                status="SIMULATED",
+                message="WhatsApp simülasyonu: mesaj dışarı gönderilmedi",
+                external_id="wa-" + anahtar.replace(":", "-"),
+            )
+
+        try:
+            wamid = metin_gonder(
+                access_token=token,
+                phone_number_id=phone_number_id,
+                telefon=recipient,
+                metin=body,
+            )
+        except GonderimHatasi:
+            # İstisna yukarı TAŞINIR ve motor tarafından sınıflandırılıp
+            # maskelenir (`service._ERROR_MESSAGES`). Bu sınıf
+            # `NotificationResult.message` alanına hiçbir sunucu metni yazmaz
+            # — `SmtpEmailNotificationProvider` ile AYNI kural.
+            raise
+        return NotificationResult(status="SENT", external_id=wamid)
 
 
 class PushNotificationProvider(NotificationProvider):
@@ -276,6 +368,22 @@ _PROVIDERS: dict[str, type[NotificationProvider]] = {
 #: kımıldatmak, çalışan üç kanalı tek turda değiştirmek olurdu.
 KANAL_SAGLAYICILARI: dict[str, type[NotificationProvider]] = {
     "PUSH": PushNotificationProvider,
+    # WHATSAPP (WA4). 5.4c'de bu kanal "TARİHSEL olarak ayardan seçiliyor ve
+    # o davranış BU TURDA KIMILDAMADI" diye AYRIK bırakılmıştı; kımıldatan
+    # şey, kanalın artık GERÇEK bir adaptörünün olmasıdır.
+    #
+    # Çivilenmeseydi ölçülen kusur şu olurdu: `notification_provider="smtp"`
+    # ayarlı bir kurulumda WHATSAPP kanalındaki bir outbox satırı SMTP
+    # adaptörüne giderdi ve o adaptör alıcı alanındaki TELEFON NUMARASINI
+    # bir e-posta adresi sanıp ona mail atmaya çalışırdı — PUSH için
+    # ölçülen kusurun birebir aynısı, yalnız cihaz jetonu yerine numarayla.
+    #
+    # Çivi, simülasyonu KAPATMAZ: `notification_provider="simulation"`
+    # ayarında bu adaptörün KENDİSİ `SIMULATED` döner (sınıfın başlığı),
+    # yani ağa çıkmadan uçtan uca koşturma yolu AÇIK kalır. Çivinin
+    # kapattığı tek şey, WhatsApp satırının BAŞKA bir kanalın taşıyıcısına
+    # düşmesidir.
+    "WHATSAPP": WhatsAppNotificationProvider,
 }
 
 

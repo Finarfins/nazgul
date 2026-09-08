@@ -22,6 +22,9 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
@@ -197,12 +200,118 @@ def gelen_mesajlari_coz(govde: Any) -> list[GelenMesaj]:
     return sonuc
 
 
+
+# ---------------------------------------------------------------------------
+# GIDEN TARAF (WA4) — Meta Cloud API'ye TEK cikis noktasi
+# ---------------------------------------------------------------------------
+# `SmtpEmailNotificationProvider`in yazili kuralinin AYNISI burada da gecerli:
+# tasiyici YALNIZ bu moduldedir. `urllib.request` importu uygulama modulleri
+# icinde BASKA hicbir yerde WhatsApp icin kullanilmaz, boylece "kim, nereden
+# WhatsApp mesaji gonderiyor" sorusunun TEK bir cevabi olur. Kapi:
+# `tests/test_wa4_bekleyen.py::test_META_TASIYICISI_TEK_MODULDE`.
+
+#: Graph API surumu. SABITLENMIS ve bu bilincli: Meta surumsuz bir yol
+#: (`/messages`) kabul etmez ve "en yeni"ye baglanmak, Meta bir alan
+#: kaldirdiginda uretimi HABERSIZ kirardi.
+GRAPH_SURUMU = "v21.0"
+GRAPH_TABAN = "https://graph.facebook.com"
+
+#: Gonderim zaman asimi. Bildirim motorunun lease'i 5 dakikadir
+#: (`notifications/service._LEASE_MINUTES`); tasiyici hicbir kosulda lease'i
+#: asacak kadar beklememelidir, aksi halde satir baska bir surece kapilir.
+#: `SMTP_TIMEOUT_SECONDS` (15) ile AYNI buyukluk sinifi.
+GONDERIM_ZAMAN_ASIMI = 15
+
+
+class GonderimHatasi(Exception):
+    """Meta'ya gonderim basarisiz. Mesaj metni SUNUCU METNI TASIMAZ.
+
+    Meta'nin hata govdesi jeton parcasi, dahili istek kimligi ve isletme
+    hesabi kimligi tasiyabilir; bunlarin bildirim defterine yazilmasi
+    denetim kaydini bir sizinti yuzeyine cevirirdi. Yukari yalnizca HTTP
+    durum kodu tasinir.
+    """
+
+
+def metin_gonder(
+    *,
+    access_token: str,
+    phone_number_id: str,
+    telefon: str,
+    metin: str,
+    zaman_asimi: int = GONDERIM_ZAMAN_ASIMI,
+) -> str:
+    """Meta Cloud API uzerinden DUZ METIN mesaji gonderir; `wamid` dondurur.
+
+    FAIL-CLOSED: jeton ya da numara kimligi bossa AGA HIC CIKILMAZ. Cagiran
+    (`notifications/provider.WhatsAppNotificationProvider`) bu durumu zaten
+    onceden eliyor; buradaki denetim ikinci kapidir ve gerekli, cunku bos
+    bir `Bearer ` basligiyla yapilan istek Meta tarafinda kimlik dogrulama
+    hatasi olarak SAYILIR.
+
+    Donen deger Meta'nin verdigi mesaj kimligidir (`messages[0].id`).
+    Kimlik GELMEZSE `GonderimHatasi` yukselir ve bu bilincli: kimliksiz bir
+    2xx, gonderimin gerceklestiginin KANITI DEGILDIR ve `SENT` yazmak icin
+    kanit sarttir.
+    """
+    jeton = (access_token or "").strip()
+    numara_kimligi = (phone_number_id or "").strip()
+    if not jeton or not numara_kimligi:
+        raise GonderimHatasi("WhatsApp gonderimi yapilandirilmamis")
+
+    govde = json.dumps(
+        {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": telefon,
+            "type": "text",
+            # `preview_url` KAPALI: acik olsaydi mesajdaki bir baglantiyi
+            # Meta'nin getirmesini tetiklerdi ve bu, kullaniciya giden
+            # metnin icerigine bagli bir DIS ISTEK uretirdi.
+            "text": {"preview_url": False, "body": metin},
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+    istek = urllib.request.Request(
+        f"{GRAPH_TABAN}/{GRAPH_SURUMU}/{numara_kimligi}/messages",
+        data=govde,
+        headers={
+            "Authorization": f"Bearer {jeton}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(istek, timeout=zaman_asimi) as cevap:
+            cozulen = json.loads(cevap.read().decode("utf-8"))
+    except urllib.error.HTTPError as hata:
+        # Govde OKUNMAZ ve yukari TASINMAZ — gerekce `GonderimHatasi`nda.
+        raise GonderimHatasi(f"Meta gonderimi reddetti (HTTP {hata.code})") from hata
+    except Exception as hata:  # aglar kopar, DNS duser, zaman asimi olur
+        raise GonderimHatasi(
+            f"Meta gonderimi basarisiz ({type(hata).__name__})"
+        ) from hata
+
+    mesajlar = cozulen.get("messages") if isinstance(cozulen, dict) else None
+    if isinstance(mesajlar, list) and mesajlar:
+        wamid = mesajlar[0].get("id") if isinstance(mesajlar[0], dict) else None
+        if _dolu_metin(wamid):
+            return str(wamid)
+    raise GonderimHatasi("Meta cevabinda mesaj kimligi yok")
+
+
 __all__ = [
     "METIN_MAKS",
+    "GONDERIM_ZAMAN_ASIMI",
+    "GRAPH_SURUMU",
+    "GRAPH_TABAN",
     "SIGNATURE_HEADER",
     "SIGNATURE_PREFIX",
     "SUPPORTED_MEDIA_MIME",
     "GelenMesaj",
+    "GonderimHatasi",
     "gelen_mesajlari_coz",
+    "metin_gonder",
     "verify_signature",
 ]

@@ -980,6 +980,51 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "344689a43a024706cb6327aee8f29b2a40490b80526b4bd1852ec0ba9a15294c"): (1, "companies", "arg0"),  # satır [133]
     ("app/routers/kiraci_imha.py", "firmayi_imha_et", "delete",
      "4594c3b519aab868921b5bd88a7f5bc6f2579889963ec81277bc7383effb9a72"): (1, "memberships", "arg0"),  # satır [137]
+    # --- WHATSAPP BEKLEYEN ISLEMLER (WA4, goc 20260910_0080)
+    # ON sorgu, TEK dosya (app/whatsapp/bekleyen.py). DOKUZUNUN hedefi
+    # `whatsapp_pending_actions`, BIRININ (`_baglanti_dogrula`)
+    # `whatsapp_links`.
+    #
+    # ONUNUN DA KIRACI YUKLEMI VAR ve yuklem parmak izinde GORUNUR; bu kapi
+    # yuklemin VARLIGINI kanitlamaz, `test_core_tenant_scoping_guard.py`
+    # kanitlar. Sekizi `_kapsam()` (company_id + user_id + phone) uzerinden
+    # daraliyor; `_sahip_mi` ve `_jetonla_kapat` ise SATIR KIMLIGI + jeton
+    # sahipligiyle daraliyor ve o iki sorgu bir cagirandan `company_id`
+    # ALMAZ — cagrildiklari tek yer, kapsami ZATEN dogrulanmis bir claim'in
+    # sahibi oldugu satirdir (`claim_et` kapsami CAS'inin ICINDE tasir).
+    #
+    # KIRACI YUKLEMI TASIMAYAN TEK SORGU `suresi_gecenleri_kapat`tir ve
+    # gerekcesi OLCULDU, VARSAYILMADI: supurucu KURESEL kosar (bir isci,
+    # butun firmalarin suresi gecmis taslaklarini kapatir) ve bir cagirandan
+    # `company_id` ALMAZ. Yuklem eklenseydi cagiranin hangi firmalari
+    # kapatabilecegi ayrica yetkilendirilmek zorunda kalirdi; bugun boyle bir
+    # cagiran YOK (isci WA3'un isi).
+    #
+    # HEDEFI COZULEMEYEN sorgu YOK — `UNRESOLVED_ALLOWLIST` BUYUMEDI. Bunun
+    # icin `from .schema import ... as wpa` kisaltmasi BILEREK KULLANILMADI
+    # (gerekce `bekleyen.py`nin import satirinda) ve `_jetonla_kapat`
+    # `**degerler` yayilimi yerine ACIK SUTUN KUMESI kullaniyor — yoksa
+    # `desteksiz` listesine WA4'ten BIR satir girerdi.
+    ("app/whatsapp/bekleyen.py", "_baglanti_dogrula", "select",
+     "d00a9da8586db7f4a8c7ed33afec688efa6b723f08b7fe7270ff64adc3c675b0"): (1, "whatsapp_links", "arg0"),  # satir [304]
+    ("app/whatsapp/bekleyen.py", "_jetonla_kapat", "update",
+     "13d8bef11c335a6a35c54498959f4dd080a7f3e5f0293a0a0f98960c3eb3ec5e"): (1, "whatsapp_pending_actions", "arg0"),  # satir [554]
+    ("app/whatsapp/bekleyen.py", "_sahip_mi", "select",
+     "c9381fef938a951260b0fcc10a63e8b54323dc88fce315250721cd3d6d466793"): (1, "whatsapp_pending_actions", "arg0"),  # satir [513]
+    ("app/whatsapp/bekleyen.py", "_suresi_doldur", "update",
+     "d0bbfdc0cad3d6a6fd8f0ea05bb4d58a755073f2a068d7e5c39ceb7313bd1947"): (1, "whatsapp_pending_actions", "arg0"),  # satir [791]
+    ("app/whatsapp/bekleyen.py", "aktif_taslak", "select",
+     "01fa6422b22dc2b6803e537776b4524f31dee4644b23847502d19e8a0cd3f769"): (1, "whatsapp_pending_actions", "arg0"),  # satir [328]
+    ("app/whatsapp/bekleyen.py", "claim_et", "update",
+     "c1c770cdd45d468c1b2c52463e73e00d92ed9e2ea558717a030213ed6840ce21"): (1, "whatsapp_pending_actions", "arg0"),  # satir [484]
+    ("app/whatsapp/bekleyen.py", "iptal_et", "select",
+     "00825ac3504d4c2496316885e4ce4a73e17951954a3ebdacec54b4f80ab98edc"): (1, "whatsapp_pending_actions", "arg0"),  # satir [434]
+    ("app/whatsapp/bekleyen.py", "iptal_et", "update",
+     "03359e108e7df3ebf26da01b48bfb3cec900bf15939b82834408797d08ad0cbe"): (1, "whatsapp_pending_actions", "arg0"),  # satir [442]
+    ("app/whatsapp/bekleyen.py", "suresi_gecenleri_kapat", "select",
+     "75e8eed511794f5b58123fec242b46063f14b4f8a4aee18f9fe6ac0bf2a8de07"): (1, "whatsapp_pending_actions", "arg0"),  # satir [825]
+    ("app/whatsapp/bekleyen.py", "taslak_olustur", "select",
+     "5a3307b9296775a5039af207bba35fec2af4fc14c262c6f7e2a398849eedf560"): (1, "whatsapp_pending_actions", "arg0"),  # satir [410]
 }
 
 TOTAL_CORE_QUERIES = 165
@@ -1033,6 +1078,19 @@ EXPECTED_OP_COUNTS = {"select": 105, "update": 50, "delete": 10}
 # statik olarak cozuldu (`arg0`). `desteksiz` listesine WA2'den TEK
 # BIR satir bile girmedi. TABAN develop `27916d7` (WA1/#80 indikten sonra);
 # parmak izi ARITMETIKLE tasinmadi, envanterin TAMAMINDAN yeniden turetildi.
+# 20260910 WA4 bekleyen islem defteri (goc 20260910_0080): 160 -> 170
+# (select 103 -> 109, update 47 -> 51, delete 10 -> 10). ON sorgu, TEK
+# dosya: app/whatsapp/bekleyen.py. Drift raporu OLCULDU: `changed` ve
+# `stale` IKISI DE BOS — artis YALNIZ eklemedir, hicbir mevcut sorgunun
+# yuklemi ya da hedefi DEGISMEDI. `UNRESOLVED_ALLOWLIST` BUYUMEDI ve
+# `desteksiz` listesine WA4'ten TEK BIR satir bile girmedi; ikisi de
+# BEDAVA GELMEDI, iki karar gerektirdi: (1) `bekleyen.py` tabloyu
+# KISALTMADAN ice aktariyor (`as wpa` yazilsaydi ON sorgunun DOKUZUNUN
+# hedefi "cozulemedi" sayilirdi), (2) `_jetonla_kapat` `**degerler`
+# yayilimi yerine ACIK SUTUN KUMESI kullaniyor (`_finalize` icin daha once
+# yapilan duzeltmenin AYNISI). TABAN develop `e78a466` (WA2/#83 indikten
+# sonra); parmak izi ARITMETIKLE tasinmadi, envanterin TAMAMINDAN yeniden
+# turetildi.
 INVENTORY_FINGERPRINT = "e899452da3567c3ca55ffed24a3bc19a49121102636e9ef89fee2f0ded10ce1f"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.

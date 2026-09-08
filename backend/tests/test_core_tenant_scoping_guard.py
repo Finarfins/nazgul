@@ -1768,6 +1768,30 @@ CEKIRDEK_KIRACI_ISTISNALARI: dict[tuple[str, str, str], str] = {
         "Birden çok aday kaldığında hiçbiri seçilmez: kullanıcıya `FİRMA "
         "SEÇ` sorulur (app/whatsapp/baglam.py)."
     ),
+    (
+        "backend/app/whatsapp/bekleyen.py",
+        "suresi_gecenleri_kapat",
+        "75e8eed511794f5b58123fec242b46063f14b4f8a4aee18f9fe6ac0bf2a8de07",
+    ): (
+        "Süresi geçmiş taslakların KÜRESEL süpürücüsü (WA4, göç "
+        "20260910_0080). Kiracı yüklemi TAŞIYAMAZ ve gerekçesi yukarıdaki "
+        "iki kayıttan FARKLI BİR SINIFTAN: orada sorunun cevabı "
+        "`company_id`nin kendisiydi; burada sorunun `company_id` ile HİÇ "
+        "İLGİSİ YOK. Süpürücü bir işçi görevidir, bir isteğin ardında "
+        "koşmaz ve bir çağırandan `company_id` ALMAZ: tek bir süreç, BÜTÜN "
+        "firmaların süresi geçmiş taslaklarını kapatır. Yüklem eklenseydi "
+        "çağıranın hangi firmaları süpürebileceği ayrıca yetkilendirilmek "
+        "zorunda kalırdı ve bugün öyle bir çağıran YOK (işçi WA3'ün işi). "
+        "KAPSAM KAÇAĞI DEĞİL — ölçüldü, iddia edilmiyor: (a) sorgu YALNIZ "
+        "`status='PENDING' AND expires_at <= now` satırlarını okur ve "
+        "hiçbir satırı bir kullanıcıya GÖSTERMEZ, dönüş değeri yalnızca "
+        "KAPATILAN SAYIDIR (`int`); (b) okunan her satır için yazılan "
+        "`_suresi_doldur` UPDATE'i kiracı yüklemi TAŞIR ve o yüklem satırın "
+        "KENDİ okunmuş `company_id`sinden gelir, yani yazma her zaman tek "
+        "firmaya iner; (c) zaman aşımı bir KİRACI VERİSİ değil, taslağın "
+        "kendi ömrüdür. Kapı: `test_wa4_bekleyen_postgresql.py::"
+        "test_SUPURUCU_KURESEL_kosar_ve_APPLYINGe_DOKUNMAZ`."
+    ),
 }
 
 
@@ -1788,7 +1812,12 @@ def test_istisna_gercekten_kullaniliyor() -> None:
     # SINIFTAN: sorgunun URETTIGI sey `company_id`nin KENDISIDIR, yani
     # yuklem cevabi soruyla birlikte vermek olurdu. Gerekceleri kendi
     # girdilerinde; ikisi de HICBIR kiraci VERISI okumuyor.
-    assert len(CEKIRDEK_KIRACI_ISTISNALARI) == 3, (
+    # 3 -> 4: WA4 (goc 20260910_0080). TEK yeni kayit ve AYRI BIR SINIFTAN:
+    # kuresel bir ISCI SUPURUCUSU, bir istegin ardinda kosmuyor. WA4'un
+    # OTEKI DOKUZ Core ifadesi istisna ISTEMEDI — kapsam yuklemi onlara
+    # ACIKCA yazildi ve `_kapsam` yardimcisi tam olarak bu yuzden
+    # KALDIRILDI (nobetci cagrinin ardini goremiyor).
+    assert len(CEKIRDEK_KIRACI_ISTISNALARI) == 4, (
         "Bu kapıdaki istisna sayısı arttı. Her yeni kayıt AYRI bir güvenlik "
         "kararıdır ve kendi gerekçesiyle incelenmelidir: "
         f"{sorted(CEKIRDEK_KIRACI_ISTISNALARI)}"
@@ -1837,9 +1866,23 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # `whatsapp_context`). ON BESI kendi kiraci yuklemini ACIKCA tasiyor; IKISI
 # `CEKIRDEK_KIRACI_ISTISNALARI`nda gerekcesiyle lisansli ve ikisi de
 # `company_id`nin KENDISINI ureten sorgulardir.
-BEKLENEN_CORE_IFADE_SAYISI = 139
+# 139 -> 150: WA4 BEKLEYEN ISLEM DEFTERI (goc 20260910_0080). ON BIR ifade,
+# BIR yeni kiraci tablosu (`whatsapp_pending_actions`) — onu
+# `app/whatsapp/bekleyen.py`de, biri de ayni dosyadaki `whatsapp_links`
+# dogrulamasinda. ONU kendi kiraci yuklemini ACIKCA tasiyor; YALNIZ BIRI
+# (`suresi_gecenleri_kapat`, kuresel isci supurucusu)
+# `CEKIRDEK_KIRACI_ISTISNALARI`nda gerekcesiyle lisansli.
+#
+# ON ifadenin yuklemi BEDAVA GELMEDI: yuklem once `_kapsam(kimlik, telefon)`
+# yardimcisindan geliyordu ve bu nobetci CAGRININ ARDINI GOREMIYOR, yani
+# DOKUZ ifadeyi birden ihlal sayiyordu. Yardimci KALDIRILDI ve yuklem her
+# sorguya ACIKCA yazildi; `_sahip_mi` ile `_jetonla_kapat` da artik
+# `kimlik` aliyor (once yalnizca satir kimligi + jetonla daraliyorlardi).
+BEKLENEN_CORE_IFADE_SAYISI = 150
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
+    # WA4 bekleyen islem defteri (goc 20260910_0080). `company_id` tasir.
+    "whatsapp_pending_actions",
     # WA2 esleştirme defteri (goc 20260910_0079). UCU DE `company_id` tasir,
     # yani `TENANT_TABLES`a girer ve bu kapiya GORUNUR. `whatsapp_inbound`
     # ve `whatsapp_pairing_attempts` (WA1) burada YOK ve olmamalari dogru:

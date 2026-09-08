@@ -167,6 +167,25 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
         "user.whatsapp_pairing_code_created",
         "user.whatsapp_pairing_code_cancelled",
         "user.whatsapp_link_deactivated",
+        # WhatsApp BEKLEYEN ISLEM (WA4, goc 20260910_0080). BESI DE
+        # `whatsapp_pending` kaynagina bagli — `payment` DEGIL, cunku kaydin
+        # konusu odemenin KENDISI degil ODEMEYE GIDEN TASLAKTIR: dordu
+        # (`created`/`cancelled`/`expired`/`failed`) henuz VAR OLMAYAN bir
+        # odemeye baglanmak zorunda kalirdi. Uygulanan taslagin odeme kimligi
+        # `details.result_id`de durur ve odemenin KENDI `payment.create`
+        # kaydini tahsis motoru AYRICA yazar, yani iz IKI UCLUDUR.
+        #
+        # BESI DE ayri bir eylem ve hicbiri otekinin yerine gecemez: bir
+        # taslagin IPTAL EDILMESI ile SURESININ DOLMASI panelde ayirt
+        # edilebilmelidir — birincisi kullanicinin KARARI, ikincisi onun
+        # SESSIZLIGIDIR ve "musteri neden odemedi" sorusunun cevabi bu
+        # ayrimda saklidir. `failed` de ayri: orada kullanici ONAY verdi ama
+        # sistem yazamadi, yani kusur BIZDE.
+        "whatsapp_pending.created",
+        "whatsapp_pending.applied",
+        "whatsapp_pending.cancelled",
+        "whatsapp_pending.expired",
+        "whatsapp_pending.failed",
     }
     assert set(ACTION_TYPES) == expected
     # 58 -> 59: product.base_unit_update (kantar fişi v2).
@@ -209,7 +228,23 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
     # TERSI degil, ayni olcutun oteki yani: ucu de bir KULLANICIYA erisim
     # araci verir ya da geri alir, yani kaynak zaten `user`dir ve panelde
     # kullanici kartina baglanir. `RESOURCE_TYPES` 21'de SABIT.
-    assert len(ACTION_TYPES) == 70, sorted(ACTION_TYPES)
+    #
+    # 70 -> 75: WA4 BEKLEYEN ISLEM DEFTERI (goc 20260910_0080). BES yeni
+    # eylem ve gerekceleri yukarida. `RESOURCE_TYPES` 21 -> 22: TEK yeni
+    # kaynak tipi (`whatsapp_pending`) acildi ve bu, WA2'nin "kaynak tipi
+    # ACILMADI" kararinin TERSI DEGIL, ayni olcutun oteki yanidir — WA2'nin
+    # UC eylemi bir KULLANICIYA erisim araci verip geri aliyordu, yani
+    # kaynagi gercekten `user`di; bunlarin kaynagi ise
+    # `whatsapp_pending_actions.id`dir ve panelde baglanabilecek baska
+    # hicbir mevcut tipe karsilik gelmiyor.
+    #
+    # BU TIPIN OKUMA YUZEYI YOK ve bu bilincli: WA4 hicbir uc eklemiyor,
+    # yani panelin kaynak baglantisi bugun bir yere gitmez. Tipi yine de
+    # AYRI acmak, taslak izini odeme izinden ayirt edilebilir kilar — panel
+    # geldiginde gecmis kayitlarin tipi DEGISMEK zorunda kalmaz.
+    assert len(ACTION_TYPES) == 75, sorted(ACTION_TYPES)
+    assert "whatsapp_pending" in RESOURCE_TYPES
+    assert len(RESOURCE_TYPES) == 22, sorted(RESOURCE_TYPES)
     assert all(ACTION_TYPES.values()), ACTION_TYPES
     assert "activity_log" in RESOURCE_TYPES
     # POS fişi de bir ``orders`` satırıdır: ayrı bir kaynak tipi eklenmez,

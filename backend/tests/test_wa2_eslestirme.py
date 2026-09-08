@@ -274,6 +274,11 @@ def test_ACILIS_DDLi_GOCUN_ONUNE_GECMIYOR() -> None:
 def test_KIRACI_ENVANTERI_UCU_DE_ICERIYOR() -> None:
     """Üç tablo da `TENANT_TABLES`ta — sayı 116'dan 119'a çıktı.
 
+    SAYI ARTIK 120: WA4 (göç `20260910_0080`) BİR kiracı tablosu daha
+    ekledi (`whatsapp_pending_actions`). Bu kapının ölçtüğü şey TOPLAM
+    değil, WA2'nin ÜÇ tablosunun içeride olmasıdır; toplam yalnız bir
+    tanıktır ve her göçte elle güncellenir.
+
     Envanter elle yazılmış bir muafiyet listesi DEĞİL; göç edilmiş şemadan
     `company_id` sütunu taşıyan tablolar taranarak türetiliyor. Yani üyeliğin
     kendisi SÜTUNUN VARLIĞIDIR.
@@ -288,7 +293,7 @@ def test_KIRACI_ENVANTERI_UCU_DE_ICERIYOR() -> None:
         assert tablo in TENANT_TABLES, tablo
     assert "whatsapp_inbound" not in TENANT_TABLES
     assert "whatsapp_pairing_attempts" not in TENANT_TABLES
-    assert len(TENANT_TABLES) == 119, len(TENANT_TABLES)
+    assert len(TENANT_TABLES) == 120, len(TENANT_TABLES)
 
 
 def test_MUAFIYET_DORT_UCU_KAPSAMIYOR() -> None:

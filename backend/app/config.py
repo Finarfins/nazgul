@@ -145,6 +145,18 @@ class Settings(BaseSettings):
     whatsapp_app_secret: SecretStr | None = None
     whatsapp_verify_token: SecretStr | None = None
     whatsapp_phone_number_id: str = ""
+    # WA4 GIDEN TARAF. BOSKEN kanal DISARI HIC CIKMAZ: kanala civili
+    # `WhatsAppNotificationProvider` `NONE` doner (denenmedi, basarisiz da
+    # olmadi) ve `cloud_api.metin_gonder` ikinci kapi olarak yine fail-closed
+    # davranir. Yani bu ayarin varsayilani, WA4'un hicbir kurulumda kendi
+    # basina mesaj gondermemesini saglayan seydir.
+    #
+    # GELEN taraftaki uc ayardan AYRI ve ayri olmasi ZORUNLU: imza dogrulama
+    # sirri (`whatsapp_app_secret`) gelen govdenin KAYNAGINI kanitlar, bu
+    # jeton ise BIZIM Meta adina yazma yetkimizdir. Ikisini tek ayara
+    # indirmek, yalniz webhook dinlemek isteyen bir kurulumu da gonderim
+    # yetkisi vermeye zorlardi.
+    whatsapp_access_token: SecretStr | None = None
 
     # WA3-full: GİDEN mesaj sağlayıcısı ve kalıcı işçi.
     #

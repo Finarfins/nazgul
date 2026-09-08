@@ -272,10 +272,12 @@ def test_KIRACI_ENVANTERI_KIMILDAMADI() -> None:
     # KANITIDIR — envanter elle yazılmış bir muafiyet listesi olsaydı üç
     # tablo da sessizce dışarıda kalabilirdi; şemadan türediği için
     # `company_id` taşıyanlar GİRDİ, taşımayanlar GİRMEDİ.
+    # WA4 (göç `20260910_0080`) BİR tablo daha ekledi: 119 -> 120. WA1'in
+    # İKİ tablosu HÂLÂ dışarıda ve iddia aynen ayakta.
     assert {"whatsapp_links", "whatsapp_pairing_codes", "whatsapp_context"} <= (
         TENANT_TABLES
     )
-    assert len(TENANT_TABLES) == 119, len(TENANT_TABLES)
+    assert len(TENANT_TABLES) == 120, len(TENANT_TABLES)
 
 
 def test_MUAFIYET_TAM_YOL_ve_ONEK_DEGIL() -> None:
