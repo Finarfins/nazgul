@@ -46,6 +46,13 @@ GELİŞTİRME DİYALEKTİNDE GÖRÜNMEYEN tuzakları ölçer.
    "kod ne zaman doldu" sorusunu oturumun TZ'sine göre yanlış cevaplardı ve
    süresi dolmuş bir kod TÜKETİLEBİLİR hâle gelirdi.
 
+--- PAYLAŞILAN YARDIMCI: `acilisa_cek` İKİ UÇTAN ------------------------
+
+#81/#82 ile gelen `tests/pg_ikiz_yardimci.py` benimsendi. BU DOSYA İÇİN
+BUGÜN NO-OP (bu ikiz `admin` olarak hiç giriş yapmıyor; ölçüldü) —
+gerekçesi dolaylı yol ve `_sync_sequences`tir; ayrıntı fixture'ın kendi
+başlığında.
+
 --- ÖLÇÜLEN KÖK SEBEP, İDDİA DEĞİL ---------------------------------------
 
 Kısıt testleri kısıtın VARLIĞINI değil GERÇEKTEN REDDETTİĞİNİ ölçüyor: her
@@ -143,16 +150,46 @@ def _temizle(engine) -> None:
         b.execute(text("DELETE FROM companies WHERE name LIKE :o"), {"o": onek})
 
 
+def _acilisa_cek(engine) -> None:
+    """Admin şifresini AÇILIŞ DURUMUNA (`admin123` + `must_change_password`) yaz.
+
+    Ortak yardımcıya (#81/#82) devredildi; gövde `tests/pg_ikiz_yardimci.py`de.
+
+    BU DOSYA İÇİN BUGÜN BİR NO-OP ve bu ÖLÇÜLDÜ, varsayılmadı: bu ikiz
+    HİÇBİR ZAMAN `admin` olarak giriş YAPMIYOR — kendi firmalarını ve
+    kullanıcılarını ham SQL ile açıyor (`dunya` fixture'ı) ve `_temizle`
+    yalnız KOŞU ÖNEKLİ kullanıcıları siliyor, yani `admin` satırına ne okur
+    ne yazar. Yani çağrı bugün ne bizi korur ne komşuyu.
+
+    YİNE DE İKİ UÇTAN ÇAĞRILIYOR ve gerekçe DOLAYLI YOLDUR: bu ikiz WA3'ün
+    işçisiyle birlikte büyüyecek ve o turda bir uç/oturum smoke'u eklendiği
+    an dosya SESSİZCE paylaşılan şifreye bağımlı hâle gelir — o bağımlılık
+    doğduğunda kimse bu satırı eklemeyi hatırlamak zorunda kalmasın.
+    (`app/auth.py`deki "kural bugün sonucu değiştirmiyor ama dolaylı yola
+    bağlıdır" kaydıyla AYNI sınıftan bir karar.)
+
+    TEK GÖRÜNÜR ETKİSİ yardımcının `_sync_sequences` adımıdır: bu ikiz
+    `companies` ve `app_users`a satır ekliyor, sonra siliyor; paylaşılan bir
+    veritabanında dizilerin `max(id)`ye çekilmesi komşu dosyaların açık
+    kimlik yazan yollarını korur.
+    """
+    from tests.pg_ikiz_yardimci import acilisa_cek
+
+    acilisa_cek(engine)
+
+
 @pytest.fixture()
 def motor():
     yapilandirma = Config(str(BACKEND / "alembic.ini"))
     engine = create_engine(_url())
     command.upgrade(yapilandirma, "head")
+    _acilisa_cek(engine)
     _temizle(engine)
     try:
         yield engine
     finally:
         _temizle(engine)
+        _acilisa_cek(engine)
         engine.dispose()
 
 
