@@ -2582,6 +2582,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/invoices/{invoice_id}/einvoice/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Einvoice Download
+         * @description e-Belgenin suretini indir: sağlayıcı PDF'i ya da gönderilen UBL XML'i.
+         *
+         *     İKİ BİÇİM, İKİ FARKLI KAYNAK — ve bu ayrım kasıtlı:
+         *
+         *     * ``xml`` **ağa çıkmaz.** Gönderilen belge, gönderim anında dondurulmuş
+         *       ``einvoice_payload``dan bire bir yeniden üretilir (``build_invoice_xml``
+         *       saf bir dönüşümdür). Sağlayıcıdan XML istemek, elimizde ZATEN olan ve
+         *       belgenin gönderilmiş hâlini tanımlayan veriyi ikinci bir kaynaktan
+         *       sormak olurdu.
+         *     * ``pdf`` sağlayıcıdan gelir, çünkü PDF'i BİZ üretmiyoruz: e-Arşiv/e-Fatura
+         *       görüntüsü entegratörün mühürlediği sunumdur. `GET /invoices/{id}/pdf`
+         *       bizim İÇ faturamızı basar; bu uç ONUNLA AYNI ŞEY DEĞİLDİR.
+         *
+         *     ANAHTAR SEÇİMİ KANALA GÖRE, ve ikisi birbirinin yerine geçmez:
+         *     e-Arşiv `GetEArchiveInvoice` belgeyi ``WEB_VALIDATION_KEY`` ile ister
+         *     (bizim ``einvoice_web_key``imiz), e-Fatura `GetInvoiceWithType` ise
+         *     sağlayıcı belge kimliğiyle (``einvoice_external_id``).
+         *
+         *     YETKİ ``sales``, ``read`` DEĞİL — ÖLÇÜLDÜ: kural yazılmadan önce
+         *     ``required_permission("GET", ".../einvoice/download")`` "read" veriyordu
+         *     (dosyanın genel güvenli-metot kuralı). ``read`` YANLIŞ olurdu, iki
+         *     sebeple: (1) bu GET DIŞ BİR YAN ETKİ üretir — sağlayıcıda oturum açar ve
+         *     kota tüketir, tıpkı ``einvoice/sync``in ``sales``ta tutulma gerekçesi
+         *     gibi; (2) indirilen şey resmî mali belgenin kendisidir, iç PDF'in bir
+         *     kopyası değil.
+         */
+        get: operations["einvoice_download_api_invoices__invoice_id__einvoice_download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/invoices/{invoice_id}/einvoice/status": {
         parameters: {
             query?: never;
@@ -15533,6 +15577,39 @@ export interface operations {
                 "application/json": components["schemas"]["InvoiceCancelRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    einvoice_download_api_invoices__invoice_id__einvoice_download_get: {
+        parameters: {
+            query?: {
+                format?: string;
+            };
+            header?: never;
+            path: {
+                invoice_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

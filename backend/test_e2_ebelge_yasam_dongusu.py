@@ -134,9 +134,14 @@ LOGIN_OK = _zarf(
     "<SESSION_ID>oturum-jetonu</SESSION_ID></ns3:LoginResponse>"
 )
 
-#: Şemadan (``?xsd=5``): yanıtta DURUM ALANI YOKTUR, yalnız ``REQUEST_RETURN``
-#: ve ``ERROR_TYPE``. Başarının tek işareti ``ERROR_TYPE``ın YOKLUĞU ve
-#: ``RETURN_CODE``un sıfır olmasıdır.
+#: BAŞARI gövdesi ŞEMADAN türetildi (``?xsd=5``), KAYDEDİLMİŞ DEĞİL — ve bu
+#: fark burada açıkça yazılıyor çünkü bu depoda ``tests/fixtures/izibiz/``
+#: altındaki her gövde GERÇEK bir yanıttır. Sandbox bu iptali BUGÜN kabul
+#: etmiyor (``ERROR_CODE=10008``, bkz. ``CANCEL_RED``), dolayısıyla kaydedilecek
+#: bir başarı yanıtı YOK; uydurup fixture dizinine koymak, o dizinin
+#: sözleşmesini bozardı. Şemadan bilinen: yanıtta DURUM ALANI YOKTUR, yalnız
+#: ``REQUEST_RETURN`` ve ``ERROR_TYPE``; başarının tek işareti ``ERROR_TYPE``ın
+#: YOKLUĞU ve ``RETURN_CODE``un sıfır olmasıdır.
 CANCEL_OK = _zarf(
     '<CancelEArchiveInvoiceResponse xmlns="http://schemas.i2i.com/ei/wsdl/archive">'
     '<REQUEST_RETURN xmlns=""><INTL_TXN_ID>65986709</INTL_TXN_ID>'
@@ -144,12 +149,14 @@ CANCEL_OK = _zarf(
     "</CancelEArchiveInvoiceResponse>"
 )
 
-CANCEL_RED = _zarf(
-    '<CancelEArchiveInvoiceResponse xmlns="http://schemas.i2i.com/ei/wsdl/archive">'
-    '<ERROR_TYPE xmlns=""><INTL_TXN_ID>65986710</INTL_TXN_ID>'
-    "<ERROR_CODE>10013</ERROR_CODE>"
-    "<ERROR_SHORT_DES>Gönderilen istek geçersizdir.</ERROR_SHORT_DES>"
-    "</ERROR_TYPE></CancelEArchiveInvoiceResponse>"
+#: RED yanıtı UYDURMA DEĞİL: 2026-09-11'de gerçek sandbox'tan kaydedildi
+#: (``tests/fixtures/izibiz/CancelEArchiveInvoice-fault.200.xml``). Başarı
+#: gövdesinin aksine bu KAYITLIDIR, çünkü sağlayıcı bu cevabı gerçekten verdi.
+#: Ölçümün kendisi ve sağlayıcıya sorulacak soru:
+#: ``docs/izibiz-sandbox-bulgular.md`` §8.
+FIXTURES = BACKEND / "tests" / "fixtures" / "izibiz"
+CANCEL_RED = HttpResponse(
+    200, (FIXTURES / "CancelEArchiveInvoice-fault.200.xml").read_bytes()
 )
 
 
@@ -235,8 +242,19 @@ def test_IPTAL_2XX_ICINDEKI_IS_HATASINDA_BASARISIZ() -> None:
     assert sonuc.status != CANCELLED
     # Sağlayıcının KENDİ gerekçesi kullanıcı mesajına taşınıyor; ham hata kodu
     # (`10013`) `raw` içinde denetim için duruyor, kullanıcı cümlesinde değil.
-    assert "Gönderilen istek geçersizdir" in (sonuc.error or "")
-    assert "10013" in str(sonuc.raw), sonuc.raw
+    # ÖLÇÜLDÜ, ve sonuç bugünün SINIRINI da gösteriyor: `10008` mevcut hata
+    # sınıflarının HİÇBİRİNE eşlenmiyor (kümede "kayıt bulunamadı" YOK), o
+    # yüzden `UNKNOWN` şablonuna düşüyor ve o şablon yalnız KODU taşıyor —
+    # sağlayıcının kendi cümlesi ("...bulunamamıştır") kullanıcı mesajına
+    # GİRMİYOR, `raw` içinde denetime kalıyor.
+    #
+    # Bu, testin kabullendiği bir eksiklik değil KAYDETTİĞİ bir eksiklik:
+    # `NOT_FOUND` sınıfı eklemek spec §6 mesaj tablosunu değiştirir ve AYRI
+    # BİR DİLİMİN işidir (`docs/izibiz-sandbox-bulgular.md` §8.3). Buradaki
+    # iddia, o dilim geldiğinde KIMILDAYACAK ve gözden geçirilmeye zorlayacak.
+    assert "10008" in (sonuc.error or ""), sonuc.error
+    assert "bulunamamıştır" not in (sonuc.error or ""), sonuc.error
+    assert "bulunamamıştır" in str(sonuc.raw), sonuc.raw
 
 
 def test_IPTAL_OKUNAMAYAN_GOVDEDE_DE_BASARISIZ() -> None:

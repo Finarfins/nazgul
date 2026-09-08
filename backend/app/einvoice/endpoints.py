@@ -359,6 +359,19 @@ IZIBIZ_ERROR_CODE_CLASSES: dict[str, str] = {
     "10003": "VALIDATION",  # "Belge kontrolden geçemedi: …"
     "10007": "VALIDATION",  # "Zip bir dosya içermelidir."
     "10013": "VALIDATION",  # "Gönderilen istek geçersizdir. / INVALID XML"
+    # 10008 BİLEREK YOK. ÖLÇÜLDÜ 2026-09-11 (E2, `CancelEArchiveInvoice`):
+    #   ERROR_CODE=10008 "Belirtilen kritere uygun kayıt bulunamamıştır.
+    #                     Belge ETTN : <bizim gönderdiğimiz ETTN>"
+    # Bu bir DOĞRULAMA hatası DEĞİL: istek geçerliydi, aranan KAYIT yoktu —
+    # sağlayıcı gönderdiğimiz anahtarı geri yankılayıp "böyle bir kayıt yok"
+    # diyor. `VALIDATION` yazmak, belgeyi biz bozmuşuz gibi okunurdu ve asıl
+    # bulguyu (anahtar yanlış) gizlerdi.
+    #
+    # Doğru karşılık yeni bir sınıf olurdu (`NOT_FOUND`) ve o, spec §6 mesaj
+    # tablosunu da değiştirir — AYRI BİR DİLİMİN işi, burada sessizce
+    # yapılmadı. Bugün kod `UNKNOWN` diyor: kullanıcı kodu görür, sağlayıcının
+    # cümlesi `raw` içinde denetime kalır. Ölçümün tamamı ve sağlayıcıya
+    # sorulacak soru: `docs/izibiz-sandbox-bulgular.md` §8.
 }
 
 #: İzibiz'e özgü durum eşlemesi. Genel :data:`PROVIDER_STATUS_ALIASES`'a
