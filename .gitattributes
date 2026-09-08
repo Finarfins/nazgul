@@ -19,3 +19,19 @@ gradlew.bat   text eol=crlf
 # imajin OCI `org.opencontainers.image.revision` etiketiyle karsilastirip
 # compose/deploy dosyalari ile imajin ayni commit'ten geldigini dogrular.
 deploy/RELEASE_SHA export-subst
+
+# Belgeler LF ile saklanir. Depodaki 259 .md dosyasinin TAMAMI bugun zaten
+# indekste LF (`git ls-files --eol '*.md'` tek bir `i/lf` kumesi veriyor),
+# yani bu satir bir DONUSUM degil bir CIVIDIR: mevcut durumu adlandirir ve
+# `core.autocrlf` yanlis kurulmus bir istemcinin CRLF bir blob'u indekse
+# sokmasini engeller.
+*.md          text eol=lf
+
+# Asagidaki belgeler YALNIZ okunmuyor, FIXTURE olarak AYRISTIRILIYOR:
+# `tests/test_wa3_kopru.py` KOPRU_SOZLESMESI.md icindeki ```json blogunu
+# bir duzenli ifadeyle (```json\n ... \n```) cikarip UC ALTIN VEKTORU
+# oradan okuyor. Bugun bu ayrisma CRLF'e ragmen calisir, ama calismasinin
+# NEDENI dosya degil Python'un `read_text` evrensel satir sonu cevrimidir.
+# Civi o ortuk katmana olan bagimliligi kaldirir: sozlesme dosyasi diskte
+# ne ise ayrisan da odur.
+docs/whatsapp/*.md text eol=lf

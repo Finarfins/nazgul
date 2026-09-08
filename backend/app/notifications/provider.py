@@ -29,7 +29,7 @@ _NOT_CONFIGURED = "Bildirim sağlayıcısı şirket entegrasyonu sonrası yapıl
 _SMTP_NOT_CONFIGURED = "SMTP yapılandırılmamış"
 _WHATSAPP_NOT_CONFIGURED = "WhatsApp Cloud API yapılandırılmamış"
 # Lease 5 dakikadır (service._LEASE_MINUTES); taşıyıcı hiçbir koşulda lease'i
-# aşacak kadar beklememelidir, aksi hâlde satır başka bir sürece kapılabilir.
+# aşacak kadar beklememelidir, aksi halde satır başka bir sürece kapılabilir.
 SMTP_TIMEOUT_SECONDS = 15
 logger = logging.getLogger("yerel_hesap.notifications.smtp")
 
@@ -88,7 +88,7 @@ class SimulationNotificationProvider(NotificationProvider):
     """Ağa çıkmadan gönderim akışını uçtan uca çalıştıran test sağlayıcısı.
 
     ``SENT`` **yazmaz**: gerçekten gönderilmemiş bir mesajı "gönderildi" diye
-    raporlamak denetim izini yalan söyler hâle getirir. Ayrı bir ``SIMULATED``
+    raporlamak denetim izini yalan söyler hale getirir. Ayrı bir ``SIMULATED``
     durumu döner; bu durum terminaldir ve raporlarda gerçek gönderimlerden
     ayrı sayılır.
 
@@ -124,7 +124,7 @@ class WhatsAppNotificationProvider(NotificationProvider):
     ``app.whatsapp.saglayici.saglayici_al()`` çağırır.
 
     TAŞIYICI NEDEN BURADA DEĞİL (ölçülmüş karar, üslup değil): WA4 ilk
-    hâlinde `cloud_api.metin_gonder` adında KENDİ urllib göndericisini
+    halinde `cloud_api.metin_gonder` adında KENDİ urllib göndericisini
     getiriyordu. WA3-full (#85) develop'a inerken `app/whatsapp/saglayici.py`
     ile AYNI işi yapan ikinci bir gönderici getirdi — rebase'de ÖLÇÜLDÜ:
     aynı depoda Meta'ya çıkan İKİ yol vardı, ikisi de aynı uca POST atıyordu
@@ -145,21 +145,26 @@ class WhatsAppNotificationProvider(NotificationProvider):
       çıkmadan akışı uçtan uca koşturur. ``SENT`` YAZMAZ ve bu kural
       ``PushNotificationProvider``dan devralınmıştır: gerçekten
       gönderilmemiş bir mesajı "gönderildi" diye raporlamak denetim izini
-      yalan söyler hâle getirir. ``SIMULATED`` terminaldir.
+      yalan söyler hale getirir. ``SIMULATED`` terminaldir.
     * **Yapılandırılmış → gerçek gönderim**, ardından ``SENT``.
 
-    ``external_id`` NEDEN ``None``: WA4'ün kendi göndericisi Meta'nın
-    döndürdüğü ``wamid``i okuyup ``external_id``ye yazıyordu. WA3'ün
-    sağlayıcısı yanıt gövdesini OKUR ama AYRIŞTIRMAZ (yalnız keep-alive
-    için tüketir), yani mesaj kimliği bu sınıra ulaşmıyor. İki seçenek
-    vardı ve seçilen İKİNCİSİDİR: (a) `saglayici.metin_gonder`i kimlik
-    döndürecek biçimde değiştirmek — WA3'ün sözleşmesini WA4 uğruna
-    genişletmek olurdu ve o sözleşmenin tek çağıranı bugün işçidir;
-    (b) ``external_id``yi BOŞ bırakıp ``SENT``in anlamını DARALTMAK.
-    Burada ``SENT``, "Meta POST'u 2xx ile KABUL ETTİ" demektir — bir
-    teslimat kanıtı DEĞİL. Dar ama DOĞRU bir iddia; geniş ve yanlış olana
-    yeğlendi. Mesaj kimliğine ihtiyaç doğduğunda taşıyıcının sözleşmesi
-    genişletilmelidir, bu sınıf tahmin ETMEMELİDİR.
+    ``external_id`` ARTIK DOLU (WA5) — ama ``SENT``in anlamı DEĞİŞMEDİ.
+    WA4 iki seçenek arasından İKİNCİSİNİ seçmişti: (a) taşıyıcıyı kimlik
+    döndürecek biçimde genişletmek, (b) ``external_id``yi boş bırakmak.
+    (b) seçilmişti çünkü (a) "WA3'ün sözleşmesini WA4 uğruna genişletmek"
+    olurdu. WA5'te o sözleşmenin İKİNCİ bir çağıranı doğdu ve genişletme
+    ORADA da gerekliydi; ``saglayici.metin_gonder`` artık Meta'nın
+    ``wamid``ini döndürüyor ve bu sınıf onu OLDUĞU GİBİ yazıyor —
+    "tahmin ETMEMELİDİR" kuralı korunuyor, çünkü kimlik artık taşıyıcıdan
+    GELİYOR.
+
+    ``SENT`` HALA "Meta POST'u 2xx ile KABUL ETTİ" demektir, bir teslimat
+    kanıtı DEĞİL; ölçüt istisna atılmamasıdır. Kimliğin gelmediği bir 2xx
+    de ``SENT``tir ve ``external_id`` ``None`` kalır. Kimliği ŞART koşmak
+    dar değil YANLIŞ olurdu: Meta gövde biçimini değiştirdiği gün
+    gerçekten gitmiş mesajlar başarısız sayılır ve
+    ``supports_idempotency = False`` olduğu için outbox aynı mesajı
+    kullanıcıya İKİNCİ KEZ gönderirdi.
 
     ``supports_idempotency = False`` ve bu ÖLÇÜLMÜŞ bir karardır: Meta
     Cloud API'nin gönderim ucunda istemci tarafı tekilleştirme anahtarı
@@ -225,8 +230,16 @@ class WhatsAppNotificationProvider(NotificationProvider):
         # sunucu metni yazmaz — `SmtpEmailNotificationProvider` ile AYNI
         # kural. Sağlayıcının kendi günlüğü de yalnız durum kodu ve maskeli
         # numara taşır.
-        saglayici.saglayici_al().metin_gonder(recipient, body)
-        return NotificationResult(status="SENT")
+        # DÖNÜŞ Meta'nın `wamid`i, yoksa `None`. `SENT`in ANLAMI
+        # DEĞİŞMEDİ: ölçüt hala istisna atılmamasıdır, kimliğin dolu
+        # olması DEĞİL. Kimliği şart koşmak, Meta gövde biçimini
+        # değiştirdiği gün GERÇEKTEN GİTMİŞ mesajları başarısız sayar ve
+        # `supports_idempotency = False` olduğu için outbox onları
+        # kullanıcıya İKİNCİ KEZ gönderirdi.
+        return NotificationResult(
+            status="SENT",
+            external_id=saglayici.saglayici_al().metin_gonder(recipient, body),
+        )
 
 
 class PushNotificationProvider(NotificationProvider):
@@ -239,7 +252,7 @@ class PushNotificationProvider(NotificationProvider):
 
     `SENT` YAZMIYOR ve bu, `SimulationNotificationProvider`ın yıllardır
     yazılı kuralının AYNEN uygulanmasıdır: gerçekten gönderilmemiş bir mesajı
-    "gönderildi" diye raporlamak denetim izini yalan söyler hâle getirir.
+    "gönderildi" diye raporlamak denetim izini yalan söyler hale getirir.
     `SIMULATED` terminaldir (`schema.TERMINAL_STATUSES`), yani satır yeniden
     denemeye TAKILMAZ; raporlarda gerçek gönderimlerden AYRI sayılır.
 

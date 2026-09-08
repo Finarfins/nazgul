@@ -665,8 +665,24 @@ def test_YAZMA_NIYETI_WA4E_YONLENDIRILIYOR(oturum, dunya) -> None:
     ).scalar_one() == 0
 
 
-def test_MEDYA_ve_BOS_METIN_SESSIZCE_KAPANIYOR(oturum, dunya) -> None:
-    """Medya ve boş metin IGNORED; hiçbir mesaj GÖNDERİLMEZ."""
+def test_BOS_METIN_SESSIZCE_KAPANIYOR_MEDYA_ARTIK_CEVAPLANIYOR(
+    oturum, dunya
+) -> None:
+    """Boş metin hâlâ IGNORED; MEDYA ARTIK CEVAPLANIYOR (WA5'te DEĞİŞTİ).
+
+    WA3 bu ikisini AYNI dala koyuyordu ("medya bu turda işlenmiyor") ve
+    medya satırı `last_error='medya'` ile IGNORED kapanıyordu. Gerekçesi
+    yazılıydı: indirilen baytı okuyacak çağıran YOKTU. WA5 o çağıranı
+    getirdi (`app/whatsapp/fatura.py`), yani gerekçe DÜŞTÜ ve dal AYRILDI.
+
+    Boş metnin sözleşmesi DEĞİŞMEDİ ve bu ayrım önemli: `not metin`
+    yüklemi artık `media_id` ile birlikte okunuyor, dolayısıyla ALTYAZISIZ
+    bir fotoğraf (metni boş string) artık "boş mesaj" SAYILMIYOR. Boş ve
+    medyasız satır ise hâlâ sessizce kapanır.
+
+    Fatura yolunun kendisi `tests/test_wa5_fatura.py`de ölçülüyor; burada
+    ölçülen, WA3'ün eski sözleşmesinin HANGİ YARISININ durduğudur.
+    """
     from app.whatsapp import service
 
     _baglanti_yaz(oturum, dunya["firma_a"], dunya["kul_b"])
@@ -676,10 +692,18 @@ def test_MEDYA_ve_BOS_METIN_SESSIZCE_KAPANIYOR(oturum, dunya) -> None:
 
     saglayici = _SahteSaglayici()
     assert service.bekleyenleri_isle(oturum, saglayici=saglayici) == 2
-    assert saglayici.gonderilenler == []
-    assert _satir(oturum, medya_id)["status"] == "IGNORED"
-    assert _satir(oturum, medya_id)["last_error"] == "medya"
+
+    # Boş metin: DEĞİŞMEDİ.
     assert _satir(oturum, bos_id)["status"] == "IGNORED"
+
+    # Medya: artık TERMİNAL ama CEVAPLI. Sağlayıcı `medya_indir`i
+    # tanımıyor (WA3'ün sahtesi) — `fatura` bunu yutar ve kullanıcıya
+    # indirme hatası döner. ÖLÇÜLEN ŞEY: istisna SIZMIYOR ve satır DEAD
+    # OLMUYOR.
+    assert _satir(oturum, medya_id)["status"] == "ANSWERED"
+    assert _satir(oturum, medya_id)["last_error"] is None
+    (alici, cevap), = saglayici.gonderilenler
+    assert cevap
 
 
 def test_GECERSIZ_NUMARA_CEVAPLANMIYOR(oturum, dunya) -> None:
