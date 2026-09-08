@@ -34,6 +34,19 @@ def acilisa_cek(engine=None) -> None:
     if eng.dialect.name != "postgresql":
         return
 
+    if engine is not None:
+        with engine.begin() as conn:
+            if conn.execute(text("SELECT to_regclass('public.app_users')")).scalar() is None:
+                return
+            conn.execute(
+                text(
+                    "UPDATE app_users SET password_hash=:h, "
+                    "must_change_password=true WHERE username='admin'"
+                ),
+                {"h": hash_password("admin123")},
+            )
+        return
+
     with SessionLocal() as db:
         if db.execute(text("SELECT to_regclass('public.app_users')")).scalar() is None:
             return

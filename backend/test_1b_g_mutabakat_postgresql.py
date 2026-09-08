@@ -29,58 +29,33 @@ import pytest
 BACKEND = Path(__file__).resolve().parent
 
 
-def _acilisa_cek() -> None:
-    """Admin sifresini ACILIS DURUMUNA (`admin123` + `must_change_password`) yaz.
+def _acilisa_cek(engine=None) -> None:
+    """Admin sifresini ACILIS DURUMUNA (`admin123` + `must_change_password`) yaz."""
+    from tests.pg_ikiz_yardimci import acilisa_cek
 
-    1B-B/1B-D ikizlerinden DEVRALINDI ve gerekcesi degismedi: PostgreSQL
-    ikizleri CI'da AYNI veritabanini paylasiyor ve her biri girisden sonra
-    admin sifresini KENDI sabitine cekiyor. Sifreyi geri birakmayan bir dosya
-    ayni veritabanina IKINCI kosuda
-
-        AssertionError: (401, 'Kullanici adi veya sifre hatali')
-
-    ile duser. Tek yonlu bir care (yalniz teardown) dosyayi iyi bir komsu
-    yapar ama KENDISINI korumaz, cunku sifreyi bozan ONCEKI dosya olabilir.
-    Bu yuzden IKI UCTAN cagriliyor.
-    """
-    from sqlalchemy import text as _text
-
-    from app.auth import hash_password
-    from app.db import SessionLocal, engine
-
-    # DIYALEKT KAPISI ve ATLANAMAZ: `to_regclass` PostgreSQL'e OZGUDUR ve
-    # SQLite'ta `OperationalError` atar. Bu dosya PG-ikizidir ama modulu
-    # kanonik kosucu SQLite altinda da TOPLAR; kapi olmasaydi ATLAMA (`skip`)
-    # yerine KURULUM HATASI verirdi.
-    if engine.dialect.name != "postgresql":
-        return
-
-    with SessionLocal() as db:
-        if db.execute(_text("SELECT to_regclass('public.app_users')")).scalar() is None:
-            return
-        db.execute(
-            _text(
-                "UPDATE app_users SET password_hash=:h, "
-                "must_change_password=true WHERE username='admin'"
-            ),
-            {"h": hash_password("admin123")},
-        )
-        db.commit()
+    acilisa_cek(engine)
 
 
 @pytest.fixture()
 def acilis():
-    """Acilis sifresi, IKI UCTAN. Bkz. `_acilisa_cek`.
+    """Acilis sifresi + parti temizligi, IKI UCTAN.
 
     ATLAMA ONCE gelir: `_postgres_url` yapilandirma yoksa testi ATLAR ve
     fixture hicbir seye dokunmaz.
     """
-    _postgres_url()
-    _acilisa_cek()
+    url = _postgres_url()
+    from sqlalchemy import create_engine
+    from tests.pg_ikiz_yardimci import parti_temizle
+
+    engine = create_engine(url)
+    parti_temizle(engine, lot_code_prefixes=["MG-", "HASAT-"])
+    _acilisa_cek(engine)
     try:
         yield
     finally:
-        _acilisa_cek()
+        parti_temizle(engine, lot_code_prefixes=["MG-", "HASAT-"])
+        _acilisa_cek(engine)
+        engine.dispose()
 
 
 def _postgres_url() -> str:
@@ -233,8 +208,8 @@ with SessionLocal() as db:
 kuantum = rapor(limit=1000)
 assert kuantum['counts']['SAPMA'] == 2, kuantum['counts']
 assert sapmalar() == {bozuk_cift, (urun_ondalik, depo_a)}, sapmalar()
-kucuk_satir = [s for s in kuantum['items']
-               if (s['product_id'], s['warehouse_id']) == (urun_ondalik, depo_a)][0]
+
+kucuk_satir = satir_getir(urun_ondalik, depo_a)
 assert Decimal(str(kucuk_satir['fark'])) == Decimal('-0.0001'), kucuk_satir
 
 print('1B-G POSTGRESQL OK')

@@ -14,42 +14,11 @@ BACKEND = Path(__file__).resolve().parent
 YARIS_TURU = 20
 
 
-def _acilisa_cek() -> None:
-    """Admin sifresini ACILIS DURUMUNA (`admin123` + `must_change_password`) yaz.
+def _acilisa_cek(engine=None) -> None:
+    """Admin sifresini ACILIS DURUMUNA (`admin123` + `must_change_password`) yaz."""
+    from tests.pg_ikiz_yardimci import acilisa_cek
 
-    1B-B ikizinden DEVRALINDI ve gerekcesi BU DOSYADA YENIDEN OLCULDU:
-    PostgreSQL ikizleri CI'da AYNI veritabanini paylasiyor ve her biri
-    girisden sonra admin sifresini KENDI sabitine cekiyor. Bu dosya cekilmis
-    sifreyi geri birakmiyordu; ayni veritabanina IKINCI kosu
-
-        AssertionError: (401, 'Kullanici adi veya sifre hatali')
-
-    ile dustu -- iddia degil, olculdu. Tek yonlu bir care (yalniz teardown)
-    dosyayi iyi bir komsu yapar ama KENDISINI korumaz, cunku sifreyi bozan
-    ONCEKI dosya olabilir. Bu yuzden IKI UCTAN cagriliyor.
-    """
-    from app.auth import hash_password
-    from app.db import SessionLocal, engine
-    from sqlalchemy import text as _text
-
-    # DİYALEKT KAPISI ve ATLANAMAZ: `to_regclass` PostgreSQL'e ÖZGÜDÜR ve
-    # SQLite'ta `OperationalError` atar. Bu dosya PG-ikizidir ama modülü
-    # kanonik koşucu SQLite altında da TOPLAR; kapı olmasaydı ATLAMA
-    # (`skip`) yerine KURULUM HATASI verirdi -- ÖLÇÜLDÜ.
-    if engine.dialect.name != "postgresql":
-        return
-
-    with SessionLocal() as db:
-        if db.execute(_text("SELECT to_regclass('public.app_users')")).scalar() is None:
-            return
-        db.execute(
-            _text(
-                "UPDATE app_users SET password_hash=:h, "
-                "must_change_password=true WHERE username='admin'"
-            ),
-            {"h": hash_password("admin123")},
-        )
-        db.commit()
+    acilisa_cek(engine)
 
 
 @pytest.fixture()
@@ -59,16 +28,19 @@ def acilis():
     ATLAMA ÖNCE gelir: `_postgres_url` yapılandırma yoksa testi ATLAR ve
     fixture hiçbir şeye dokunmaz.
     """
-    _postgres_url()
+    url = _postgres_url()
+    from sqlalchemy import create_engine
     from tests.pg_ikiz_yardimci import parti_temizle
 
-    parti_temizle(lot_code_prefixes=["LOT-", "PG-AKTAR-"])
-    _acilisa_cek()
+    engine = create_engine(url)
+    parti_temizle(engine, lot_code_prefixes=["LOT-", "PG-AKTAR-"])
+    _acilisa_cek(engine)
     try:
         yield
     finally:
-        parti_temizle(lot_code_prefixes=["LOT-", "PG-AKTAR-"])
-        _acilisa_cek()
+        parti_temizle(engine, lot_code_prefixes=["LOT-", "PG-AKTAR-"])
+        _acilisa_cek(engine)
+        engine.dispose()
 
 
 def _postgres_url() -> str:

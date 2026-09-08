@@ -80,28 +80,11 @@ def _url() -> str:
     return url
 
 
-def _acilisa_cek() -> None:
-    """Admin şifresini AÇILIŞ DURUMUNA yaz (1B-A/1B-B ikizlerinden devralındı).
+def _acilisa_cek(engine=None) -> None:
+    """Admin şifresini AÇILIŞ DURUMUNA yaz (1B-A/1B-B ikizlerinden devralındı)."""
+    from tests.pg_ikiz_yardimci import acilisa_cek
 
-    PostgreSQL ikizleri CI'da AYNI veritabanını paylaşıyor ve her biri
-    girişten sonra admin şifresini KENDİ sabitine çeviriyor. Tek yönlü bir
-    çare (yalnız teardown) dosyayı iyi bir komşu yapar ama KENDİSİNİ korumaz,
-    çünkü şifreyi bozan ÖNCEKİ dosya olabilir.
-    """
-    from app.auth import hash_password
-    from app.db import SessionLocal
-
-    with SessionLocal() as db:
-        if db.execute(text("SELECT to_regclass('public.app_users')")).scalar() is None:
-            return
-        db.execute(
-            text(
-                "UPDATE app_users SET password_hash=:h, "
-                "must_change_password=true WHERE username='admin'"
-            ),
-            {"h": hash_password("admin123")},
-        )
-        db.commit()
+    acilisa_cek(engine)
 
 
 def _komsuyu_temizle(engine) -> None:
@@ -132,12 +115,12 @@ def motor():
     engine = create_engine(_url())
     command.upgrade(config, "head")
     _komsuyu_temizle(engine)
-    _acilisa_cek()
+    _acilisa_cek(engine)
     try:
         yield engine
     finally:
         _komsuyu_temizle(engine)
-        _acilisa_cek()
+        _acilisa_cek(engine)
         engine.dispose()
 
 
