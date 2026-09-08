@@ -30,6 +30,7 @@ from ..inventory import (
 )
 from ..money import HUNDRED, ZERO_MONEY, money, percentage, quantity
 from ..parti_defteri import SKT_SORULMADI, _parti_ac, _parti_bul, _parti_dus
+from ..parti_mutabakat import mutabakat as parti_mutabakat
 from ..schemas import (
     BulkPriceUpdate,
     BulkStockUpdate,
@@ -300,6 +301,46 @@ def product_warehouse_stock(
         "available_warehouse_count": sum(
             1 for row in stocks if quantity(row["quantity"]) > 0
         ),
+    }
+
+
+@router.get("/lots/mutabakat")
+def parti_mutabakat_raporu(
+    request: Request,
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    """Stok defteri ile parti defteri hangi (ürün, depo) çiftinde AYRIŞIYOR.
+
+    Kural `app/parti_mutabakat.py`de ve YALNIZ orada; bu uç onu ÇAĞIRIR,
+    YENİDEN YAZMAZ. Kovanın tanımını burada tekrarlamak, aynı cümleyi iki
+    dosyaya koymak olurdu ve ikisi ayrıştığı gün hangisinin rapor olduğu
+    SORULAMAZDI.
+
+    YOL SIRASI BİLİNÇLİ: bu uç `/{product_id}/lots`tan ÖNCE yazıldı. Bugün
+    çakışma YOKTUR (`/lots/mutabakat`ın ikinci parçası `lots` değil
+    `mutabakat`tır, yani desen EŞLEŞMEZ) ama sıra, ileride iki parçalı ve
+    SERBEST ikinci parçalı bir desen (`/{product_id}/{alt_kaynak}`) eklenirse
+    onun bu ucu sessizce yutmasını engeller — FastAPI ilk EŞLEŞENİ seçer ve o
+    gün rapor, BAŞKA BİR UCUN cevabını verirdi.
+
+    `counts` SAYFAYA DEĞİL kiracının TAMAMINA aittir: ikinci sayfadaki tek
+    `SAPMA`yı ilk sayfaya bakan operatör görmezdi ve "sapma yok" diye okurdu.
+
+    OKUMADIR, YALNIZ OKUMA — ve mutabakat bir DÜZELTME ucu DEĞİLDİR: farkı
+    kapatmak, farkı ÜRETEN yolu partiye bağlamakla olur (1B-H), raporun
+    sayıyı ezmesiyle DEĞİL. Bir `POST .../duzelt` ucu iki defteri uyumlu
+    GÖSTERİR ama malın hangi partiden çıktığını SÖYLEYEMEZ; geri çağırma
+    kaydı YALAN söylemeye devam ederdi.
+    """
+    cid = company_id(request)
+    rapor = parti_mutabakat(db, cid, limit=limit, offset=offset)
+    return {
+        "items": [satir._asdict() for satir in rapor.satirlar],
+        "counts": rapor.sayimlar,
+        "total": rapor.toplam,
+        "has_more": rapor.has_more,
     }
 
 

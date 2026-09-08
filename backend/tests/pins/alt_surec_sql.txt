@@ -1,4 +1,5 @@
 test_1b_d_transfer_lot_postgresql.py	1
+test_1b_g_mutabakat_postgresql.py	1
 test_absorption_labor_source.py	1
 test_activity_log_panel.py	1
 test_cari_360_bounded_summary.py	1
@@ -82,6 +83,7 @@ tests/test_1b_c_ayarlama_lot.py	1
 tests/test_1b_d_transfer_lot.py	1
 tests/test_1b_e_iade_lot.py	1
 tests/test_1b_f_hasat_lot.py	4
+tests/test_1b_g_mutabakat.py	1
 tests/test_54a_mobil_auth.py	1
 tests/test_54b_idempotency.py	1
 tests/test_54c_push_devices.py	1

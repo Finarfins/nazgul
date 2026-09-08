@@ -152,6 +152,30 @@ test('ürün detayı: testin ürettiği ürün adı gövdede görünür ve rota 
     new URL(page.url()).pathname,
     `${rota} başka bir rotaya yönlendirildi (izin duvarı?)`,
   ).toBe(rota);
+
+  // 1B-G: "Partiler" sekmesi. ROTA ENVANTERİNE DOKUNULMADI ve dokunulmaması
+  // doğrudur — sekme yeni bir ROTA değildir, `/urunler/:id`in içinde bir
+  // paneldir; envanter rotaları sayar, panelleri değil. Kapsam sözleşmesi
+  // (G1) App.tsx'in rota kümesiyle envanterin küme eşitliğine dayanır ve o
+  // küme KIMILDAMADI.
+  //
+  // Adım BURAYA, var olan testin İÇİNE eklendi: ayrı bir test aynı ürünü
+  // yeniden kurar ve aynı rotayı ikinci kez ziyaret ederdi — envanterdeki
+  // `spec` tasnifi ise TEK bir test ADI taşır, yani ikinci test raporlanan
+  // kapsama girmez ve sessizce ölçüsüz kalırdı.
+  //
+  // Ölçülen şey RENDER: sekme tıklanıyor ve panelin KENDİ metni gövdede
+  // aranıyor. Testin ürettiği ürünün partisi YOKTUR, yani doğru cevap boş
+  // liste açıklamasıdır — "parti yok" ile "panel hiç çizilmedi" iki farklı
+  // şeydir ve ikincisi bu metin olmadan ayırt EDİLEMEZDİ.
+  await page.getByRole('tab', {name: /Partiler/}).click();
+  await expect(
+    page.getByText('Bu ürün için parti kaydı bulunmuyor.'),
+  ).toBeVisible();
+  expect(
+    new URL(page.url()).pathname,
+    'Partiler sekmesi rotayı değiştirmemeli: bu bir panel, bir rota değil',
+  ).toBe(rota);
 });
 
 test('depo detayı: testin ürettiği depo adı gövdede görünür ve rota korunur', async ({page}, testInfo) => {

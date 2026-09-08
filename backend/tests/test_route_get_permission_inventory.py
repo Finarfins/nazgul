@@ -272,6 +272,12 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     # şey stok bakiyesinin PARTİ KIRILIMIDIR ve o bakiyeyi zaten
     # `GET /api/products/{product_id}` gösteriyor. Ayrı bir yetkiye bağlamak
     # aynı olguyu iki farklı kapının arkasına koyardı.
+    # Parti mutabakatinin okumasi (1B-G, GOC YOK). Ayni `/api/products`
+    # onekinden, ayni `read` izni: rapor, `GET /api/products/{id}/lots`in
+    # gosterdigi parti kiriliminin KIRACI GENELINDEKI toplamidir ve ayni
+    # olguyu iki farkli iznin arkasina koymak, birinin otekinden sessizce
+    # ayrismasina yol acardi.
+    ("GET", "/api/products/lots/mutabakat"): "read",
     ("GET", "/api/products/{product_id}/lots"): "read",
     ("GET", "/api/products/{product_id}/qr.png"): "read",
     ("GET", "/api/products/{product_id}/warehouse-stock"): "read",
@@ -374,13 +380,22 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # envantere GİRMEZ: bu dosya YALNIZ GET'leri sayar; o ikisi
 # `test_undeniable_endpoint_population.py`nin `SELF_SCOPED_WRITE_
 # EXEMPTIONS` çapasında ve orada GERÇEK istekle kanıtlanıyor.
-GET_INVENTORY_COUNT = 182
+# 182 -> 183: 1B-G'nin TEK OKUMA ucu (`GET /api/products/lots/mutabakat`,
+# GÖÇ YOK). İzin `read` ve `auth.py`ye SATIR EKLENMEDİ: yol `/api/products`
+# önekindedir, yani izin ZATEN doğru aileden geliyor — bu ÖLÇÜLDÜ
+# (`required_permission("GET", "/api/products/lots/mutabakat") -> "read"`),
+# varsayılmadı. Drift raporu ÖLÇÜLDÜ: `missing`/`stale`/`changed` ÜÇÜ DE BOŞ
+# — artış YALNIZ eklemedir, hiçbir ucun izni DEĞİŞMEDİ.
+GET_INVENTORY_COUNT = 183
 GET_INVENTORY_FINGERPRINT = (
     # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
     # sonra `auth.py`ye `/api/push/` önek kuralı eklendi, sonra izin
     # `required_permission` ile ÖLÇÜLDÜ ("read"), sonra envantere ve
     # `ROUTE_REASONS`a girdi. 1a615fb1 -> cfb171c3.
-    "cfb171c349b53dc24e78d3cbe4a94c50fb9f8afe5d27b8c87deef55f6ffc9962"
+    # 1B-G (GOC YOK): parmak izi EN SON alindi — once uc yazildi, sonra izin
+    # `required_permission` ile OLCULDU ("read"), sonra envantere ve
+    # `ROUTE_REASONS`a girdi, EN SON parmak izi. cfb171c3 -> 070f4e0a.
+    "070f4e0acd98146c05a5f2e285b166687aca9eb2eed0960889db54983873bef2"
 )
 
 

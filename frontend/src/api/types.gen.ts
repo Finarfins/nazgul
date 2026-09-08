@@ -3866,6 +3866,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/products/lots/mutabakat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Parti Mutabakat Raporu
+         * @description Stok defteri ile parti defteri hangi (ürün, depo) çiftinde AYRIŞIYOR.
+         *
+         *     Kural `app/parti_mutabakat.py`de ve YALNIZ orada; bu uç onu ÇAĞIRIR,
+         *     YENİDEN YAZMAZ. Kovanın tanımını burada tekrarlamak, aynı cümleyi iki
+         *     dosyaya koymak olurdu ve ikisi ayrıştığı gün hangisinin rapor olduğu
+         *     SORULAMAZDI.
+         *
+         *     YOL SIRASI BİLİNÇLİ: bu uç `/{product_id}/lots`tan ÖNCE yazıldı. Bugün
+         *     çakışma YOKTUR (`/lots/mutabakat`ın ikinci parçası `lots` değil
+         *     `mutabakat`tır, yani desen EŞLEŞMEZ) ama sıra, ileride iki parçalı ve
+         *     SERBEST ikinci parçalı bir desen (`/{product_id}/{alt_kaynak}`) eklenirse
+         *     onun bu ucu sessizce yutmasını engeller — FastAPI ilk EŞLEŞENİ seçer ve o
+         *     gün rapor, BAŞKA BİR UCUN cevabını verirdi.
+         *
+         *     `counts` SAYFAYA DEĞİL kiracının TAMAMINA aittir: ikinci sayfadaki tek
+         *     `SAPMA`yı ilk sayfaya bakan operatör görmezdi ve "sapma yok" diye okurdu.
+         *
+         *     OKUMADIR, YALNIZ OKUMA — ve mutabakat bir DÜZELTME ucu DEĞİLDİR: farkı
+         *     kapatmak, farkı ÜRETEN yolu partiye bağlamakla olur (1B-H), raporun
+         *     sayıyı ezmesiyle DEĞİL. Bir `POST .../duzelt` ucu iki defteri uyumlu
+         *     GÖSTERİR ama malın hangi partiden çıktığını SÖYLEYEMEZ; geri çağırma
+         *     kaydı YALAN söylemeye devam ederdi.
+         */
+        get: operations["parti_mutabakat_raporu_api_products_lots_mutabakat_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/products/stock/movements/all": {
         parameters: {
             query?: never;
@@ -18044,6 +18085,38 @@ export interface operations {
                 "application/json": components["schemas"]["ProductLabelRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    parti_mutabakat_raporu_api_products_lots_mutabakat_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
