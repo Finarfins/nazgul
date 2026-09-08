@@ -5405,6 +5405,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/whatsapp/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Dogrula
+         * @description Meta kurulum el sıkışması: doğru token'a `hub.challenge` aynen döner.
+         *
+         *     Karşılaştırma `hmac.compare_digest` ile SABİT ZAMANLIDIR. `==` ile
+         *     yazılsaydı, cevabın gecikmesi token'ın kaç karakterinin tuttuğunu
+         *     sızdırırdı — ve bu uç oturumsuz olduğu için deneme sayısı da serbest
+         *     olurdu.
+         *
+         *     Cevap `text/plain`dir ve JSON DEĞİL: Meta gövdeyi HAM METİN olarak
+         *     karşılaştırır, tırnak içine alınmış bir challenge el sıkışmasını
+         *     düşürür.
+         */
+        get: operations["dogrula_api_whatsapp_webhook_get"];
+        put?: never;
+        /**
+         * Webhook
+         * @description Doğrulanmış mesajları kuyruğa yazar ve HER ZAMAN 200 döner.
+         *
+         *     SIRA ÖNEMLİ ve her adım bir öncekine bağımlı:
+         *
+         *       1. Kanal açık mı  → değilse 404 (gövde HİÇ OKUNMAZ).
+         *       2. Gövde sınırı   → aşılırsa 413 (JSON HİÇ AYRIŞTIRILMAZ).
+         *       3. HMAC           → tutmazsa 403 (JSON HİÇ AYRIŞTIRILMAZ).
+         *       4. JSON           → bozuksa 400.
+         *       5. Ayrıştırma + `phone_number_id` süzgeci.
+         *       6. Yazma, sonra 200.
+         *
+         *     3'ün 4'ten ÖNCE olması bu dosyanın tek en önemli satır sırasıdır:
+         *     doğrulanmamış bir gövde ayrıştırıcıya ULAŞMAZ.
+         */
+        post: operations["webhook_api_whatsapp_webhook_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/work-order-attachments/{work_order_id}": {
         parameters: {
             query?: never;
@@ -21085,6 +21130,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dogrula_api_whatsapp_webhook_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    webhook_api_whatsapp_webhook_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
                 };
             };
         };

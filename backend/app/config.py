@@ -129,6 +129,23 @@ class Settings(BaseSettings):
     harman_kopru_sirri: SecretStr | None = None
     harman_kopru_sirri_ikincil: SecretStr | None = None
 
+    # WA1: Meta WhatsApp webhook girişi. ÜÇÜ DE VARSAYILAN BOŞ = kanal
+    # KAPALIDIR ve iki uç da 404 döner (`app/routers/whatsapp.py::
+    # _kanal_ayari`). Yani bu PR'ın kendisi HİÇBİR ŞEYİ AÇMAZ: yapılandırma
+    # yapılmamış bir kurulumda webhook yolu VAR OLMAYAN bir yoldur.
+    #
+    # ÜÇÜ DE ZORUNLU ve bu bir kolaylık değil, fail-closed'ın kendisi:
+    #   * app_secret      — imza doğrulanamazsa gövdenin kaynağı BİLİNMEZ;
+    #   * verify_token    — kurulum el sıkışması bununla yapılır;
+    #   * phone_number_id — aynı Meta uygulamasındaki BAŞKA bir işletme
+    #     numarasının olayı da AYNI app secret'la imzalanır, yani imza tek
+    #     başına "bu mesaj BİZE geldi" demez.
+    # Biri boşken ötekilerle yarı açık bir kanal işletmek, o üç güvencenin
+    # hangisinin yürürlükte olduğunu SORULAMAZ hâle getirirdi.
+    whatsapp_app_secret: SecretStr | None = None
+    whatsapp_verify_token: SecretStr | None = None
+    whatsapp_phone_number_id: str = ""
+
     # Notification delivery seam. The safe default is inert and never performs
     # a network call; Twilio/WhatsApp are wiring-only stubs for a later adapter.
     notification_provider: str = "noop"

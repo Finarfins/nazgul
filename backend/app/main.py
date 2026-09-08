@@ -89,6 +89,7 @@ from .routers import (
     supplier_price_bridge,
     warehouse_counts,
     warehouses,
+    whatsapp,
     work_orders,
     work_order_attachments,
     work_order_labor_lines,
@@ -240,6 +241,18 @@ PUBLIC_API = {
     # olup olmadığını sızdırmaz.
     "/api/auth/forgot-password",
     "/api/auth/reset-password",
+    # WA1 — META WEBHOOK. TAM YOL, ÖNEK DEĞİL: bu router'a yarın eklenecek
+    # bir yönetim ucu (numara bağlama, eşleştirme kodu) SESSİZCE oturumsuz
+    # açılmamalı. İkisi de kimlik doğrulama kapısının ÖNÜNDE olmak ZORUNDA:
+    # Meta'nın sunucuları oturum açamaz ve CSRF jetonu taşıyamaz.
+    #
+    # KİMLİĞİN YERİNİ ALAN ŞEY UCA GÖRE FARKLI ve ikisi de
+    # `routers/whatsapp.py`de ölçülüyor: GET sabit zamanlı
+    # `hub.verify_token` karşılaştırması (yalnız `hub.challenge` döner,
+    # HİÇBİR ŞEY YAZMAZ), POST ise JSON AYRIŞTIRILMADAN ÖNCE ham gövde
+    # üzerinde doğrulanan `X-Hub-Signature-256` HMAC'i. Uç, üç ayarın biri
+    # bile boşken 404 döner; yani bu satır tek başına HİÇBİR ŞEY AÇMAZ.
+    "/api/whatsapp/webhook",
 }
 # Aynı üç uç, İKİ AYRI KAPIDA muaf: zorunlu parola rotasyonu (aşağıda) ve
 # yetki kapısı. Liste tek kaynakta (app/auth.py) durur; burada üçüncü bir kopya
@@ -633,6 +646,11 @@ app.include_router(part_supersessions.router, prefix="/api")
 app.include_router(platform_backups.router, prefix="/api")
 app.include_router(kiraci_disa_aktarim.router, prefix="/api")
 app.include_router(kiraci_imha.router, prefix="/api")
+# WA1 GİRİŞİ. İki ucu da yukarıdaki `PUBLIC_API` kümesinde TAM YOL ile
+# muaftır çünkü Meta'nın sunucuları oturum açamaz; kimliğin yerini GET'te
+# sabit zamanlı `hub.verify_token`, POST'ta HAM GÖVDE üzerindeki HMAC alır.
+# Gerekçe ve 403/404 ayrımı `routers/whatsapp.py` başlığındadır.
+app.include_router(whatsapp.router, prefix="/api")
 
 
 @app.exception_handler(kiraci_imha.FirmaZatenKapaliError)
