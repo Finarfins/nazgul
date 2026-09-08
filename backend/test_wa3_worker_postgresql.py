@@ -458,9 +458,14 @@ def test_GOC_TURU_up_down_up_GERCEK_PostgreSQLde(motor) -> None:
     POLİTİKASINI yazıyor (`LEASE_DAKIKA`, `MAX_DENEME`). Yeni bir göç
     eklenirse bu kapı hatırlatır — göç turu WA1/WA2 ikizlerinin işidir ve
     orada zaten koşuyor.
+
+    VE HATIRLATTI: WA4 (#84, göç `20260910_0080`, bekleyen işlem defteri)
+    başı 0079'dan 0080'e taşıdı, bu kapı da onunla güncellendi. WA3'ün
+    iddiası KIMILDAMADI — bu dilim hâlâ göç AÇMIYOR; değişen tek şey,
+    altında duran zincirin ucudur.
     """
     with motor.connect() as b:
         surumler = b.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalars().all()
-    assert surumler == ["20260910_0079"], surumler
+    assert surumler == ["20260910_0080"], surumler

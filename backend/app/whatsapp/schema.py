@@ -19,10 +19,16 @@ KİRACI tablosudur (`company_id` TAŞIR, yani `TENANT_TABLES`a GİRER):
 * `whatsapp_context`        — "hangi firmadasın?" `FİRMA SEÇ` komutunun
   yazdığı aktif firma seçimi.
 
-TAŞINMAYAN TEK TABLO ve gerekçesi (bu dilimin KAPSAMI DIŞINDA):
+WA4 (göç `20260910_0080`) o listeye SON tabloyu ekledi ve o da KİRACI
+tablosudur:
 
-* `whatsapp_pending_actions`— iki adımlı yazma taslakları; bu PR hiçbir
-  finansal yazma yapmıyor.
+* `whatsapp_pending_actions` — iki adımlı yazma taslakları. WA2'nin
+  başlığında bu tablo "bu dilimin KAPSAMI DIŞINDA" diye anılıyordu ve
+  gerekçesi "bu PR hiçbir finansal yazma yapmıyor"du. WA4 finansal yazmayı
+  GETİRDİĞİ için tablo da onunla birlikte doğdu: bir sohbet mesajı ASLA
+  doğrudan para kaydetmez — önce taslak, sonra kullanıcının açık `ONAY`ı.
+
+Böylece kaynaktaki ALTI tablonun ALTISI da bu depoda; taşıma TAMAMLANDI.
 
 `whatsapp_pairing_attempts` WA1'de taşındı ÇÜNKÜ kiracıya bağlı DEĞİLDİR: deneme
 yapan numara henüz hiçbir firmaya ait değildir. WA1 ona HİÇ YAZMIYORDU; WA2
@@ -336,14 +342,161 @@ whatsapp_context = Table(
 )
 
 
+# ---------------------------------------------------------------------------
+# WA4 - BEKLEYEN ISLEM DEFTERI (goc 20260910_0080). KIRACI TABLOSU.
+# ---------------------------------------------------------------------------
+# Iki adimli yazmanin tasiyicisi: niyet cozulur (`niyet.tahsilat_coz`),
+# TASLAK acilir ve kullaniciya ozet gosterilir, yalniz acik `ONAY` uzerine
+# `payment_allocation_engine` cagrilir. Gerekcenin tamami goc
+# `20260910_0080`in basligindadir.
+
+#: Kapali kume - gocun `ck_wpa_action_type` CHECK'i ile BIREBIR ayni.
+#: BUGUN TEK UYE: tahsilat. Kumeyi buyutmek, buyuyen her uyenin kendi
+#: uygulama yolunu ve kendi idempotency anahtarini getirmesini gerektirir.
+TAHSILAT = "TAHSILAT"
+ISLEM_TURLERI: frozenset[str] = frozenset({TAHSILAT})
+
+# --- bekleyen islem durum makinesi -----------------------------------------
+#   PENDING  -> APPLYING  (ONAY; tek UPDATE'lik CAS)
+#   PENDING  -> CANCELLED (IPTAL)
+#   PENDING  -> EXPIRED   (supurucu ya da okuma anindaki tembel kapatma)
+#   APPLYING -> APPLIED   (odeme yazildi; `result_id` dolu)
+#   APPLYING -> FAILED    (kalici hata; `fail_reason` SINIF adi)
+#   APPLYING -> PENDING   (gecici hata; taslak omru icinde yeniden denenir)
+#
+#: ADLAR `BEKLEYEN_` ONEKLI ve bu bilincli. Onek olmasaydi `FAILED` adi bu
+#: modulde bildirim outbox'inin `FAILED`i (YENIDEN DENENEBILIR basarisizlik)
+#: ile ayni sozcugu TERS anlamda kullanirdi - WA1'in `DEAD` kararinin
+#: gerekcesiyle BIREBIR ayni sebep. Burada `FAILED` KALICIDIR.
+BEKLEYEN_PENDING = "PENDING"
+BEKLEYEN_APPLYING = "APPLYING"
+BEKLEYEN_APPLIED = "APPLIED"
+BEKLEYEN_CANCELLED = "CANCELLED"
+BEKLEYEN_EXPIRED = "EXPIRED"
+BEKLEYEN_FAILED = "FAILED"
+
+#: Gocun `ck_wpa_status` CHECK'i ile BIREBIR ayni alti deger.
+BEKLEYEN_STATUSES: frozenset[str] = frozenset({
+    BEKLEYEN_PENDING, BEKLEYEN_APPLYING, BEKLEYEN_APPLIED,
+    BEKLEYEN_CANCELLED, BEKLEYEN_EXPIRED, BEKLEYEN_FAILED,
+})
+
+#: Kismi UNIQUE indeksin kapsami - gocun `_aktif_yuklem()`i ile BIREBIR ayni
+#: iki deger. Bu ikisi "aktif"tir: kapsamda ayni anda EN FAZLA BIRI olabilir.
+BEKLEYEN_AKTIF_STATUSES: frozenset[str] = frozenset({
+    BEKLEYEN_PENDING, BEKLEYEN_APPLYING,
+})
+
+#: Terminal durumlar: bir daha kimildamazlar.
+BEKLEYEN_TERMINAL_STATUSES: frozenset[str] = frozenset({
+    BEKLEYEN_APPLIED, BEKLEYEN_CANCELLED, BEKLEYEN_EXPIRED, BEKLEYEN_FAILED,
+})
+
+#: Taslak omru. Kullanicinin ozeti okuyup `ONAY` yazmasina fazlasiyla yeter;
+#: yarin gelen bir `ONAY`in dunku tutari yazmasina yetmez. `BAGLAM_OMRU_
+#: DAKIKA` (30) ile AYNI buyukluk sinifinda olmasi tesaduf degil: taslak,
+#: baglamin omrunden uzun yasarsa hangi firmaya yazilacagi belirsizlesirdi.
+PENDING_OMRU_DAKIKA = 15
+
+#: Lease suresi: bir iscinin uygulamayi bitirmesi icin makul ust sinir.
+#: Bu sure doldugunda APPLYING satir DEVRALINABILIR (`bekleyen.claim_et`) -
+#: guvenli, cunku ikinci deneme AYNI `islem_anahtari` ile gider ve odeme
+#: defteri ikinci bir odeme YAZMAZ.
+PENDING_LEASE_DAKIKA = 5
+
+whatsapp_pending_actions = Table(
+    "whatsapp_pending_actions",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("company_id", Integer, nullable=False),
+    # FK'ler goctedir. `(company_id, whatsapp_link_id)` BILESIK olarak
+    # `whatsapp_links(company_id, id)`ye baglanir: bir firmanin taslagi
+    # BASKA firmanin baglantisina asili gorunemez.
+    Column("user_id", Integer, nullable=False),
+    Column("whatsapp_link_id", Integer, nullable=False),
+    Column("phone", String(20), nullable=False),
+    Column("action_type", String(30), nullable=False),
+    # Para degerleri METIN olarak yazilir (`bekleyen._yuk_denetle` float
+    # yuku REDDEDER); JSON sayisina donen bir tutar ikili kayan nokta olurdu.
+    Column("payload", Text, nullable=False),
+    Column("status", String(12), nullable=False),
+    Column("islem_anahtari", String(64), nullable=False),
+    Column("claim_token", String(64), nullable=True),
+    Column("claim_expires_at", DateTime(timezone=True), nullable=True),
+    Column("result_id", Integer, nullable=True),
+    Column("fail_reason", String(64), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("resolved_at", DateTime(timezone=True), nullable=True),
+    # DORT CHECK - goc `20260910_0080` ile BIREBIR ayni. Alembic ile kurulan
+    # sema ile `metadata.create_all()` ile kurulan sema guvenlik anlami
+    # bakimindan AYRISMAMALIDIR; ayrissaydi testler gerceklte uretimde tutan
+    # bir kisiti hic olcmezdi.
+    CheckConstraint(
+        "action_type IN ('TAHSILAT')", name="ck_wpa_action_type"
+    ),
+    CheckConstraint(
+        "status IN ('PENDING','APPLYING','APPLIED','CANCELLED','EXPIRED','FAILED')",
+        name="ck_wpa_status",
+    ),
+    CheckConstraint(
+        "(status <> 'APPLIED') OR (result_id IS NOT NULL)",
+        name="ck_wpa_applied_result",
+    ),
+    CheckConstraint(
+        "(status IN ('PENDING','APPLYING')) OR "
+        "(claim_token IS NULL AND claim_expires_at IS NULL)",
+        name="ck_wpa_terminal_lease_temiz",
+    ),
+    # Odeme idempotensisinin koku - gerekce gocun basliginda. KURESEL tekil.
+    UniqueConstraint("islem_anahtari", name="uq_wpa_islem_anahtari"),
+    Index("ix_wpa_status_expires", "status", "expires_at"),
+)
+
+# KAPSAMDA TEK AKTIF TASLAK - `(company_id, user_id, phone)` WHERE aktif.
+#
+# Hakem uygulama sorgusu DEGIL bu indekstir: iki mesaj ayni anda gelse bile
+# ikinci taslak IntegrityError'a carpar. Kural olmasaydi kullanicinin
+# yazdigi `ONAY` kelimesinin HANGI taslaga ait oldugu belirsiz kalirdi -
+# sohbette bir secim arayuzu yoktur.
+#
+# KISMI (WHERE'li), DUZ DEGIL: terminal satirlar anahtarin DISINDA kalir,
+# yani ayni kullanici ayni numaradan IKINCI KEZ tahsilat yapabilir.
+# Tablo tanimin DISINDA, cunku WHERE ifadesi gercek kolon nesnesine
+# baglanmak zorunda. SQLite ve PostgreSQL'in IKISI de destekliyor.
+Index(
+    "uq_wpa_aktif_taslak",
+    whatsapp_pending_actions.c.company_id,
+    whatsapp_pending_actions.c.user_id,
+    whatsapp_pending_actions.c.phone,
+    unique=True,
+    sqlite_where=whatsapp_pending_actions.c.status.in_(
+        sorted(BEKLEYEN_AKTIF_STATUSES)
+    ),
+    postgresql_where=whatsapp_pending_actions.c.status.in_(
+        sorted(BEKLEYEN_AKTIF_STATUSES)
+    ),
+)
+
+
 __all__ = [
     "ANSWERED",
     "BAGLAM_OMRU_DAKIKA",
+    "BEKLEYEN_AKTIF_STATUSES",
+    "BEKLEYEN_APPLIED",
+    "BEKLEYEN_APPLYING",
+    "BEKLEYEN_CANCELLED",
+    "BEKLEYEN_EXPIRED",
+    "BEKLEYEN_FAILED",
+    "BEKLEYEN_PENDING",
+    "BEKLEYEN_STATUSES",
+    "BEKLEYEN_TERMINAL_STATUSES",
     "DEAD",
     "IGNORED",
     "LEASE_DAKIKA",
     "MAX_DENEME",
     "INBOUND_STATUSES",
+    "ISLEM_TURLERI",
     "PAIRING_CANCELLED",
     "PAIRING_CEVAP_SINIRI",
     "PAIRING_CONSUMED",
@@ -354,12 +507,16 @@ __all__ = [
     "PAIRING_PENCERE_SINIRI",
     "PAIRING_PENDING",
     "PAIRING_STATUSES",
+    "PENDING_LEASE_DAKIKA",
+    "PENDING_OMRU_DAKIKA",
     "PROCESSING",
     "RECEIVED",
+    "TAHSILAT",
     "metadata",
     "whatsapp_context",
     "whatsapp_inbound",
     "whatsapp_links",
     "whatsapp_pairing_attempts",
     "whatsapp_pairing_codes",
+    "whatsapp_pending_actions",
 ]

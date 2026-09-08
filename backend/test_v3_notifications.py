@@ -50,15 +50,31 @@ def test_notification_provider_factory_is_safe_by_default() -> None:
     )
 
 
-def test_noop_is_inert_and_wiring_stubs_do_not_call_a_network() -> None:
+def test_noop_is_inert_and_unconfigured_providers_do_not_call_a_network() -> None:
     result = NoOpNotificationProvider().send({"payload": {"event": "READY"}})
     assert result.status == "NONE"
     assert result.external_id is None
     assert "yapılandırılmamış" in (result.message or "")
 
-    for provider in (TwilioNotificationProvider(), WhatsAppNotificationProvider()):
-        with pytest.raises(NotImplementedError, match="şirket entegrasyonu"):
-            provider.send({})
+    # TWILIO HALA BIR TASLAK ve `NotImplementedError` yukseltiyor.
+    with pytest.raises(NotImplementedError, match="şirket entegrasyonu"):
+        TwilioNotificationProvider().send({})
+
+    # WHATSAPP ARTIK TASLAK DEGIL (WA4, goc 20260910_0080): gercek bir Meta
+    # Cloud API adaptoru. Bu yuzden `NotImplementedError` BEKLENMIYOR —
+    # ama bu testin ASIL OLCTUGU sey ("yapilandirilmamis saglayici AGA
+    # CIKMAZ") KIMILDAMADI ve asagida DAHA GUCLU bicimde olculuyor:
+    # jeton/numara kimligi bos oldugu icin adaptor `NONE` doner ve
+    # `cloud_api.metin_gonder` HIC cagrilmaz.
+    #
+    # `settings=None` ile kurulmus bir saglayicida `getattr(None, ...)`
+    # bos deger verir, yani bu tam olarak YAPILANDIRILMAMIS kurulumdur.
+    whatsapp_sonuc = WhatsAppNotificationProvider().send(
+        {"recipient": "905405995959", "payload": {"body": "merhaba"}}
+    )
+    assert whatsapp_sonuc.status == "NONE"
+    assert whatsapp_sonuc.external_id is None
+    assert "yapılandırılmamış" in (whatsapp_sonuc.message or "")
 
 
 def test_notification_seam_sqlite(tmp_path: Path) -> None:

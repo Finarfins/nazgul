@@ -980,10 +980,55 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "344689a43a024706cb6327aee8f29b2a40490b80526b4bd1852ec0ba9a15294c"): (1, "companies", "arg0"),  # satır [133]
     ("app/routers/kiraci_imha.py", "firmayi_imha_et", "delete",
      "4594c3b519aab868921b5bd88a7f5bc6f2579889963ec81277bc7383effb9a72"): (1, "memberships", "arg0"),  # satır [137]
+    # --- WHATSAPP BEKLEYEN ISLEMLER (WA4, goc 20260910_0080)
+    # ON sorgu, TEK dosya (app/whatsapp/bekleyen.py). DOKUZUNUN hedefi
+    # `whatsapp_pending_actions`, BIRININ (`_baglanti_dogrula`)
+    # `whatsapp_links`.
+    #
+    # ONUNUN DA KIRACI YUKLEMI VAR ve yuklem parmak izinde GORUNUR; bu kapi
+    # yuklemin VARLIGINI kanitlamaz, `test_core_tenant_scoping_guard.py`
+    # kanitlar. Sekizi `_kapsam()` (company_id + user_id + phone) uzerinden
+    # daraliyor; `_sahip_mi` ve `_jetonla_kapat` ise SATIR KIMLIGI + jeton
+    # sahipligiyle daraliyor ve o iki sorgu bir cagirandan `company_id`
+    # ALMAZ — cagrildiklari tek yer, kapsami ZATEN dogrulanmis bir claim'in
+    # sahibi oldugu satirdir (`claim_et` kapsami CAS'inin ICINDE tasir).
+    #
+    # KIRACI YUKLEMI TASIMAYAN TEK SORGU `suresi_gecenleri_kapat`tir ve
+    # gerekcesi OLCULDU, VARSAYILMADI: supurucu KURESEL kosar (bir isci,
+    # butun firmalarin suresi gecmis taslaklarini kapatir) ve bir cagirandan
+    # `company_id` ALMAZ. Yuklem eklenseydi cagiranin hangi firmalari
+    # kapatabilecegi ayrica yetkilendirilmek zorunda kalirdi; bugun boyle bir
+    # cagiran YOK (isci WA3'un isi).
+    #
+    # HEDEFI COZULEMEYEN sorgu YOK — `UNRESOLVED_ALLOWLIST` BUYUMEDI. Bunun
+    # icin `from .schema import ... as wpa` kisaltmasi BILEREK KULLANILMADI
+    # (gerekce `bekleyen.py`nin import satirinda) ve `_jetonla_kapat`
+    # `**degerler` yayilimi yerine ACIK SUTUN KUMESI kullaniyor — yoksa
+    # `desteksiz` listesine WA4'ten BIR satir girerdi.
+    ("app/whatsapp/bekleyen.py", "_baglanti_dogrula", "select",
+     "d00a9da8586db7f4a8c7ed33afec688efa6b723f08b7fe7270ff64adc3c675b0"): (1, "whatsapp_links", "arg0"),  # satir [308]
+    ("app/whatsapp/bekleyen.py", "_jetonla_kapat", "update",
+     "2302d6c23726be1750fef05becf4c5579e0eae9160878209989b0127d094d347"): (1, "whatsapp_pending_actions", "arg0"),  # satir [582]
+    ("app/whatsapp/bekleyen.py", "_sahip_mi", "select",
+     "c096cf4e9287fce7602e6b5a5477d5abc66bca979ccb4e8489687af0c4b45788"): (1, "whatsapp_pending_actions", "arg0"),  # satir [537]
+    ("app/whatsapp/bekleyen.py", "_suresi_doldur", "update",
+     "c50614cdc83ccbfbb0853c599d21ba2369023ca119f68cf71f63dc724bc548a2"): (1, "whatsapp_pending_actions", "arg0"),  # satir [836]
+    ("app/whatsapp/bekleyen.py", "aktif_taslak", "select",
+     "85df2cddcdac5ade2d4765adfd996ff7ff46f6c7ebeba1e04e5e1bd552369f7c"): (1, "whatsapp_pending_actions", "arg0"),  # satir [332]
+    ("app/whatsapp/bekleyen.py", "claim_et", "update",
+     "7e699d50548ecae782039d1c0fd6db6f13a706f469b13b6745c50747facf0389"): (1, "whatsapp_pending_actions", "arg0"),  # satir [499]
+    ("app/whatsapp/bekleyen.py", "iptal_et", "select",
+     "b36ac447498a136a97f6f248134207c3a8887c6c1ad5d6f399b96d961217c831"): (1, "whatsapp_pending_actions", "arg0"),  # satir [446]
+    ("app/whatsapp/bekleyen.py", "iptal_et", "update",
+     "d68d49d1136170a21ef40cc53d821d2ece0a02c385a02349ab7ac43c039fb2f9"): (1, "whatsapp_pending_actions", "arg0"),  # satir [456]
+    ("app/whatsapp/bekleyen.py", "suresi_gecenleri_kapat", "select",
+     "75e8eed511794f5b58123fec242b46063f14b4f8a4aee18f9fe6ac0bf2a8de07"): (1, "whatsapp_pending_actions", "arg0"),  # satir [873]
+    ("app/whatsapp/bekleyen.py", "taslak_olustur", "select",
+     "d23339edbb978405335c326e4d4adb15923d8ffe28800478cba47f4fb3f5ac9b"): (1, "whatsapp_pending_actions", "arg0"),  # satir [419]
 }
 
-TOTAL_CORE_QUERIES = 165
-EXPECTED_OP_COUNTS = {"select": 105, "update": 50, "delete": 10}
+TOTAL_CORE_QUERIES = 175
+EXPECTED_OP_COUNTS = {"select": 111, "update": 54, "delete": 10}
 # 2026-08-12: iki sorgu bilerek değişti — `ensure_company_default_warehouse`
 # depo adı taramasına kiracı kapsamı eklendi (şema ölçümü: warehouses.name
 # üzerinde ne küresel ne kiracı kapsamlı UNIQUE var) ve `_finalize` opak
@@ -1033,7 +1078,25 @@ EXPECTED_OP_COUNTS = {"select": 105, "update": 50, "delete": 10}
 # statik olarak cozuldu (`arg0`). `desteksiz` listesine WA2'den TEK
 # BIR satir bile girmedi. TABAN develop `27916d7` (WA1/#80 indikten sonra);
 # parmak izi ARITMETIKLE tasinmadi, envanterin TAMAMINDAN yeniden turetildi.
-INVENTORY_FINGERPRINT = "e899452da3567c3ca55ffed24a3bc19a49121102636e9ef89fee2f0ded10ce1f"
+# 20260910 WA4 bekleyen islem defteri (goc 20260910_0080): 165 -> 175
+# (select 105 -> 111, update 50 -> 54, delete 10 -> 10). ON sorgu, TEK
+# dosya: app/whatsapp/bekleyen.py. Drift raporu OLCULDU: `changed` ve
+# `stale` IKISI DE BOS — artis YALNIZ eklemedir, hicbir mevcut sorgunun
+# yuklemi ya da hedefi DEGISMEDI. `UNRESOLVED_ALLOWLIST` BUYUMEDI ve
+# `desteksiz` listesine WA4'ten TEK BIR satir bile girmedi; ikisi de
+# BEDAVA GELMEDI, iki karar gerektirdi: (1) `bekleyen.py` tabloyu
+# KISALTMADAN ice aktariyor (`as wpa` yazilsaydi ON sorgunun DOKUZUNUN
+# hedefi "cozulemedi" sayilirdi), (2) `_jetonla_kapat` `**degerler`
+# yayilimi yerine ACIK SUTUN KUMESI kullaniyor (`_finalize` icin daha once
+# yapilan duzeltmenin AYNISI).
+#
+# TABAN #85 (WA3-full) INDIKTEN SONRA `acd3738`e TASINDI ve sayilar
+# ARITMETIKLE DEGIL YENIDEN OLCULEREK guncellendi: onceki tur `e78a466`
+# uzerinde 160 -> 170 olcmustu; WA3 tabani 165'e cikardigi anda o olcum
+# GECERSIZ oldu. WA4'un ekledigi sorgu sayisi (10) degismedi ama bunu
+# BILMEK icin yeniden olcmek gerekiyordu — cikarma yapmak, WA3'un
+# sorgularindan birinin WA4 ile CAKISMADIGINI VARSAYMAK olurdu.
+INVENTORY_FINGERPRINT = "3ae3e6f66aef55c97b4be05be04218ea4943c34597e6d3228528b7393fd08c84"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:

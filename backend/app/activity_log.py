@@ -119,6 +119,25 @@ ACTION_TYPES: dict[str, str] = {
     "user.whatsapp_pairing_code_created": "WhatsApp eşleştirme kodu üretildi",
     "user.whatsapp_pairing_code_cancelled": "WhatsApp eşleştirme kodu iptal edildi",
     "user.whatsapp_link_deactivated": "WhatsApp bağlantısı kapatıldı",
+    # WhatsApp bekleyen işlem (WA4, göç 20260910_0080). BEŞİ DE
+    # `whatsapp_pending` kaynağına bağlıdır: kaydın konusu ödemenin KENDİSİ
+    # değil, ödemeye giden TASLAKTIR — `payment` yazsaydık henüz var olmayan
+    # bir ödemeye bağlanan dört satır (`created`/`cancelled`/`expired`/
+    # `failed`) üretirdik. Uygulanan taslağın ödeme kimliği `details.
+    # result_id`de durur; ödemenin KENDİ `payment.create` kaydını
+    # `payment_allocation_engine` ayrıca yazar, yani iz İKİ UÇLUDUR.
+    #
+    # `details` HASSAS YÜK TAŞIMAZ ve bu kural burada WA2'dekinden daha da
+    # sıkı: tutar, müşteri adı ve mesajın serbest metni HİÇ yazılmaz; özet
+    # metninde numaranın yalnız son dört hanesi görünür; `fail_reason`
+    # yalnız doğrulanmış bir Python istisna SINIFI adıdır. Kataloğa
+    # GİRMEDEN çağrılamaz (`log_activity` bilinmeyen tipi `ValueError` ile
+    # reddeder), bu yüzden bu beş satır servisin ÖNKOŞULUDUR.
+    "whatsapp_pending.created": "WhatsApp bekleyen işlem taslağı açıldı",
+    "whatsapp_pending.applied": "WhatsApp bekleyen işlem uygulandı",
+    "whatsapp_pending.cancelled": "WhatsApp bekleyen işlem iptal edildi",
+    "whatsapp_pending.expired": "WhatsApp bekleyen işlem süresi doldu",
+    "whatsapp_pending.failed": "WhatsApp bekleyen işlem hatayla kapandı",
     # Panelin kendisi
     "activity_log.archive": "Aktivite kaydı arşivleme",
     "activity_log.unarchive": "Aktivite kaydı arşivden çıkarma",
@@ -224,6 +243,13 @@ RESOURCE_TYPES: frozenset[str] = frozenset(
         "notification_template",
         "notification_consent",
         "notification_rule",
+        # WhatsApp bekleyen işlem taslağı (WA4, göç 20260910_0080). Kaynak
+        # KİMLİĞİ `whatsapp_pending_actions.id`dir. Bu tipin OKUMA YÜZEYİ
+        # YOKTUR ve bu bilinçli: WA4 hiçbir uç eklemiyor, yani panelin
+        # kaynak bağlantısı bugün bir yere gitmez. Tipi yine de AYRI açmak,
+        # taslak izini ödeme izinden ayırt edilebilir kılar — panel geldiğinde
+        # geçmiş kayıtların tipi DEĞİŞMEK zorunda kalmaz.
+        "whatsapp_pending",
         # Outbox olayı (açılış koşulu 3). Kaynak KİMLİĞİ olay satırının
         # id'sidir; panelin kaynak bağlantısı okuma yüzeyine (`GET
         # /api/field-integration-events`) karşılık gelir.
