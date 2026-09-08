@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import replace
+import io
 import json
 import os
 from pathlib import Path
@@ -17,9 +18,12 @@ from aggregate_isolated_test_reports import (
 from merge_postgresql_test_reports import merge_postgresql_report_payloads
 from run_isolated_tests import (
     _decode_captured_output,
+    _subprocess_environment,
     canonical_collection_manifest,
     collect_canonical_manifest_single_process,
+    configure_runner_streams,
     execution_manifest,
+    main,
     run_test_files,
     select_test_shard,
 )
@@ -588,3 +592,86 @@ def test_non_cp1254_child_bytes_are_reported_not_crashed(
     assert worker_calls, seen_kwargs
     assert all(k.get("encoding") == "utf-8" for k in worker_calls)
     assert all(k.get("errors") == "replace" for k in worker_calls)
+
+
+def test_subprocess_environment_sets_pythonioencoding_utf8(tmp_path: Path) -> None:
+    env = _subprocess_environment(tmp_path)
+    assert env.get("PYTHONIOENCODING") == "utf-8"
+
+
+def test_configure_runner_streams_handles_non_reconfigurable_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", fake)
+    monkeypatch.setattr(sys, "stderr", fake)
+    configure_runner_streams()
+
+
+def test_child_failing_with_replacement_char_under_cp1254_stdout_reports_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failing child emitting '\\ufffd' under a cp1254 parent stdout does not crash.
+
+    On Turkish Windows consoles (cp1254), printing a child's failure output
+    containing characters unrepresentable in cp1254 (like \\ufffd from replacement
+    decoding of malformed bytes or non-cp1254 unicode) crashed the runner with
+    UnicodeEncodeError before reporting the failure.
+    At runner start, sys.stdout and sys.stderr are reconfigured to UTF-8 with
+    errors='replace'. This test simulates an initial cp1254 parent stream,
+    verifies that writing \\ufffd to it would raise UnicodeEncodeError, runs a
+    failing child that emits '\\ufffd' in a FAIL line, and asserts that the runner
+    completes cleanly and reports the failing file.
+    """
+    raw_out = io.BytesIO()
+    cp1254_stdout = io.TextIOWrapper(raw_out, encoding="cp1254", errors="strict")
+    raw_err = io.BytesIO()
+    cp1254_stderr = io.TextIOWrapper(raw_err, encoding="cp1254", errors="strict")
+
+    # Prove that the initial stream rejects \ufffd with UnicodeEncodeError
+    with pytest.raises(UnicodeEncodeError):
+        cp1254_stdout.write("FAIL line with \ufffd\n")
+
+    monkeypatch.setattr(sys, "stdout", cp1254_stdout)
+    monkeypatch.setattr(sys, "stderr", cp1254_stderr)
+
+    real_run = subprocess.run
+
+    def run_and_inject_fail(*args, **kwargs):
+        completed = real_run(*args, **kwargs)
+        if kwargs.get("capture_output") and "pytest" in args[0]:
+            fail_output = (
+                "FAILURES\n_ test_fail _\n> assert False\n"
+                "E AssertionError: fail with \ufffd char\n"
+            )
+            return subprocess.CompletedProcess(
+                completed.args,
+                1,
+                fail_output,
+                completed.stderr or "",
+            )
+        return completed
+
+    monkeypatch.setattr(subprocess, "run", run_and_inject_fail)
+
+    test_file = _write_test(
+        tmp_path / "test_failing_child_ufffd.py",
+        "def test_fail():\n    assert False\n",
+    )
+
+    # emit=True triggers _emit_result which writes result.stdout to sys.stdout
+    results = run_test_files([test_file], workers=1, timeout=20, emit=True)
+
+    assert len(results) == 1
+    result = results[0]
+    assert result.rel_path == test_file.name
+    assert not result.passed
+    assert "\ufffd" in result.stdout
+    assert "AssertionError" in result.stdout
+
+    # Verify stdout was reconfigured and output was written cleanly
+    cp1254_stdout.flush()
+    printed_output = raw_out.getvalue().decode("utf-8", errors="replace")
+    assert "FAIL" in printed_output
+    assert "\ufffd" in printed_output
+    assert test_file.name in printed_output

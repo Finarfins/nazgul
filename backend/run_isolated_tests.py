@@ -178,6 +178,7 @@ def _prepare_workspace(
 def _subprocess_environment(workdir: Path) -> dict[str, str]:
     env = os.environ.copy()
     env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     env["DATABASE_URL"] = f"sqlite:///{(workdir / 'veriler.db').as_posix()}"
     env["SUNGUR_DATA_DIR"] = str(workdir / "data")
     env["PYTHONPYCACHEPREFIX"] = str(workdir / "pycache")
@@ -258,6 +259,22 @@ def _prepare_database_template(root: Path, timeout: int) -> Path:
     ):
         raise RuntimeError("İzole test veritabanı şablonu eksik veya bozuk")
     return database_template
+
+
+def configure_runner_streams() -> None:
+    """Reconfigure sys.stdout and sys.stderr to UTF-8 with replacement errors.
+
+    On Windows consoles configured with code page 1254 (cp1254), printing child
+    process output that contains characters outside cp1254 (e.g. \\ufffd from
+    replacement decoding or other non-encodable characters in test failures)
+    crashed the runner with UnicodeEncodeError before reporting the failure.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
 
 
 def _decode_captured_output(value: str | bytes | None) -> str:
@@ -416,6 +433,7 @@ def run_test_files(
     emit: bool = True,
     collect_only: bool = False,
 ) -> list[TestResult]:
+    configure_runner_streams()
     if workers < 1:
         raise ValueError("workers en az 1 olmalı")
 
@@ -657,6 +675,7 @@ def _write_report(path: Path, results: list[TestResult], total_seconds: float) -
 
 
 def main() -> int:
+    configure_runner_streams()
     parser = argparse.ArgumentParser()
     parser.add_argument("--timeout", type=int, default=180, help="Her test dosyası için saniye sınırı")
     parser.add_argument("--workers", type=int, default=1, help="Eşzamanlı izole test dosyası sayısı")
