@@ -17,7 +17,7 @@ import {
 } from "./check-audit-policy.mjs";
 
 const LOCKFILE_SHA256 =
-  "9389a75dac67dacabfb28b4ce87ccc04fb39d691408075bd5390167b0a4066e1";
+  "840dbaf4b2f3cb90b2ec6f5bd69f372cc1a17590d41648d2e411a641927974b3";
 
 function networkFailureSpawn(code = "ENOTFOUND") {
   return () => ({
