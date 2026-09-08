@@ -86,31 +86,17 @@ KOSU = uuid4().hex[:8]
 UZAK = "2098-01-31"
 
 
-def _acilisa_cek() -> None:
-    """Admin şifresini AÇILIŞ DURUMUNA yaz (1B-A..1B-E ikizlerinden devralındı).
+def _acilisa_cek(engine=None) -> None:
+    """Admin şifresini AÇILIŞ DURUMUNA yaz (1B-A..1B-E ikizlerinden devralındı)."""
+    from tests.pg_ikiz_yardimci import acilisa_cek
 
-    PostgreSQL ikizleri CI'da AYNI veritabanını paylaşıyor ve her biri girişten
-    sonra admin şifresini KENDİ sabitine çeviriyor. Tek yönlü bir çare (yalnız
-    teardown) dosyayı iyi bir komşu yapar ama KENDİSİNİ korumaz, çünkü şifreyi
-    bozan ÖNCEKİ dosya olabilir.
-    """
-    from app.auth import hash_password
-    from app.db import SessionLocal
-
-    with SessionLocal() as db:
-        if db.execute(text("SELECT to_regclass('public.app_users')")).scalar() is None:
-            return
-        db.execute(
-            text(
-                "UPDATE app_users SET password_hash=:h, "
-                "must_change_password=true WHERE username='admin'"
-            ),
-            {"h": hash_password("admin123")},
-        )
-        db.commit()
+    acilisa_cek(engine)
 
 
 def _komsuyu_temizle(engine) -> None:
+    from tests.pg_ikiz_yardimci import parti_temizle
+
+    parti_temizle(engine, lot_code_prefixes=["HASAT-", "ALIS-"])
     with engine.begin() as baglanti:
         for deyim in (
             "DELETE FROM stock_movements WHERE company_id IN "
@@ -134,13 +120,38 @@ def motor():
     config = Config(str(BACKEND / "alembic.ini"))
     engine = create_engine(_URL)
     command.upgrade(config, "head")
+    with engine.connect() as baglanti:
+        mevcut_olaylar = set()
+        if baglanti.execute(text("SELECT to_regclass('public.field_integration_events')")).scalar():
+            mevcut_olaylar = set(
+                baglanti.execute(
+                    text("SELECT id FROM field_integration_events WHERE company_id = 1")
+                ).scalars().all()
+            )
     _komsuyu_temizle(engine)
-    _acilisa_cek()
+    _acilisa_cek(engine)
     try:
         yield engine
     finally:
+        with engine.begin() as baglanti:
+            if baglanti.execute(text("SELECT to_regclass('public.field_integration_events')")).scalar():
+                if mevcut_olaylar:
+                    baglanti.execute(
+                        text(
+                            "DELETE FROM field_integration_events WHERE company_id = 1 "
+                            "AND status = 'PENDING' AND NOT (id = ANY(:mevcut))"
+                        ),
+                        {"mevcut": list(mevcut_olaylar)},
+                    )
+                else:
+                    baglanti.execute(
+                        text(
+                            "DELETE FROM field_integration_events WHERE company_id = 1 "
+                            "AND status = 'PENDING'"
+                        )
+                    )
         _komsuyu_temizle(engine)
-        _acilisa_cek()
+        _acilisa_cek(engine)
         engine.dispose()
 
 
@@ -579,6 +590,14 @@ def test_TEKRAR_TESLIM_ETKI_KISITINA_carpiyor_ve_PARTI_ARTISI_GERI_ALINIYOR(
                 ),
                 {"c": s.cid, "p": urun},
             ).scalar_one()
+            db.execute(
+                text(
+                    "UPDATE field_integration_events SET status='SENT' "
+                    "WHERE id=:i"
+                ),
+                {"i": int(olay["id"])},
+            )
+            db.commit()
         assert hareket_sayisi == 1, hareket_sayisi
 
 

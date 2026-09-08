@@ -70,6 +70,9 @@ def _url() -> str:
 
 
 def _temizle(engine) -> None:
+    from tests.pg_ikiz_yardimci import parti_temizle
+
+    parti_temizle(engine, lot_codes=["PG-AYAR"])
     with engine.begin() as baglanti:
         for deyim in (
             "DELETE FROM stock_movements WHERE company_id IN "
@@ -87,29 +90,11 @@ def _temizle(engine) -> None:
             baglanti.execute(text(deyim), {"a": FIRMA_ADI, "b": KOMSU_ADI})
 
 
-def _acilisa_cek() -> None:
-    """Admin şifresini AÇILIŞ DURUMUNA (`admin123` + `must_change_password`) yaz.
+def _acilisa_cek(engine=None) -> None:
+    """Admin şifresini AÇILIŞ DURUMUNA (`admin123` + `must_change_password`) yaz."""
+    from tests.pg_ikiz_yardimci import acilisa_cek
 
-    1B-A ikizinden DEVRALINDI ve gerekçesi ölçülmüş bir tuzaktır: PostgreSQL
-    ikizleri CI'da AYNI veritabanını paylaşıyor ve her biri girişten sonra
-    admin şifresini KENDİ sabitine çekiyor. Tek yönlü bir çare (yalnız
-    teardown) dosyayı iyi bir komşu yapar ama KENDİSİNİ korumaz — şifreyi
-    bozan ÖNCEKİ dosya olabilir. Tablo `app_users`tır, `users` DEĞİL.
-    """
-    from app.auth import hash_password
-    from app.db import SessionLocal
-
-    with SessionLocal() as db:
-        if db.execute(text("SELECT to_regclass('public.app_users')")).scalar() is None:
-            return
-        db.execute(
-            text(
-                "UPDATE app_users SET password_hash=:h, "
-                "must_change_password=true WHERE username='admin'"
-            ),
-            {"h": hash_password("admin123")},
-        )
-        db.commit()
+    acilisa_cek(engine)
 
 
 @pytest.fixture()
@@ -119,12 +104,12 @@ def motor():
     engine = create_engine(_url())
     command.upgrade(config, "head")
     _temizle(engine)
-    _acilisa_cek()
+    _acilisa_cek(engine)
     try:
         yield engine
     finally:
         _temizle(engine)
-        _acilisa_cek()
+        _acilisa_cek(engine)
         engine.dispose()
 
 

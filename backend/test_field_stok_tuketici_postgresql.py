@@ -1270,12 +1270,18 @@ Z = '2026-08-01T00:00:00'
 with SessionLocal() as db:
     # Sentetik ad alanını ÖNCE boşalt: prob tekrar tekrar koşabilmeli.
     db.execute(_sql("DELETE FROM field_integration_events WHERE id >= 960000"))
+    if db.execute(_sql("SELECT to_regclass('public.producer_receipts')")).scalar():
+        db.execute(_sql("DELETE FROM producer_receipts WHERE ticket_id IN (SELECT id FROM field_harvest_tickets WHERE harvest_id >= 960000)"))
+    if db.execute(_sql("SELECT to_regclass('public.field_harvest_ticket_deductions')")).scalar():
+        db.execute(_sql("DELETE FROM field_harvest_ticket_deductions WHERE ticket_id IN (SELECT id FROM field_harvest_tickets WHERE harvest_id >= 960000)"))
+    if db.execute(_sql("SELECT to_regclass('public.field_harvest_tickets')")).scalar():
+        db.execute(_sql("DELETE FROM field_harvest_tickets WHERE harvest_id >= 960000"))
     db.execute(_sql("DELETE FROM field_harvests WHERE id >= 960000"))
     db.execute(_sql("DELETE FROM crop_seasons WHERE id >= 960000"))
     db.execute(_sql("DELETE FROM farm_parcels WHERE id >= 960000"))
     db.execute(_sql("DELETE FROM farms WHERE id >= 960000"))
     db.execute(_sql("DELETE FROM warehouse_stocks WHERE product_id >= 960000"))
-    db.execute(_sql("DELETE FROM products WHERE id >= 960000"))
+    db.execute(_sql("DELETE FROM products WHERE id IN (960301, 960302)"))
     db.execute(_sql(
         "INSERT INTO companies (id,name,is_active,created_at) "
         "VALUES (2,'Ikinci Firma',true,:z) ON CONFLICT (id) DO NOTHING"), {"z": Z})
@@ -1506,13 +1512,19 @@ from app.db import SessionLocal
 import app.main
 Z = '2026-08-01T00:00:00'
 with SessionLocal() as db:
-    db.execute(_sql("DELETE FROM stock_movements"))
-    db.execute(_sql("DELETE FROM field_integration_events"))
-    db.execute(_sql("DELETE FROM field_harvests WHERE id >= 960000"))
-    db.execute(_sql("DELETE FROM crop_seasons WHERE id >= 960000"))
-    db.execute(_sql("DELETE FROM farm_parcels WHERE id >= 960000"))
-    db.execute(_sql("DELETE FROM farms WHERE id >= 960000"))
-    db.execute(_sql("DELETE FROM warehouse_stocks WHERE product_id >= 960000"))
+    db.execute(_sql("DELETE FROM stock_movements WHERE reference_type = 'field_integration_event' OR product_id IN (960301, 961301)"))
+    db.execute(_sql("DELETE FROM field_integration_events WHERE id IN (960501, 960502, 961701, 961702)"))
+    if db.execute(_sql("SELECT to_regclass('public.producer_receipts')")).scalar():
+        db.execute(_sql("DELETE FROM producer_receipts WHERE ticket_id IN (961601, 961602)"))
+    if db.execute(_sql("SELECT to_regclass('public.field_harvest_ticket_deductions')")).scalar():
+        db.execute(_sql("DELETE FROM field_harvest_ticket_deductions WHERE ticket_id IN (961601, 961602)"))
+    if db.execute(_sql("SELECT to_regclass('public.field_harvest_tickets')")).scalar():
+        db.execute(_sql("DELETE FROM field_harvest_tickets WHERE id IN (961601, 961602) OR harvest_id IN (960401, 960402, 961401)"))
+    db.execute(_sql("DELETE FROM field_harvests WHERE id IN (960401, 960402, 961401)"))
+    db.execute(_sql("DELETE FROM crop_seasons WHERE id IN (960201, 960203, 961201)"))
+    db.execute(_sql("DELETE FROM farm_parcels WHERE id IN (960101, 961101)"))
+    db.execute(_sql("DELETE FROM farms WHERE id IN (960101, 961101)"))
+    db.execute(_sql("DELETE FROM warehouse_stocks WHERE product_id IN (960301, 961301)"))
     # 1B-F: HASAT ARTIK PARTİ AÇIYOR ve `product_lots` ürüne BİLEŞİK
     # YABANCI ANAHTARLA bağlı (göç 0067/0073). Bu satır olmadan İKİNCİ
     # kurulum — aynı dosyanın ikinci hasat testi — ürünü SİLEMEZ ve
@@ -1520,8 +1532,8 @@ with SessionLocal() as db:
     # kulvarda ısırıyor, çünkü SQLite yabancı anahtarları varsayılan
     # olarak UYGULAMAZ. Sıra ZORUNLU: `stock_movements` yukarıda zaten
     # silindi — parti satırına bakan hareket kalsaydı bu silme de düşerdi.
-    db.execute(_sql("DELETE FROM product_lots WHERE product_id >= 960000"))
-    db.execute(_sql("DELETE FROM products WHERE id >= 960000"))
+    db.execute(_sql("DELETE FROM product_lots WHERE product_id IN (960301, 961301) OR lot_code LIKE 'HASAT-96040%'"))
+    db.execute(_sql("DELETE FROM products WHERE id IN (960301, 961301)"))
     depo = db.execute(_sql(
         "SELECT id FROM warehouses WHERE company_id = 1 AND is_active "
         "ORDER BY is_default DESC, id")).scalars().first()
@@ -1594,8 +1606,24 @@ with SessionLocal() as db:
         print("OLAY %s durum=%s gerekce=%s" % (etiket, durum, gerekce))
 '''
 
+_HASAT_TEARDOWN = r'''
+import os, sys
+sys.path.insert(0, os.environ["BACKEND"])
+from tests.pg_ikiz_yardimci import parti_temizle
+parti_temizle(lot_code_prefixes=["HASAT-96040"])
+print("HASAT-TEARDOWN-TAMAM")
+'''
 
-def test_hasat_URUNLU_sezonda_PG_de_HAREKET_uretiyor() -> None:
+
+@pytest.fixture()
+def hasat_parti_teardown():
+    try:
+        yield
+    finally:
+        assert "HASAT-TEARDOWN-TAMAM" in _kos(_HASAT_TEARDOWN)
+
+
+def test_hasat_URUNLU_sezonda_PG_de_HAREKET_uretiyor(hasat_parti_teardown) -> None:
     """Ürünü bildirilmiş sezonun hasadı stok ÜRETİR; miktar PG'de NUMERIC.
 
     Yön `_KAYNAK`tan gelir ve hasat için +1'dir: hareket ARTI olmalı. İşaretin
@@ -1623,7 +1651,7 @@ def test_hasat_URUNLU_sezonda_PG_de_HAREKET_uretiyor() -> None:
         f"Ürünlü hasat olayı `SENT` olarak terminalleşmedi. çıktı={cikti!r}")
 
 
-def test_hasat_URUNSUZ_sezonda_PG_de_SKIPPED_NO_PRODUCT_kovasina_dusuyor() -> None:
+def test_hasat_URUNSUZ_sezonda_PG_de_SKIPPED_NO_PRODUCT_kovasina_dusuyor(hasat_parti_teardown) -> None:
     """Kova KALDIRILMADI, KAÇINILABİLİR yapıldı — ve ADI KONMUŞ kalmalı.
 
     Ürünü bildirilmemiş sezonun hasadı ürün UYDURULARAK yazılamaz. Gerekçe
@@ -1907,8 +1935,10 @@ with SessionLocal() as db:
     db.execute(_sql("UPDATE app_users SET password_hash=:h, "
                     "must_change_password=false WHERE username='admin'"),
                {"h": hash_password(os.environ["ADMIN_PW"])})
+    db.execute(_sql("SET session_replication_role = 'replica'"))
     db.execute(_sql("DELETE FROM activity_logs WHERE company_id=1 "
                     "AND action_type='field_event.requeued'"))
+    db.execute(_sql("SET session_replication_role = 'origin'"))
     db.execute(_sql("DELETE FROM field_integration_events WHERE id=:i"),
                {"i": OLAY})
     # Kaynagi GORUNMEYEN bir olay: yeniden islenirse terminal kovasi
@@ -2338,6 +2368,7 @@ with SessionLocal() as db:
             db.execute(_sql(
                 "DELETE FROM field_integration_events WHERE id = :id"),
                 {"id": oid})
+        db.execute(_sql("DELETE FROM field_integration_events WHERE id = 1"))
         db.commit()
 '''
 

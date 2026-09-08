@@ -341,6 +341,7 @@ def test_A_dan_F_ye_MUTLU_YOLLAR_SAPMA_URETMIYOR(tmp_path: Path) -> None:
 
 _DAVRANIS = r'''
 from decimal import Decimal
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -350,6 +351,8 @@ from app.field_stok_tuketici import olaylari_isle
 from app.main import app
 
 client = TestClient(app)
+
+KOSU = uuid4().hex[:8]
 
 # TARİHLER UZAK UÇLARDA (1B-B'nin gerekçesi): `bugun` bağımlılığı kapatılıyor.
 YAKIN = '2098-01-31'
@@ -380,13 +383,13 @@ ok(client.put('/api/company-settings', headers=baslik,
 
 depo_a = ok(client.get('/api/warehouses', headers=baslik))[0]['id']
 depo_b = ok(client.post('/api/warehouses', headers=baslik,
-                        json={'name': 'Mutabakat B Deposu', 'code': 'MBD'}))['id']
+                        json={'name': f'Mutabakat B Deposu {KOSU}', 'code': f'MBD-{KOSU}'}))['id']
 tedarikci = ok(client.post('/api/suppliers', headers=baslik,
-                           json={'name': 'Mutabakat Tedarikçisi'}))['id']
+                           json={'name': f'Mutabakat Tedarikçisi {KOSU}'}))['id']
 musteri = ok(client.post('/api/customers', headers=baslik,
-                         json={'name': 'Mutabakat Müşterisi'}))['id']
+                         json={'name': f'Mutabakat Müşterisi {KOSU}'}))['id']
 ciftlik = ok(client.post('/api/farms', headers=baslik,
-                         json={'code': 'mtb', 'name': 'Mutabakat Çiftliği'}))['id']
+                         json={'code': f'mtb-{KOSU}', 'name': f'Mutabakat Çiftliği {KOSU}'}))['id']
 
 
 def urun_ac(ad, taban=None):
@@ -456,7 +459,7 @@ def iade(kalemler, kaynak=None):
 
 def sezon_ac(kod, urun_id):
     parsel = ok(client.post('/api/farm-parcels', headers=baslik,
-                            json={'farm_id': ciftlik, 'code': kod, 'name': kod,
+                            json={'farm_id': ciftlik, 'code': f'{kod}-{KOSU}'[:20], 'name': f'{kod} {KOSU}',
                                   'area_decare': '100.0000'}))['id']
     return ok(client.post('/api/crop-seasons', headers=baslik,
                           json={'parcel_id': parsel, 'season_year': 2026,
@@ -485,12 +488,34 @@ def rapor(headers=None, **sorgu):
 
 def kovalar(headers=None):
     """`(product_id, warehouse_id) -> kova`. RAPORUN KENDİ CEVABINDAN."""
-    return {(s['product_id'], s['warehouse_id']): s['kova']
-            for s in rapor(headers, limit=1000)['items']}
+    ciftler = {}
+    offset = 0
+    while True:
+        cev = rapor(headers, limit=1000, offset=offset)
+        for s in cev['items']:
+            ciftler[(s['product_id'], s['warehouse_id'])] = s['kova']
+        if not cev.get('has_more'):
+            break
+        offset += len(cev['items'])
+    return ciftler
 
 
 def sapmalar(headers=None):
     return {cift for cift, kova in kovalar(headers).items() if kova == 'SAPMA'}
+
+
+def satir_getir(pid, wid, headers=None):
+    """`(product_id, warehouse_id)` ciftinin rapor satirini doner; sayfalari gezer."""
+    offset = 0
+    while True:
+        cev = rapor(headers, limit=1000, offset=offset)
+        for s in cev['items']:
+            if (s['product_id'], s['warehouse_id']) == (pid, wid):
+                return s
+        if not cev.get('has_more'):
+            break
+        offset += len(cev['items'])
+    raise KeyError((pid, wid))
 
 
 # =========================================================================
@@ -659,8 +684,7 @@ assert bozuk['counts']['SAPMA'] == 1, bozuk['counts']
 assert sapmalar() == {bozuk_cift}, (sapmalar(), bozuk_cift)
 # SATIR KENDİ KANITINI TAŞIYOR: fark İŞARETLİDİR ve YÖNÜ anlamlıdır.
 # `fark < 0` = parti stoktan FAZLA = defter ELDE OLMAYAN malı VAR gösteriyor.
-bozuk_satir = [s for s in bozuk['items']
-               if (s['product_id'], s['warehouse_id']) == bozuk_cift][0]
+bozuk_satir = satir_getir(bozuk_cift[0], bozuk_cift[1])
 assert Decimal(str(bozuk_satir['fark'])) == Decimal('-1'), bozuk_satir
 assert Decimal(str(bozuk_satir['parti_toplami'])) - \
        Decimal(str(bozuk_satir['stok'])) == Decimal('1'), bozuk_satir

@@ -75,3 +75,14 @@ def _require_postgresql_engine() -> None:
             "etmelidir.",
             pytrace=False,
         )
+
+@pytest.fixture()
+def acilis_sifresi():
+    """PostgreSQL ikizleri için açılış şifresi fixture'ı (kurulum + teardown)."""
+    from tests.pg_ikiz_yardimci import acilisa_cek
+
+    acilisa_cek()
+    try:
+        yield
+    finally:
+        acilisa_cek()
