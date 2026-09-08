@@ -122,30 +122,66 @@ def load_credentials() -> dict[str, str]:
         base / ".env.izibiz.local",
         base / ".env.izibiz.local.txt",
     ]
+    env_override = os.environ.get("IZIBIZ_ENV_FILE", "").strip()
+    if env_override:
+        # Kimlik dosyası BAŞKA BİR YERDE olabilir (ör. başka bir worktree).
+        # Kopyalamak yerine gösterilir: sır tek bir yerde kalır.
+        candidates.insert(0, Path(env_override))
     path = next((p for p in candidates if p.exists()), None)
-    if path is None:
-        raise SmokeError(
-            "Kimlik dosyası bulunamadı: " + " veya ".join(str(p) for p in candidates)
-        )
 
     values: dict[str, str] = {}
-    for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        for chunk in line.split(","):
-            if "=" not in chunk:
+    if path is not None:
+        for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
                 continue
-            key, _, value = chunk.partition("=")
-            values[key.strip().upper()] = value.strip().strip('"').strip("'")
+            for chunk in line.split(","):
+                if "=" not in chunk:
+                    continue
+                key, _, value = chunk.partition("=")
+                values[key.strip().upper()] = value.strip().strip('"').strip("'")
+
+    # ORTAM DEĞİŞKENİ DOSYAYI EZER — ve bu denetim EKSİK ANAHTAR DENETİMİNDEN
+    # ÖNCE koşar. SIRA BİR HATA DÜZELTMESİDİR, üslup tercihi değil: eskiden
+    # eksiklik ÖNCE ölçülüyordu, yani dosya yoksa (ya da beklenen `K=V`
+    # biçiminde değilse) `IZIBIZ_USER=... python izibiz_smoke.py` bile
+    # ÇALIŞMIYORDU — ezme satırına HİÇ ULAŞILMIYORDU. Kendi yorumu
+    # "CI/geçici deneme için" diyordu ama tam da o iki durumda işlemiyordu.
+    for key in ("IZIBIZ_USER", "IZIBIZ_PASS", "IZIBIZ_VKN"):
+        ortam = os.environ.get(key)
+        if ortam:
+            values[key] = ortam
+
+    # YER TUTUCU KAPISI — ÖLÇÜLMÜŞ BİR TUZAĞIN KAYDI. `<...>` ile sarılmış bir
+    # değer bir SIR DEĞİL, doldurulmamış bir şablondur. Bu kapı olmadan
+    # `<izibiz-test2>` olduğu gibi gönderiliyordu ve İzibiz'in cevabı
+    # `ERROR_CODE=10004 "Kullanıcı adı veya şifre hatalı"` oluyordu — yani
+    # tanı "kimlik YANLIŞ" diyordu, oysa kimlik DOĞRUYDU ve yalnız SARMALAYICI
+    # fazlaydı. Sessizce soymak da yanlış olurdu: gerçek bir parola `<` ile
+    # başlayabilir ve o parolayı sessizce bozmak daha kötü bir hatadır.
+    sarmalanmis = [
+        k
+        for k in ("IZIBIZ_USER", "IZIBIZ_PASS", "IZIBIZ_VKN")
+        if values.get(k, "").startswith("<") and values[k].endswith(">")
+    ]
+    if sarmalanmis:
+        raise SmokeError(
+            "Şu anahtar(lar) `<...>` ile sarılmış, yani doldurulmamış yer "
+            f"tutucu: {', '.join(sarmalanmis)}. Köşeli parantezleri KALDIRIN "
+            "(`IZIBIZ_USER=deger`, tırnaksız ve parantezsiz). Sarmalayıcı "
+            "gönderilirse sağlayıcı ERROR_CODE=10004 (\"Kullanıcı adı veya "
+            "şifre hatalı\") döner ve hata kimliğin kendisindeymiş gibi görünür."
+        )
 
     missing = [k for k in ("IZIBIZ_USER", "IZIBIZ_PASS", "IZIBIZ_VKN") if not values.get(k)]
     if missing:
-        raise SmokeError(f"{path.name} içinde eksik anahtar(lar): {', '.join(missing)}")
-
-    # Ortam değişkeni dosyayı ezer (CI/geçici deneme için).
-    for key in ("IZIBIZ_USER", "IZIBIZ_PASS", "IZIBIZ_VKN"):
-        values[key] = os.environ.get(key) or values[key]
+        nerede = path.name if path is not None else "ortam değişkenleri"
+        raise SmokeError(
+            f"{nerede} içinde eksik anahtar(lar): {', '.join(missing)}. "
+            "Biçim: satır başına `ANAHTAR=değer` (şablon: "
+            "`backend/.env.izibiz.local.example`). `Etiket: değer` biçimi "
+            "OKUNMAZ. Dosya başka bir yerdeyse `IZIBIZ_ENV_FILE` ile yolu verin."
+        )
 
     _SECRETS.extend([values["IZIBIZ_USER"], values["IZIBIZ_PASS"]])
     _CAPTURE_MASK.append(values["IZIBIZ_VKN"])

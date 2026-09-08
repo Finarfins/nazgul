@@ -137,6 +137,11 @@ class EInvoiceResult:
     uuid: str | None = None
     external_id: str | None = None
     error: str | None = None
+    #: e-Arşiv doğrulama anahtarı. YALNIZ gönderim yanıtında döner ve bir daha
+    #: sorulamaz; saklanmazsa e-Arşiv PDF'i KALICI olarak erişilemez olur.
+    web_key: str | None = None
+    #: Sağlayıcının/GİB'in HAM durum kodu — iç `status`un YERİNE değil YANINA.
+    gib_status_code: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -163,7 +168,9 @@ class EInvoiceProvider(ABC):
         ...
 
     @abstractmethod
-    def fetch_pdf(self, external_id: str, *, channel: str | None = None) -> bytes:
+    def fetch_pdf(
+        self, external_id: str, *, channel: str | None = None, web_key: str | None = None
+    ) -> bytes:
         ...
 
     @abstractmethod
@@ -214,7 +221,9 @@ class NoOpEInvoiceProvider(EInvoiceProvider):
     ) -> EInvoiceResult:
         return EInvoiceResult(status=NONE)
 
-    def fetch_pdf(self, external_id: str, *, channel: str | None = None) -> bytes:
+    def fetch_pdf(
+        self, external_id: str, *, channel: str | None = None, web_key: str | None = None
+    ) -> bytes:
         raise EInvoiceError(UNKNOWN, _NOT_CONFIGURED)
 
     def check_taxpayer(self, vkn: str) -> dict[str, bool]:
@@ -732,8 +741,25 @@ class _HttpEInvoiceProvider(EInvoiceProvider):
             channel=channel,
             uuid=client_ettn,
             external_id=external_id,
+            # e-Arşiv WEB_KEY'i BURADA yakalanır ya da HİÇ yakalanmaz: yanıt
+            # bir daha gelmez. Yokluğu gönderimi başarısız YAPMAZ (e-Fatura
+            # yolunda bu alan zaten yoktur), yalnız PDF yolunu kapalı bırakır.
+            web_key=self._submit_web_key(response),
+            gib_status_code=self._provider_status_code(response),
             raw=raw,
         )
+
+    def _submit_web_key(self, response: Any) -> str | None:
+        """e-Arşiv doğrulama anahtarı; bu sağlayıcıda yoksa ``None``.
+
+        Taban uygulama ``None`` döner — bir sağlayıcı bu kavramı taşımıyorsa
+        uydurulmaz.
+        """
+        return None
+
+    def _provider_status_code(self, response: Any) -> str | None:
+        """Sağlayıcının HAM durum kodu; yoksa ``None``."""
+        return None
 
     def query_status(
         self, external_id: str, *, channel: str | None = None, uuid: str | None = None
@@ -804,10 +830,20 @@ class _HttpEInvoiceProvider(EInvoiceProvider):
             status=reported,
             external_id=ettn,
             error=self._rejection_reason(response) if reported == REJECTED else None,
+            # HAM kod, eşlenmiş iç durumun YANINDA. `reported` ikisini de tek
+            # değere indirir; operatörün "GİB tam olarak ne dedi" sorusunun
+            # cevabı yalnız burada kalır.
+            gib_status_code=self._provider_status_code(response),
+            # e-Arşiv durum yanıtı WEB_KEY'i TEKRAR veriyor (fixture
+            # `GetEArchiveInvoiceStatus.200.xml`). Gönderim anındaki yakalama
+            # kaçmışsa bu ikinci şans PDF yolunu kurtarır.
+            web_key=self._submit_web_key(response),
             raw=raw,
         )
 
-    def fetch_pdf(self, external_id: str, *, channel: str | None = None) -> bytes:
+    def fetch_pdf(
+        self, external_id: str, *, channel: str | None = None, web_key: str | None = None
+    ) -> bytes:
         """Return the provider PDF, or raise — empty ``bytes`` would read as success."""
         ettn = str(external_id or "").strip()
         if not ettn:
@@ -816,7 +852,7 @@ class _HttpEInvoiceProvider(EInvoiceProvider):
             raise EInvoiceError(UNKNOWN, self._unconfigured_message())
         try:
             response = self._call_with_session(
-                "fetch_pdf", retryable=True, ettn=ettn, channel=channel
+                "fetch_pdf", retryable=True, ettn=ettn, channel=channel, web_key=web_key
             )
         except TransportError as exc:
             raise self._raise("fetch_pdf", NETWORK) from exc
@@ -930,7 +966,24 @@ class IzibizEInvoiceProvider(_HttpEInvoiceProvider):
         "reason": wire.IZIBIZ_FIELD_REASON,
         "error_code": wire.IZIBIZ_FIELD_ERROR_CODE,
         "pdf": wire.IZIBIZ_FIELD_PDF,
+        "web_key": wire.IZIBIZ_FIELD_WEB_KEY,
+        "gib_status_code": wire.IZIBIZ_FIELD_GIB_STATUS_CODE,
     }
+
+    # --- gönderim yanıtından yakalanan ek alanlar --------------------------
+    def _submit_web_key(self, response: Any) -> str | None:
+        """``WriteToArchiveExtended`` yanıtındaki ``WEB_KEY``.
+
+        `GetEArchiveInvoice` belgeyi UUID ile DEĞİL bu anahtarla ister ve
+        anahtar yalnız bu yanıtta bir kez döner. Buradan alınmazsa e-Arşiv
+        PDF'i bir daha ELDE EDİLEMEZ.
+        """
+        return (self._extract(response, self._field("web_key")) or "").strip() or None
+
+    def _provider_status_code(self, response: Any) -> str | None:
+        return (
+            self._extract(response, self._field("gib_status_code")) or ""
+        ).strip() or None
 
     # --- adresleme ---------------------------------------------------------
     def _endpoint(self) -> str:
@@ -1116,10 +1169,35 @@ class IzibizEInvoiceProvider(_HttpEInvoiceProvider):
         if operation == "fetch_pdf":
             if earsiv:
                 # ``GetEArchiveInvoice`` UUID değil WEB_VALIDATION_KEY ister.
-                # Bu anahtar gönderim yanıtında (``WEB_KEY``) geliyor ama
-                # bugün saklanmıyor → açık boşluk, sessizce yanlış çağrı yerine
-                # gürültülü hata.
-                raise self._raise("fetch_pdf", UNKNOWN, provider_code="EARSIV_WEB_KEY_YOK")
+                # Anahtar ARTIK SAKLANIYOR (göç `20260911_0081`,
+                # `invoices.einvoice_web_key`) ve çağıran onu buraya veriyor.
+                # Boşsa yol yine KAPALI: anahtarsız bir istek boş bir yanıt
+                # üretir ve bu "belge yok" gibi okunur — sessiz yanlış yerine
+                # gürültülü hata, e-Arşiv durum sorgusunun ETTN kuralıyla aynı
+                # gerekçe.
+                web_key = _earchive_validation_key(kwargs.get("web_key"))
+                if not web_key:
+                    raise self._raise(
+                        "fetch_pdf", UNKNOWN, provider_code="EARSIV_WEB_KEY_YOK"
+                    )
+                return self._post(
+                    wire.IZIBIZ_OP_PDF_EARCHIVE,
+                    _soap_envelope(
+                        wire.IZIBIZ_OP_PDF_EARCHIVE,
+                        _request_header(session)
+                        # ŞEMA (canlı WSDL'den okundu, tahmin DEĞİL):
+                        #   GetEArchiveInvoiceRequest = REQUEST_HEADER
+                        #                             + WEB_VALIDATION_KEY
+                        # BAŞKA ALAN YOK. Önce buraya bir `DOCUMENT_TYPE`
+                        # eklenmişti ve sandbox reddetti:
+                        #   ERROR_CODE=10013 "Gönderilen istek geçersizdir.
+                        #   INVALID XML! cvc-complex-type.2.4b"
+                        # PDF'i `DOCUMENT_TYPE` seçmiyor; yanıt zaten
+                        # `INVOICE` alanında base64 belgeyi veriyor.
+                        + f"<WEB_VALIDATION_KEY>{xml_escape(web_key)}</WEB_VALIDATION_KEY>",
+                    ),
+                    max_bytes=wire.MAX_BINARY_RESPONSE_BYTES,
+                )
             search = (
                 f"<UUID>{xml_escape(str(kwargs['ettn']))}</UUID>"
                 if _looks_like_uuid(kwargs["ettn"])
@@ -1348,6 +1426,34 @@ def _soap_envelope(operation: str, inner: str) -> bytes:
 
 def _local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
+
+
+def _earchive_validation_key(web_key: Any) -> str:
+    """`WEB_KEY`ten `GetEArchiveInvoice`in istediği anahtarı çıkar.
+
+    ÖLÇÜLDÜ (fixture `WriteToArchiveExtended.200.xml`): `WEB_KEY` çıplak bir
+    anahtar DEĞİL, bir PORTAL URL'İDİR ve gerçek anahtar onun
+    `webValidationKey` sorgu parametresindedir. URL'in tamamını
+    `WEB_VALIDATION_KEY` alanına yazmak sağlayıcıya anlamsız bir değer
+    göndermek olurdu.
+
+    URL değilse (ya da parametre yoksa) değer OLDUĞU GİBİ döner: sağlayıcı
+    biçimi ileride sadeleşirse bu fonksiyon yolun önünde durmaz.
+    """
+    text = str(web_key or "").strip()
+    if not text:
+        return ""
+    marker = "webvalidationkey="
+    lowered = text.lower()
+    index = lowered.find(marker)
+    if index < 0:
+        return text
+    rest = text[index + len(marker) :]
+    for separator in ("&", "#"):
+        cut = rest.find(separator)
+        if cut >= 0:
+            rest = rest[:cut]
+    return rest.strip() or text
 
 
 def _looks_like_uuid(value: Any) -> bool:

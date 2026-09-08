@@ -29,10 +29,13 @@ from __future__ import annotations
 
 import base64
 import zipfile
+from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from typing import Any
 from xml.sax.saxutils import escape as xml_escape
 from xml.sax.saxutils import quoteattr
+
+from .errors import UblBuildError
 
 
 #: UBL-TR fatura numarası: 3 harf + 4 haneli yıl + 9 hane = 16 karakter.
@@ -91,8 +94,24 @@ DEFAULT_XSLT = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-class UblBuildError(ValueError):
-    """UBL üretilemedi — eksik/uyumsuz alan. Yarım belge üretmektense hata."""
+#: Tanım `errors.py`de (döngüsel içe aktarma engeli — gerekçesi orada).
+#: Bu ad geriye dönük uyumluluk için burada DA görünür kalıyor.
+UblBuildError = UblBuildError
+
+
+def _is_zero(rate: Any) -> bool:
+    """Oran sıfır mı — METİN olarak değil SAYI olarak.
+
+    "0", "0.00", "0.0000" ve "" hepsi sıfırdır; metin karşılaştırması bunların
+    yalnız birini yakalar ve %0'lık bir satır gerekçesiz geçerdi.
+    """
+    text = str(rate if rate is not None else "").strip()
+    if not text:
+        return True
+    try:
+        return Decimal(text) == 0
+    except (InvalidOperation, ValueError):
+        return False
 
 
 def _text(value: Any) -> str:
@@ -192,18 +211,62 @@ def build_invoice_xml(
         raise UblBuildError("UBL için en az bir fatura satırı zorunlu")
     totals = payload.get("monetary_total") or {}
     subtotals = payload.get("tax_subtotals") or []
+    # Satır kovaları belge kovalarıyla AYNI istisna gerekçesini taşımalı.
+    # `ubl.py` gerekçeyi yalnız BELGE kovasına yazıyor; burada orandan
+    # indekslenip satıra da veriliyor. Ayrı bir varsayılan UYDURULMUYOR.
+    exemptions: dict[str, tuple[Any, Any]] = {
+        str(entry.get("tax_rate")): (
+            entry.get("tax_exemption_reason_code"),
+            entry.get("tax_exemption_reason"),
+        )
+        for entry in subtotals
+    }
     supplier_vkn = "".join(ch for ch in str(supplier.get("vkn") or "") if ch.isdigit())
 
-    def tax_subtotal(taxable: Any, tax: Any, rate: Any) -> str:
+    def tax_subtotal(
+        taxable: Any,
+        tax: Any,
+        rate: Any,
+        *,
+        exemption_code: Any = None,
+        exemption_reason: Any = None,
+    ) -> str:
+        """Tek KDV kovası. **%0 ise istisna gerekçesi ZORUNLU.**
+
+        UBL-TR `Percent` 0 iken `TaxExemptionReasonCode` ister; kodsuz bir %0
+        satırı şema seviyesinde eksiktir. Kod `ubl.py`den gelir (orada
+        `DEFAULT_TAX_EXEMPTION_REASON_CODE`), burada UYDURULMAZ: gelmediyse
+        belge üretilmez, çünkü sessizce kodsuz göndermek reddedilecek bir
+        belgeyi "gönderildi" saymanın ta kendisidir.
+
+        `TaxCategory` içinde SIRA şemaya bağlıdır: `TaxExemptionReasonCode`
+        ve `TaxExemptionReason`, `TaxScheme`den ÖNCE gelir.
+        """
+        zero_rated = _is_zero(rate)
+        if zero_rated and not str(exemption_code or "").strip():
+            raise UblBuildError(
+                "%0 KDV satırı TaxExemptionReasonCode olmadan gönderilemez"
+            )
+        category = ["<cac:TaxCategory>"]
+        if zero_rated:
+            category.append(
+                f"<cbc:TaxExemptionReasonCode>{_text(exemption_code)}"
+                "</cbc:TaxExemptionReasonCode>"
+                f"<cbc:TaxExemptionReason>{_text(exemption_reason or '')}"
+                "</cbc:TaxExemptionReason>"
+            )
+        category.append(
+            "<cac:TaxScheme>"
+            "<cbc:Name>KDV</cbc:Name><cbc:TaxTypeCode>0015</cbc:TaxTypeCode>"
+            "</cac:TaxScheme></cac:TaxCategory>"
+        )
         return (
             "<cac:TaxSubtotal>"
             f"<cbc:TaxableAmount {_amount(currency, taxable)}</cbc:TaxableAmount>"
             f"<cbc:TaxAmount {_amount(currency, tax)}</cbc:TaxAmount>"
             f"<cbc:Percent>{_text(rate)}</cbc:Percent>"
-            "<cac:TaxCategory><cac:TaxScheme>"
-            "<cbc:Name>KDV</cbc:Name><cbc:TaxTypeCode>0015</cbc:TaxTypeCode>"
-            "</cac:TaxScheme></cac:TaxCategory>"
-            "</cac:TaxSubtotal>"
+            + "".join(category)
+            + "</cac:TaxSubtotal>"
         )
 
     xslt_b64 = base64.b64encode((xslt or DEFAULT_XSLT).encode("utf-8")).decode("ascii")
@@ -268,6 +331,9 @@ def build_invoice_xml(
             number=customer.get("vkn_tckn"),
             name=customer.get("name"),
             address=customer.get("address"),
+            # ALICI VERGİ DAİRESİ artık taşınıyor (önce hiç geçilmiyordu ve
+            # tüzel kişi alıcıda TaxScheme/Name her zaman "-" oluyordu).
+            tax_office=customer.get("tax_office"),
         ),
         "</cac:AccountingCustomerParty>",
         "<cac:TaxTotal>",
@@ -276,7 +342,11 @@ def build_invoice_xml(
     for subtotal in subtotals:
         body.append(
             tax_subtotal(
-                subtotal.get("taxable_amount"), subtotal.get("tax_amount"), subtotal.get("tax_rate")
+                subtotal.get("taxable_amount"),
+                subtotal.get("tax_amount"),
+                subtotal.get("tax_rate"),
+                exemption_code=subtotal.get("tax_exemption_reason_code"),
+                exemption_reason=subtotal.get("tax_exemption_reason"),
             )
         )
     body.extend(
@@ -304,7 +374,13 @@ def build_invoice_xml(
             "<cac:TaxTotal>"
             f"<cbc:TaxAmount {_amount(currency, line.get('tax_amount'))}</cbc:TaxAmount>"
             + tax_subtotal(
-                line.get("line_extension_amount"), line.get("tax_amount"), line.get("tax_rate")
+                line.get("line_extension_amount"),
+                line.get("tax_amount"),
+                line.get("tax_rate"),
+                # Satır kovası da belge kovasıyla AYNI gerekçeyi taşır; %0'lı
+                # bir satırı gerekçesiz bırakmak belgeyi yine eksik yapardı.
+                exemption_code=exemptions.get(str(line.get("tax_rate")), (None, None))[0],
+                exemption_reason=exemptions.get(str(line.get("tax_rate")), (None, None))[1],
             )
             + "</cac:TaxTotal>"
             f"<cac:Item><cbc:Name>{_text(line.get('name'))}</cbc:Name></cac:Item>"
