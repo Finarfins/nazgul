@@ -106,6 +106,7 @@ test_transaction_branch_tenant_scoping_postgresql.py
 test_transactions_postgresql.py
 test_uretici_kayit_defteri_postgresql.py
 test_wa1_ingress_postgresql.py
+test_wa2_eslestirme_postgresql.py
 test_work_order_billing_postgresql.py
 test_work_order_immediate_availability_postgresql.py
 test_work_order_parts_postgresql.py

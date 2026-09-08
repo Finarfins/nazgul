@@ -224,6 +224,40 @@ ROUTE_REASON_GROUPS = (
         },
     ),
     (
+        # WHATSAPP ESLESTIRME YONETIMI (WA2, goc 20260910_0079). AYRI BIR
+        # GEREKCE GRUBU ve bu ZORUNLU — UC gruba da giremezler:
+        #
+        # * Hemen USTTEKI "Public Meta webhook" grubuna GIREMEZLER: o metin
+        #   "no session and no tenant context" diyor ve yazdigi satirlarin
+        #   PLATFORM satiri oldugunu vaat ediyor. Bu dort ucun HEPSI oturum
+        #   ISTER, `company_id` yuklemiyle daralir ve yazdiklari satirlar
+        #   KIRACI satiridir. Ayni dosyada olmalari o vaadi degistirmez.
+        # * Genel "kiraci kapsamli okuma/yazma" grubuna GIREMEZLER: bu dort
+        #   uc cagiranin KENDI kaydi uzerinde degil, BASKA bir kullanicinin
+        #   erisim araci uzerinde is goruyor ve urettikleri sey bir SIRDIR
+        #   (tek kullanimlik kod). O daralmayi genel metne sigdirmak, orada
+        #   duran ~90 ucun vaadini SESSIZCE buyutmek olurdu.
+        # * `SELF_SERVICE_API`ya GIREMEZLER: o kume yetki kapisindan TAMAMEN
+        #   muaftir ve uyeligi TAM ESLESMEDIR; `{kod_id}`/`{baglanti_id}`
+        #   tasiyan bir yol oraya giremez.
+        #
+        # EN AGIR IDDIA POST'UNKI: DUZ KOD YALNIZ O CEVAPTA, BIR KEZ doner ve
+        # veritabanina yalniz SHA-256 ozeti yazilir. Sonraki hicbir okuma
+        # kodu ya da ozetini VERMEZ; `GET /links` telefonu bile MASKELI
+        # dondurur.
+        "Tenant-scoped WhatsApp pairing administration; the handler filters "
+        "by request.state.company_id and re-verifies the target user's "
+        "membership in that company. The plaintext pairing code is returned "
+        "once by the POST and never stored or read back; phone numbers are "
+        "masked in every response.",
+        {
+            ("POST", "/api/whatsapp/pairing-codes"),
+            ("DELETE", "/api/whatsapp/pairing-codes/{kod_id}"),
+            ("GET", "/api/whatsapp/links"),
+            ("DELETE", "/api/whatsapp/links/{baglanti_id}"),
+        },
+    ),
+    (
         # PUSH CİHAZ DEFTERİ (5.4c, göç 20260909_0077). AYRI BİR GEREKÇE
         # GRUBU ve bu ZORUNLU: üstteki "kiracı kapsamlı okuma" gerekçesi
         # yalnız `company_id` süzgecini vaat eder; bu üç uç ONDAN DAHA
@@ -470,8 +504,28 @@ DYNAMIC_PERMISSION_CASES = {
 # ikisi de PUBLIC ama kimliksiz DEGIL — dogrulama oturumla degil HMAC ve
 # sabit zamanli token karsilastirmasiyla yapiliyor. Baska hicbir ucun
 # sozlesmesi degismedi.
-EXPECTED_OPERATION_COUNT = 385
-EXPECTED_PATH_COUNT = 295
+# 385/295 -> 389/299: WA2 — ESLESTIRME YONETIMI (goc 20260910_0079). DORT
+# islem, DORT yol: POST /api/whatsapp/pairing-codes,
+# DELETE /api/whatsapp/pairing-codes/{kod_id}, GET /api/whatsapp/links,
+# DELETE /api/whatsapp/links/{baglanti_id}.
+#
+# `auth.py`ye ONEK SATIRI EKLENDI (`/api/whatsapp/` -> "users") ve gerekcesi
+# OLCULDU, varsayilmadi: kural yazilmadan ONCE `required_permission`
+# cagrildi ve ayni uc ailesinin metoda gore IKI FARKLI kapidan gectigi
+# goruldu — GET "read"e (genel SAFE_METHODS kurali), POST/DELETE
+# `__admin_only__`e (dosyanin sonundaki deny-by-default nobetcisi) dusuyordu.
+# WA1'in IKI webhook ucunun sozlesmesi DEGISMEDI ve bu da OLCULDU: ikisi de
+# `PUBLIC_API`dedir, `required_permission` onlar icin HIC cagrilmaz.
+#
+# SIRA bu dosyanin notundaki kurala gore izlendi (parmak izini YANLIS izinle
+# dondurmak burada IKI KEZ yasandi): (1) uclar yazildi, (2) onek kurali
+# eklendi, (3) izin `required_permission` ile OLCULDU ("users", DORT METOTTA
+# DA), (4) `ROUTE_REASONS`a KENDI gerekce grubuyla girdiler, (5) sayim
+# 385/295 -> 389/299 olarak YENIDEN olculdu, (6) EN SON parmak izi turetildi.
+#
+# Baska hicbir ucun sozlesmesi degismedi.
+EXPECTED_OPERATION_COUNT = 389
+EXPECTED_PATH_COUNT = 299
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -631,7 +685,10 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # izi turetildi. Bu dalin onceki `16a0ec60 -> e2757afc` olcumu, taban
     # 1B-G (#79) ile degistigi anda GECERSIZ oldu.
     # Parmak izi c0b0754c -> c7357d03 (TABAN develop `3a388d5`).
-    "c7357d03ad6754bec98493926d30c10bd455fd8d3737bd1125e517e417ca4057"
+    # WA2 (goc 20260910_0079): DORT yeni sozlesme girdi, sira yukaridaki
+    # notta yazili ve parmak izi EN SON alindi.
+    # Parmak izi c7357d03 -> 61223c75 (TABAN develop `27916d7`).
+    "61223c75c7e5e2254db6d621b3d89f7abecdf6bc01c6d6213d34968156646feb"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

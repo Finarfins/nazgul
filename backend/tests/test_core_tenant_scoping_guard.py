@@ -1734,6 +1734,40 @@ CEKIRDEK_KIRACI_ISTISNALARI: dict[tuple[str, str, str], str] = {
         "verilir. Bkz. göç 20260812_0059 ve CHECK "
         "ck_security_audit_logs_untenanted_only_preauth."
     ),
+    (
+        "backend/app/whatsapp/eslestirme.py",
+        "kod_kullan",
+        "d45429e099aa6bd7cf2345a576bf8b4930d6efa2b61f0cb01abf4d5c98e91cc1",
+    ): (
+        "WhatsApp eşleştirme kodunun ÖZETLE aranması (WA2, göç "
+        "20260910_0079). Kiracı yüklemi TAŞIYAMAZ çünkü çağıranda HENÜZ "
+        "kiracı YOKTUR: bu sorgunun ürettiği şey `company_id`nin KENDİSİDİR. "
+        "Anahtar `code_digest` ve KÜRESEL UNIQUE'tir (uq_wpc_code_digest), "
+        "yani sorgu en fazla BİR satır döndürür ve o satırın firması da "
+        "kimliğin ta kendisidir. Kapsam kaçağı DEĞİL: 60 bitlik bir kodun "
+        "özetini bilmek zaten o firmanın yöneticisinin ürettiği sırrı "
+        "bilmektir; ayrıca telefon+pencere sayacı (whatsapp_pairing_attempts) "
+        "denemeyi 15 dakikada 5 ile sınırlar. Satır bulunduktan SONRA yazan "
+        "her deyim (`_denemeyi_artir`, CAS UPDATE) kiracı yüklemi TAŞIR."
+    ),
+    (
+        "backend/app/whatsapp/eslestirme.py",
+        "kimlik_coz",
+        "9cfdbd5059edb6d1c4e488edac9a897bb3be419ac8a77c6f40b5c490408abcde",
+    ): (
+        "WhatsApp numarasının HANGİ firmalara bağlı olduğunun taraması (WA2, "
+        "göç 20260910_0079). Kiracı yüklemi TAŞIYAMAZ ve bu istisnanın "
+        "gerekçesi yukarıdakiyle AYNI SINIFTA: sorulan soru zaten "
+        "`company_id`nin kendisidir — bir `company_id=:cid` yüklemi cevabı "
+        "soruyla birlikte vermek olurdu. Gelen mesajda güvenilir bir kiracı "
+        "seçicisi YOKTUR (Meta gövdesindeki `from` bir KİMLİK İDDİASI değil, "
+        "bir dizedir). Kapsam kaçağı DEĞİL: sorgu YALNIZ (company_id, "
+        "user_id) döndürür — hiçbir kiracı VERİSİ okumaz — ve her aday "
+        "`_hedef_dogrula` ile AYRI AYRI, KİRACI YÜKLEMLİ bir sorgudan "
+        "geçirilir (aktif kullanıcı + aktif firma + O FİRMADAKİ üyelik). "
+        "Birden çok aday kaldığında hiçbiri seçilmez: kullanıcıya `FİRMA "
+        "SEÇ` sorulur (app/whatsapp/baglam.py)."
+    ),
 }
 
 
@@ -1750,7 +1784,11 @@ def test_istisna_gercekten_kullaniliyor() -> None:
     kimlikler = {i.kimlik for i in core_ihlallerini_bul()}
     olu = sorted(k for k in CEKIRDEK_KIRACI_ISTISNALARI if k not in kimlikler)
     assert not olu, f"karşılığı olmayan (ölü) istisna kaydı: {olu}"
-    assert len(CEKIRDEK_KIRACI_ISTISNALARI) == 1, (
+    # 1 -> 3: WA2 (goc 20260910_0079). IKI yeni kayit ve IKISI DE AYNI
+    # SINIFTAN: sorgunun URETTIGI sey `company_id`nin KENDISIDIR, yani
+    # yuklem cevabi soruyla birlikte vermek olurdu. Gerekceleri kendi
+    # girdilerinde; ikisi de HICBIR kiraci VERISI okumuyor.
+    assert len(CEKIRDEK_KIRACI_ISTISNALARI) == 3, (
         "Bu kapıdaki istisna sayısı arttı. Her yeni kayıt AYRI bir güvenlik "
         "kararıdır ve kendi gerekçesiyle incelenmelidir: "
         f"{sorted(CEKIRDEK_KIRACI_ISTISNALARI)}"
@@ -1794,9 +1832,21 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # HER kullanıcı HER firmasını kaybederdi. `companies` üzerindeki okuma ve
 # UPDATE bu sayaca GİRMEZ: `companies` KİRACI TABLOSU DEĞİL (company_id
 # sütunu yok, ölçüldü), kiracı KÖKÜDÜR.
-BEKLENEN_CORE_IFADE_SAYISI = 122
+# 122 -> 139: WA2 ESLESTIRME DEFTERI (goc 20260910_0079). ON YEDI ifade,
+# uc yeni kiraci tablosu (`whatsapp_links`, `whatsapp_pairing_codes`,
+# `whatsapp_context`). ON BESI kendi kiraci yuklemini ACIKCA tasiyor; IKISI
+# `CEKIRDEK_KIRACI_ISTISNALARI`nda gerekcesiyle lisansli ve ikisi de
+# `company_id`nin KENDISINI ureten sorgulardir.
+BEKLENEN_CORE_IFADE_SAYISI = 139
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
+    # WA2 esleştirme defteri (goc 20260910_0079). UCU DE `company_id` tasir,
+    # yani `TENANT_TABLES`a girer ve bu kapiya GORUNUR. `whatsapp_inbound`
+    # ve `whatsapp_pairing_attempts` (WA1) burada YOK ve olmamalari dogru:
+    # ikisi de PLATFORM tablosudur, `company_id` sutunu tasimazlar.
+    "whatsapp_context",
+    "whatsapp_links",
+    "whatsapp_pairing_codes",
     "branches",
     "document_sequences",
     "entity_change_logs",

@@ -37,8 +37,10 @@ Her kapı, HANGİ değişikliğin onu kırmızı yapacağını ADIYLA söylüyor
                                        401 alır, Meta teslimatı tekrarlar)
   * `PUBLIC_API`ye TAM YOL yerine ÖNEK yazmak
                                     -> MUAFİYET kapısı KIRMIZI
-  * İki tabloya `company_id` eklemek
+  * WA1'in iki tablosuna `company_id` eklemek
                                     -> KİRACI ENVANTERİ kapısı KIRMIZI
+  * `whatsapp.schema.metadata`yı `create_all` etmek
+                                    -> AÇILIŞ DDL'i kapısı KIRMIZI
 """
 from __future__ import annotations
 
@@ -62,6 +64,33 @@ TASIMA = BACKEND / "app" / "whatsapp" / "cloud_api.py"
 YAZMA = BACKEND / "app" / "whatsapp" / "giris.py"
 UC = BACKEND / "app" / "routers" / "whatsapp.py"
 ANA = BACKEND / "app" / "main.py"
+
+#: WA1'in İKİ PLATFORM tablosu. WA2 aynı modüle ÜÇ KİRACI tablosu daha
+#: ekledi; aşağıdaki kapılar bu ikisinden başkasına bakmaz.
+KUYRUK_TABLO = "whatsapp_inbound"
+SAYAC_TABLO = "whatsapp_pairing_attempts"
+
+
+def _core_tablo_govdesi(ad: str) -> str:
+    """`app/whatsapp/schema.py`deki `Table("<ad>", ...)` çağrısının KAYNAĞI.
+
+    Dosyanın tamamını grep'lemek WA2'den sonra yanlış soruyu sorar (o
+    dosyada artık `company_id` taşıyan tablolar da var). AST, sorulan
+    tablonun KENDİ gövdesini veriyor.
+    """
+    kaynak = SEMA.read_text(encoding="utf-8")
+    agac = ast.parse(kaynak)
+    for dugum in ast.walk(agac):
+        if (
+            isinstance(dugum, ast.Call)
+            and getattr(dugum.func, "id", None) == "Table"
+            and dugum.args
+            and isinstance(dugum.args[0], ast.Constant)
+            and dugum.args[0].value == ad
+        ):
+            return ast.get_source_segment(kaynak, dugum) or ""
+    raise AssertionError(f"Core tanımında `{ad}` tablosu bulunamadı")
+
 
 #: SIR ve JETON testin KENDİSİNDEDİR ve gerçek bir kurulumla ilgisi yoktur.
 SIR = "wa1-test-app-secret"
@@ -102,7 +131,18 @@ def test_goc_IKI_PLATFORM_TABLOSU_aciyor_ve_company_id_TASIMIYOR() -> None:
     assert '"user_id"' not in kaynak, "platform tablosuna user_id girdi"
     # Aynı iddia Core tanımında da tutmak zorunda: ayrışsalardı testler
     # `create_all` şemasını ölçer, üretim göç şemasında koşardı.
-    assert '"company_id"' not in SEMA.read_text(encoding="utf-8")
+    #
+    # İDDİA WA2'DE (göç `20260910_0079`) DARALDI ve daralmanın kendisi
+    # ölçülüyor: `app/whatsapp/schema.py` artık ÜÇ KİRACI tablosu da taşıyor
+    # (`whatsapp_links`, `whatsapp_pairing_codes`, `whatsapp_context`) ve
+    # üçünde de `company_id` VAR — dosyanın TAMAMINDA sütun adını aramak
+    # artık WA1'in iddiasını değil, WA2'nin varlığını ölçerdi. Bu yüzden
+    # iddia BU İKİ TABLONUN kendi gövdesine bakıyor ve `ast` ile ayrılıyor:
+    # bir yorum satırındaki "company_id" kapıyı yanıltamasın.
+    for tablo in (KUYRUK_TABLO, SAYAC_TABLO):
+        govde = _core_tablo_govdesi(tablo)
+        assert '"company_id"' not in govde, tablo
+        assert '"user_id"' not in govde, tablo
 
 
 def test_wamid_TEKILI_IDEMPOTENSININ_KENDISI() -> None:
@@ -175,16 +215,44 @@ def test_ACILIS_DDLi_GOCUN_ONUNE_GECMIYOR() -> None:
 
     # VE ŞEMA MODÜLÜ HİÇ `create_all` EDİLMİYOR: edilseydi yukarıdaki
     # `Table()` taraması onu görmezdi ama kusur AYNEN doğardı.
-    tum_app = "".join(
-        yol.read_text(encoding="utf-8")
-        for yol in sorted((BACKEND / "app").rglob("*.py"))
-    )
-    assert "whatsapp.schema" not in tum_app.replace("from .schema", "")
-    assert "from .whatsapp import schema" not in tum_app
+    #
+    # KAPI WA2'DE KESKİNLEŞTİ ve gerekçesi ölçülmüş bir YANLIŞ SORUDUR:
+    # eski hâli `app/` metninde "whatsapp.schema" dizesini ARIYORDU, yani
+    # tabloyu İÇE AKTARMAYI de yasaklıyordu. WA2'nin uçları o tabloları
+    # okumak zorunda (`from ..whatsapp.schema import whatsapp_links`) ve o
+    # import HİÇBİR şema kurmaz. Yasaklanması gereken şey import DEĞİL,
+    # `create_all` ÇAĞRISIDIR — kusuru üreten tek şey odur.
+    #
+    # MUTASYON: `app/` içinde herhangi bir yere `whatsapp.schema.metadata.
+    # create_all(engine)` yazmak bunu KIRMIZI yapar.
+    for yol in sorted((BACKEND / "app").rglob("*.py")):
+        metin = yol.read_text(encoding="utf-8")
+        if "create_all" not in metin:
+            continue
+        agac = ast.parse(metin)
+        for dugum in ast.walk(agac):
+            if (
+                isinstance(dugum, ast.Call)
+                and getattr(dugum.func, "attr", None) == "create_all"
+            ):
+                parca = ast.get_source_segment(metin, dugum) or ""
+                assert "whatsapp" not in parca, (yol.name, parca)
+
+    # Şema modülünün KENDİSİ de hiçbir şey kurmuyor. AST'den ölçülüyor:
+    # dosyanın yorumlarında `create_all` sözcüğü GEÇİYOR (kapının kendisini
+    # anlatan cümlede) ve metin araması onu ÇAĞRI sanardı.
+    sema_agaci = ast.parse(SEMA.read_text(encoding="utf-8"))
+    assert not [
+        d
+        for d in ast.walk(sema_agaci)
+        if isinstance(d, ast.Call)
+        and (getattr(d.func, "attr", None) or getattr(d.func, "id", None))
+        == "create_all"
+    ]
 
 
 def test_KIRACI_ENVANTERI_KIMILDAMADI() -> None:
-    """İki yeni tablo `TENANT_TABLES`a GİRMİYOR — sayı 116'da SABİT.
+    """WA1'in iki tablosu `TENANT_TABLES`a GİRMİYOR — WA2'nin ÜÇÜ GİRİYOR.
 
     Envanter elle yazılmış bir muafiyet listesi DEĞİL; göç edilmiş şemadan
     `company_id` sütunu taşıyan tablolar taranarak türetiliyor
@@ -197,9 +265,17 @@ def test_KIRACI_ENVANTERI_KIMILDAMADI() -> None:
     """
     from tests.test_tenant_scoping_guard import TENANT_TABLES
 
-    assert "whatsapp_inbound" not in TENANT_TABLES
-    assert "whatsapp_pairing_attempts" not in TENANT_TABLES
-    assert len(TENANT_TABLES) == 116, len(TENANT_TABLES)
+    assert KUYRUK_TABLO not in TENANT_TABLES
+    assert SAYAC_TABLO not in TENANT_TABLES
+    # WA2 (göç `20260910_0079`) ÜÇ KİRACI tablosu ekledi ve ÜÇÜ DE ENVANTERE
+    # GİRDİ: 116 -> 119. Bu, yukarıdaki iddianın ZAYIFLAMASI DEĞİL
+    # KANITIDIR — envanter elle yazılmış bir muafiyet listesi olsaydı üç
+    # tablo da sessizce dışarıda kalabilirdi; şemadan türediği için
+    # `company_id` taşıyanlar GİRDİ, taşımayanlar GİRMEDİ.
+    assert {"whatsapp_links", "whatsapp_pairing_codes", "whatsapp_context"} <= (
+        TENANT_TABLES
+    )
+    assert len(TENANT_TABLES) == 119, len(TENANT_TABLES)
 
 
 def test_MUAFIYET_TAM_YOL_ve_ONEK_DEGIL() -> None:
