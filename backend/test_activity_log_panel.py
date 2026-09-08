@@ -143,6 +143,30 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
         # deseni; ölçüldü) — "bu hayvanı karantinadan kim çıkardı" sorusunun
         # cevabı YALNIZ burada.
         "animal_quarantine.opened", "animal_quarantine.closed",
+        # WHATSAPP EŞLEŞTİRME (WA2, göç 20260910_0079). ÜÇ olay ve üçü de
+        # AYRI, çünkü panelde sorulan sorular AYRI: "kime kod verildi",
+        # "verilen kod geri alındı mı", "hangi numara düşürüldü".
+        #
+        # ÜÇÜ DE ŞART çünkü izleri BAŞKA HİÇBİR YERDE YOK:
+        # `whatsapp_pairing_codes` satırı `created_by` taşıyor ama İPTALİ
+        # KİMİN yaptığını TAŞIMIYOR (`cancelled_at` var, `cancelled_by`
+        # YOK — ölçüldü), ve `whatsapp_links` satırı `created_by` taşıyor
+        # ama KAPATANI taşımıyor (`updated_at` var, `deactivated_by` YOK).
+        # Sütun eklemek yerine katalog satırı seçildi: `activity_logs`
+        # append-only olduğu için bir `*_by` sütunundan DAHA GÜÇLÜ bir iz.
+        #
+        # DÖRDÜNCÜ BİR EYLEM (KODUN TÜKETİLMESİ, yani numaranın bağlanması)
+        # BİLEREK AÇILMADI ve gerekçe ölçülebilir: o olayın aktörü bir ERP
+        # KULLANICISI DEĞİL, WhatsApp'tan yazan numaranın kendisidir ve
+        # `log_activity` `user_id`yi OTURUMDAN bekler — oturum YOKTUR.
+        # İzi de kayıp değil: `whatsapp_pairing_codes.consumed_at` +
+        # `consumed_link_id` ve `whatsapp_links.created_at` üçlüsü "ne
+        # zaman, hangi bağlantıyla" sorusunu tam olarak cevaplıyor. Bu
+        # boşluk, işçi (WA3) gerçek bir aktör kimliği getirdiğinde SAYIYI
+        # kımıldatmak zorunda bırakacak biçimde burada yazılı.
+        "user.whatsapp_pairing_code_created",
+        "user.whatsapp_pairing_code_cancelled",
+        "user.whatsapp_link_deactivated",
     }
     assert set(ACTION_TYPES) == expected
     # 58 -> 59: product.base_unit_update (kantar fişi v2).
@@ -180,7 +204,12 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
     # KALAN BOŞLUK ADIYLA YAZILI: gerekçeyi KİMİN yazdığı, arınmadaki gibi,
     # o satırdan çıkarılamaz — bu kapı o boşluğun bilinçli olduğunu çiviliyor
     # ve kapatılmak istendiğinde SAYIYI kımıldatmak zorunda bırakıyor.
-    assert len(ACTION_TYPES) == 67, sorted(ACTION_TYPES)
+    # 67 -> 70: WA2 ESLESTIRME (goc 20260910_0079). UC yeni eylem ve
+    # gerekceleri yukarida. YENI KAYNAK TIPI ACILMADI ve bu 0074/0075'in
+    # TERSI degil, ayni olcutun oteki yani: ucu de bir KULLANICIYA erisim
+    # araci verir ya da geri alir, yani kaynak zaten `user`dir ve panelde
+    # kullanici kartina baglanir. `RESOURCE_TYPES` 21'de SABIT.
+    assert len(ACTION_TYPES) == 70, sorted(ACTION_TYPES)
     assert all(ACTION_TYPES.values()), ACTION_TYPES
     assert "activity_log" in RESOURCE_TYPES
     # POS fişi de bir ``orders`` satırıdır: ayrı bir kaynak tipi eklenmez,

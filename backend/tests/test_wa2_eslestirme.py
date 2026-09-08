@@ -974,7 +974,7 @@ def test_DAVRANIS_SURESI_DOLMUS_KOD_reddediliyor(oturum, dunya) -> None:
     baslangic = datetime.now(timezone.utc)
     kod = _kod_ver(oturum, dunya["firma_a"], dunya["kul_a"], simdi=baslangic)
 
-    # 9. dakikada HÂLÂ geçerli olurdu; 11. dakikada DEĞİL.
+    # 9. dakikada HALA geçerli olurdu; 11. dakikada DEĞİL.
     gec = baslangic + timedelta(minutes=PAIRING_OMRU_DAKIKA + 1)
     sonuc = eslestirme.kod_kullan(oturum, NUMARA, kod, simdi=gec)
     oturum.commit()
@@ -1174,7 +1174,7 @@ def test_DAVRANIS_BAGLAM_SURESI_DOLUNCA_YENIDEN_SORULUYOR(oturum, dunya) -> None
     assert baglam.firma_sec(oturum, NUMARA, 1, simdi=an) is not None
     oturum.commit()
 
-    # 29. dakikada HÂLÂ geçerli.
+    # 29. dakikada HALA geçerli.
     erken = baglam.kimlik_secimi(
         oturum, NUMARA, simdi=an + timedelta(minutes=BAGLAM_OMRU_DAKIKA - 1)
     )

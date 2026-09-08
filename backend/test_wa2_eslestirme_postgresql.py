@@ -256,7 +256,7 @@ def test_ZAMAN_SUTUNLARI_TIMESTAMPTZ(motor) -> None:
     MUTASYON: `sa.DateTime(timezone=True)`ı `timezone=False` yapmak bunu
     KIRMIZI yapar. SQLite'ta hiçbir şey değişmez — bu iddia YALNIZ burada
     sorulabilir. `expires_at` özellikle önemli: saat dilimsiz bir değer,
-    süresi dolmuş bir kodu oturumun TZ'sine göre HÂLÂ GEÇERLİ gösterirdi.
+    süresi dolmuş bir kodu oturumun TZ'sine göre HALA GEÇERLİ gösterirdi.
     """
     gozlemci = inspect(motor)
     beklenen = {

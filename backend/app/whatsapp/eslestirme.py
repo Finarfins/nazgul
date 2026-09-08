@@ -32,7 +32,7 @@ bağlı" demektir; ve ``kimlik_coz`` tek satır yerine LİSTE döner.
 
 Kaynağın ``kimlik_coz``u ikinci bir aktif satır görürse ``None`` dönüyordu
 ("belirsizlikte rastgele birini seçmek yanlış tenant'ın verisini dönmek
-demektir"). O cümle HÂLÂ DOĞRU ve burada da uygulanıyor — ama çare
+demektir"). O cümle HALA DOĞRU ve burada da uygulanıyor — ama çare
 değişti: belirsizlik SESSİZCE kapatılmıyor, KULLANICIYA SORULUYOR
 (``FİRMA LİSTELE`` / ``FİRMA SEÇ``). Rastgele seçim burada da YOKTUR;
 seçim yapılmamışsa ``baglam.kimlik_secimi`` hiçbir firma DÖNDÜRMEZ.
@@ -185,18 +185,6 @@ def kod_kanonik(ham: str) -> str | None:
 def _ozet(kod: str) -> str:
     """Kanonik kodun SHA-256 hex özeti (``auth.token_digest`` sözleşmesi)."""
     return token_digest(kod)
-
-
-def _yaris_dikisi() -> None:
-    """Test dikişi: kod satırı OKUNDU, koşullu yazım HENÜZ yapılmadı.
-
-    Üretimde hiçbir şey yapmaz ve hiçbir davranışı değiştirmez. Yarış
-    testleri burayı monkeypatch'leyerek iki işçiyi TAM OLARAK bu noktada
-    buluşturur: CAS'siz bir varyantta ikinci işçinin de aynı ``PENDING``
-    görünümünü okuduğu böyle kanıtlanır. Zamanlamaya bağlı bir ``Barrier``
-    kurgusu bunu YAPAMAZ — ``Barrier`` yalnız başlangıcı eşitler, kritik
-    bölümü değil.
-    """
 
 
 def _maskeli(telefon: str) -> str:
@@ -566,8 +554,6 @@ def kod_kullan(
     except EslestirmeHatasi:
         _denemeyi_artir(db, company_id, int(satir["id"]))
         return _basarisiz(cevapla)
-
-    _yaris_dikisi()
 
     # 6) Bağlantı + tüketim TEK transaction. SAVEPOINT, bağlantı yazılamazsa
     #    kodun tüketilmiş kalmasını engeller.
