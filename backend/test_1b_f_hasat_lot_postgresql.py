@@ -111,7 +111,16 @@ def _acilisa_cek() -> None:
 
 
 def _komsuyu_temizle(engine) -> None:
+    from tests.pg_ikiz_yardimci import parti_temizle
+
+    parti_temizle(engine, lot_code_prefixes=["HASAT-", "ALIS-"])
     with engine.begin() as baglanti:
+        baglanti.execute(
+            text(
+                "DELETE FROM field_integration_events WHERE company_id = 1 "
+                "AND status = 'PENDING'"
+            )
+        )
         for deyim in (
             "DELETE FROM stock_movements WHERE company_id IN "
             "(SELECT id FROM companies WHERE name=:ad)",
@@ -579,6 +588,14 @@ def test_TEKRAR_TESLIM_ETKI_KISITINA_carpiyor_ve_PARTI_ARTISI_GERI_ALINIYOR(
                 ),
                 {"c": s.cid, "p": urun},
             ).scalar_one()
+            db.execute(
+                text(
+                    "UPDATE field_integration_events SET status='SENT' "
+                    "WHERE id=:i"
+                ),
+                {"i": int(olay["id"])},
+            )
+            db.commit()
         assert hareket_sayisi == 1, hareket_sayisi
 
 

@@ -60,10 +60,14 @@ def acilis():
     fixture hiçbir şeye dokunmaz.
     """
     _postgres_url()
+    from tests.pg_ikiz_yardimci import parti_temizle
+
+    parti_temizle(lot_code_prefixes=["LOT-", "PG-AKTAR-"])
     _acilisa_cek()
     try:
         yield
     finally:
+        parti_temizle(lot_code_prefixes=["LOT-", "PG-AKTAR-"])
         _acilisa_cek()
 
 

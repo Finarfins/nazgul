@@ -119,6 +119,9 @@ def _acilisa_cek() -> None:
 
 
 def _komsuyu_temizle(engine) -> None:
+    from tests.pg_ikiz_yardimci import parti_temizle
+
+    parti_temizle(engine, lot_code_prefixes=["PG-"])
     with engine.begin() as baglanti:
         for deyim in (
             "DELETE FROM stock_movements WHERE company_id IN "
