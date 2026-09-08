@@ -793,6 +793,14 @@ def onayla(
     try:
         sonuc = _tahsilat_yaz(db, kimlik, islem)
     # Sınıf adı dışında hiçbir şey saklanmaz (aşağıda `_hata_sinifi`).
+    # HER HATA KALICI SAYILIR (`FAILED`), GEÇİCİ DEĞİL — ve bu bilinçli bir
+    # DARLIKTIR, bir gözden kaçma değil. `birak` (APPLYING→PENDING) bu
+    # modülde VAR ama buradan ÇAĞRILMIYOR: hangi istisnanın yeniden
+    # denemeye değer olduğunu söyleyecek bir sınıflandırma bugün YOK ve
+    # tahmin etmek, kullanıcıyı "kaydedilemedi" dedikten sonra sessizce
+    # kaydedilen bir tahsilata bırakabilirdi. Kullanıcı taslağı yeniden
+    # açabilir; ödeme defteri ikinci bir ödeme yazmayacağı için bu güvenli.
+    # `birak`ı çağıracak olan, hatayı sınıflandırabilen işçidir (WA3).
     except Exception as hata:  # noqa: BLE001
         db.rollback()
         sinif = type(hata).__name__
