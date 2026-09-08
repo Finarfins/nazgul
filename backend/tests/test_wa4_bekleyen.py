@@ -1,7 +1,7 @@
 """WHATSAPP BEKLEYEN İŞLEMLER: taslak → açık ONAY → TEK uygulama (WA4).
 
 Konu: göç `20260910_0080`, `app/whatsapp/schema.py`nin YENİ KİRACI tablosu,
-`app/whatsapp/bekleyen.py`, `app/whatsapp/cloud_api.py`nin GİDEN tarafı ve
+`app/whatsapp/bekleyen.py`, WHATSAPP kanalının giden adaptörü ve
 `app/notifications/provider.py`nin WHATSAPP çivisi.
 
 ÖLÇÜLEN EKSİK: WA3-core `niyet.tahsilat_coz`u getirdi — "Şaban Korkmaz
@@ -76,7 +76,7 @@ BACKEND = Path(__file__).resolve().parents[1]
 GOC = BACKEND / "alembic" / "versions" / "20260910_0080_whatsapp_pending_actions.py"
 SEMA = BACKEND / "app" / "whatsapp" / "schema.py"
 SERVIS = BACKEND / "app" / "whatsapp" / "bekleyen.py"
-TASIYICI = BACKEND / "app" / "whatsapp" / "cloud_api.py"
+TASIYICI = BACKEND / "app" / "whatsapp" / "saglayici.py"
 SAGLAYICI = BACKEND / "app" / "notifications" / "provider.py"
 
 TABLO = "whatsapp_pending_actions"
@@ -358,23 +358,54 @@ def test_WA4_HICBIR_ROTA_EKLEMEDI() -> None:
 
 
 def test_META_TASIYICISI_TEK_MODULDE() -> None:
-    """`urllib` ile Meta'ya çıkan TEK yer `cloud_api.metin_gonder`.
+    """`urllib` ile Meta'ya çıkan TEK yer `saglayici.MetaBulutSaglayici`.
 
+    WA4 ilk hâlinde `cloud_api.metin_gonder` adında KENDİ göndericisini
+    getiriyordu. WA3-full (#85) develop'a inerken `app/whatsapp/saglayici.py`
+    ile AYNI işi yapan ikinci bir gönderici getirdi ve rebase'de ÖLÇÜLDÜ:
+    aynı depoda Meta'ya çıkan İKİ yol vardı. WA4'ünki SİLİNDİ — gerekçe
+    `notifications/provider.WhatsAppNotificationProvider` başlığında.
+
+    Bu kapı o kararı ÇİVİLER: ikinci bir taşıyıcı geri gelirse KIRMIZI olur.
     `SmtpEmailNotificationProvider` için yazılı olan "taşıyıcı YALNIZ tek
-    modülde" kuralının aynısı: "kim, nereden WhatsApp mesajı gönderiyor"
+    modülde" kuralının aynısı — "kim, nereden WhatsApp mesajı gönderiyor"
     sorusunun TEK bir cevabı olmalı.
     """
-    assert "urllib.request" in _kaynak(TASIYICI)
-    assert "graph.facebook.com" in _kaynak(TASIYICI)
-    for yol in (BACKEND / "app").rglob("*.py"):
-        if yol == TASIYICI:
-            continue
-        metin = _kaynak(yol)
-        assert "graph.facebook.com" not in metin, yol
-    # Sağlayıcı taşıyıcıyı ÇAĞIRIR ama KENDİSİ ağa çıkmaz.
-    saglayici = _kaynak(SAGLAYICI)
-    assert "metin_gonder" in saglayici
-    assert "urllib" not in saglayici
+    assert "urllib" in _kaynak(TASIYICI)
+    assert "messages" in _kaynak(TASIYICI)
+
+    # Graph adresi AYARDAN geliyor (`whatsapp_graph_base_url`) ve adresi
+    # GÖMEN tek dosya `config.py`dir — orada da bir VARSAYILAN olarak.
+    # Taşıyıcı dâhil hiçbir modül adresi kendi içine yazmamalı; yazsaydı
+    # testler sahte bir tabana yönlendirip ağa çıkmadan URL'i ÖLÇEMEZDİ.
+    gomulu = {
+        yol.relative_to(BACKEND).as_posix()
+        for yol in (BACKEND / "app").rglob("*.py")
+        if "graph.facebook.com" in _kaynak(yol)
+    }
+    assert gomulu == {"app/config.py"}, gomulu
+    assert "settings.whatsapp_graph_base_url" in _kaynak(TASIYICI)
+
+    # Adaptör taşıyıcıyı ÇAĞIRIR ama KENDİSİ ağa çıkmaz: `urllib` importu
+    # sağlayıcı modülünde YOK.
+    saglayici_kaynak = _kaynak(SAGLAYICI)
+    assert "saglayici_al()" in saglayici_kaynak
+    # `urllib` metinde GEÇEBİLİR (gerekçe yorumda anlatılıyor); ölçülen şey
+    # bir İÇE AKTARMA olup olmadığıdır — dizge araması ikisini ayıramaz.
+    ithal = {
+        (d.module or "").split(".")[0]
+        for d in ast.walk(ast.parse(saglayici_kaynak))
+        if isinstance(d, ast.ImportFrom)
+    } | {
+        a.name.split(".")[0]
+        for d in ast.walk(ast.parse(saglayici_kaynak))
+        if isinstance(d, ast.Import) for a in d.names
+    }
+    assert "urllib" not in ithal, ithal
+    # WA4 kendi göndericisini GERİ GETİRMEDİ.
+    assert "metin_gonder" not in _kaynak(
+        BACKEND / "app" / "whatsapp" / "cloud_api.py"
+    )
 
 
 def test_SAGLAYICI_KANALA_CIVILI_ayara_DEGIL() -> None:
@@ -457,13 +488,13 @@ def test_YAPILANDIRILMAMIS_saglayici_AGA_CIKMIYOR() -> None:
     )
     assert sonuc.status == "NONE"
 
-    # İkinci kapı: taşıyıcının KENDİSİ de fail-closed.
-    from app.whatsapp.cloud_api import GonderimHatasi, metin_gonder
+    # İkinci kapı: taşıyıcının KENDİSİ de fail-closed. Jeton boşken
+    # `saglayici_al()` NoOp döner ve o sınıf `urllib`i İÇE BİLE AKTARMAZ,
+    # yani ağ yolu ÇALIŞTIRILAMAZ — "çalışır ama bir yere gitmez" değil.
+    from app.whatsapp import saglayici
 
-    with pytest.raises(GonderimHatasi):
-        metin_gonder(
-            access_token="", phone_number_id="1", telefon=NUMARA, metin="x"
-        )
+    assert saglayici.yapilandirildi_mi() is False
+    assert isinstance(saglayici.saglayici_al(), saglayici.NoOpSaglayici)
 
 
 #: Alt süreçte koşan göç turu. MODÜL DÜZEYİNDE SABİT METİN, f-string DEĞİL —

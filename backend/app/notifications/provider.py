@@ -117,78 +117,88 @@ class TwilioNotificationProvider(NotificationProvider):
 
 
 class WhatsAppNotificationProvider(NotificationProvider):
-    """WHATSAPP kanalının taşıyıcısı — Meta Cloud API (WA4).
+    """WHATSAPP kanalının outbox adaptörü — taşıyıcı WA3'ün sağlayıcısıdır.
 
     Artık bir "wiring-only stub" DEĞİL: yapılandırılmış bir kurulumda
-    gerçekten ağa çıkar. Taşıyıcının kendisi
-    ``app.whatsapp.cloud_api.metin_gonder``dedir ve orada olması bir
-    gelenektir, tercih değil: ``SmtpEmailNotificationProvider`` için yazılı
-    olan "taşıyıcı YALNIZ tek modülde" kuralının aynısı — böylece "kim,
-    nereden WhatsApp mesajı gönderiyor" sorusunun tek bir cevabı olur.
+    gerçekten ağa çıkar. Ama TAŞIYICIYI KENDİSİ YAZMAZ —
+    ``app.whatsapp.saglayici.saglayici_al()`` çağırır.
+
+    TAŞIYICI NEDEN BURADA DEĞİL (ölçülmüş karar, üslup değil): WA4 ilk
+    hâlinde `cloud_api.metin_gonder` adında KENDİ urllib göndericisini
+    getiriyordu. WA3-full (#85) develop'a inerken `app/whatsapp/saglayici.py`
+    ile AYNI işi yapan ikinci bir gönderici getirdi — rebase'de ÖLÇÜLDÜ:
+    aynı depoda Meta'ya çıkan İKİ yol vardı, ikisi de aynı uca POST atıyordu
+    ve ikisinin hata sınıflandırması FARKLIYDI. İki taşıyıcı, "kim nereden
+    WhatsApp mesajı gönderiyor" sorusunun İKİ cevabı demektir ve o soru bu
+    depoda tek cevaplı olmak zorunda (``SmtpEmailNotificationProvider``
+    için yazılı olan kuralın aynısı). WA3'ünki KALDI çünkü önce indi ve
+    daha zengin: hatayı yeniden-denenebilir / kalıcı / kota olarak
+    SINIFLANDIRIYOR. WA4'ünki SİLİNDİ.
 
     ÜÇ YOL VAR ve üçü de AYRI bir şey söyler:
 
-    * **Jeton ya da numara kimliği BOŞ → ``NONE``.** Ağa HİÇ çıkılmaz.
-      "Denenmedi, başarısız da olmadı" demektir ve ``SmtpEmailNotification
-      Provider``ın yapılandırılmamış davranışıyla BİREBİR aynıdır: motor
-      satırı sonlandırır, yapılandırma gelince satır elle retry ile canlanır.
-      Varsayılan kurulumda (``.env``de WhatsApp yok) BU yol koşar, yani bu
-      sınıfın eklenmesi hiçbir kurulumda dışarı mesaj ÇIKARMAZ.
+    * **Yapılandırılmamış → ``NONE``.** Ağa HİÇ çıkılmaz;
+      ``saglayici.yapilandirildi_mi()`` yanlışsa taşıyıcı ÇAĞRILMAZ bile.
+      Varsayılan kurulumda (``.env``de WhatsApp jetonu yok) BU yol koşar,
+      yani bu sınıfın varlığı hiçbir kurulumda dışarı mesaj ÇIKARMAZ.
     * **``notification_provider = "simulation"`` → ``SIMULATED``.** Ağa
       çıkmadan akışı uçtan uca koşturur. ``SENT`` YAZMAZ ve bu kural
       ``PushNotificationProvider``dan devralınmıştır: gerçekten
       gönderilmemiş bir mesajı "gönderildi" diye raporlamak denetim izini
-      yalan söyler hâle getirir. ``SIMULATED`` terminaldir
-      (``schema.TERMINAL_STATUSES``), yani satır yeniden denemeye TAKILMAZ
-      ve raporlarda gerçek gönderimlerden AYRI sayılır.
-    * **Yapılandırılmış → gerçek gönderim.** ``SENT`` YALNIZ Meta bir mesaj
-      kimliği (``wamid``) döndürdüğünde yazılır; kimliksiz bir 2xx bile
-      ``GonderimHatasi``dır. Kanıtsız ``SENT`` yazmamak, yukarıdaki iki
-      yolun da dayandığı aynı kuraldır.
+      yalan söyler hâle getirir. ``SIMULATED`` terminaldir.
+    * **Yapılandırılmış → gerçek gönderim**, ardından ``SENT``.
 
-    ``supports_idempotency = False`` ve bu ÖLÇÜLMÜŞ bir karardır: Meta Cloud
-    API'nin gönderim ucunda istemci tarafı tekilleştirme anahtarı YOKTUR
-    (``messages`` uç noktası bir ``Idempotency-Key`` kabul etmez). ``True``
-    demek, süresi dolmuş bir lease'in otomatik geri alınmasını açar ve AYNI
-    mesajı kullanıcıya İKİ KEZ gönderirdi — ``SmtpEmailNotificationProvider``
-    ile aynı gerekçe.
+    ``external_id`` NEDEN ``None``: WA4'ün kendi göndericisi Meta'nın
+    döndürdüğü ``wamid``i okuyup ``external_id``ye yazıyordu. WA3'ün
+    sağlayıcısı yanıt gövdesini OKUR ama AYRIŞTIRMAZ (yalnız keep-alive
+    için tüketir), yani mesaj kimliği bu sınıra ulaşmıyor. İki seçenek
+    vardı ve seçilen İKİNCİSİDİR: (a) `saglayici.metin_gonder`i kimlik
+    döndürecek biçimde değiştirmek — WA3'ün sözleşmesini WA4 uğruna
+    genişletmek olurdu ve o sözleşmenin tek çağıranı bugün işçidir;
+    (b) ``external_id``yi BOŞ bırakıp ``SENT``in anlamını DARALTMAK.
+    Burada ``SENT``, "Meta POST'u 2xx ile KABUL ETTİ" demektir — bir
+    teslimat kanıtı DEĞİL. Dar ama DOĞRU bir iddia; geniş ve yanlış olana
+    yeğlendi. Mesaj kimliğine ihtiyaç doğduğunda taşıyıcının sözleşmesi
+    genişletilmelidir, bu sınıf tahmin ETMEMELİDİR.
+
+    ``supports_idempotency = False`` ve bu ÖLÇÜLMÜŞ bir karardır: Meta
+    Cloud API'nin gönderim ucunda istemci tarafı tekilleştirme anahtarı
+    YOKTUR. ``True`` demek, süresi dolmuş bir lease'in otomatik geri
+    alınmasını açar ve AYNI mesajı kullanıcıya İKİ KEZ gönderirdi —
+    ``SmtpEmailNotificationProvider`` ile aynı gerekçe.
 
     KAPSAM SINIRI — ASİSTAN CEVAPLARI BURADAN GEÇMEZ. Bu adaptör
     ``notification_outbox`` satırlarını taşır ve o defterin rıza kaydı
     (``notification_consents``) yalnız ``CUSTOMER``/``SUPPLIER`` taraflarını
-    tanır. WhatsApp asistanının kullanıcıya verdiği cevap (özet, ``ONAY``
-    sonucu, hata metni) bir PAZARLAMA/BİLDİRİM mesajı değil, kullanıcının
-    KENDİ başlattığı bir oturumun cevabıdır ve outbox'a girmez. Gerekçenin
-    tamamı ``docs/whatsapp/WA4_KANALLAR.md``dedir.
+    tanır. WhatsApp asistanının kullanıcıya verdiği cevap kullanıcının
+    KENDİ başlattığı bir oturumun cevabıdır ve outbox'a girmez — onu WA3'ün
+    işçisi doğrudan sağlayıcı üzerinden gönderir. Gerekçenin tamamı
+    ``docs/whatsapp/WA4_KANALLAR.md``dedir.
     """
 
     supports_idempotency = False
 
     def send(self, notification: dict[str, Any]) -> NotificationResult:
-        from ..whatsapp.cloud_api import GonderimHatasi, metin_gonder
-
-        config = self.settings
-        token = _secret_value(getattr(config, "whatsapp_access_token", None)).strip()
-        phone_number_id = str(
-            getattr(config, "whatsapp_phone_number_id", "") or ""
-        ).strip()
-        if not token or not phone_number_id:
-            return NotificationResult(
-                status="NONE", message=_WHATSAPP_NOT_CONFIGURED
-            )
+        from ..whatsapp import saglayici
 
         recipient = str(notification.get("recipient") or "").strip()
         if not recipient:
             # İÇERİK HATASI, AĞ HATASI DEĞİL: hedefi olmayan bir satır
-            # yeniden denenerek düzelmez.
+            # yeniden denenerek düzelmez. Yapılandırma denetiminden ÖNCE
+            # duruyor ki bozuk bir satır, kanal kapalıyken de görünür olsun.
             raise ValueError("WhatsApp bildiriminde alıcı numarası yok")
         payload = notification.get("payload") or {}
         body = str(payload.get("body") or "").strip()
         if not body:
             raise ValueError("WhatsApp bildirimi payload'ında gövde yok")
 
+        # SİMÜLASYON ÖNCE GELİR ve sıra ÖLÇÜLDÜ: yapılandırma denetimi
+        # önce koşsaydı, jetonu olmayan bir kurulumda `simulation` ayarı
+        # HİÇ ETKİ ETMEZ ve `NONE` dönerdi — yani akışı ağa çıkmadan uçtan
+        # uca koşturmak için tam da jeton koymak gerekirdi. Simülasyon
+        # OPERATÖRÜN AÇIK SEÇİMİDİR ve ağa hiçbir koşulda çıkmaz.
         provider_name = (
-            getattr(config, "notification_provider", "") or ""
+            getattr(self.settings, "notification_provider", "") or ""
         ).strip().lower()
         if provider_name == "simulation":
             anahtar = str(
@@ -200,20 +210,23 @@ class WhatsAppNotificationProvider(NotificationProvider):
                 external_id="wa-" + anahtar.replace(":", "-"),
             )
 
-        try:
-            wamid = metin_gonder(
-                access_token=token,
-                phone_number_id=phone_number_id,
-                telefon=recipient,
-                metin=body,
+        # YAPILANDIRMA DENETİMİ, TAŞIYICININ OKUDUĞU KAYNAKTAN OKUNUR.
+        # `self.settings` DEĞİL, `saglayici`nin kendi genel ayarları —
+        # çünkü gönderimi asıl yapan `saglayici_al()` da oradan okuyor.
+        # İki ayrı kaynağa bakmak, "yapılandırılmış" deyip NoOp'a düşen ve
+        # hiçbir şey göndermeden `SENT` yazan bir yol açardı.
+        if not saglayici.yapilandirildi_mi():
+            return NotificationResult(
+                status="NONE", message=_WHATSAPP_NOT_CONFIGURED
             )
-        except GonderimHatasi:
-            # İstisna yukarı TAŞINIR ve motor tarafından sınıflandırılıp
-            # maskelenir (`service._ERROR_MESSAGES`). Bu sınıf
-            # `NotificationResult.message` alanına hiçbir sunucu metni yazmaz
-            # — `SmtpEmailNotificationProvider` ile AYNI kural.
-            raise
-        return NotificationResult(status="SENT", external_id=wamid)
+
+        # İstisnalar YUKARI TAŞINIR ve motor tarafından sınıflandırılıp
+        # maskelenir. Bu sınıf `NotificationResult.message` alanına hiçbir
+        # sunucu metni yazmaz — `SmtpEmailNotificationProvider` ile AYNI
+        # kural. Sağlayıcının kendi günlüğü de yalnız durum kodu ve maskeli
+        # numara taşır.
+        saglayici.saglayici_al().metin_gonder(recipient, body)
+        return NotificationResult(status="SENT")
 
 
 class PushNotificationProvider(NotificationProvider):

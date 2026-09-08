@@ -3,9 +3,11 @@
 Bu belge **tek bir soruyu** cevaplıyor: WhatsApp'tan çıkan mesajlar hangi
 yoldan gider ve neden hepsi aynı yoldan **gitmez**?
 
-Konu WA4'ün giden tarafıdır: `app/whatsapp/cloud_api.py::metin_gonder`
-(taşıyıcı), `app/notifications/provider.py::WhatsAppNotificationProvider`
-(adaptör) ve `KANAL_SAGLAYICILARI["WHATSAPP"]` (kanal çivisi).
+Konu WA4'ün giden tarafıdır: `app/notifications/provider.py::
+WhatsAppNotificationProvider` (adaptör) ve `KANAL_SAGLAYICILARI["WHATSAPP"]`
+(kanal çivisi). **Taşıyıcı WA4'ün DEĞİL**: `app/whatsapp/saglayici.py::
+MetaBulutSaglayici` WA3-full (#85) ile geldi ve WA4 onu KULLANIR —
+gerekçe §3.1.
 
 ---
 
@@ -20,10 +22,10 @@ WhatsApp üzerinden kullanıcıya iki farklı sınıftan mesaj gidebilir:
 | Alıcı kim | `whatsapp_links`teki **ERP KULLANICISI** | `customers` / `suppliers` — **MÜŞTERİ ya da TEDARİKÇİ** |
 | Rıza kaydı | YOK (ve gerekmez — §2) | `notification_consents` ZORUNLU |
 | Defter | YOK; cevap senkron döner | `notification_outbox` satırı |
-| Kod yolu | WA3 işçisi → `cloud_api.metin_gonder` | `notifications/service` → `WhatsAppNotificationProvider` → `cloud_api.metin_gonder` |
+| Kod yolu | WA3 işçisi → `saglayici.metin_gonder` | `notifications/service` → `WhatsAppNotificationProvider` → `saglayici.metin_gonder` |
 
 **Taşıyıcı ORTAK, defter AYRI.** İkisi de sonunda
-`cloud_api.metin_gonder`e iner — "kim, nereden WhatsApp mesajı gönderiyor"
+`saglayici.metin_gonder`e iner — "kim, nereden WhatsApp mesajı gönderiyor"
 sorusunun tek bir cevabı olsun diye (`SmtpEmailNotificationProvider` için
 yazılı olan kuralın aynısı). Ayrılan şey **defter ve rıza**dır.
 
@@ -81,7 +83,7 @@ metin gönderilebilir; dışında yalnız **önceden onaylı şablon** gönderil
 
 İki yolu tek deftere sokmak, bu ayrımı çalışma zamanında yeniden keşfetmeye
 zorlardı. **BUGÜN ŞABLON DESTEĞİ YOKTUR** ve bu açıkça söyleniyor:
-`metin_gonder` yalnız `type: "text"` gönderir. Yani WHATSAPP kanalına
+`saglayici.MetaBulutSaglayici` yalnız `type: "text"` gönderir. Yani WHATSAPP kanalına
 düşen bir bildirim satırı, pencere dışındaysa Meta tarafından reddedilir ve
 `GonderimHatasi` olarak kaydedilir. Şablon desteği ayrı bir iştir.
 

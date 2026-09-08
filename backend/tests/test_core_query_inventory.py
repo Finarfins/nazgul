@@ -1027,8 +1027,8 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "d23339edbb978405335c326e4d4adb15923d8ffe28800478cba47f4fb3f5ac9b"): (1, "whatsapp_pending_actions", "arg0"),  # satir [419]
 }
 
-TOTAL_CORE_QUERIES = 165
-EXPECTED_OP_COUNTS = {"select": 105, "update": 50, "delete": 10}
+TOTAL_CORE_QUERIES = 175
+EXPECTED_OP_COUNTS = {"select": 111, "update": 54, "delete": 10}
 # 2026-08-12: iki sorgu bilerek değişti — `ensure_company_default_warehouse`
 # depo adı taramasına kiracı kapsamı eklendi (şema ölçümü: warehouses.name
 # üzerinde ne küresel ne kiracı kapsamlı UNIQUE var) ve `_finalize` opak
@@ -1078,8 +1078,8 @@ EXPECTED_OP_COUNTS = {"select": 105, "update": 50, "delete": 10}
 # statik olarak cozuldu (`arg0`). `desteksiz` listesine WA2'den TEK
 # BIR satir bile girmedi. TABAN develop `27916d7` (WA1/#80 indikten sonra);
 # parmak izi ARITMETIKLE tasinmadi, envanterin TAMAMINDAN yeniden turetildi.
-# 20260910 WA4 bekleyen islem defteri (goc 20260910_0080): 160 -> 170
-# (select 103 -> 109, update 47 -> 51, delete 10 -> 10). ON sorgu, TEK
+# 20260910 WA4 bekleyen islem defteri (goc 20260910_0080): 165 -> 175
+# (select 105 -> 111, update 50 -> 54, delete 10 -> 10). ON sorgu, TEK
 # dosya: app/whatsapp/bekleyen.py. Drift raporu OLCULDU: `changed` ve
 # `stale` IKISI DE BOS — artis YALNIZ eklemedir, hicbir mevcut sorgunun
 # yuklemi ya da hedefi DEGISMEDI. `UNRESOLVED_ALLOWLIST` BUYUMEDI ve
@@ -1088,10 +1088,15 @@ EXPECTED_OP_COUNTS = {"select": 105, "update": 50, "delete": 10}
 # KISALTMADAN ice aktariyor (`as wpa` yazilsaydi ON sorgunun DOKUZUNUN
 # hedefi "cozulemedi" sayilirdi), (2) `_jetonla_kapat` `**degerler`
 # yayilimi yerine ACIK SUTUN KUMESI kullaniyor (`_finalize` icin daha once
-# yapilan duzeltmenin AYNISI). TABAN develop `e78a466` (WA2/#83 indikten
-# sonra); parmak izi ARITMETIKLE tasinmadi, envanterin TAMAMINDAN yeniden
-# turetildi.
-INVENTORY_FINGERPRINT = "e899452da3567c3ca55ffed24a3bc19a49121102636e9ef89fee2f0ded10ce1f"
+# yapilan duzeltmenin AYNISI).
+#
+# TABAN #85 (WA3-full) INDIKTEN SONRA `acd3738`e TASINDI ve sayilar
+# ARITMETIKLE DEGIL YENIDEN OLCULEREK guncellendi: onceki tur `e78a466`
+# uzerinde 160 -> 170 olcmustu; WA3 tabani 165'e cikardigi anda o olcum
+# GECERSIZ oldu. WA4'un ekledigi sorgu sayisi (10) degismedi ama bunu
+# BILMEK icin yeniden olcmek gerekiyordu — cikarma yapmak, WA3'un
+# sorgularindan birinin WA4 ile CAKISMADIGINI VARSAYMAK olurdu.
+INVENTORY_FINGERPRINT = "3ae3e6f66aef55c97b4be05be04218ea4943c34597e6d3228528b7393fd08c84"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:
