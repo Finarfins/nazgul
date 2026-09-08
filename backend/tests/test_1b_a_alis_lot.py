@@ -104,6 +104,11 @@ CAGIRANLAR = {
     # urunun bir kismi partili bir kismi partisiz olurdu ve satis FEFO'su
     # partisiz kismi HIC GORMEZDI — kapinin savundugu ayrismanin ta kendisi.
     "app/field_stok_tuketici.py",
+    # 1B-H: EXCEL ICE AKTARMA. Defteri ANMIYOR (tablo adi yok), YALNIZ
+    # cagiriyor -- yani ilk iki eksen onu GORMEZ ve bu ucuncu eksenin neden
+    # ayri durdugunun canli ornegi. Iki dal da parti kodunu kabul eder;
+    # kod yoksa ve defter o cift icin ACIKSA 409 ile REDDEDER.
+    "app/routers/imports.py",
 }
 
 _YAZMA_FIILLERI = ("INSERT", "UPDATE", "DELETE")

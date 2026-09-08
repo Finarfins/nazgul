@@ -3929,6 +3929,11 @@ export interface paths {
          *     `counts` SAYFAYA DEĞİL kiracının TAMAMINA aittir: ikinci sayfadaki tek
          *     `SAPMA`yı ilk sayfaya bakan operatör görmezdi ve "sapma yok" diye okurdu.
          *
+         *     BOŞ ÇİFTLER RAPORDA YOKTUR (1B-H): stoğu 0 OLAN ve HİÇ partisi açılmamış
+         *     çiftler ürün × depo çarpımının gürültüsüdür — ürün açılışı AKTİF HER depo
+         *     için sıfırlı bir satır doğurur. Düşen sayı `bos_ciftler`de taşınır, yani
+         *     eleme ölçülür ve gizlenmez.
+         *
          *     OKUMADIR, YALNIZ OKUMA — ve mutabakat bir DÜZELTME ucu DEĞİLDİR: farkı
          *     kapatmak, farkı ÜRETEN yolu partiye bağlamakla olur (1B-H), raporun
          *     sayıyı ezmesiyle DEĞİL. Bir `POST .../duzelt` ucu iki defteri uyumlu
@@ -8731,7 +8736,19 @@ export interface components {
             /** Ticket Id */
             ticket_id?: number | null;
         };
-        /** ProductCreate */
+        /**
+         * ProductCreate
+         * @description Ürün açılışı. `ProductUpdate`ten TÜREMEYE devam eder, `lot_code` EKLER.
+         *
+         *     ALAN YALNIZ BURADADIR, `ProductUpdate`e KONMADI ve bu 1B-H'nin ölçülmüş
+         *     kararıdır: açılış stoku bir GİRİŞTİR ve bir parti AÇABİLİR; `PUT`un stok
+         *     alanı ise elle bir DÜZELTMEDİR ve parti defteri açık bir üründe
+         *     REDDEDİLİR (`LOT_TAKIPLI_URUN_LOTSUZ_YAZILAMAZ`). Alanı ortak tabana
+         *     koymak, PUT'a da bir parti kodu kabul ettirir ve reddin ne anlama geldiğini
+         *     sorulamaz yapardı — "kodu yazdım, yine de reddedildi".
+         *
+         *     Sınır diğer parti girdileriyle ve 0073'ün sütunuyla AYNI (80).
+         */
         ProductCreate: {
             /**
              * Active
@@ -8752,6 +8769,8 @@ export interface components {
             compatible_models?: string | null;
             /** Location */
             location?: string | null;
+            /** Lot Code */
+            lot_code?: string | null;
             /** Manufacturer */
             manufacturer?: string | null;
             /** Name */
