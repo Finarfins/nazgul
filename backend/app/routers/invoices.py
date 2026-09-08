@@ -95,6 +95,20 @@ def _einvoice_cancel_gate(db:Session,cid:int,invoice_id:int,invoice:dict,now)->b
       iptal OLMAZ; başarılıysa `einvoice_status=CANCELLED` yazılır ve çağıran
       yerel iptale devam eder. Yazma, çağıranın işlemiyle AYNI transaction'da
       kalır: iki satır ya birlikte iner ya hiç inmez.
+
+    EŞ ZAMANLILIK — BİLİNEN VE KABUL EDİLEN PENCERE. Yerel iptalin atomik
+    kapısı aşağıdaki compare-and-set'tir (`WHERE ... status='ISSUED'`) ve o
+    BU KAPIDAN SONRA koşar. Yani iki eş zamanlı iptal isteği, ikisi de
+    entegratöre GİDEBİLİR; yerelde yalnız biri kazanır, diğeri 409 alır.
+
+    Bu bir gözden kaçma değil, sıranın DOĞRUDAN SONUCUDUR: çift çağrıyı
+    engellemenin tek yolu yerel CAS'ı öne almaktır ve bu, tam da bu kapının
+    var olma sebebini — yerel iptalin entegratörü geçememesi — ortadan
+    kaldırırdı. İki maliyet karşılaştırıldı: (a) aynı belge için ikinci bir
+    iptal çağrısı, ki ETKİSİ yoktur (ikincisi belgeyi çoktan çekilmiş bulur ve
+    hata döner, yerel duruma da yazmaz çünkü kaybeden istek zaten 409'a
+    düşer), (b) sağlayıcı reddetmişken yerelde iptal edilmiş bir fatura, ki
+    GERİ ALINAMAZ bir tutarsızlıktır. (a) seçildi.
     """
     durum=str(invoice.get("einvoice_status") or "").strip().upper()
     if durum not in CANCELLABLE:
@@ -211,7 +225,7 @@ def einvoice_submit(invoice_id:int,request:Request,db:Session=Depends(get_db)):
     customer=payload.get("customer") if isinstance(payload.get("customer"),dict) else {}
     customer_vkn=str(customer.get("vkn_tckn") or "").strip()
     if not customer_vkn:
-        status="FAILED"; err="Fatura e-Fatura biçimine uymuyor: alıcı VKN/TCKN."
+        status="FAILED"; err="Fatura e-Fatura bicimine uymuyor: alıcı VKN/TCKN."
     else:
         try:
             taxpayer=provider.check_taxpayer(customer_vkn)
@@ -281,9 +295,9 @@ def einvoice_download(invoice_id:int,request:Request,format:str=Query("pdf"),db:
     gibi; (2) indirilen şey resmî mali belgenin kendisidir, iç PDF'in bir
     kopyası değil.
     """
-    biçim=str(format or "").strip().lower()
-    if biçim not in DOWNLOAD_FORMATS:
-        raise HTTPException(400,f"Geçersiz biçim: yalnız {' veya '.join(DOWNLOAD_FORMATS)}")
+    bicim=str(format or "").strip().lower()
+    if bicim not in DOWNLOAD_FORMATS:
+        raise HTTPException(400,f"Geçersiz bicim: yalnız {' veya '.join(DOWNLOAD_FORMATS)}")
     cid=company_id(request); invoice=_invoice(db,cid,invoice_id)
     durum=str(invoice.get("einvoice_status") or "").strip().upper()
     ext=str(invoice.get("einvoice_external_id") or "").strip()
@@ -294,18 +308,18 @@ def einvoice_download(invoice_id:int,request:Request,format:str=Query("pdf"),db:
         # (ya da tersi) tutarsızdır ve indirilecek bir sureti yoktur.
         raise HTTPException(404,EINVOICE_DOCUMENT_MISSING)
     kanal=invoice.get("einvoice_channel")
-    if biçim=="xml":
+    if bicim=="xml":
         ham=invoice.get("einvoice_payload")
         if not ham:
             raise HTTPException(404,EINVOICE_DOCUMENT_MISSING)
         try:
-            içerik=build_invoice_xml(json.loads(ham))
+            icerik=build_invoice_xml(json.loads(ham))
         except (UblBuildError,ValueError) as exc:
             # Saklanan payload'dan belge YENİDEN ÜRETİLEMİYOR. Yarım bir XML
             # döndürmek, mali belge diye eksik bir dosya vermek olurdu.
             raise HTTPException(409,f"Gönderilen UBL yeniden üretilemedi: {str(exc)[:300]}") from None
         log_invoice_action(db,request,cid,invoice_id,"EINVOICE_DOWNLOAD",metadata={"format":"xml"}); db.commit()
-        return Response(içerik,media_type="application/xml",
+        return Response(icerik,media_type="application/xml",
             headers={"Content-Disposition":f'attachment; filename="{invoice["invoice_number"]}.xml"'})
     configuration=einvoice_configuration(settings)
     if not configuration.configured:
@@ -313,7 +327,7 @@ def einvoice_download(invoice_id:int,request:Request,format:str=Query("pdf"),db:
         raise HTTPException(503,EINVOICE_NOT_CONFIGURED)
     provider=get_einvoice_provider(settings,company_id=cid)
     try:
-        içerik=provider.fetch_pdf(ext,channel=kanal,web_key=invoice.get("einvoice_web_key"))
+        icerik=provider.fetch_pdf(ext,channel=kanal,web_key=invoice.get("einvoice_web_key"))
     except Exception as exc:
         # `fetch_pdf` boş `bytes` DÖNDÜRMEZ, fırlatır (sağlayıcı katmanının
         # sözleşmesi): boş bir gövde çağıran tarafta boş bir PDF'ten ayırt
@@ -321,7 +335,7 @@ def einvoice_download(invoice_id:int,request:Request,format:str=Query("pdf"),db:
         logger.warning("e-Belge PDF indirmesi başarısız: %s",type(exc).__name__)
         raise HTTPException(502,f"e-Belge PDF alınamadı: {str(exc)[:400]}") from None
     log_invoice_action(db,request,cid,invoice_id,"EINVOICE_DOWNLOAD",metadata={"format":"pdf"}); db.commit()
-    return Response(içerik,media_type="application/pdf",
+    return Response(icerik,media_type="application/pdf",
         headers={"Content-Disposition":f'attachment; filename="{invoice["invoice_number"]}-ebelge.pdf"'})
 
 @router.post("/{invoice_id}/einvoice/sync")

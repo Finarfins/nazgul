@@ -394,7 +394,7 @@ def test_INDIRME_XML_YOLU_AGA_HIC_CIKMAZ() -> None:
     kaynak = ROUTER.read_text(encoding="utf-8")
     govde = kaynak.split("def einvoice_download", 1)[1].split("@router.post", 1)[0]
 
-    xml_dali = govde.find('if biçim=="xml"')
+    xml_dali = govde.find('if bicim=="xml"')
     xml_donusu = govde.find('media_type="application/xml"')
     saglayici_kurulumu = govde.find("get_einvoice_provider(")
     saglayici_cagrisi = govde.find("provider.fetch_pdf(")
