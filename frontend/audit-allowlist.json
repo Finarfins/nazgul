@@ -1,10 +1,15 @@
 {
   "$lockfile": {
-    "sha256": "6c3b6750564e44dd131604b2be8fc8bade5b690f59a252301207101518d1e32c",
+    "sha256": "9389a75dac67dacabfb28b4ce87ccc04fb39d691408075bd5390167b0a4066e1",
     "reason": "package-lock.json icin cevrimdisi butunluk imzasi; SATIR SONLARI LF olarak normalize edilerek haslanir (Windows calisma agaci CRLF yazar, Linux kosucusu LF okur -- ham bayt haslamak ayni icerik icin iki farkli ozet uretirdi). Kilit dosyasi degistiginde bu deger de bilerek guncellenmeli."
   },
   "GHSA-w5hq-g745-h8pq": {
     "package": "uuid",
     "reason": "Accepted transitively through dev-only @capacitor/cli -> xcode -> uuid. This repository builds Android, while xcode is iOS project-file tooling; current upstream has no compatible patched chain, and downgrading Capacitor CLI or forcing a uuid major adds mobile-build risk without production-runtime benefit."
+  },
+  "GHSA-2883-xcg3-v3hh": {
+    "package": "js-yaml",
+    "expiry": "2026-12-31",
+    "reason": "Accepted transitively through dev-only openapi-typescript -> @redocly/openapi-core (pinned to js-yaml 4.3.1 in archived v1.34.19). Upstream openapi-typescript 7.13.0 does not yet support @redocly/openapi-core v2. Dev-only tooling with no production runtime impact. Expiry: 2026-12-31."
   }
 }
