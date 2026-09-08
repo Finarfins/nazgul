@@ -93,7 +93,7 @@ def pdf(invoice_id:int,request:Request,db:Session=Depends(get_db)):
     content=build_invoice_pdf(raw,items); log_invoice_action(db,request,cid,invoice_id,"DOWNLOADED",metadata={"format":"pdf"}); db.commit()
     return Response(content,media_type="application/pdf",headers={"Content-Disposition":f'attachment; filename="{raw["invoice_number"]}.pdf"'})
 
-EINVOICE_FIELDS=("einvoice_channel","einvoice_status","einvoice_uuid","einvoice_external_id","einvoice_last_error","einvoice_submitted_at","einvoice_updated_at","einvoice_payload")
+EINVOICE_FIELDS=("einvoice_channel","einvoice_status","einvoice_uuid","einvoice_external_id","einvoice_last_error","einvoice_submitted_at","einvoice_updated_at","einvoice_payload","einvoice_web_key","einvoice_gib_status_code","einvoice_pk_alias")
 
 # Fail-closed, ama uygulamayı öldürmeden: e-Fatura yapılandırılmamışsa ERP'nin
 # geri kalanı normal çalışır, yalnız GÖNDERİM kapalıdır ve bunu açıkça söyler.
@@ -125,7 +125,7 @@ def einvoice_submit(invoice_id:int,request:Request,db:Session=Depends(get_db)):
     if not tax_number:
         raise HTTPException(400,"Firma vergi numarası tanımlı değil; Ayarlar ekranından girin.")
     provider=get_einvoice_provider(settings,company_id=cid); raw=invoice.get("einvoice_payload"); payload=json.loads(raw) if raw else {}
-    channel=invoice.get("einvoice_channel"); status="NONE"; uuid=None; ext=None; err=None
+    channel=invoice.get("einvoice_channel"); status="NONE"; uuid=None; ext=None; err=None; web_key=None; gib_code=None
     customer=payload.get("customer") if isinstance(payload.get("customer"),dict) else {}
     customer_vkn=str(customer.get("vkn_tckn") or "").strip()
     if not customer_vkn:
@@ -136,6 +136,7 @@ def einvoice_submit(invoice_id:int,request:Request,db:Session=Depends(get_db)):
             channel,profile_id=resolve_channel(taxpayer.get("is_efatura_user"))
             payload={**payload,"channel":channel,"profile_id":profile_id}
             result=provider.submit(payload); status=result.status; channel=result.channel or channel; uuid=result.uuid; ext=result.external_id; err=result.error
+            web_key=result.web_key; gib_code=result.gib_status_code
         except Exception as exc:
             status="ERROR"; err=str(exc)[:2000]
     # Spec §5 state machine: forward-only, and ACCEPTED/REJECTED are terminal — a
@@ -143,11 +144,17 @@ def einvoice_submit(invoice_id:int,request:Request,db:Session=Depends(get_db)):
     # ETTN/external id is likewise never cleared by a later failed attempt.
     status=advance_status(invoice.get("einvoice_status"),status)
     uuid=uuid or invoice.get("einvoice_uuid"); ext=ext or invoice.get("einvoice_external_id")
+    # WEB_KEY YALNIZ gönderim yanıtında bir kez döner ve bir daha sorulamaz.
+    # `or` KASITLI: başarısız bir yeniden gönderim, önceki başarılı gönderimin
+    # sakladığı anahtarı SİLMEMELİ — silseydi e-Arşiv PDF'i kalıcı olarak
+    # erişilemez hâle gelirdi (ETTN'in aynı gerekçeyle korunmasının eşi).
+    web_key=web_key or invoice.get("einvoice_web_key"); gib_code=gib_code or invoice.get("einvoice_gib_status_code")
     now=utcnow(); submitted=now if status in ("PENDING","SENT","ACCEPTED") else invoice.get("einvoice_submitted_at")
     db.execute(text("""UPDATE invoices SET einvoice_payload=:payload,einvoice_channel=:c,einvoice_status=:s,einvoice_uuid=:u,einvoice_external_id=:e,
-        einvoice_last_error=:err,einvoice_submitted_at=:sub,einvoice_updated_at=:now WHERE id=:id AND company_id=:cid"""),
+        einvoice_last_error=:err,einvoice_submitted_at=:sub,einvoice_updated_at=:now,einvoice_web_key=:wk,einvoice_gib_status_code=:gsc
+        WHERE id=:id AND company_id=:cid"""),
         {"payload":json.dumps(payload,ensure_ascii=False,sort_keys=True),"c":channel,"s":status,"u":uuid,"e":ext,
-         "err":err,"sub":submitted,"now":now,"id":invoice_id,"cid":cid})
+         "err":err,"sub":submitted,"now":now,"wk":web_key,"gsc":gib_code,"id":invoice_id,"cid":cid})
     log_invoice_action(db,request,cid,invoice_id,"EINVOICE_SUBMIT",metadata={"status":status}); db.commit()
     # NoOp dalı kalktı: yapılandırma eksikse buraya hiç gelinmiyor (503).
     return _einvoice_view(_invoice(db,cid,invoice_id))
@@ -155,3 +162,60 @@ def einvoice_submit(invoice_id:int,request:Request,db:Session=Depends(get_db)):
 @router.get("/{invoice_id}/einvoice/status")
 def einvoice_status(invoice_id:int,request:Request,db:Session=Depends(get_db)):
     cid=company_id(request); return _einvoice_view(_invoice(db,cid,invoice_id))
+
+@router.post("/{invoice_id}/einvoice/sync")
+def einvoice_sync(invoice_id:int,request:Request,db:Session=Depends(get_db)):
+    """Sağlayıcıya SOR ve yerel durumu tazele.
+
+    NEDEN AYRI BİR UÇ (ölçüldü): `GET .../einvoice/status` YALNIZ yerel
+    veritabanını okuyor — sağlayıcıya HİÇ gitmiyor. Yani bir belge GİB'de
+    ACCEPTED olduktan sonra bile bizim tarafta PENDING görünmeye devam
+    ediyordu ve durumu ilerletecek TEK yol yeniden GÖNDERMEKTİ; bu da
+    idempotent olmayan bir yolu okuma amacıyla kullanmak demekti. Bu uç o
+    boşluğu kapatıyor: SORAR, YAZMAZ göndermez.
+
+    GET DEĞİL POST, ve gerekçesi ölçülmüş: bu çağrı DIŞ BİR YAN ETKİ üretiyor
+    (sağlayıcıda oturum açar, kota tüketir) ve YEREL SATIRI YAZAR. GET'in
+    envanterdeki anlamı "read"tir (`test_route_get_permission_inventory`) ve
+    orada yazan bir uç o sözleşmeyi bozardı — yetki `submit` ile AYNI sınıfta
+    kalıyor.
+
+    Durum GERİYE yürüyemez: `advance_status` ileri-yönlüdür ve ACCEPTED /
+    REJECTED terminaldir; geç gelen bir yanıt kabul edilmiş bir belgeyi
+    PENDING'e döndüremez.
+    """
+    cid=company_id(request); invoice=_invoice(db,cid,invoice_id)
+    configuration=einvoice_configuration(settings)
+    if not configuration.configured:
+        logger.warning("e-Fatura durum sorgusu reddedildi: yapılandırma eksik (sebep=%s)",configuration.reason)
+        raise HTTPException(503,EINVOICE_NOT_CONFIGURED)
+    ext=str(invoice.get("einvoice_external_id") or "").strip()
+    if not ext:
+        # Gönderilmemiş bir belgenin sorulacak bir kimliği YOKTUR. Sağlayıcıya
+        # boş bir kimlikle gitmek boş bir yanıt üretir ve bu "belge yok" gibi
+        # okunur — sessiz yanlış yerine gürültülü hata.
+        raise HTTPException(409,"Fatura henüz gönderilmedi; sorgulanacak belge kimliği yok.")
+    provider=get_einvoice_provider(settings,company_id=cid)
+    gib_code=invoice.get("einvoice_gib_status_code"); web_key=invoice.get("einvoice_web_key"); err=None
+    try:
+        result=provider.query_status(ext,channel=invoice.get("einvoice_channel"),uuid=invoice.get("einvoice_uuid"))
+        reported=result.status; err=result.error; gib_code=result.gib_status_code or gib_code
+        # e-Arşiv durum yanıtı WEB_KEY'i tekrar veriyor: gönderimde kaçmışsa
+        # burada yakalanır. `or` yine KASITLI — var olan anahtar SİLİNMEZ.
+        web_key=result.web_key or web_key
+    except Exception as exc:
+        # UNRESOLVED: `advance_status` bunu bir GEÇİŞ SAYMAZ, belgeyi olduğu
+        # yerde bırakır. Başarısız bir sorgu FAILED yazmaz — FAILED "gönderim
+        # hiç inmedi, ETTN yok" demektir ve elimizdeki ETTN onu yalanlar.
+        reported="UNRESOLVED"; err=str(exc)[:2000]
+    status=advance_status(invoice.get("einvoice_status"),reported)
+    now=utcnow()
+    # KİRACI YÜKLEMİ AÇIK: `company_id=:cid` olmadan sızmış bir fatura kimliği
+    # BAŞKA firmanın satırını tazeleyebilirdi. `_invoice` zaten kapsam
+    # denetliyor ama yazma kendi yüklemini TAŞIR — iki koruma aynı şeyi
+    # ölçmüyor (0080'in `_sahip_mi` kaydıyla aynı gerekçe).
+    db.execute(text("""UPDATE invoices SET einvoice_status=:s,einvoice_last_error=:err,
+        einvoice_gib_status_code=:gsc,einvoice_web_key=:wk,einvoice_updated_at=:now WHERE id=:id AND company_id=:cid"""),
+        {"s":status,"err":err,"gsc":gib_code,"wk":web_key,"now":now,"id":invoice_id,"cid":cid})
+    log_invoice_action(db,request,cid,invoice_id,"EINVOICE_SYNC",metadata={"status":status}); db.commit()
+    return _einvoice_view(_invoice(db,cid,invoice_id))

@@ -303,7 +303,13 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 #     reddedilebiliyor.
 #   * `FARM_HERD_VIEW_OPERATIONS` KIMILDAMADI: uclar tarla/suru ailesinden
 #     degil.
-EXPECTED_AUTHENTICATED = 377
+# 20260911 — E1 (e-FATURA SERTLESTIRMESI, goc `20260911_0081`): TEK yeni uc,
+# `POST /api/invoices/{invoice_id}/einvoice/sync`. 377 -> 378.
+#   * `EXPECTED_READ` KIMILDAMADI: uc POST'tur ve izni OLCULDU -> "sales",
+#     "read" DEGIL.
+#   * `EXPECTED_UNDENIABLE` KIMILDAMADI: "sales" ciplak `read` degildir —
+#     tasimayan roller VAR, yani uc bir ROL DEGERIYLE reddedilebiliyor.
+EXPECTED_AUTHENTICATED = 378
 EXPECTED_READ = 99
 EXPECTED_UNDENIABLE = 114
 

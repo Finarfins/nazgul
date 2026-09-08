@@ -12,6 +12,10 @@ frontend/.env.local
 backend/.env.izibiz.local
 backend/.env.izibiz.local.txt
 **/.env.izibiz.*
+# ...ama ŞABLON izlenir: BOŞ değerlerle, hangi anahtarların gerektiğini
+# göstermek için. Negasyon `**/.env.izibiz.*` kuralından SONRA gelmek
+# ZORUNDA — önce yazılsaydı sonraki desen onu yeniden yok sayardı.
+!backend/.env.izibiz.local.example
 *.pem
 *.key
 *.crt

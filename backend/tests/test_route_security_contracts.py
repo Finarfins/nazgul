@@ -524,8 +524,25 @@ DYNAMIC_PERMISSION_CASES = {
 # 385/295 -> 389/299 olarak YENIDEN olculdu, (6) EN SON parmak izi turetildi.
 #
 # Baska hicbir ucun sozlesmesi degismedi.
-EXPECTED_OPERATION_COUNT = 389
-EXPECTED_PATH_COUNT = 299
+#
+# 20260911 — E1 (e-FATURA SERTLESTIRMESI, goc `20260911_0081`): TEK yeni uc,
+# `POST /api/invoices/{invoice_id}/einvoice/sync`. Sayim 389/299 -> 390/300.
+# YOL da bir arttigi icin PATH sayaci da kimildadi: `einvoice/sync` var olan
+# bir yolun yeni bir METODU degil, YENI BIR YOLDUR.
+#
+# IZIN OLCULDU, VARSAYILMADI: `required_permission("POST",
+# "/api/invoices/{invoice_id}/einvoice/sync")` -> "sales". YENI BIR ONEK
+# KURALI EKLENMEDI ve eklenmesi de GEREKMEDI: `app/auth.py`de zaten
+# `path.startswith("/api/invoices")` -> "sales" kurali var ve yeni uc o
+# onekin ALTINA dusuyor; `submit` ile AYNI yetki sinifinda, ki dogrusu da
+# budur — ikisi de sagalayiciya cikip yerel satiri yaziyor.
+#
+# UC NEDEN GET DEGIL POST: `GET`in envanterdeki anlami "read"
+# (`test_route_get_permission_inventory`) ve bu cagri hem yerel satiri YAZIYOR
+# hem de sagalayicida oturum acip kota tuketiyor. GET yazilsaydi o sozlesme
+# bozulurdu; nitekim GET envanteri bu turda KIMILDAMADI.
+EXPECTED_OPERATION_COUNT = 390
+EXPECTED_PATH_COUNT = 300
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -688,7 +705,14 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # WA2 (goc 20260910_0079): DORT yeni sozlesme girdi, sira yukaridaki
     # notta yazili ve parmak izi EN SON alindi.
     # Parmak izi c7357d03 -> 61223c75 (TABAN develop `27916d7`).
-    "61223c75c7e5e2254db6d621b3d89f7abecdf6bc01c6d6213d34968156646feb"
+    # 20260911 E1 (e-FATURA SERTLESTIRMESI, goc `20260911_0081`): TEK yeni uc
+    # `POST /api/invoices/{invoice_id}/einvoice/sync` — sagalayiciya SORAR,
+    # gondermez; `GET .../einvoice/status`in yalniz YEREL DB okumasi yuzunden
+    # bir belgenin durumu ilerletilemiyordu ve tek yol YENIDEN GONDERMEKTI.
+    # Izin `required_permission` ile OLCULDU -> "sales" (`/api/invoices`
+    # oneginin altinda, `submit` ile AYNI sinif); YENI ONEK KURALI EKLENMEDI.
+    # Sayim 389/299 -> 390/300. Parmak izi 61223c75 -> 5cadacb3.
+    "5cadacb359d1cb4759063229aad81cfdc2f403ce3735b94397385f0da9ec86d2"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

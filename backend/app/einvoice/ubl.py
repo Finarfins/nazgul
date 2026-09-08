@@ -26,6 +26,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from ..money import HUNDRED, ZERO, money, percentage, quantity
+from .errors import UblBuildError
 
 
 #: Namespace for the client ETTN. Fixed forever: changing it would re-issue new
@@ -43,6 +44,59 @@ DEFAULT_UNIT_CODE = "C62"  # UN/ECE Rec.20: "one / adet"
 
 CHANNEL_EFATURA = "EFATURA"
 CHANNEL_EARSIV = "EARSIV"
+
+#: UN/ECE Recommendation 20 birim kodları. UBL-TR ``unitCode`` bu listeden bir
+#: kod ister; Türkçe bir kelime ("adet", "kg") ORADA GEÇERSİZDİR.
+#:
+#: ÖLÇÜLDÜ: bu eşleme YOKKEN ``build_einvoice_payload`` ürün biriminin metnini
+#: ``unit_code`` alanına OLDUĞU GİBİ yazıyordu ve XML'e
+#: ``unitCode="kg"`` çıkıyordu — şema dışı bir değer.
+UNECE_UNIT_CODES: dict[str, str] = {
+    "adet": "C62",
+    "kg": "KGM",
+    "lt": "LTR",
+    "ton": "TNE",
+    "m": "MTR",
+    "paket": "PA",
+}
+
+
+def resolve_unit_code(unit: Any) -> str:
+    """Bir birim adını UN/ECE koduna çevir; BİLİNMEYENDE HATA.
+
+    **Sessiz C62'ye düşmek KASITLI OLARAK reddedildi.** Bilinmeyen bir birim
+    "adet" DEĞİLDİR: 3 ton buğdayı ``unitCode="C62"`` ile göndermek GİB'e
+    "3 adet" demektir ve belge SESSİZCE yanlış olur — reddedilmez, kabul edilir
+    ve yanlış kalır. Kod listesinde olmayan bir birim, bilinmeyen bir birimdir
+    ve doğrusu belgeyi HİÇ üretmemektir.
+
+    Zaten geçerli bir UN/ECE kodu verilmişse (``C62``, ``KGM``) olduğu gibi
+    kabul edilir: çağıran taraf kodu doğrudan biliyor olabilir.
+    """
+    text = str(unit or "").strip()
+    if not text:
+        return DEFAULT_UNIT_CODE
+    mapped = UNECE_UNIT_CODES.get(text.casefold())
+    if mapped:
+        return mapped
+    if text.upper() in set(UNECE_UNIT_CODES.values()):
+        return text.upper()
+    raise UblBuildError(
+        f"Birim UN/ECE Rec.20 kod listesinde yok: {text!r} — "
+        "sessizce C62 (adet) varsayılmaz"
+    )
+
+
+#: %0 KDV'li satır GEREKÇESİZ olamaz. UBL-TR, ``Percent`` 0 iken
+#: ``TaxExemptionReasonCode`` + ``TaxExemptionReason`` ZORUNLU tutar.
+#:
+#: 351 = "Diğer İstisnalar" (GİB KDV istisna kod listesi). Bu bir VARSAYILANDIR
+#: ve firma başına değiştirilebilir OLMASI gerekir — ama bu dilim GÖÇSÜZ bir
+#: firma ayarı AÇMIYOR: yeni bir sütun ayrı bir göç demektir ve bu göç zaten
+#: üç sütun taşıyor. Ayar buraya bir SABİT olarak yazıldı; firma bazlı geçersiz
+#: kılma AÇIK BİR EKSİKTİR ve kaydı `docs/efatura-adapter-spec.md`dedir.
+DEFAULT_TAX_EXEMPTION_REASON_CODE = "351"
+DEFAULT_TAX_EXEMPTION_REASON = "Diğer İstisnalar"
 
 #: Fields a provider must have before an envelope may leave the building.
 REQUIRED_FIELDS: tuple[tuple[str, str], ...] = (
@@ -140,6 +194,26 @@ def _issue_parts(issued_at: Any) -> tuple[str | None, str | None]:
     return (date_part or None), (time_part or None)
 
 
+
+def _tax_subtotal(rate: str, taxable: Decimal, tax: Decimal) -> dict[str, Any]:
+    """Tek bir KDV oranı kovası; **%0 ise istisna gerekçesiyle birlikte**.
+
+    UBL-TR, ``Percent`` 0 iken ``TaxExemptionReasonCode`` ister. Kod
+    yazılmazsa belge şema seviyesinde eksiktir ve İzibiz reddeder. Sıfırdan
+    farklı oranlarda bu iki alan YAZILMAZ — istisna kodu taşıyan %20'lik bir
+    satır da aynı ölçüde yanlıştır.
+    """
+    entry: dict[str, Any] = {
+        "tax_rate": rate,
+        "taxable_amount": _amount(taxable),
+        "tax_amount": _amount(tax),
+    }
+    if percentage(rate) == ZERO:
+        entry["tax_exemption_reason_code"] = DEFAULT_TAX_EXEMPTION_REASON_CODE
+        entry["tax_exemption_reason"] = DEFAULT_TAX_EXEMPTION_REASON
+    return entry
+
+
 def build_einvoice_payload(invoice_snapshot: dict[str, Any]) -> dict[str, Any]:
     """Map the existing invoice snapshots into TR e-Fatura fields.
 
@@ -177,7 +251,9 @@ def build_einvoice_payload(invoice_snapshot: dict[str, Any]) -> dict[str, Any]:
                 "id": index,
                 "name": item.get("description"),
                 "quantity": str(line_quantity),
-                "unit_code": str(item.get("unit_code") or DEFAULT_UNIT_CODE),
+                # UN/ECE Rec.20 kod listesi. Ürün birimi ("kg") burada koda ("KGM")
+                # çevrilir; bilinmeyen birim SESSİZCE C62 olmaz, HATA olur.
+                "unit_code": resolve_unit_code(item.get("unit_code") or item.get("unit")),
                 # Bizim alanımız KDV DAHİL birim fiyat; UBL-TR ``PriceAmount``
                 # alanında HARİÇ ister. İkisi de taşınır, karıştırılmasın diye
                 # ayrı adlarla.
@@ -221,15 +297,16 @@ def build_einvoice_payload(invoice_snapshot: dict[str, Any]) -> dict[str, Any]:
         "customer": {
             "vkn_tckn": customer.get("tax_number"),
             "name": customer.get("name"),
+            # ALICI VERGİ DAİRESİ. Önce TAŞINMIYORDU: satıcı tarafı
+            # `tax_office`u geçiyor, alıcı tarafı geçmiyordu ve tüzel kişi
+            # alıcıda UBL `PartyTaxScheme/TaxScheme/Name` her zaman "-" ile
+            # doluyordu.
+            "tax_office": customer.get("tax_office"),
             "address": customer.get("address"),
         },
         "lines": lines,
         "tax_subtotals": [
-            {
-                "tax_rate": rate,
-                "taxable_amount": _amount(values[0]),
-                "tax_amount": _amount(values[1]),
-            }
+            _tax_subtotal(rate, values[0], values[1])
             for rate, values in sorted(tax_subtotals.items())
         ],
         # Sözleşme: ``tax_total`` ve ``payable_amount`` anlık görüntüdeki

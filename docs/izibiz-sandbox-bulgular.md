@@ -322,3 +322,88 @@ noktasının fail-closed davranışı, çağrı-başına yeniden değerlendirme,
 mutasyon testi (kilit sökülünce çağrı `efaturaws.izibiz.com.tr`'ye ulaşıyor ve
 `PENDING` + gerçek `external_id` üretiyor). Dosyada `socket.socket` etkisiz
 hâle getirilmiş; hiçbir test soket açamaz.
+
+---
+
+## §7 — E1 SERTLEŞTİRME KOŞUSU (2026-09-08, GERÇEK SANDBOX)
+
+Koşan dosya: `backend/sandbox/test_e1_izibiz_sandbox.py`
+(`5 passed, 1 skipped, 2 xfailed`). Konak `efaturatest.izibiz.com.tr`,
+`IZIBIZ_ENV=test`. Kimlikler yalnız bellekte; hiçbir değer kayda geçmedi.
+
+### 7.1 — KANITLANANLAR
+
+**e-Arşiv gönderimi BUGÜN de kabul ediliyor** ve yeni UBL alanlarıyla birlikte:
+UN/ECE birim kodu (`kg` → `unitCode="KGM"`), %0 KDV'de
+`TaxExemptionReasonCode=351`, ve alıcı vergi dairesi. Ölçülen belge kimlikleri
+(hepsi ayrı koşulardan, hepsi `status=PENDING`):
+
+| belge kimliği | ölçülen |
+|---|---|
+| `SNG2026833641341` | ilk başarılı gönderim; `WEB_KEY` GELDİ |
+| `SNG2026962923391` | `DOCUMENT_TYPE` düzeltmesinden sonra |
+| `SNG2026466356080` | ETTN `778cbf46-581d-517b-8504-4f9a4a0daaf1`; yoklama turu |
+| `SNG2026765340161` | son yeşil koşu |
+
+**`WEB_KEY` GERÇEKTEN DÖNÜYOR** — göç `20260911_0081`in
+`invoices.einvoice_web_key` sütununun bütün dayanağı budur. Değer çıplak bir
+anahtar DEĞİL, `webValidationKey=` parametresi taşıyan bir portal URL'idir ve
+ilan edilen 255 haneye sığıyor (ölçüldü).
+
+**B2B kapısı KAPALIYKEN gerçekten kapalı:** `IZIBIZ_EFATURA_SUBMIT_VERIFIED`
+`False` iken `TICARIFATURA` gönderimi ağa HİÇ ÇIKMADAN reddedildi
+(`status=FAILED`, `external_id=None`). Alıcı olarak sandbox'ın kendi posta
+kutusu (`urn:mail:defaultpk@izibiz.com.tr`) hedeflenmişti.
+
+### 7.2 — ÜÇ TEL HATASI, ÜÇÜ DE ÖLÇÜMLE BULUNDU
+
+Üçü de tahminle yazılmıştı ve üçünü de sandbox reddederek düzeltti:
+
+1. **`IssueDate` GELECEK TARİHLİ OLAMAZ.** Sabit `2026-09-11` yazılmıştı;
+   cevap `ERROR_CODE=10003 SCHEMATRON KONTROL SONUCU HATALI (1:Geçersiz
+   cbc:IssueDate değeri : '2026-09-11' … günün tarihinden ileri bir tarih
+   olamaz)`. Test artık BUGÜNÜN tarihini üretiyor.
+2. **Fatura numarasının son dokuz hanesi RAKAM olmak ZORUNDA.**
+   `uuid4().hex` harf karıştırıyordu (`SNG20263BCA97661`) ve aynı Schematron
+   kapısına takılıyordu.
+3. **`GetEArchiveInvoiceRequest` yalnız `REQUEST_HEADER` + `WEB_VALIDATION_KEY`
+   alır.** Eklenen `DOCUMENT_TYPE` şema dışıydı:
+   `ERROR_CODE=10013 "Gönderilen istek geçersizdir. INVALID XML!
+   cvc-complex-type.2.4b"`. Şema CANLI WSDL'den okundu
+   (`/EIArchiveWS/EFaturaArchive?wsdl` → `?xsd=5`), tahmin edilmedi.
+   `DOCUMENT_TYPE` PDF'i seçmiyor; yanıt belgeyi `INVOICE` alanında veriyor.
+
+### 7.3 — KANITLANAMAYANLAR (AÇIK, GİZLENMEDİ)
+
+**Taze bir e-Arşiv belgesi için durum sorgusu ve PDF ÇÖZÜLMÜYOR.**
+`GetEArchiveInvoiceStatus` boş dönüyor (`RETURN_CODE=0`, `INVOICE` yok) ve
+`GetEArchiveInvoice` PDF vermiyor (`PDF_YOK`). 0/3/8/15/30/45 sn beklenerek
+yoklandı, TOPLAM ~100 sn: durum HEP `UNRESOLVED` kaldı — yani ZAMANLAMA
+DEĞİL. Gönderimin kendisi başarılı olduğu için bu bir gönderim hatası da
+değildir.
+
+Sebep ÖLÇÜLMEDİ ve bu yüzden VARSAYILMIYOR. En olası aday: sorgu bizim
+İSTEMCİ ETTN'imizle (uuid5) yapılıyor, oysa İzibiz belgeyi KENDİ ürettiği bir
+kimlikle anahtarlıyor olabilir — kayıtlı fixture'daki UUID
+(`034EE590-0D2F-4291-9B71-4AA1060FFA7E`) bizim türettiğimize benzemiyor. Bu
+bir SONRAKİ DİLİMİN işidir.
+
+Sonuç olarak `fetch_pdf`in e-Arşiv dalı ARTIK ŞEMAYA UYGUN BİR İSTEK KURUYOR
+(önce hiç kurmuyordu) ama bugün PDF döndürdüğü KANITLANMADI. Sessizce boş bayt
+dönmüyor: `PDF_YOK` ile gürültülü düşüyor. İki test bu gerçeği
+`xfail(strict=False)` ile taşıyor; sandbox çözer hâle gelirse XPASS olur ve
+satır gözden geçirilir.
+
+### 7.4 — B2B KAPISI: `False` KALIYOR
+
+`IZIBIZ_EFATURA_SUBMIT_VERIFIED` **DEĞİŞTİRİLMEDİ, `False` kaldı.** Kapıyı
+açmak için gereken kanıt BAŞARILI BİR `SendInvoice` + onun
+`GetInvoiceStatus` cevabıdır. O gönderim YAPILMADI: kapı zaten kapalı olduğu
+için adaptör isteği ağa çıkarmadan reddediyor ve kapıyı "denemek için" geçici
+olarak açmak, doğrulanmamış bir gönderimin CANLI BİR BELGE üretmesi riskini
+alırdı — okuma yollarının aksine burada hata GERİ ALINAMAZ.
+
+Dahası, e-Arşiv tarafında durum sorgusunun bugün çözülmediği ÖLÇÜLDÜ (§7.3);
+`GetInvoiceStatus` cevabı alınamadan açılan bir kapı, gönderilen belgenin
+akıbetini SORAMAYACAĞIMIZ bir kanal açmak olurdu. Kapı, §7.3 kapandıktan
+sonra ayrı bir dilimde ve kanıtıyla birlikte açılmalıdır.

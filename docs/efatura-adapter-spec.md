@@ -156,3 +156,55 @@ Ham sağlayıcı gövdesi yalnızca `raw` içinde (audit), UI'ya çıkmaz.
 - `query_status` hiçbir mock'ta koşulsuz ACCEPTED dönmez (regresyon bekçisi).
 - UBL payload toplamları iç fatura ile kuruşuna eşit (mevcut test korunur).
 - Kimlik bilgilerinin log/`raw`/hata mesajına sızmadığı test edilir.
+
+---
+
+## §9 — E1 SERTLEŞTİRMESİNİN AÇIK BIRAKTIKLARI (göç `20260911_0081`)
+
+Üçü de BİLİNEREK açık; her biri AYRI bir dilimin işidir ve gerekçesi burada.
+
+### 9.1 — %0 KDV istisna kodu FİRMA BAZLI DEĞİL
+
+`app/einvoice/ubl.py::DEFAULT_TAX_EXEMPTION_REASON_CODE` bir **SABİTTİR**
+(`351` — "Diğer İstisnalar"). UBL-TR, `Percent` 0 iken
+`TaxExemptionReasonCode` ZORUNLU tuttuğu için bir değer YAZILMAK ZORUNDAYDI
+ve kodsuz göndermek belgeyi şema seviyesinde eksik bırakırdı.
+
+Doğrusu bunun **firma başına** ayarlanabilmesidir: bir işletmenin %0'ları
+ihracat istisnası (`301`) olabilirken bir diğerininki tarımsal istisna
+olabilir ve `351` ikisi için de "en azından geçerli" ama "en doğru" değildir.
+
+**BU DİLİMDE AÇILMADI ve sebebi ölçülmüştür:** firma bazlı bir geçersiz kılma
+YENİ BİR SÜTUN demektir, yeni sütun AYRI BİR GÖÇ demektir ve bu göç zaten üç
+sütun taşıyor. Ayarı "göçsüz" bir yere (ör. JSON bir ayar alanına) sıkıştırmak
+daha kötü olurdu: vergi belirleyen bir değerin şemasız yaşaması, denetlenmesi
+ve kısıtlanması imkânsız bir alan yaratırdı.
+
+**Kapandığında ne değişmeli:** sabit, firma ayarından okunan bir çözücüye
+dönüşür; `_tax_subtotal` çağıranından kodu ALIR, kendi varsayılanını
+UYDURMAZ. `test_e1_efatura_sertlestirme.py::test_SIFIR_KDV_ISTISNA_KODU_URETIYOR`
+o gün değişmelidir.
+
+### 9.2 — ADRESTE İL/İLÇE YOK (`CityName` = "-")
+
+**ÖLÇÜLDÜ, VARSAYILMADI:** `app/core_schema.py`de `customers` tablosunda
+YALNIZ `address` (Text) var; `city`/`district` sütunu YOKTUR. Kaynakta il/ilçe
+olmadığı için UBL'e yazılacak bir değer de yoktur.
+
+Adresi ayrıştırmak (virgülden bölmek gibi) düşünüldü ve REDDEDİLDİ: bu
+UYDURMAKTIR ve **yanlış bir il, boş bir ilden daha kötüdür** — boş bir alan
+"bilmiyoruz" der, yanlış bir il "biliyoruz" der ve yanılır.
+
+Sütunların YOKLUĞU teste ÇİVİLENDİ
+(`test_e1_efatura_sertlestirme.py::test_ADRES_ILI_KAYNAKTA_YOK_OLCULDU`):
+`customers`a `city` ya da `district` eklendiği anda o test KIRMIZI olur ve
+UBL'in de güncellenmesi gerektiğini ADIYLA söyler.
+
+### 9.3 — e-ARŞİV DURUM/PDF ÇÖZÜLMÜYOR, B2B KAPISI KAPALI
+
+`fetch_pdf`in e-Arşiv dalı artık ŞEMAYA UYGUN bir istek kuruyor (önce hiç
+kurmuyordu) ama sandbox'ta PDF döndürdüğü KANITLANAMADI; durum sorgusu da taze
+bir belge için boş dönüyor. ~100 sn yoklandı, zamanlama değil. Ölçüm ve olası
+sebep: `docs/izibiz-sandbox-bulgular.md` §7.3.
+
+`IZIBIZ_EFATURA_SUBMIT_VERIFIED` bu yüzden `False` kaldı — §7.4.

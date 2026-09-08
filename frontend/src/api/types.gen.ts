@@ -2616,6 +2616,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/invoices/{invoice_id}/einvoice/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Einvoice Sync
+         * @description Sağlayıcıya SOR ve yerel durumu tazele.
+         *
+         *     NEDEN AYRI BİR UÇ (ölçüldü): `GET .../einvoice/status` YALNIZ yerel
+         *     veritabanını okuyor — sağlayıcıya HİÇ gitmiyor. Yani bir belge GİB'de
+         *     ACCEPTED olduktan sonra bile bizim tarafta PENDING görünmeye devam
+         *     ediyordu ve durumu ilerletecek TEK yol yeniden GÖNDERMEKTİ; bu da
+         *     idempotent olmayan bir yolu okuma amacıyla kullanmak demekti. Bu uç o
+         *     boşluğu kapatıyor: SORAR, YAZMAZ göndermez.
+         *
+         *     GET DEĞİL POST, ve gerekçesi ölçülmüş: bu çağrı DIŞ BİR YAN ETKİ üretiyor
+         *     (sağlayıcıda oturum açar, kota tüketir) ve YEREL SATIRI YAZAR. GET'in
+         *     envanterdeki anlamı "read"tir (`test_route_get_permission_inventory`) ve
+         *     orada yazan bir uç o sözleşmeyi bozardı — yetki `submit` ile AYNI sınıfta
+         *     kalıyor.
+         *
+         *     Durum GERİYE yürüyemez: `advance_status` ileri-yönlüdür ve ACCEPTED /
+         *     REJECTED terminaldir; geç gelen bir yanıt kabul edilmiş bir belgeyi
+         *     PENDING'e döndüremez.
+         */
+        post: operations["einvoice_sync_api_invoices__invoice_id__einvoice_sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/invoices/{invoice_id}/history": {
         parameters: {
             query?: never;
@@ -15549,6 +15586,37 @@ export interface operations {
         };
     };
     einvoice_submit_api_invoices__invoice_id__einvoice_submit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invoice_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    einvoice_sync_api_invoices__invoice_id__einvoice_sync_post: {
         parameters: {
             query?: never;
             header?: never;

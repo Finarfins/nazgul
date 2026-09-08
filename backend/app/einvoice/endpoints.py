@@ -249,6 +249,21 @@ IZIBIZ_FIELD_STATUS = ("STATUS", "STATUS_CODE")
 IZIBIZ_FIELD_REASON = ("STATUS_DESC", "STATUS_DESCRIPTION", "ERROR_SHORT_DES", "ERROR_LONG_DES")
 IZIBIZ_FIELD_ERROR_CODE = ("ERROR_CODE",)
 IZIBIZ_FIELD_PDF = ("CONTENT", "INVOICE")
+
+#: e-Arşiv gönderim yanıtındaki doğrulama anahtarı. `GetEArchiveInvoice`
+#: belgeyi UUID ile DEĞİL bu anahtarla ister; anahtar YALNIZ
+#: `WriteToArchiveExtended` yanıtında bir kez döner ve tekrar sorulamaz.
+#: İki ad da gözlendi (yanıt zarfında `WEB_KEY`, şemada `WEB_VALIDATION_KEY`).
+IZIBIZ_FIELD_WEB_KEY = ("WEB_KEY", "WEB_VALIDATION_KEY")
+
+#: GİB'in HAM durum kodu. `IZIBIZ_FIELD_STATUS` iç duruma EŞLENİRKEN kod
+#: kayboluyor (`105` de `130` da tek bir iç duruma düşer); bu alan kodun
+#: kendisini iç durumun YANINDA taşır.
+#: ÖLÇÜLDÜ (fixture `GetEArchiveInvoiceStatus.200.xml`): e-Arşiv yanıtında ham
+#: kod `STATUS` içinde geliyor (`105`), `STATUS_CODE` içinde DEĞİL. Sıra bu
+#: yüzden `STATUS_CODE` -> `STATUS`: e-Fatura tarafı ayrı bir kod alanı
+#: taşıyorsa o tercih edilir, yoksa e-Arşiv'in `STATUS`u okunur.
+IZIBIZ_FIELD_GIB_STATUS_CODE = ("STATUS_CODE", "STATUS")
 #: Boolean bir mükellefiyet alanı YOK. ``CheckUser`` cevabı ``USER`` eleman
 #: SAYISIYLA verir: ≥1 etiket ⇒ e-Fatura mükellefi, 0 ⇒ değil. Adaptör bu yüzden
 #: bir alan değil, eleman sayısı okur.

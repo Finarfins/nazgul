@@ -32,6 +32,18 @@ UNKNOWN = "UNKNOWN"
 
 REDACTED = "***"
 
+
+class UblBuildError(ValueError):
+    """UBL üretilemedi — eksik/uyumsuz alan. Yarım belge üretmektense hata.
+
+    TANIMI BURAYA TAŞINDI (önce `ubl_xml.py`deydi). Sebep ölçüldü: `ubl.py`
+    artık birim kodu çözülemediğinde bu hatayı fırlatıyor ve `ubl_xml` zaten
+    `ubl`den SONRA gelen katman — tanım orada kalsaydı `ubl -> ubl_xml -> ubl`
+    diye DÖNGÜSEL bir içe aktarma doğardı. `ubl_xml` adı yeniden dışa
+    aktarıyor, yani var olan `from .ubl_xml import UblBuildError` çağrıları
+    KIRILMADI.
+    """
+
 #: spec §6 — sabit son kullanıcı mesajları. Ham sağlayıcı metni buraya girmez.
 ERROR_MESSAGES_TR: dict[str, str] = {
     AUTH: "e-Fatura sağlayıcı girişi başarısız — kimlik bilgilerini kontrol edin.",
