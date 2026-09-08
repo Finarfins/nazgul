@@ -279,9 +279,14 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 #   kaydedebilir ve okuyabilir. Yüzey DAR — okunan ve yazılan şey yalnız
 #   ÇAĞIRANIN KENDİ cihazlarıdır (`user_id` istekten değil OTURUMDAN
 #   geliyor), yani bu uçlar başka bir aktörün verisine HİÇ ulaşmıyor.
-EXPECTED_AUTHENTICATED = 372
-EXPECTED_READ = 98
-EXPECTED_UNDENIABLE = 113
+# 372/98/113 -> 373/99/114 (TABAN develop `0538a4a`, YENIDEN OLCULDU):
+# 1B-G — parti mutabakatinin TEK OKUMA ucu (GOC YOK). UCU DE BIRLIKTE ARTTI
+# ve bu bir aritmetik degil bir SINIFLANDIRMADIR: uc kimlik dogrulanmis
+# (authenticated +1), izni `read` (read +1) ve handler'da ikinci bir yetki
+# kapisi YOK, yani REDDEDILEMEYENLER kumesine giriyor (undeniable +1).
+EXPECTED_AUTHENTICATED = 373
+EXPECTED_READ = 99
+EXPECTED_UNDENIABLE = 114
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
 #: sonra kendi kapılarına takılırlar. 89'a dahil, 94'e DEĞİL.
@@ -502,6 +507,13 @@ NAKED_READ_OPERATIONS = {
     ("GET", "/api/payment-allocations/payments/{payment_id}"),
     ("GET", "/api/pos/lookup"),
     ("GET", "/api/products"),
+    # 1B-G parti mutabakati (GOC YOK). CIPLAK read ve gerekcesi 1B-A'nin
+    # parti okumasiyla AYNI: handler'da ikinci bir YETKI kapisi YOK.
+    # Uc URUN KIMLIGI ALMAZ — kiraci genelinde okur — yani yanindaki
+    # urun uclarinin yaslandigi 404 kapisi burada YOKTUR; kapsam TAMAMEN
+    # sorgunun kiraci yukleminden gelir ve o yuklem UC yerde LITERALDIR
+    # (`tests/test_1b_g_mutabakat.py` onu ADIYLA sayiyor).
+    ("GET", "/api/products/lots/mutabakat"),
     ("GET", "/api/products/stock/movements/all"),
     ("GET", "/api/products/{product_id}/current"),
     ("GET", "/api/products/{product_id}/warehouse-stock"),
@@ -644,7 +656,9 @@ def test_eightynine_partitions_into_sixtysix_and_twentythree() -> None:
     # 69 -> 72: 5.4c'nin ÜÇ push cihaz ucu (göç 20260909_0077). Gerekçeleri
     # kümenin girdisinde tek tek yazılı; özeti: `/api/push/` öneki `read`e
     # çözülüyor ve handler'daki tek denetim SAHİPLİKTİR, ROL DEĞİL.
-    assert len(naked_read) == 72
+    # 72 -> 73: 1B-G'nin `GET /api/products/lots/mutabakat`u, AYNI
+    # gerekceyle — handler'da ikinci bir yetki kapisi YOK.
+    assert len(naked_read) == 73
     # Bölünme: kesişim boş ve birleşim TAM. Sayılar tutup üyelik tutmazsa burası kırmızı.
     assert guarded <= read_ops
     assert naked_read | guarded == read_ops

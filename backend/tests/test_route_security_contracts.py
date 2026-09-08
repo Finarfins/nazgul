@@ -89,6 +89,16 @@ ROUTE_REASON_GROUPS = (
             # ve `warehouses` birleştirmesi kiracı İÇİNDE kuruluyor
             # (`w.company_id=l.company_id`); ürün başka firmaya aitse ürün
             # kapısı zaten 404 döner ve parti SAYISI bile sızmaz.
+            # Parti mutabakati (1B-G). Kok yuklem UC yerde LITERAL
+            # (`UNION`un iki kolu + parti toplami alt sorgusu) ve dis
+            # birlestirmeler kiraciyi surucu kumeden DEVRALIR
+            # (`ws.company_id=p.company_id`) — `WHERE`e tasinan bir dis
+            # birlestirme yuklemi, birlestirmeyi sessizce IC birlestirmeye
+            # cevirir ve partisi olmayan cift raporda HIC gorunmezdi.
+            # Uc URUN KIMLIGI ALMAZ: kiraci genelinde okuma yapar ve o
+            # yuzden urun kapisinin 404'una da yaslanamaz — kapsam TAMAMEN
+            # sorgunun yukleminden gelir.
+            ("GET", "/api/products/lots/mutabakat"),
             ("GET", "/api/products/{product_id}/lots"),
             ("GET", "/api/suppliers"),
             ("GET", "/api/suppliers/{supplier_id}"),
@@ -395,8 +405,25 @@ DYNAMIC_PERMISSION_CASES = {
 # ucu de kiraci kapsamlidir AMA ondan DAHA DARDIR (`user_id` de OTURUMDAN
 # geliyor), ve DELETE ayrica SAHIPLIK ister. Baska hicbir ucun sozlesmesi
 # degismedi.
-EXPECTED_OPERATION_COUNT = 382
-EXPECTED_PATH_COUNT = 293
+# 382/293 -> 383/294 (TABAN develop `0538a4a`, yani #75/1B-F ve #76/5.4c
+# indikten SONRA; YENIDEN OLCULDU, onceki turun olcumu ARITMETIKLE
+# tasinmadi): 1B-G — PARTI MUTABAKATININ OKUMASI (GOC YOK). TEK islem, TEK
+# yol: GET /api/products/lots/mutabakat.
+#
+# YENI BIR IZIN AILESI ACILMADI ve `auth.py`ye SATIR EKLENMEDI: yol
+# `/api/products` onekindedir ve izin ZATEN dogru aileden geliyor. Bu
+# VARSAYILMADI, OLCULDU — `required_permission("GET",
+# "/api/products/lots/mutabakat")` -> "read".
+#
+# SIRA bu dosyanin notundaki kurala gore izlendi (parmak izini YANLIS izinle
+# dondurmak burada IKI KEZ yasandi): (1) uc yazildi, (2) izin
+# `required_permission` ile OLCULDU, (3) `ROUTE_REASONS`a kiraci kapsamli
+# okuma kumesine gerekcesiyle girdi, (4) sayim 383/294 olarak YENIDEN
+# OLCULDU, (5) EN SON parmak izi turetildi.
+#
+# Baska hicbir ucun sozlesmesi degismedi.
+EXPECTED_OPERATION_COUNT = 383
+EXPECTED_PATH_COUNT = 294
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -543,7 +570,11 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # dosyanin notu parmak izini YANLIS izinle dondurmanin iki kez
     # yasandigini soyluyor; sira o yuzden yazili.
     # Parmak izi 25fa635c -> 16a0ec60 (TABAN develop `77be889`).
-    "16a0ec609c4de00b0fac173f241b33fddd6bc4e246d505258258fafd0f30e36c"
+    # 1B-G (GOC YOK): parmak izi EN SON alindi — once uc yazildi, sonra izin
+    # `required_permission` ile OLCULDU ("read"), sonra `ROUTE_REASONS`a
+    # gerekcesiyle girdi, sonra sayim 383/294 olarak yeniden olculdu, EN SON
+    # parmak izi turetildi. 16a0ec60 -> c0b0754c (TABAN develop `0538a4a`).
+    "c0b0754cf68828fd0cdc5afe32dc4f4826e4ace6910f6836b3528d540ada5750"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 
