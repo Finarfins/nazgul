@@ -146,6 +146,28 @@ class Settings(BaseSettings):
     whatsapp_verify_token: SecretStr | None = None
     whatsapp_phone_number_id: str = ""
 
+    # WA3-full: GİDEN mesaj sağlayıcısı ve kalıcı işçi.
+    #
+    # `whatsapp_access_token` BOŞ = sağlayıcı NoOp'tur ve HİÇBİR ağ çağrısı
+    # yapılmaz (`app/whatsapp/saglayici.py::saglayici_al`). Jeton yalnız
+    # `SecretStr` olarak taşınır ve HİÇBİR günlük satırına girmez; kapı
+    # `tests/test_wa3_worker.py::test_JETON_HICBIR_GUNLUGE_YAZILMIYOR`.
+    whatsapp_access_token: SecretStr | None = None
+    # Graph adresi ayardan gelir ki testler ağa çıkmadan URL'i ölçebilsin;
+    # varsayılan Meta'nın resmî tabanıdır.
+    whatsapp_graph_base_url: str = "https://graph.facebook.com"
+    whatsapp_graph_version: str = "v21.0"
+    # İŞÇİ VARSAYILAN KAPALI — `field_stock_outbox_enabled` ile AYNI sınıf
+    # bir karar. Açık varsayılan, yapılandırılmamış her kurulumda bir
+    # thread açar ve kuyruğu işlerdi; kuyruk zaten yalnız webhook
+    # yapılandırılmışsa dolar, ama "kapalı kanal hiçbir thread açmaz"
+    # cümlesi ÖLÇÜLEBİLİR olmalı (`test_ISCI_VARSAYILAN_KAPALI`).
+    whatsapp_worker_enabled: bool = False
+    whatsapp_worker_interval_seconds: int = 5
+    # Tek turda kaç mesaj işlenir. Kuyruğun tamamını tek turda işlemek,
+    # düşen bir sağlayıcıda turu dakikalarca açık tutardı.
+    whatsapp_worker_batch: int = 10
+
     # Notification delivery seam. The safe default is inert and never performs
     # a network call; Twilio/WhatsApp are wiring-only stubs for a later adapter.
     notification_provider: str = "noop"
@@ -236,6 +258,22 @@ class Settings(BaseSettings):
             raise ValueError(
                 "FIELD_STOCK_OUTBOX_INTERVAL_SECONDS 1 ile 3600 arasinda olmalidir"
             )
+        return value
+
+    @field_validator("whatsapp_worker_interval_seconds")
+    @classmethod
+    def validate_whatsapp_worker_interval(cls, value: int) -> int:
+        if value < 1 or value > 3600:
+            raise ValueError(
+                "WHATSAPP_WORKER_INTERVAL_SECONDS 1 ile 3600 arasinda olmalidir"
+            )
+        return value
+
+    @field_validator("whatsapp_worker_batch")
+    @classmethod
+    def validate_whatsapp_worker_batch(cls, value: int) -> int:
+        if value < 1 or value > 200:
+            raise ValueError("WHATSAPP_WORKER_BATCH 1 ile 200 arasinda olmalidir")
         return value
 
     @field_validator("refresh_token_days")

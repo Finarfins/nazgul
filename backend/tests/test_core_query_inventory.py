@@ -556,6 +556,12 @@ VARIABLE_ARG_ALLOWLIST: dict[tuple[str, str, str, str | None, str], tuple[tuple[
         ('values:**',),
         "Sonuc yazimi SET govdesi cagiran katmandan sozluk olarak geliyor; kiraci suzgeci ve lease CAS kosullari .where() icinde acikta duruyor. SINIR: bu muafiyet sozlugun ICERIGINDEKI sutun kumesi degisimini algilamaz.",
     ),
+    # app/whatsapp/service.py  (_sonlandir)
+    ("app/whatsapp/service.py", "_sonlandir", "update", "whatsapp_inbound",
+     "d350f920087d85e52759884ff9b0e380258a6b0d79c0d939be77b6fb1749e316"): (
+        ('values:**',),
+        "Terminal durum yazimi SET govdesini cagirandan sozluk olarak aliyor (status/last_error/processed_at); `notifications/service.py::_finalize` ile AYNI desen ve AYNI gerekce. KIRACI SUZGECI YOK cunku `whatsapp_inbound` bir PLATFORM tablosudur (company_id sutunu YOK, goc 20260910_0078); yerine acikta duran yuklem KIRA CAS'idir: id + lock_token esitligi. Yani opak sozluk kiraci sinirini genisletemez, cunku genisletilecek bir kiraci sinirI yoktur. SINIR: bu muafiyet sozlugun ICERIGINDEKI sutun kumesi degisimini algilamaz; `company_id` yazan bir cagri AYRI bir kapiyla (tests/test_wa3_worker.py::test_KUYRUK_SATIRINA_KIRACI_YAZILMIYOR) yakalanir.",
+    ),
     # app/routers/companies.py:142  (update_company_settings)
     ("app/routers/companies.py", "update_company_settings", "update", "companies",
      "129af4bf7c5971f5e15da1d92e816f288ed6c484fd6b1e154d816612a8a2a214"): (
@@ -938,6 +944,28 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "d45429e099aa6bd7cf2345a576bf8b4930d6efa2b61f0cb01abf4d5c98e91cc1"): (1, "whatsapp_pairing_codes", "arg0"),  # satır [501]
     ("app/whatsapp/eslestirme.py", "kod_kullan", "update",
      "588f63e7ead0c0ef095b43683f84eff29b9c2a30322115d128b1e7d161a3f032"): (1, "whatsapp_pairing_codes", "arg0"),  # satır [612]
+    # --- WHATSAPP ISCISI (WA3-full, GOC YOK)
+    # BES sorgu, TEK dosya (`app/whatsapp/service.py`). HEPSI
+    # `whatsapp_inbound`a bakiyor ve o tablo bir PLATFORM tablosudur
+    # (`company_id` TASIMAZ; goc 20260910_0078 basligi), yani kiraci yuklemi
+    # ARANMAZ — aranamaz da. Bu akista kiraci sinirini `yurutucu.py` tasiyor
+    # ve oradaki sorgularin HEPSI `text()`tir, yani AYRI bir kapinin
+    # (`test_tenant_scoping_guard.py`) konusudur.
+    #
+    # DORDU KIRA/CAS DESENININ KENDISI: `_claim` (kirala, tavan yuklemli),
+    # `_sonlandir` (yalniz kira sahibi yazar), `takilanlari_kapat` (tavani
+    # dolan satiri DEAD yapar) ve `bekleyenleri_isle` (aday secimi).
+    # Besincisi `_mesaj_isle`in kiralanmis satiri okumasidir.
+    ("app/whatsapp/service.py", "_claim", "update",
+     "26fd807baa39f443928e3cf7b4e4ae74b335575dd9f38ced68e5d8d699c6e6aa"): (1, "whatsapp_inbound", "arg0"),
+    ("app/whatsapp/service.py", "_mesaj_isle", "select",
+     "6a91601536d9266fdf75ad9914961adf284ae59b19343ae2e99070088606d00f"): (1, "whatsapp_inbound", "arg0"),
+    ("app/whatsapp/service.py", "_sonlandir", "update",
+     "d350f920087d85e52759884ff9b0e380258a6b0d79c0d939be77b6fb1749e316"): (1, "whatsapp_inbound", "arg0"),
+    ("app/whatsapp/service.py", "bekleyenleri_isle", "select",
+     "a0449b7831284ff882ceb56c5dd56288948d12e09554d5da2403e892df95b469"): (1, "whatsapp_inbound", "arg0"),
+    ("app/whatsapp/service.py", "takilanlari_kapat", "update",
+     "0c79b987e279ae02363fc9e39e4bddeb3c8db5c5c109e1c357036582bfce01b9"): (1, "whatsapp_inbound", "arg0"),
     # --- app/routers/kiraci_imha.py
     # KİRACI YUMUŞAK İMHASI. Dışa aktarımın tersine burada HİÇBİR hedef
     # çözülemez DEĞİL: dört sorgunun da tablosu modül düzeyinde yazılı
@@ -954,8 +982,8 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "4594c3b519aab868921b5bd88a7f5bc6f2579889963ec81277bc7383effb9a72"): (1, "memberships", "arg0"),  # satır [137]
 }
 
-TOTAL_CORE_QUERIES = 160
-EXPECTED_OP_COUNTS = {"select": 103, "update": 47, "delete": 10}
+TOTAL_CORE_QUERIES = 165
+EXPECTED_OP_COUNTS = {"select": 105, "update": 50, "delete": 10}
 # 2026-08-12: iki sorgu bilerek değişti — `ensure_company_default_warehouse`
 # depo adı taramasına kiracı kapsamı eklendi (şema ölçümü: warehouses.name
 # üzerinde ne küresel ne kiracı kapsamlı UNIQUE var) ve `_finalize` opak
@@ -1005,7 +1033,7 @@ EXPECTED_OP_COUNTS = {"select": 103, "update": 47, "delete": 10}
 # statik olarak cozuldu (`arg0`). `desteksiz` listesine WA2'den TEK
 # BIR satir bile girmedi. TABAN develop `27916d7` (WA1/#80 indikten sonra);
 # parmak izi ARITMETIKLE tasinmadi, envanterin TAMAMINDAN yeniden turetildi.
-INVENTORY_FINGERPRINT = "0a32c53d8a234430bbb837d9edd3c76f1d71a40aee9f9961d81d97a7f414dc65"
+INVENTORY_FINGERPRINT = "e899452da3567c3ca55ffed24a3bc19a49121102636e9ef89fee2f0ded10ce1f"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:
@@ -1316,7 +1344,7 @@ def test_pozitif_gercek_allowlist_kayitlari_yesil(app_scan):
     """Canlı muafiyetler `variable-arg` üretmemeli."""
     _, _, desteksiz = app_scan
     assert not [u for u in desteksiz if u.tur == "variable-arg"]
-    assert len(VARIABLE_ARG_ALLOWLIST) == 3
+    assert len(VARIABLE_ARG_ALLOWLIST) == 4
 
 
 def test_negatif_liste_mutasyonu_sessiz_gecmiyor():

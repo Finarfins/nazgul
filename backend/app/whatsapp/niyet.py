@@ -272,7 +272,24 @@ def _terim_cikar(ciftler: list[tuple[str, str]]) -> tuple[str, str]:
         if len(katli) <= 1:
             continue
         if not any(ch.isdigit() for ch in katli):
-            if _kok_eslesir(katli, SORU_SOZLUGU) or _grup_eslesir(katli, _TUM_NIYET_KOKLERI):
+            # SÖZLÜK KÖKÜ TAM EŞLEŞMEYLE ELENİR — kök+ek İLE DEĞİL. WA3-core
+            # burada `_kok_eslesir` çağırıyordu ve bu ÖLÇÜLMÜŞ bir kusurdu
+            # (`WA3_BILINEN_SINIRLAR.md` 1. satır): `YILMAZ` = `YIL` + üç
+            # harflik ek olarak okunup DURAK KELİME sayılıyor ve soyadı
+            # arama teriminden DÜŞÜYORDU. Aynı sınıf: `Günay` (`GUN`),
+            # `Sonat` (`SON`).
+            #
+            # NİYET KÖKLERİ HALA KÖK+EK EŞLEŞİYOR (`_grup_eslesir`) ve bu
+            # ayrım BİLİNÇLİ: `borcu`, `stoğundan`, `cirosu` niyetin
+            # KENDİSİDİR ve elenmezse arama terimine karışır. Sözlük ise
+            # DURAK KELİME listesidir; oradaki bir kökün eki, bir insanın
+            # soyadı olabilir.
+            #
+            # YAZMA AKIŞI (`tahsilat_coz._elenir`) kökü ≥4 harfle sınırlıyor
+            # ve `Yılmaz`ı zaten koruyordu; bu değişiklik İKİ AKIŞI aynı
+            # sonuca getiriyor, aynı KODA değil (ölçüm:
+            # `test_OKUMA_akisinda_YILMAZ_soyadi_KORUNUYOR`).
+            if katli in SORU_SOZLUGU or _grup_eslesir(katli, _TUM_NIYET_KOKLERI):
                 continue
         ham_parcalar.append(ham)
         yedek_parcalar.append(_ek_kirp(katli) if not any(ch.isdigit() for ch in katli) else katli)
@@ -758,6 +775,13 @@ def cevap_yaz(arac: str, veri: dict[str, Any]) -> str:
 
 TAHSILAT_KOKLER: frozenset[str] = frozenset({"TAHSILAT", "TAHSIL"})
 
+#: Tutarsız/yöntemsiz ÇIPLAK tahsilat mesajının cevabı. `tutarli_rehber`in
+#: kardeşi: orada tutar VAR niyet yok, burada niyet VAR tutar yok.
+TAHSILAT_REHBERI = (
+    "Tahsilat girmek için müşteri, tutar ve yöntemi birlikte yazın — örn. "
+    "\"Şaban Korkmaz 20.000 TL nakit tahsilat\"."
+)
+
 # Günlük konuşma karşılıkları. Kullanıcı "tahsilat" kelimesini nadiren yazıyor;
 # "Şaban Korkmaz 175.000 verdi" doğal olan. Bunlar TAHSILAT_KOKLER'den AYRI
 # tutulur çünkü tetikleme koşulları farklı (aşağıdaki stok koruması).
@@ -873,6 +897,28 @@ def tahsilat_coz(metin: str) -> TahsilatNiyeti | Niyet | None:
     if hata:
         return Niyet(mesaj=hata)
     if tutar is None:
+        # ÇIPLAK `tahsilat` REHBERLİĞE GİDER, DÖNEM ÖZETİNE DEĞİL.
+        # `WA3_BILINEN_SINIRLAR.md` 2. satırının kapattığı kusur: `TAHSILAT`
+        # hem `DONEM_KOKLER` içindedir hem yazma niyetinin anahtarıdır, bu
+        # yüzden tek kelimelik "tahsilat" sessizce "bu ayki tahsilat
+        # toplamı" olarak okunuyordu. Kullanıcı büyük olasılıkla tahsilat
+        # GİRMEK istiyordu ve doğru kalıbı öğrenmesinin yolu yoktu.
+        #
+        # ÜÇ KOŞUL BİRDEN aranıyor ve üçü de mevcut akışları KORUMAK için:
+        #   * AÇIK kök ("tahsilat"/"tahsil") — fiil kökü ("verdi") tek
+        #     başına rehberliği tetiklemez, çok geniştir;
+        #   * AÇIK dönem YOK — "geçen ay tahsilat" bir OKUMA sorusudur ve
+        #     dönem özetine gitmeye devam eder (WA3-core'un pini);
+        #   * `TAHSILAT`ın KENDİSİ dışında başka bir niyet kökü YOK —
+        #     "tahsilat ve ciro" belirsizdir ve mevcut dönem özeti akışında
+        #     kalır. Çıkarılan tek eleman `TAHSILAT`tır, `DONEM_KOKLER`in
+        #     tamamı DEĞİL: tamamını çıkarmak "tahsilat ve ciro"yu da
+        #     rehberliğe düşürüyordu (ölçüldü).
+        if acik_kok and _donem_acik(ciftler) is None and not any(
+            _grup_eslesir(k, _TUM_NIYET_KOKLERI - frozenset({"TAHSILAT"}))
+            for k in katlilar
+        ):
+            return Niyet(mesaj=TAHSILAT_REHBERI)
         # Tutar yoksa bu bir OKUMA sorusudur ("geçen ay tahsilat ne kadar").
         return None
 

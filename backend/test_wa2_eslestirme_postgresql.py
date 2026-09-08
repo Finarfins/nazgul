@@ -64,13 +64,14 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import threading
 from threading import Barrier
 from uuid import uuid4
 
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
@@ -593,18 +594,94 @@ def test_YIRMI_ESZAMANLI_ayni_kod_TEK_KEZ_tukeniyor(motor, dunya) -> None:
     numaralar = ["9053%08d" % i for i in range(20)]
     kapi = Barrier(len(numaralar))
 
+    # --- YARIŞIN KENDİSİ ÖLÇÜLÜYOR, VARSAYILMIYOR (WA3-full, H9) ----------
+    #
+    # ESKİ KURGU: bariyerden SONRA oturum açılıyordu, yani bariyer
+    # "yirmi thread AYNI ANDA yarışıyor" değil "yirmi thread aynı anda
+    # BAĞLANTI AÇMAYA BAŞLIYOR" anlamına geliyordu. Bağlantı kurma
+    # maliyeti (TCP + kimlik doğrulama) yarışın İÇİNDEYDİ.
+    #
+    # YENİ KURGU: her thread bariyerden ÖNCE bir GİDİŞ-DÖNÜŞ yapıyor
+    # (`SELECT 1`), yani bariyer açıldığında yirmisi de KURULMUŞ ve canlı
+    # bir bağlantı TUTUYOR.
+    #
+    # ISINMA KENDİ MOTORUNU ZORUNLU KILIYOR — ÖLÇÜLDÜ. `motor`
+    # VARSAYILAN havuzla kuruluyor (pool_size=5 + overflow=10 = ON BEŞ) ve
+    # yirmi thread bariyerden önce bağlantı TUTMAYA çalışınca on beşi
+    # bağlantıyı alıp bariyerde bekliyor, kalan beşi havuzdan bağlantı
+    # bekliyor: KİMSE ilerlemiyor ve bariyer `BrokenBarrierError` ile
+    # düşüyor (üç koşuda üçü de). Bu yüzden yarışın KENDİ motoru var.
+    #
+    # DÜRÜST NOT — ISINMA SONUCU DEĞİŞTİRMEDİ. Aşağıdaki iki ölçüm ESKİ
+    # kurguda da AYNI çıkıyor (üçer koşu, PG 16): `for_update`=20,
+    # `cas_denemesi`=1. Yani bu değişiklik bir kusuru KAPATMIYOR, testin
+    # ÖLÇTÜĞÜ ŞEYİ ÖLÇÜLEBİLİR KILIYOR: sayılar artık bariyerin ne söz
+    # verdiğini VARSAYMADAN doğrulanıyor.
+    yaris_motoru = create_engine(_url(), pool_size=len(numaralar) + 5,
+                                 max_overflow=5)
+    YarisOturumu = sessionmaker(bind=yaris_motoru)
+
+    # ÖLÇÜM SÜRÜCÜ SEVİYESİNDEN OKUNUYOR, uygulamanın kendi raporundan
+    # DEĞİL: hangi katmanın kaç thread'i durdurduğu ancak GÖNDERİLEN
+    # DEYİMLERDEN görülebilir.
+    olcum = {"for_update": 0, "cas_denemesi": 0}
+    olcum_kilidi = threading.Lock()
+
+    @event.listens_for(yaris_motoru, "before_cursor_execute")
+    def _deyimleri_say(conn, imlec, deyim, parametreler, baglam, cok):
+        buyuk = " ".join(deyim.split()).upper()
+        with olcum_kilidi:
+            if "FOR UPDATE" in buyuk:
+                olcum["for_update"] += 1
+            if "UPDATE WHATSAPP_PAIRING_CODES" in buyuk and (
+                "CONSUMED" in str(parametreler).upper()
+            ):
+                olcum["cas_denemesi"] += 1
+
     def tuket(telefon: str) -> bool:
-        kapi.wait(timeout=30)
-        with Oturum() as db:
+        with YarisOturumu() as db:
+            db.execute(text("SELECT 1")).scalar()  # ISINMA: bariyerden ÖNCE
+            kapi.wait(timeout=30)
             sonuc = eslestirme.kod_kullan(db, telefon, kod)
             db.commit()
             return sonuc.basarili
 
-    with ThreadPoolExecutor(max_workers=len(numaralar)) as havuz:
-        isler = [havuz.submit(tuket, t) for t in numaralar]
-        sonuclar = [i.result(timeout=120) for i in isler]
+    try:
+        with ThreadPoolExecutor(max_workers=len(numaralar)) as havuz:
+            isler = [havuz.submit(tuket, t) for t in numaralar]
+            sonuclar = [i.result(timeout=120) for i in isler]
+    finally:
+        yaris_motoru.dispose()
 
     assert sum(1 for s in sonuclar if s) == 1, sonuclar
+
+    # --- YİRMİSİ DE YARIŞ NOKTASINA GERÇEKTEN GİRDİ ----------------------
+    #
+    # `SELECT ... FOR UPDATE` kod satırının KİLİT NOKTASIDIR; oraya
+    # ulaşmayan bir thread yarışa hiç girmemiş demektir. Yirmi deyim, yirmi
+    # thread. Bir mutant `kod_kullan`ı erken döndürürse (ör. hız sınırını
+    # numara başına değil KÜRESEL sayarsa) bu sayı düşer ve testin geri
+    # kalanı YİNE DE yeşil kalırdı — bu yüzden ayrıca ölçülüyor.
+    assert olcum["for_update"] == len(numaralar), olcum
+
+    # --- CAS'e YALNIZ BİR THREAD ULAŞIYOR — ÖLÇÜLDÜ, VARSAYILMADI --------
+    #
+    # Bu sayı SEZGİYE AYKIRIDIR ve tam da bu yüzden yazılı: "yirmi işçi CAS
+    # yarışına giriyor, on dokuzu CAS'te kaybediyor" DOĞRU DEĞİLDİR.
+    # `SELECT ... FOR UPDATE` yirmi thread'i SIRAYA sokar; kazanan commit
+    # ettikten sonra sıradaki thread kilidi aldığında satırı YENİDEN okur ve
+    # `status='CONSUMED'` görür, yani B KATMANINDA (okuma sonrası durum
+    # denetimi) döner — CAS deyimini HİÇ GÖNDERMEZ.
+    #
+    # ÖLÇÜM (PG 16, dört koşu, ısınmalı ve ısınmasız): `for_update`=20,
+    # `cas_denemesi`=1, CAS kaybı=0 — HER KOŞUDA. Yani C katmanının
+    # kaybedeni bu kurguda ÜRETİLEMEZ ve "CAS kaybı ≥ N" biçiminde bir
+    # eşik yazmak, hiçbir zaman doğrulanamayacak bir iddia olurdu. C
+    # katmanının varlığı AST kapısının işidir
+    # (`tests/test_wa2_eslestirme.py::test_CAS_KOSULU_STATUS_PENDING_ve_
+    # KIRACI_YUKLEMLI`); burada ölçülen şey SIRALAMANIN GERÇEKTEN
+    # ÇALIŞTIĞIDIR — tek bir tüketim deyimi.
+    assert olcum["cas_denemesi"] == 1, olcum
 
     with motor.connect() as b:
         baglantilar = b.execute(

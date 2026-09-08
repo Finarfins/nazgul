@@ -152,14 +152,21 @@ def _summary_row(
     return db.execute(query, params).mappings().one()
 
 
-@router.get("/summary")
-def summary(
-    request: Request,
+def ozet_verisi(
+    db: Session,
+    cid: int,
     date_from: str | None = None,
     date_to: str | None = None,
-    db: Session = Depends(get_db),
-):
-    cid = company_id(request)
+) -> dict[str, Any]:
+    """`/api/reports/summary`nin GÖVDESİ — `Request` YOK, `cid` AÇIK.
+
+    DIŞARI ALINDI ki uç ile WhatsApp kanalı (`app/whatsapp/yurutucu.py`
+    ``donem_ozeti`` ve ``en_cok_satan_parcalar``) AYNI sorguyu koşsun.
+    Kopyalanmış bir ikinci sorgu, iki yüzeyin aynı soruya farklı cevap
+    verdiği güne kadar sessiz kalırdı. Uç bu fonksiyonu ÇAĞIRIR; gövde
+    taşınırken TEK harfi değişmedi ve `cid` artık `company_id(request)`ten
+    parametre olarak geliyor.
+    """
     dialect_name = db.bind.dialect.name if db.bind is not None else "sqlite"
     sales_where, sales_params = _date_conditions(
         "order_date",
@@ -266,13 +273,23 @@ def summary(
     }
 
 
-@router.get("/receivables-aging", response_model=ReceivableAgingResponse)
-def receivables_aging(
+@router.get("/summary")
+def summary(
     request: Request,
-    as_of: date | None = Query(default=None),
+    date_from: str | None = None,
+    date_to: str | None = None,
     db: Session = Depends(get_db),
 ):
-    cid = company_id(request)
+    return ozet_verisi(db, company_id(request), date_from, date_to)
+
+
+def yaslandirma_verisi(db: Session, cid: int, as_of: date | None = None) -> dict[str, Any]:
+    """`/api/reports/receivables-aging`in GÖVDESİ — `Request` YOK.
+
+    `ozet_verisi` ile AYNI gerekçe: WhatsApp kanalının
+    ``alacak_yaslandirma`` aracı bu fonksiyonu çağırır, ikinci bir
+    toplama YAZMAZ.
+    """
     report_date = as_of or business_today()
     documents = calculate_net_receivables(db, cid, report_date)
 
@@ -331,3 +348,12 @@ def receivables_aging(
             "total": _money_string(grand_total),
         },
     }
+
+
+@router.get("/receivables-aging", response_model=ReceivableAgingResponse)
+def receivables_aging(
+    request: Request,
+    as_of: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    return yaslandirma_verisi(db, company_id(request), as_of)
