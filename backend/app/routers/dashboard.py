@@ -47,6 +47,39 @@ def _rows(db: Session, sql: str, params: dict[str, object]) -> list[dict]:
     return [dict(item) for item in db.execute(text(sql), params).mappings().all()]
 
 
+#: Panonun kritik stok listesi HEP 8 satır gösteriyordu; sınır artık
+#: parametre çünkü WhatsApp kanalı da AYNI ölçütü kullanıyor ve orada
+#: liste 5'te kesiliyor (`niyet._WA_LISTE_SINIRI`). VARSAYILAN 8 —
+#: panonun davranışı DEĞİŞMEDİ.
+KRITIK_URUN_SINIRI = 8
+
+
+def kritik_urunler(db: Session, cid: int, limit: int = KRITIK_URUN_SINIRI):
+    """Kritik seviyenin ALTINDAKİ ürünler — `Request` YOK, `cid` AÇIK.
+
+    DIŞARI ALINDI ki pano ile WhatsApp kanalı (`app/whatsapp/yurutucu.py`
+    ``kritik_stok``) AYNI ÖLÇÜTÜ kullansın. Ölçüt tek satırda yazılı ve
+    ince: eşik `critical_stock` ile `minimum_stock`un BÜYÜĞÜDÜR. İki
+    yüzeyin bu seçimi ayrı ayrı yazması, birinin "kritik" dediğine
+    ötekinin "normal" demesi demekti.
+    """
+    return _rows(
+        db,
+        """
+        SELECT id,name,stock,unit,purchase_price,sale_price,critical_stock,minimum_stock,
+               oem_number,brand,location
+        FROM products
+        WHERE company_id=:cid AND COALESCE(active, TRUE)=TRUE
+          AND stock <= CASE WHEN COALESCE(critical_stock,0) >= COALESCE(minimum_stock,0)
+                           THEN COALESCE(critical_stock,0)
+                           ELSE COALESCE(minimum_stock,0) END
+        ORDER BY stock ASC, LOWER(name) ASC
+        LIMIT :limit
+        """,
+        {"cid": cid, "limit": limit},
+    )
+
+
 @router.get("")
 def dashboard(request: Request, db: Session = Depends(get_db)):
     cid = company_id(request)
@@ -150,21 +183,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     month_expenses = money(summary.get("month_expenses"))
     month_profit = month_sales - month_purchases - month_expenses
 
-    critical_products = _rows(
-        db,
-        """
-        SELECT id,name,stock,unit,purchase_price,sale_price,critical_stock,minimum_stock,
-               oem_number,brand,location
-        FROM products
-        WHERE company_id=:cid AND COALESCE(active, TRUE)=TRUE
-          AND stock <= CASE WHEN COALESCE(critical_stock,0) >= COALESCE(minimum_stock,0)
-                           THEN COALESCE(critical_stock,0)
-                           ELSE COALESCE(minimum_stock,0) END
-        ORDER BY stock ASC, LOWER(name) ASC
-        LIMIT 8
-        """,
-        params,
-    )
+    critical_products = kritik_urunler(db, cid)
 
     supplier_payables = money(summary.get("supplier_payables"))
 

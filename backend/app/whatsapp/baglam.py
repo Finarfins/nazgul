@@ -285,6 +285,44 @@ def _turkce_buyut(metin: str) -> str:
     return metin.replace("ı", "I").replace("İ", "I")
 
 
+def firma_komutu(
+    db: Session, telefon: str, metin: str, *, simdi: datetime | None = None
+) -> str | None:
+    """YALNIZ ``FİRMA LİSTELE`` / ``FİRMA SEÇ <n>``; başka her şey ``None``.
+
+    WA3'ün işçisi (`app/whatsapp/service.py`) bu iki komutu niyet
+    çözümünden ÖNCE denemek zorunda ve `komut_isle`ı kullanamaz: o
+    fonksiyon `BAĞLA`yı da işler ve bağlı kullanıcıya
+    `KOMUT_ANLASILMADI_MESAJI` döner — yani niyet akışına hiç yer
+    bırakmaz.
+
+    AYRI BİR GÖVDE YAZILMADI, ORTAK GÖVDE DIŞARI ALINDI: `komut_isle` de
+    artık bu fonksiyonu çağırıyor, yani iki yüzey AYNI sözdizimini ve AYNI
+    sırayı paylaşıyor. Kopya bir ayrıştırıcı, birinin tanıdığı komutu
+    ötekinin tanımadığı güne kadar sessiz kalırdı.
+    """
+    an = simdi or utcnow()
+    duz = _turkce_buyut(metin or "")
+
+    if _LISTELE_RE.match(duz):
+        adaylar = tuple(eslestirme.kimlik_coz(db, telefon))
+        if not adaylar:
+            return TANINMAYAN_NUMARA_MESAJI
+        adlar = firma_adlari(db, adaylar)
+        satirlar = [f"{i}. {ad}" for i, ad in enumerate(adlar, start=1)]
+        return "Bağlı firmalarınız:\n" + "\n".join(satirlar)
+
+    sec = _SEC_RE.match(duz)
+    if sec:
+        secilen = firma_sec(db, telefon, int(sec.group(1)), simdi=an)
+        if secilen is None:
+            return SIRA_GECERSIZ_MESAJI
+        ad = firma_adlari(db, (secilen,))[0]
+        return f"Aktif firma: {ad}."
+
+    return None
+
+
 def komut_isle(
     db: Session, telefon: str, metin: str, *, simdi: datetime | None = None
 ) -> str:
@@ -316,23 +354,9 @@ def komut_isle(
         # "sınıra takıldın" bilgisini saldırgana vermek olurdu.
         return eslestirme.RED_MESAJI
 
-    duz = _turkce_buyut(ham)
-
-    if _LISTELE_RE.match(duz):
-        adaylar = tuple(eslestirme.kimlik_coz(db, telefon))
-        if not adaylar:
-            return TANINMAYAN_NUMARA_MESAJI
-        adlar = firma_adlari(db, adaylar)
-        satirlar = [f"{i}. {ad}" for i, ad in enumerate(adlar, start=1)]
-        return "Bağlı firmalarınız:\n" + "\n".join(satirlar)
-
-    sec = _SEC_RE.match(duz)
-    if sec:
-        secilen = firma_sec(db, telefon, int(sec.group(1)), simdi=an)
-        if secilen is None:
-            return SIRA_GECERSIZ_MESAJI
-        ad = firma_adlari(db, (secilen,))[0]
-        return f"Aktif firma: {ad}."
+    firma_cevabi = firma_komutu(db, telefon, ham, simdi=an)
+    if firma_cevabi is not None:
+        return firma_cevabi
 
     secim = kimlik_secimi(db, telefon, simdi=an)
     if secim.firma_secimi_gerekli:
@@ -353,6 +377,7 @@ __all__ = [
     "baglam_yaz",
     "baglami_temizle",
     "firma_adlari",
+    "firma_komutu",
     "firma_sec",
     "kimlik_secimi",
     "komut_isle",

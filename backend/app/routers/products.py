@@ -86,6 +86,36 @@ def _raise_stock_error(exc: ValueError, mode: str) -> None:
     raise HTTPException(400, str(exc)) from exc
 
 
+def urun_satirlari(db: Session, cid: int, *, q: str = "", sort: str = "name_asc",
+                   limit: int = 300):
+    """`GET /api/products`in DEPOSUZ sorgusu — `Request` YOK, `cid` AÇIK.
+
+    DIŞARI ALINDI ki uç ile WhatsApp kanalı (`app/whatsapp/yurutucu.py`
+    ``parca_stok``) AYNI arama yüzeyini kullansın: yedi sütunda LIKE.
+    Kanal kendi sorgusunu yazsaydı, uçta bulunan bir parça kanalda
+    "katalogda yok" cevabını alabilirdi. Gövde taşınırken TEK harfi
+    değişmedi; DEPOLU dal uçta KALDI çünkü kanalın depo seçicisi yok.
+    """
+    order = SORTS.get(sort, SORTS["name_asc"])
+    return db.execute(
+        text(
+            f"""SELECT id,name,product_code,barcode,purchase_price,sale_price,
+            stock,unit,vat_rate,category,location,oem_number,alternative_oem,brand,manufacturer,compatible_models,COALESCE(critical_stock,0) critical_stock,
+            stock warehouse_stock,COALESCE(critical_stock,0) warehouse_critical_stock
+            FROM products WHERE company_id=:cid AND (
+                LOWER(name) LIKE LOWER(:q)
+                OR COALESCE(product_code,'') LIKE :q
+                OR COALESCE(barcode,'') LIKE :q
+                OR COALESCE(oem_number,'') LIKE :q
+                OR COALESCE(alternative_oem,'') LIKE :q
+                OR LOWER(COALESCE(brand,'')) LIKE LOWER(:q)
+                OR LOWER(COALESCE(compatible_models,'')) LIKE LOWER(:q)
+            ) ORDER BY {order} LIMIT :limit"""
+        ),
+        {"cid": cid, "q": f"%{q}%", "limit": limit},
+    ).mappings().all()
+
+
 @router.get("")
 def list_products(
     request: Request,
@@ -133,23 +163,7 @@ def list_products(
             {"cid": cid, "wid": warehouse_id, "q": f"%{q}%", "limit": fetch_limit},
         ).mappings().all()
     else:
-        rows = db.execute(
-            text(
-                f"""SELECT id,name,product_code,barcode,purchase_price,sale_price,
-                stock,unit,vat_rate,category,location,oem_number,alternative_oem,brand,manufacturer,compatible_models,COALESCE(critical_stock,0) critical_stock,
-                stock warehouse_stock,COALESCE(critical_stock,0) warehouse_critical_stock
-                FROM products WHERE company_id=:cid AND (
-                    LOWER(name) LIKE LOWER(:q)
-                    OR COALESCE(product_code,'') LIKE :q
-                    OR COALESCE(barcode,'') LIKE :q
-                    OR COALESCE(oem_number,'') LIKE :q
-                    OR COALESCE(alternative_oem,'') LIKE :q
-                    OR LOWER(COALESCE(brand,'')) LIKE LOWER(:q)
-                    OR LOWER(COALESCE(compatible_models,'')) LIKE LOWER(:q)
-                ) ORDER BY {order} LIMIT :limit"""
-            ),
-            {"cid": cid, "q": f"%{q}%", "limit": fetch_limit},
-        ).mappings().all()
+        rows = urun_satirlari(db, cid, q=q, sort=sort, limit=fetch_limit)
     items = [dict(row) for row in rows[:limit]]
     if include_meta:
         return {"items": items, "has_more": len(rows) > limit}

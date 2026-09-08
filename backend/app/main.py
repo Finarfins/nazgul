@@ -102,6 +102,10 @@ from .field_stok_zamanlayici import (
     baslat_field_stok_zamanlayici,
     durdur_field_stok_zamanlayici,
 )
+from .whatsapp.zamanlayici import (
+    baslat_whatsapp_zamanlayici,
+    durdur_whatsapp_zamanlayici,
+)
 
 logger = logging.getLogger("yerel_hesap")
 # Give the application logger its own stdout handler so unhandled-exception
@@ -181,6 +185,15 @@ async def _yasam_dongusu(_app: FastAPI):
         # Do not catch startup errors: an application that cannot start its only
         # production consumer must fail startup loudly instead of serving traffic.
         baslat_field_stok_zamanlayici(settings.field_stock_outbox_interval_seconds)
+
+    # WA3-full: WhatsApp gelen kuyrugunun isci thread'i. AYNI SINIFTAN bir
+    # karar ve AYNI varsayilan (KAPALI): kanal yapilandirilmamis bir
+    # kurulumda kuyruk zaten bos kalir, ama "kapali kanal HICBIR thread
+    # acmaz" cumlesi OLCULEBILIR olmali (tests/test_wa3_worker.py::
+    # test_ISCI_VARSAYILAN_KAPALI_hicbir_thread_acmiyor).
+    wa_calisacak = settings.whatsapp_worker_enabled
+    if wa_calisacak:
+        baslat_whatsapp_zamanlayici(settings.whatsapp_worker_interval_seconds)
     try:
         yield
     finally:
@@ -188,6 +201,8 @@ async def _yasam_dongusu(_app: FastAPI):
         # the scheduler thread outlives the process that owns it.
         if calisacak:
             durdur_field_stok_zamanlayici()
+        if wa_calisacak:
+            durdur_whatsapp_zamanlayici()
 
 
 # Interactive API docs and the raw OpenAPI schema expose the full route surface,

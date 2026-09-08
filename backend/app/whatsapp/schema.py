@@ -76,6 +76,28 @@ DEAD = "DEAD"
 #: Göçün `ck_whatsapp_inbound_status` CHECK'i ile BİREBİR aynı beş değer.
 INBOUND_STATUSES = frozenset({RECEIVED, PROCESSING, ANSWERED, IGNORED, DEAD})
 
+# --- WA3 işçi kirası (lease) — GÖÇ GEREKTİRMEZ ----------------------------
+# İkisi de WA1'in AÇTIĞI sütunların (`locked_until`, `attempt_count`)
+# POLİTİKASIDIR, şeması değil: değerleri değiştirmek hiçbir DDL gerektirmez.
+
+#: Bir işçi satırı ne kadar süreyle KİRALAR. Süre dolunca başka bir işçi
+#: devralabilir. BEŞ DAKİKA: sağlayıcı zaman aşımı 15 saniye
+#: (`saglayici.ZAMAN_ASIMI_SANIYE`), yani beş dakika normal bir turun
+#: ONLARCA katıdır ve yalnız GERÇEKTEN ölmüş bir işçi bu süreyi aşar.
+#: Daha kısası, yavaş ama yaşayan bir işçinin işini ikinci kez yaptırırdı
+#: (Meta'ya YİNELENEN cevap).
+LEASE_DAKIKA = 5
+
+#: Bir satır en çok kaç kez CLAIM edilebilir. Sayaç claim'de artar (geçici
+#: hatada satır RECEIVED'a döner ve yeniden denenir); tavana ulaşan satır
+#: bir daha claim EDİLEMEZ ve `takilanlari_kapat` onu DEAD yapar.
+#:
+#: ÜÇ, BEŞ DEĞİL: her deneme Meta'ya bir gönderim denemesi demektir ve
+#: kalıcı bir sağlayıcı arızasında üç deneme zaten "geçici değilmiş"
+#: sonucunu verir. Tavan geçildiğinde satır SESSİZCE kaybolmaz — DEAD
+#: damgası ve `last_error` kuyrukta durur.
+MAX_DENEME = 3
+
 
 whatsapp_inbound = Table(
     "whatsapp_inbound",
@@ -319,6 +341,8 @@ __all__ = [
     "BAGLAM_OMRU_DAKIKA",
     "DEAD",
     "IGNORED",
+    "LEASE_DAKIKA",
+    "MAX_DENEME",
     "INBOUND_STATUSES",
     "PAIRING_CANCELLED",
     "PAIRING_CEVAP_SINIRI",

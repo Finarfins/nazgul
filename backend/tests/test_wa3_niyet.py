@@ -190,9 +190,14 @@ def test_tutar_ayristirici_birim_tablosu() -> None:
         sonuc = niyet.tahsilat_coz(metin)
         assert isinstance(sonuc, niyet.Niyet) and sonuc.mesaj, metin
 
-    # Tutar yoksa yazma niyeti DEĞİLDİR (okuma akışına düşer).
+    # Tutar yoksa AÇIK DÖNEM varsa okuma akışına düşer; yoksa REHBERLİK
+    # döner (WA3-full, `WA3_BILINEN_SINIRLAR.md` 2. satırının kapanışı).
     assert niyet.tahsilat_coz("geçen ay tahsilat ne kadar") is None
-    assert niyet.tahsilat_coz("tahsilat aldım Ahmet") is None
+    # WA3-core'da bu satır `is None` idi ve mesaj dönem özetine düşüyordu:
+    # "tahsilat aldım Ahmet" yazan kullanıcı BU AYIN tahsilat toplamını
+    # alıyordu. Artık doğru kalıbı öğreniyor.
+    rehber = niyet.tahsilat_coz("tahsilat aldım Ahmet")
+    assert isinstance(rehber, niyet.Niyet) and rehber.mesaj == niyet.TAHSILAT_REHBERI
     # 10+ haneli saf rakam telefon sayılır, tutar adayı değildir.
     sonuc = niyet.tahsilat_coz("05405995959 500 TL nakit tahsilat")
     assert isinstance(sonuc, niyet.TahsilatNiyeti) and sonuc.tutar == Decimal("500")
@@ -306,17 +311,37 @@ def test_tr_katla_noktali_ve_noktasiz_I() -> None:
     assert niyet.tr_katla("ŞĞÜÖÇ şğüöç") == "SGUOC SGUOC"
 
 
-def test_OKUMA_akisinda_YILMAZ_soyadi_YIL_kokune_yaslanir_OLCULDU() -> None:
-    """Kaynak davranışı, düzeltme DEĞİL: "Yılmaz" okuma akışında elenir.
+def test_OKUMA_akisinda_YILMAZ_soyadi_KORUNUYOR() -> None:
+    """WA3-full DÜZELTMESİ: soyadı artık okuma akışında da KORUNUYOR.
 
-    `_terim_cikar` sözlük köküne 3 harften itibaren yaslanır (YIL + 3 harf
-    ek ≤ tolerans 6) ve soyadını düşürür; müşteri terimi "İsmail" kalır.
-    Kaynak bunu yalnız YAZMA akışında (≥4 harf kök) korumuştu. Burada
-    sabitlenir ki ileride biri "düzeltirken" iki akış sessizce ayrışmasın.
+    WA3-core'da bu testin adı `..._YIL_kokune_yaslanir_OLCULDU` idi ve
+    `{"musteri": "İsmail"}` bekliyordu — kaynak davranışı, kusur olduğu
+    ADIYLA yazılı (`WA3_BILINEN_SINIRLAR.md` 1. satır). `_terim_cikar`
+    sözlük kökünü artık YALNIZ TAM EŞLEŞMEYLE eliyor, `YIL` + üç harflik
+    ekle DEĞİL.
+
+    İKİ AKIŞ AYNI SONUCU VERİYOR ve ikisi de burada ölçülüyor: yazma akışı
+    (`tahsilat_coz`) kökü ≥4 harfle sınırlayarak zaten koruyordu.
+
+    MUTASYON: `_terim_cikar`daki `katli in SORU_SOZLUGU` yüklemini
+    `_kok_eslesir(katli, SORU_SOZLUGU)`a geri çevirmek bunu KIRMIZI yapar.
     """
-    assert coz("İsmail Yılmaz bakiyesi").deneme_argumanlari == ({"musteri": "İsmail"},)
+    assert coz("İsmail Yılmaz bakiyesi").deneme_argumanlari[0] == {
+        "musteri": "İsmail Yılmaz"
+    }
+    assert coz("bakiye ahmet yılmaz").deneme_argumanlari[0] == {
+        "musteri": "ahmet yılmaz"
+    }
     yazma = niyet.tahsilat_coz("İsmail Yılmaz 500 TL nakit tahsilat")
     assert isinstance(yazma, niyet.TahsilatNiyeti) and yazma.musteri_terimi == "İsmail Yılmaz"
+
+    # AYNI SINIFTAN ölçülmüş iki ad daha: `Günay` (`GUN`), `Sonat` (`SON`).
+    # WA3-core'da ikisi de düşüyordu.
+    assert coz("Günay borç").deneme_argumanlari[0] == {"musteri": "Günay"}
+    assert coz("Sonat bakiye").deneme_argumanlari[0] == {"musteri": "Sonat"}
+    # `Aydın` WA3-core'da da KORUNUYORDU (`AY` iki harfli, kök eşlemesi ≥3
+    # harf ister); düzeltme onu BOZMADI.
+    assert coz("Aydın borç").deneme_argumanlari[0] == {"musteri": "Aydın"}
 
 
 def test_ek_kirpilmis_yedek_ikinci_deneme() -> None:

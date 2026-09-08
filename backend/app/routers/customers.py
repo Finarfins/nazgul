@@ -51,10 +51,17 @@ def _values(payload: CustomerCreate) -> dict:
     values['is_active'] = bool(values['is_active'])
     return values
 
-@router.get('')
-def list_customers(request: Request, q: str = '', sort: str = 'name_asc', active: str = 'active',
-                   limit: int = Query(500, ge=1, le=2000), db: Session = Depends(get_db)):
-    cid=company_id(request);order=SORTS.get(sort,SORTS['name_asc']);today_date=business_today();today=today_date.isoformat()
+def musteri_satirlari(db: Session, cid: int, *, q: str = '', sort: str = 'name_asc',
+                      active: str = 'active', limit: int = 500):
+    """`GET /api/customers`in SORGUSU — `Request` YOK, `cid` AÇIK.
+
+    DIŞARI ALINDI ki uç ile WhatsApp kanalı (`app/whatsapp/yurutucu.py`
+    ``cari_durum``) AYNI bakiye formülünü koşsun. Formül burada tek
+    yerdedir: ikinci bir kopya, iki yüzeyin aynı müşteri için farklı
+    bakiye söylediği güne kadar sessiz kalırdı. Gövde taşınırken TEK
+    harfi değişmedi.
+    """
+    order=SORTS.get(sort,SORTS['name_asc']);today_date=business_today();today=today_date.isoformat()
     active_sql = '' if active == 'all' else (' AND COALESCE(c.is_active, TRUE)=FALSE' if active == 'inactive' else ' AND COALESCE(c.is_active, TRUE)=TRUE')
     # ``chg`` carries the posted late-fee/service-fee charge documents that never
     # hit the ``orders`` table. Its GROSS feeds current_balance (charge payments
@@ -107,6 +114,13 @@ def list_customers(request: Request, q: str = '', sort: str = 'name_asc', active
        GROUP BY c.id,pay.total_paid,chg.charge_total,chg.charge_overdue ORDER BY {order} LIMIT :limit"""),
         {'cid': cid, 'q': f'%{q}%', 'limit': limit, 'today': today, 'as_of': today_date, 'sales_import_note': SALES_IMPORT_NOTE}
     ).mappings().all()
+    return rows
+
+
+@router.get('')
+def list_customers(request: Request, q: str = '', sort: str = 'name_asc', active: str = 'active',
+                   limit: int = Query(500, ge=1, le=2000), db: Session = Depends(get_db)):
+    rows=musteri_satirlari(db, company_id(request), q=q, sort=sort, active=active, limit=limit)
     result=[]
     for item in rows:
         row=dict(item);risk=money(row.get('risk_limit'));balance=money(row.get('current_balance'))
