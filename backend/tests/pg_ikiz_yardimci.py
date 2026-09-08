@@ -17,47 +17,87 @@ except ImportError:
     text = None  # type: ignore
 
 
-def acilisa_cek(engine=None) -> None:
+def _sync_sequences(eng) -> None:
+    try:
+        from sqlalchemy import text as _text
+    except ImportError:
+        return
+    with eng.begin() as conn:
+        for table in (
+            "products",
+            "customers",
+            "machines",
+            "invoices",
+            "work_orders",
+            "warehouses",
+            "suppliers",
+        ):
+            if conn.execute(_text("SELECT to_regclass(:tbl)"), {"tbl": f"public.{table}"}).scalar() is None:
+                continue
+            seq = conn.execute(_text("SELECT pg_get_serial_sequence(:tbl, 'id')"), {"tbl": table}).scalar()
+            if seq:
+                conn.execute(
+                    _text(
+                        f"SELECT setval(:seq, COALESCE((SELECT max(id) FROM {table}), 1))"
+                    ),
+                    {"seq": seq},
+                )
+
+
+def acilisa_cek(engine=None, url: str | None = None) -> None:
     """Admin şifresini AÇILIŞ DURUMUNA (admin123 + must_change_password=True) yaz.
 
-    D2/1B-A/1B-B ikizlerinden devralındı:
-    PostgreSQL ikizleri CI'da veya yerel pglens ortamında AYNI veritabanını
-    paylaşır ve her biri girişten sonra admin şifresini KENDİ sabitine çevirir.
-    Tek yönlü bir çare (yalnız teardown) dosyayı iyi bir komşu yapar ama
-    KENDİSİNİ korumaz, çünkü şifreyi bozan ÖNCEKİ dosya olabilir. Bu yüzden
-    İKİ UÇTAN (setup + teardown) çağrılır.
+    D2/1B-A/1B-B ikizlerinden devralındı. CI dosya başına `reset_schema` çalıştırdığı
+    için (`ci.yml:609`) CI ortamında DB durumu paylaşılmaz; bu dikiş yerel/pglens
+    paylaşılan veritabanı koşularını korur ve gelecekte reset_schema adımının
+    kaldırılmasına karşı savunma sağlar. Tek yönlü bir çare (yalnız teardown)
+    dosyayı iyi bir komşu yapar ama KENDİSİNİ korumaz, çünkü şifreyi bozan
+    ÖNCEKİ dosya olabilir. Bu yüzden İKİ UÇTAN (setup + teardown) çağrılır.
     """
+    import os
+    try:
+        from sqlalchemy import create_engine, text as _text
+    except ImportError:
+        return
     from app.auth import hash_password
-    from app.db import SessionLocal, engine as default_engine
+    from app.db import engine as default_engine
 
-    eng = engine or default_engine
+    should_dispose = False
+    if engine is not None:
+        eng = engine
+    elif url or any(k.endswith("_TEST_DATABASE_URL") or k == "DATABASE_URL" for k in os.environ):
+        target_url = url or os.environ.get("DATABASE_URL")
+        if not target_url:
+            for k, v in os.environ.items():
+                if k.endswith("_TEST_DATABASE_URL") and v:
+                    target_url = v
+                    break
+        if target_url and target_url.startswith(("postgresql://", "postgresql+psycopg://")):
+            eng = create_engine(target_url)
+            should_dispose = True
+        else:
+            eng = default_engine
+    else:
+        eng = default_engine
+
     if eng.dialect.name != "postgresql":
         return
 
-    if engine is not None:
-        with engine.begin() as conn:
-            if conn.execute(text("SELECT to_regclass('public.app_users')")).scalar() is None:
+    try:
+        with eng.begin() as conn:
+            if conn.execute(_text("SELECT to_regclass('public.app_users')")).scalar() is None:
                 return
             conn.execute(
-                text(
+                _text(
                     "UPDATE app_users SET password_hash=:h, "
                     "must_change_password=true WHERE username='admin'"
                 ),
                 {"h": hash_password("admin123")},
             )
-        return
-
-    with SessionLocal() as db:
-        if db.execute(text("SELECT to_regclass('public.app_users')")).scalar() is None:
-            return
-        db.execute(
-            text(
-                "UPDATE app_users SET password_hash=:h, "
-                "must_change_password=true WHERE username='admin'"
-            ),
-            {"h": hash_password("admin123")},
-        )
-        db.commit()
+        _sync_sequences(eng)
+    finally:
+        if should_dispose:
+            eng.dispose()
 
 
 _acilisa_cek = acilisa_cek

@@ -5,10 +5,53 @@ import os
 from threading import Barrier
 
 import pytest
+def _acilisa_cek() -> None:
+    """Admin şifresini AÇILIŞ DURUMUNA (`admin123` + `must_change_password`) yaz.
+
+    D2/1B-A ikizlerinden DEVRALINDI. CI dosya başına `reset_schema` çalıştırdığı
+    için (`ci.yml:609`) CI ortamında DB durumu paylaşılmaz; bu dikiş yerel/pglens
+    paylaşılan veritabanı koşularını korur ve gelecekte reset_schema adımının
+    kaldırılmasına karşı savunma sağlar. Tek yönlü bir çare (yalnız teardown)
+    dosyayı iyi bir komşu yapar ama KENDİSİNİ korumaz, çünkü şifreyi bozan
+    ÖNCEKİ dosya olabilir. Bu yüzden İKİ UÇTAN çağrılır.
+
+    these two count rows in the company; on a shared DB the login company is polluted by neighbours, so they isolate into a fresh company — deliberate, part of the shared-DB property.
+    """
+    try:
+        from tests.pg_ikiz_yardimci import acilisa_cek
+        acilisa_cek()
+    except ImportError:
+        from sqlalchemy import text as _text
+        from app.auth import hash_password
+        from app.db import SessionLocal, engine as _eng
+
+        if _eng.dialect.name != "postgresql":
+            return
+        with SessionLocal() as db:
+            if db.execute(_text("SELECT to_regclass('public.app_users')")).scalar() is None:
+                return
+            db.execute(
+                _text(
+                    "UPDATE app_users SET password_hash=:h, "
+                    "must_change_password=true WHERE username='admin'"
+                ),
+                {"h": hash_password("admin123")},
+            )
+            db.commit()
+
+
+@pytest.fixture(autouse=True)
+def _acilis_sifresi():
+    _acilisa_cek()
+    try:
+        yield
+    finally:
+        _acilisa_cek()
 
 
 @pytest.mark.postgresql
 def test_work_order_parts_postgresql_concurrency(monkeypatch: pytest.MonkeyPatch) -> None:
+    """these two count rows in the company; on a shared DB the login company is polluted by neighbours, so they isolate into a fresh company — deliberate, part of the shared-DB property."""
     database_url = os.environ.get("WORK_ORDER_PARTS_TEST_DATABASE_URL")
     if not database_url:
         pytest.skip("WORK_ORDER_PARTS_TEST_DATABASE_URL is not configured")
@@ -22,13 +65,15 @@ def test_work_order_parts_postgresql_concurrency(monkeypatch: pytest.MonkeyPatch
 
     with TestClient(app) as client:
         login = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"}).json()
-        cid = login["companies"][0]["id"]
         uid = login["user"]["id"]
-        headers = {"Authorization": "Bearer " + login["access_token"], "X-Company-ID": str(cid)}
+        headers = {"Authorization": "Bearer " + login["access_token"], "X-Company-ID": str(login["companies"][0]["id"])}
         changed = client.post("/api/auth/change-password", headers=headers, json={
             "current_password": "admin123", "new_password": "WorkOrderPartsPg123!"
         }).json()
         headers["Authorization"] = "Bearer " + changed["access_token"]
+        comp = client.post("/api/companies", headers=headers, json={"name": "PG Parts Co"}).json()
+        cid = comp["id"]
+        headers["X-Company-ID"] = str(cid)
         customer = client.post("/api/customers", headers=headers, json={"name": "PG Parts"}).json()
         machine = client.post("/api/machines", headers=headers, json={
             "customer_id": customer["id"], "brand": "PG", "model": "Parts", "serial_number": "PG-PARTS-M"

@@ -1911,7 +1911,23 @@ def requeue_sifresi():
     garanti eder ve veritabanini BULDUGU GIBI birakir — ayni care ve ayni
     gerekce `test_d2_avans_tescil_postgresql.py` icinde de duruyor.
     """
-    yield _REQUEUE_ADMIN_PW
+    _kos(_REQUEUE_ACILIS, {"ADMIN_PW": _REQUEUE_ADMIN_PW})
+    try:
+        yield _REQUEUE_ADMIN_PW
+    finally:
+        _kos(_REQUEUE_ACILIS, {"ADMIN_PW": _REQUEUE_ADMIN_PW})
+
+
+def _acilisa_cek() -> None:
+    """Admin şifresini AÇILIŞ DURUMUNA (`admin123` + `must_change_password`) yaz.
+
+    D2/1B-A ikizlerinden DEVRALINDI. CI dosya başına `reset_schema` çalıştırdığı
+    için (`ci.yml:609`) CI ortamında DB durumu paylaşılmaz; bu dikiş yerel/pglens
+    paylaşılan veritabanı koşularını korur ve gelecekte reset_schema adımının
+    kaldırılmasına karşı savunma sağlar. Tek yönlü bir çare (yalnız teardown)
+    dosyayı iyi bir komşu yapar ama KENDİSİNİ korumaz, çünkü şifreyi bozan
+    ÖNCEKİ dosya olabilir. Bu yüzden İKİ UÇTAN çağrılır.
+    """
     _kos(_REQUEUE_ACILIS, {"ADMIN_PW": _REQUEUE_ADMIN_PW})
 
 

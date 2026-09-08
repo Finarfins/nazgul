@@ -11,6 +11,48 @@ import pytest
 BACKEND = Path(__file__).resolve().parent
 
 
+def _acilisa_cek() -> None:
+    """Admin şifresini AÇILIŞ DURUMUNA (`admin123` + `must_change_password`) yaz.
+
+    D2/1B-A ikizlerinden DEVRALINDI. CI dosya başına `reset_schema` çalıştırdığı
+    için (`ci.yml:609`) CI ortamında DB durumu paylaşılmaz; bu dikiş yerel/pglens
+    paylaşılan veritabanı koşularını korur ve gelecekte reset_schema adımının
+    kaldırılmasına karşı savunma sağlar. Tek yönlü bir çare (yalnız teardown)
+    dosyayı iyi bir komşu yapar ama KENDİSİNİ korumaz, çünkü şifreyi bozan
+    ÖNCEKİ dosya olabilir. Bu yüzden İKİ UÇTAN çağrılır.
+    """
+    db_url = os.environ.get("SUPPLIER_PRICE_IMPORT_TEST_DATABASE_URL") or os.environ.get("APP_TEST_DATABASE_URL") or os.environ.get("DATABASE_URL")
+    try:
+        from tests.pg_ikiz_yardimci import acilisa_cek
+        acilisa_cek(url=db_url)
+    except ImportError:
+        from sqlalchemy import create_engine, text as _text
+        from app.auth import hash_password
+
+        if not db_url or not db_url.startswith(("postgresql://", "postgresql+psycopg://")):
+            return
+        eng = create_engine(db_url)
+        with eng.begin() as conn:
+            if conn.execute(_text("SELECT to_regclass('public.app_users')")).scalar() is None:
+                return
+            conn.execute(
+                _text(
+                    "UPDATE app_users SET password_hash=:h, "
+                    "must_change_password=true WHERE username='admin'"
+                ),
+                {"h": hash_password("admin123")},
+            )
+
+
+@pytest.fixture(autouse=True)
+def _acilis_sifresi():
+    _acilisa_cek()
+    try:
+        yield
+    finally:
+        _acilisa_cek()
+
+
 @pytest.mark.postgresql
 def test_supplier_price_profile_delete_race_postgresql() -> None:
     """DELETE /profiles/{id} must answer 409 -- never 500 -- under a real race.
@@ -208,5 +250,18 @@ with TestClient(app) as client:
         "/api/supplier-prices/profiles", headers=headers
     ).status_code == 200
 
-print("SUPPLIER_PRICE_PROFILE_DELETE_RACE_OK")
+    with SessionLocal() as db:
+        if db.bind.dialect.name == "postgresql":
+            from app.auth import hash_password
+
+            db.execute(
+                text(
+                    "UPDATE app_users SET password_hash=:h, "
+                    "must_change_password=true WHERE username='admin'"
+                ),
+                {"h": hash_password("admin123")},
+            )
+            db.commit()
+
+    print("SUPPLIER_PRICE_PROFILE_DELETE_RACE_OK")
 '''

@@ -4,6 +4,46 @@ import os
 from decimal import Decimal
 
 import pytest
+def _acilisa_cek() -> None:
+    """Admin şifresini AÇILIŞ DURUMUNA (`admin123` + `must_change_password`) yaz.
+
+    D2/1B-A ikizlerinden DEVRALINDI. CI dosya başına `reset_schema` çalıştırdığı
+    için (`ci.yml:609`) CI ortamında DB durumu paylaşılmaz; bu dikiş yerel/pglens
+    paylaşılan veritabanı koşularını korur ve gelecekte reset_schema adımının
+    kaldırılmasına karşı savunma sağlar. Tek yönlü bir çare (yalnız teardown)
+    dosyayı iyi bir komşu yapar ama KENDİSİNİ korumaz, çünkü şifreyi bozan
+    ÖNCEKİ dosya olabilir. Bu yüzden İKİ UÇTAN çağrılır.
+    """
+    try:
+        from tests.pg_ikiz_yardimci import acilisa_cek
+        acilisa_cek()
+    except ImportError:
+        from sqlalchemy import text as _text
+        from app.auth import hash_password
+        from app.db import SessionLocal, engine as _eng
+
+        if _eng.dialect.name != "postgresql":
+            return
+        with SessionLocal() as db:
+            if db.execute(_text("SELECT to_regclass('public.app_users')")).scalar() is None:
+                return
+            db.execute(
+                _text(
+                    "UPDATE app_users SET password_hash=:h, "
+                    "must_change_password=true WHERE username='admin'"
+                ),
+                {"h": hash_password("admin123")},
+            )
+            db.commit()
+
+
+@pytest.fixture(autouse=True)
+def _acilis_sifresi():
+    _acilisa_cek()
+    try:
+        yield
+    finally:
+        _acilisa_cek()
 
 
 @pytest.mark.postgresql
@@ -33,6 +73,8 @@ def test_supplier_price_comparison_postgresql(monkeypatch: pytest.MonkeyPatch) -
             'current_password':'admin123', 'new_password':'SupplierPricesPg123!'})
         assert changed.status_code == 200, changed.text
         headers['Authorization'] = 'Bearer ' + changed.json()['access_token']
+        comp = client.post('/api/companies', headers=headers, json={'name':'PG Supplier Prices Co'}).json()
+        headers['X-Company-ID'] = str(comp['id'])
 
         supplier_a = client.post('/api/suppliers', headers=headers, json={'name':'PG Tedarikci A'}).json()['id']
         supplier_b = client.post('/api/suppliers', headers=headers, json={'name':'PG Tedarikci B'}).json()['id']
