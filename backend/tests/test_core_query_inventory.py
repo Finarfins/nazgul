@@ -891,22 +891,23 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     ("app/routers/kiraci_disa_aktarim.py", "_uret", "select",
      "22146e8f2b8865b09df07eb95d99700ca20acb0071dc458f749716f9457560f1"): (1, None, "unresolved"),  # satır [282]
     # --- WHATSAPP ESLESTIRME (WA2, goc 20260910_0079)
-    # ON YEDI sorgu, DORT dosya. UCU DE KIRACI tablosuna bakan her sorgu
-    # `company_id` yuklemi TASIYOR ve yuklem parmak izinde GORUNUR; bu kapi
-    # yuklemin VARLIGINI kanitlamaz, `test_core_tenant_scoping_guard.py`
-    # kanitlar. HEDEFI COZULEMEYEN sorgu YOK — `UNRESOLVED_ALLOWLIST`
-    # BUYUMEDI.
+    # ON BES sorgu, UC dosya (eslestirme.py 7, baglam.py 4, routers/whatsapp.py 4). KIRACI tablosuna bakan her sorgu `company_id`
+    # yuklemi TASIYOR ve yuklem parmak izinde GORUNUR; bu kapi yuklemin
+    # VARLIGINI kanitlamaz, `test_core_tenant_scoping_guard.py` kanitlar.
+    # HEDEFI COZULEMEYEN sorgu YOK — `UNRESOLVED_ALLOWLIST` BUYUMEDI.
     #
-    # UC SORGU KIRACI YUKLEMI TASIMAZ ve ucu de gerekcelidir:
-    #   * `eslestirme.kimlik_coz` — numaradan BUTUN firmalari tariyor. Kiraci
-    #     yuklemi olsaydi cagirana "hangi firma" diye sorardi; oysa bu sorgu
-    #     tam olarak o sorunun CEVABINI uretiyor. Kapsam yine de dar:
-    #     `is_active`, kullanici/firma aktifligi ve UYELIK zinciri sorgunun
-    #     kendisinde.
-    #   * `eslestirme.sureleri_gecenleri_kapat` — PLATFORM bakim isi (supurucu);
-    #     hicbir uctan cagrilmaz.
-    #   * `eslestirme.eski_denemeleri_sil` — hedefi PLATFORM tablosu
-    #     (`whatsapp_pairing_attempts`, `company_id` sutunu YOK).
+    # KIRACI YUKLEMI TASIMAYAN TEK SORGU `eslestirme.kimlik_coz`tur ve
+    # gerekcesi OLCULDU: numaradan BUTUN firmalari tariyor, cunku sordugu sey
+    # `company_id`nin KENDISIDIR — bir yuklem, cevabi soruyla birlikte vermek
+    # olurdu. YALNIZ (company_id, user_id) donduruyor, hicbir kiraci VERISI
+    # okumuyor ve her aday `_hedef_dogrula` ile AYRI AYRI, KIRACI YUKLEMLI bir
+    # sorgudan geciriliyor. `test_core_tenant_scoping_guard.py::
+    # CEKIRDEK_KIRACI_ISTISNALARI`nda gerekcesiyle lisansli.
+    #
+    # Kaynagin IKI supurucusu (`sureleri_gecenleri_kapat`,
+    # `eski_denemeleri_sil`) BU TURA ALINMADI: cagirani yok, sure denetimi
+    # zaten `kod_kullan`da ve birincisi kiraci yuklemi tasiyamadigi icin bir
+    # guvenlik istisnasi harcardi. Ikisi de isciyle birlikte, WA3'te gelir.
     ("app/routers/whatsapp.py", "baglanti_kapat", "select",
      "5a92cb5abfba725d1ea67e2f3d5585f51ffd34680ed247eb5b4be0825d5cc793"): (1, "whatsapp_links", "arg0"),  # satır [426]
     ("app/routers/whatsapp.py", "baglanti_kapat", "update",
@@ -924,23 +925,19 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     ("app/whatsapp/baglam.py", "firma_adlari", "select",
      "5e57b676f6dc09da5098acc99135597195afe99d2721a0bd0c3c5f6190fc029f"): (1, "companies", "arg0"),  # satır [255]
     ("app/whatsapp/eslestirme.py", "_denemeyi_artir", "update",
-     "09c512f944fca5bdf6b4480b1e75a7a8f1dd8a3f75e6dccd6b4a2affad3171bb"): (1, "whatsapp_pairing_codes", "arg0"),  # satır [660]
+     "e45c110292a5c0d6b569c32e13777438a9c2fc4ee088f8d360daa577b3fd2603"): (1, "whatsapp_pairing_codes", "arg0"),  # satır [661]
     ("app/whatsapp/eslestirme.py", "_hedef_dogrula", "select",
-     "237ca1d0d6c18fb731c761ef5df7b153992c0fddcc105fea33ac4f1d767b1eb7"): (1, "users", "arg0"),  # satır [253]
+     "237ca1d0d6c18fb731c761ef5df7b153992c0fddcc105fea33ac4f1d767b1eb7"): (1, "users", "arg0"),  # satır [268]
     ("app/whatsapp/eslestirme.py", "bekleyenleri_iptal_et", "update",
-     "d740b2611cac4085394827aee55d13fc701859b32e281a16e558b23b0d8cbe50"): (1, "whatsapp_pairing_codes", "arg0"),  # satır [281]
-    ("app/whatsapp/eslestirme.py", "eski_denemeleri_sil", "delete",
-     "688b47116d935ee7191415acd96f584e485726ea76ffb9ccea915641bde8cabc"): (1, "whatsapp_pairing_attempts", "arg0"),  # satır [449]
+     "d740b2611cac4085394827aee55d13fc701859b32e281a16e558b23b0d8cbe50"): (1, "whatsapp_pairing_codes", "arg0"),  # satır [296]
     ("app/whatsapp/eslestirme.py", "kimlik_coz", "select",
-     "3118b6c93ea24c35c93030ad14dd15d87a2de1a2a7839390e4df64c6f4ec0abc"): (1, "whatsapp_links", "arg0"),  # satır [691]
+     "9cfdbd5059edb6d1c4e488edac9a897bb3be419ac8a77c6f40b5c490408abcde"): (1, "whatsapp_links", "arg0"),  # satır [714]
     ("app/whatsapp/eslestirme.py", "kod_iptal", "update",
-     "cea0c5a99926d24a115f475d69df6b2460453b770c027a9d2160ac4fbd6cbe54"): (1, "whatsapp_pairing_codes", "arg0"),  # satır [353]
+     "cea0c5a99926d24a115f475d69df6b2460453b770c027a9d2160ac4fbd6cbe54"): (1, "whatsapp_pairing_codes", "arg0"),  # satır [368]
     ("app/whatsapp/eslestirme.py", "kod_kullan", "select",
-     "d45429e099aa6bd7cf2345a576bf8b4930d6efa2b61f0cb01abf4d5c98e91cc1"): (1, "whatsapp_pairing_codes", "arg0"),  # satır [519]
+     "d45429e099aa6bd7cf2345a576bf8b4930d6efa2b61f0cb01abf4d5c98e91cc1"): (1, "whatsapp_pairing_codes", "arg0"),  # satır [501]
     ("app/whatsapp/eslestirme.py", "kod_kullan", "update",
-     "e81a064bf1eeaf19208e33b0743dede1af93de0fe5b8fe8c795f1da03a9cc96e"): (1, "whatsapp_pairing_codes", "arg0"),  # satır [621]
-    ("app/whatsapp/eslestirme.py", "sureleri_gecenleri_kapat", "update",
-     "66d875d99590f2e8d2d80418d49e4a210696ea0de271ea8ef6e54a3a25ff7bcf"): (1, "whatsapp_pairing_codes", "arg0"),  # satır [374]
+     "588f63e7ead0c0ef095b43683f84eff29b9c2a30322115d128b1e7d161a3f032"): (1, "whatsapp_pairing_codes", "arg0"),  # satır [612]
     # --- app/routers/kiraci_imha.py
     # KİRACI YUMUŞAK İMHASI. Dışa aktarımın tersine burada HİÇBİR hedef
     # çözülemez DEĞİL: dört sorgunun da tablosu modül düzeyinde yazılı
@@ -957,8 +954,8 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "4594c3b519aab868921b5bd88a7f5bc6f2579889963ec81277bc7383effb9a72"): (1, "memberships", "arg0"),  # satır [137]
 }
 
-TOTAL_CORE_QUERIES = 162
-EXPECTED_OP_COUNTS = {"select": 103, "update": 48, "delete": 11}
+TOTAL_CORE_QUERIES = 160
+EXPECTED_OP_COUNTS = {"select": 103, "update": 47, "delete": 10}
 # 2026-08-12: iki sorgu bilerek değişti — `ensure_company_default_warehouse`
 # depo adı taramasına kiracı kapsamı eklendi (şema ölçümü: warehouses.name
 # üzerinde ne küresel ne kiracı kapsamlı UNIQUE var) ve `_finalize` opak
@@ -999,16 +996,16 @@ EXPECTED_OP_COUNTS = {"select": 103, "update": 48, "delete": 11}
 # `77aa5b0` (#59 + #62 + #63 indikten sonra); onceki turun 144 -> 145 /
 # `6031430b` -> `ee29c6f8` olcumu taban degistigi anda GECERSIZ oldu ve
 # parmak izi ARITMETIKLE degil YENIDEN turetildi.
-# 20260910 WA2 esleştirme defteri (goc 20260910_0079): 145 -> 162
-# (select 95 -> 103, update 42 -> 48, delete 8 -> 11). ON YEDI sorgu, DORT
-# dosya: app/whatsapp/eslestirme.py (9), app/whatsapp/baglam.py (4),
+# 20260910 WA2 esleştirme defteri (goc 20260910_0079): 145 -> 160
+# (select 95 -> 103, update 42 -> 47, delete 8 -> 10). ON BES sorgu, UC
+# dosya: app/whatsapp/eslestirme.py (7), app/whatsapp/baglam.py (4),
 # app/routers/whatsapp.py (4). Drift raporu OLCULDU: `changed` ve `stale`
 # IKISI DE BOS — artis YALNIZ eklemedir, hicbir mevcut sorgunun yuklemi ya da
-# hedefi DEGISMEDI. `UNRESOLVED_ALLOWLIST` BUYUMEDI: on yedi sorgunun da
-# hedefi statik olarak cozuldu (`arg0`). `desteksiz` listesine WA2'den TEK
+# hedefi DEGISMEDI. `UNRESOLVED_ALLOWLIST` BUYUMEDI: on besinin de hedefi
+# statik olarak cozuldu (`arg0`). `desteksiz` listesine WA2'den TEK
 # BIR satir bile girmedi. TABAN develop `27916d7` (WA1/#80 indikten sonra);
 # parmak izi ARITMETIKLE tasinmadi, envanterin TAMAMINDAN yeniden turetildi.
-INVENTORY_FINGERPRINT = "ee76ca34b49f179157f4cdd7cf9c91d74911b9d5a6291106489d8e023a98fc5e"
+INVENTORY_FINGERPRINT = "0a32c53d8a234430bbb837d9edd3c76f1d71a40aee9f9961d81d97a7f414dc65"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:

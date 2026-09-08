@@ -124,4 +124,5 @@ tests/test_season_cost_with_labour.py	1
 tests/test_self_service_exemption.py	1
 tests/test_stock_transfer_item_tenancy.py	3
 tests/test_transaction_branch_tenant_scoping.py	1
+tests/test_wa2_eslestirme.py	1
 tests/test_workflow_line_item_tenancy.py	3

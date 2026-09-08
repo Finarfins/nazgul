@@ -5405,6 +5405,113 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/whatsapp/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Baglantilari Listele
+         * @description Firmanın bağlantı defteri. TELEFON MASKELİ döner.
+         *
+         *     Ham numara CEVAPTA YOKTUR ve bu bilinçlidir: defterin amacı "kim bağlı"
+         *     sorusunu cevaplamaktır, "hangi numaradan" sorusunu değil. Son dört hane
+         *     kullanıcının kendi kaydını tanımasına yeter; tam numara, `users` iznine
+         *     sahip herkese firmanın çalışan telefon listesini verirdi.
+         *
+         *     Pasif satırlar da dönüyor: "kim ne zaman bağlıydı" izi kapatılan
+         *     bağlantıyla silinmiyor. Sıra deterministik — önce aktifler, sonra en yeni.
+         */
+        get: operations["baglantilari_listele_api_whatsapp_links_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/whatsapp/links/{baglanti_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Baglanti Kapat
+         * @description Bağlantıyı PASİFLEŞTİRİR, SİLMEZ: kim ne zaman bağlıydı izi kalır.
+         *
+         *     Pasifleştirme `uq_whatsapp_links_aktif_numara` kısmi tekilinin
+         *     KAPSAMINDAN çıkmaktır, yani aynı numara aynı firmaya yeniden
+         *     bağlanabilir hâle gelir. Satırı SİLMEK de aynı sonucu verirdi ama izi de
+         *     silerdi.
+         *
+         *     Kiracı yüklemi bir süs DEĞİL: düşseydi bir firmanın yöneticisi BAŞKA
+         *     firmanın bağlantısını kapatabilirdi.
+         */
+        delete: operations["baglanti_kapat_api_whatsapp_links__baglanti_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/whatsapp/pairing-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Eslestirme Kodu Uret
+         * @description Tek kullanımlık kod üretir. DÜZ KOD YALNIZ BU CEVAPTA, BİR KEZ döner.
+         *
+         *     Sonraki hiçbir okuma kodu ya da özetini VERMEZ; kaybedilirse yeni kod
+         *     üretilir (eskisi otomatik iptal olur — `kod_uret` bunu deterministik
+         *     yapar ve hakem `uq_wpc_aktif_kod` kısmi tekilidir).
+         *
+         *     Hedef kullanıcı doğrulaması `eslestirme._hedef_dogrula`dadır ve BEŞ ret
+         *     yolu AYNI metni üretir: "kullanıcı yok", "başka firmanın kullanıcısı" ve
+         *     "pasif" ayırt EDİLEMEZ — başka tenant'ın varlığı sızdırılmaz.
+         */
+        post: operations["eslestirme_kodu_uret_api_whatsapp_pairing_codes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/whatsapp/pairing-codes/{kod_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Eslestirme Kodu Iptal
+         * @description Bekleyen kodu iptal eder. TENANT KAPSAMLI; idempotent DEĞİL (404).
+         *
+         *     Yok / başka firmanın / zaten kapanmış — ÜÇÜ DE aynı 404'ü alır. Ayırmak,
+         *     "bu id başka firmada var" bilgisini vermek olurdu.
+         */
+        delete: operations["eslestirme_kodu_iptal_api_whatsapp_pairing_codes__kod_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/whatsapp/webhook": {
         parameters: {
             query?: never;
@@ -7637,6 +7744,14 @@ export interface components {
             status: string;
             /** Work Order No */
             work_order_no: string;
+        };
+        /**
+         * KodGirdisi
+         * @description Kod üretme gövdesi. `extra="forbid"`: sessizce yok sayılan alan YOK.
+         */
+        KodGirdisi: {
+            /** User Id */
+            user_id: number;
         };
         /**
          * LaborEntry
@@ -21121,6 +21236,129 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    baglantilari_listele_api_whatsapp_links_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+        };
+    };
+    baglanti_kapat_api_whatsapp_links__baglanti_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                baglanti_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    eslestirme_kodu_uret_api_whatsapp_pairing_codes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KodGirdisi"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    eslestirme_kodu_iptal_api_whatsapp_pairing_codes__kod_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kod_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

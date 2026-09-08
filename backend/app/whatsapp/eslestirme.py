@@ -596,9 +596,18 @@ def kod_kullan(
             # CAS: YALNIZ hâlâ PENDING olan kod tüketilebilir. İki işçi
             # yarışırsa ``rowcount`` TAM OLARAK BİRİNDE 1 olur.
             #
-            # MUTASYON: `status == PENDING` yüklemini düşürmek bunu
-            # kırmızı YAPMAZ tek başına — ama yarış testinde İKİ bağlantı
-            # doğar ve `test_YIRMI_ESZAMANLI_...` kırmızı olur.
+            # ÜÇÜNCÜ KATMAN ve bu ÖLÇÜLDÜ: yukarıdaki satır kilidi (yalnız
+            # PostgreSQL) ve okuma sonrası durum denetimiyle birlikte ÜÇ
+            # bağımsız hakem var; PG'de yirmi eşzamanlı işçi üzerinde
+            # ölçüldü, HER BİRİ TEK BAŞINA yetiyor ve ÜÇÜ BİRDEN düşerse
+            # yirmi bağlantı doğuyor.
+            #
+            # CAS YİNE DE VAZGEÇİLMEZ: satır kilidi SQLite'ta HİÇ ÇALIŞMAZ
+            # ve durum denetimi tek başına bir TOCTOU'dur — okuma ile yazma
+            # arasında satır değişebilir. Yazmayı KOŞULA BAĞLAYAN tek katman
+            # budur. Hiçbir davranış testi bu tek mutantı öldüremediği için
+            # kapı AST'dedir: `tests/test_wa2_eslestirme.py::
+            # test_CAS_KOSULU_STATUS_PENDING_ve_KIRACI_YUKLEMLI`.
             cas = db.execute(
                 update(whatsapp_pairing_codes)
                 .where(

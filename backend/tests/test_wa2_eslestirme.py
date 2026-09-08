@@ -23,8 +23,12 @@ Her kapı, HANGİ değişikliğin onu kırmızı yapacağını ADIYLA söylüyor
                                        testlerinin HİÇBİRİ bu mutantı
                                        öldürmez; kaybolan şey zamanlamadır)
   * CAS'ten `status == PENDING` yüklemini düşürmek
-                                    -> CAS kapısı ve YİRMİ EŞZAMANLI adımı
-                                       KIRMIZI (iki bağlantı doğar)
+                                    -> CAS kapısı KIRMIZI. YALNIZ o kapı:
+                                       PG ikizindeki yarış adımı bu mutantla
+                                       YEŞİL KALIR (ölçüldü) çünkü satır
+                                       kilidi ve okuma-sonrası durum
+                                       denetimi ayrı ayrı yetiyor. Bu kapı
+                                       tam olarak o yüzden AST'dedir.
   * Hız sınırını kapatmak (`deneme_say` çağrısını kaldırmak ya da
     sınır karşılaştırmasını düşürmek)
                                     -> SINIR SIRASI kapısı ve KİLİTLİ
@@ -422,8 +426,20 @@ def test_CAS_KOSULU_STATUS_PENDING_ve_KIRACI_YUKLEMLI() -> None:
     TAM OLARAK BİRİNDE 1 olur ve kaybeden taraf bağlantı INSERT'ini de geri
     alır (SAVEPOINT).
 
-    MUTASYON: `status == PENDING` yüklemini düşürmek bunu KIRMIZI yapar — ve
-    PG ikizindeki YİRMİ EŞZAMANLI adımında İKİ bağlantı doğar.
+    KAPI NEDEN AST'DE — ÖLÇÜLDÜ, VARSAYILMADI: `kod_kullan` bu değişmezi ÜÇ
+    BAĞIMSIZ katmanla koruyor (PostgreSQL satır kilidi, okuma sonrası durum
+    denetimi, CAS) ve HERHANGİ BİRİ TEK BAŞINA yetiyor. PG ikizindeki yirmi
+    eşzamanlı yarış adımı üzerinde ölçüldü: yalnız CAS düşürülünce test
+    YEŞİL KALIYOR; ÜÇÜ BİRDEN düşünce kırmızı oluyor (tablo o testin
+    başlığında). Yani hiçbir DAVRANIŞ testi bu tek mutantı öldüremez —
+    kalıp WA1'in `compare_digest` kapısıyla aynı.
+
+    CAS YİNE DE VAZGEÇİLMEZ: satır kilidi YALNIZ PostgreSQL'de çalışıyor,
+    SQLite'ta (geliştirme) geriye durum denetimi ile CAS kalıyor ve durum
+    denetimi tek başına bir TOCTOU'dur — okuma ile yazma arasında satır
+    değişebilir. Yazmayı koşula bağlayan tek katman CAS'tir.
+
+    MUTASYON: `status == PENDING` yüklemini düşürmek BU KAPIYI kırmızı yapar.
     """
     kaynak = SERVIS.read_text(encoding="utf-8")
     fn = _fn(kaynak, "kod_kullan")
