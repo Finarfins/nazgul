@@ -22,6 +22,13 @@ Invariants enforced here, not by convention:
 * Nothing in this module can produce ``ACCEPTED`` on its own: it is returned
   only when the provider's own answer maps to it via
   :data:`~app.einvoice.endpoints.PROVIDER_STATUS_ALIASES`.
+* ``CANCELLED`` is the one state that is **ours, not the provider's**: it records
+  that the integrator accepted an e-Arşiv cancellation we asked for. It is
+  therefore reachable ONLY from the three states in which a live envelope
+  exists at the provider (:data:`CANCELLABLE`) and is itself terminal. It is
+  deliberately absent from :data:`QUERYABLE`: a status *poll* must never be able
+  to invent it, because the only evidence that a document was cancelled is the
+  integrator's answer to our own cancel call.
 """
 
 from __future__ import annotations
@@ -37,6 +44,9 @@ SENT = "SENT"
 ACCEPTED = "ACCEPTED"
 REJECTED = "REJECTED"
 FAILED = "FAILED"
+#: İptal EDİLDİ — sağlayıcı bizim iptal isteğimizi kabul etti. Sorgudan DEĞİL,
+#: yalnız `cancel()` yanıtından doğar (bkz. :data:`CANCELLABLE`).
+CANCELLED = "CANCELLED"
 
 #: NOT a document state — a *query outcome*. ``FAILED`` means "the submission
 #: never landed, there is no ETTN" (spec §5), so a failing **status query** must
@@ -46,8 +56,22 @@ FAILED = "FAILED"
 #: :func:`advance_status` leaves the document exactly where it was.
 UNRESOLVED = "UNRESOLVED"
 
-TERMINAL: frozenset[str] = frozenset({ACCEPTED, REJECTED})
-KNOWN: frozenset[str] = frozenset({NONE, PENDING, SENT, ACCEPTED, REJECTED, FAILED})
+TERMINAL: frozenset[str] = frozenset({ACCEPTED, REJECTED, CANCELLED})
+KNOWN: frozenset[str] = frozenset({NONE, PENDING, SENT, ACCEPTED, REJECTED, FAILED, CANCELLED})
+
+#: The ONLY states a document may be cancelled FROM. All three mean "a live
+#: envelope exists at the provider and can still be withdrawn". The three that
+#: are absent are absent for different reasons, and each one matters:
+#:
+#: * ``NONE`` — never sent. There is nothing at the integrator to cancel, so
+#:   writing ``CANCELLED`` would claim an integrator action that never happened.
+#: * ``FAILED`` — the send never landed and there is no ETTN. Same contradiction
+#:   as above, plus it would block the legitimate re-``submit()`` that rank 0
+#:   exists to allow.
+#: * ``REJECTED`` — GİB already refused the document. It is terminal, and
+#:   re-labelling a refusal as a cancellation would overwrite GİB's verdict
+#:   (and its ``error`` reason) with our own.
+CANCELLABLE: frozenset[str] = frozenset({PENDING, SENT, ACCEPTED})
 
 #: The only states a *live envelope* can be reported in. A status query is asked
 #: about a specific ETTN, so its answer may only be one of these four. The other
@@ -59,7 +83,7 @@ QUERYABLE: frozenset[str] = frozenset({PENDING, SENT, ACCEPTED, REJECTED})
 
 #: Forward-only ordering. ``NONE`` and ``FAILED`` share rank 0: both mean "no
 #: live envelope at the provider", and a retry of ``submit()`` is legitimate.
-_RANK: dict[str, int] = {NONE: 0, FAILED: 0, PENDING: 1, SENT: 2, ACCEPTED: 3, REJECTED: 3}
+_RANK: dict[str, int] = {NONE: 0, FAILED: 0, PENDING: 1, SENT: 2, ACCEPTED: 3, REJECTED: 3, CANCELLED: 3}
 
 _NORMALISE = str.maketrans({"İ": "I", "ı": "I", "Ş": "S", "ş": "S", "Ğ": "G", "ğ": "G",
                             "Ü": "U", "ü": "U", "Ö": "O", "ö": "O", "Ç": "C", "ç": "C",
@@ -100,6 +124,19 @@ def advance_status(current: Any, incoming: Any) -> str:
     if incoming_status == UNRESOLVED:
         # A failed/undeterminable query is not a transition at all.
         return current_status
+    if incoming_status == CANCELLED:
+        # ONE-WAY, AND CHECKED BEFORE THE TERMINAL GUARD — deliberately, because
+        # the single most important cancellation is the one from ``ACCEPTED``:
+        # a document GİB has already accepted is exactly the document an
+        # operator needs to withdraw. Left to the generic rank/terminal
+        # machinery below, ``ACCEPTED`` would swallow the transition and the
+        # local row would keep saying ACCEPTED for an envelope the integrator
+        # had just cancelled.
+        #
+        # The gate is a membership test, not a rank comparison: ``CANCELLED``
+        # has no meaningful "distance" from the states it may not come from
+        # (see :data:`CANCELLABLE` for why each of the other three is excluded).
+        return CANCELLED if current_status in CANCELLABLE else current_status
     if current_status in TERMINAL:
         return current_status
     if incoming_status not in KNOWN:

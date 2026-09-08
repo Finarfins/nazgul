@@ -1078,6 +1078,26 @@ def required_permission(method: str, path: str) -> str:
         return "purchases"
     if path.startswith("/api/suppliers/") and path.endswith("/advances"):
         return "purchases"
+    # e-BELGE SURETİ İNDİRME: GÜVENLİ METOT AMA `read` DEĞİL. Kural bu satırın
+    # ÜSTÜNDE değil TAM BURADA, çünkü hemen altındaki genel güvenli-metot
+    # kuralı her GET'i `read`e düşürür ve ÖLÇÜLDÜ: bu satır yazılmadan önce
+    # `required_permission("GET", "/api/invoices/1/einvoice/download")` -> "read"
+    # veriyordu. İki gerekçe:
+    #
+    # 1. Uç DIŞ BİR YAN ETKİ üretir — sağlayıcıda oturum açar ve kota tüketir.
+    #    `POST .../einvoice/sync`in `sales`ta tutulmasının gerekçesiyle AYNI;
+    #    orada yöntem POST olduğu için kural kendiliğinden geliyordu, burada
+    #    yöntem GET olduğu için AÇIKÇA yazılmak zorunda.
+    # 2. İndirilen şey RESMİ MALİ BELGEDİR (entegratörün mühürlediği e-Arşiv
+    #    PDF'i ya da gönderilen UBL). `GET /api/invoices/{id}/pdf` bizim İÇ
+    #    faturamızı basar ve `read`te kalması doğrudur; bu ONUNLA AYNI ŞEY
+    #    DEĞİLDİR.
+    #
+    # ÖNEK DEĞİL, SONEK+ÖNEK BİRLİKTE: "/api/invoices" öneki tek başına
+    # `/api/invoices/{id}/pdf`i ve listeyi de yakalar ve okuma yetkisi olan
+    # rolleri fatura listesinden düşürürdü.
+    if path.startswith("/api/invoices/") and path.endswith("/einvoice/download"):
+        return "sales"
     if method in {"GET", "HEAD", "OPTIONS"}:
         return "read"
     # Machine card writes require the dedicated ``machines`` permission (reads

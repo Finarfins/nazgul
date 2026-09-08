@@ -117,8 +117,33 @@ birebir; JSON'da string (proje para/miktar sözleşmesi). Float yasak.
 - `ACCEPTED` / `REJECTED`: **terminal**. REJECTED, `error` alanında GİB
   gerekçesini taşır.
 - `FAILED`: gönderim başarısız, ETTN yok — yeniden `submit()` denenebilir.
+- `CANCELLED` (E2): **terminal**. Entegratör bizim iptal isteğimizi kabul etti.
 
 Geçişler yalnızca sağlayıcı yanıtıyla ilerler. Terminal durumdan geri dönüş yok.
+
+### 5.1 — `CANCELLED` (E2): tek yönlü, ve yalnız üç durumdan
+
+```
+   PENDING ─┐
+   SENT  ───┼── cancel() KABUL ──▶ CANCELLED   (terminal)
+   ACCEPTED─┘
+
+   NONE / FAILED / REJECTED ── cancel() ──▶ (DEĞİŞMEZ)
+```
+
+`CANCELLED`, makinedeki **tek BİZE ait durumdur**: diğerleri sağlayıcının
+cevabından doğar, bu bizim isteğimizin kabulünden. Üç sonucu var:
+
+1. **Yalnız `CANCELLABLE` = {PENDING, SENT, ACCEPTED}'ten kabul edilir.**
+   Dışarıda kalan üçü ayrı gerekçelerle dışarıda: `NONE` ve `FAILED` için
+   entegratörde iptal edilecek bir zarf YOKTUR (ve `FAILED`i iptal yazmak
+   meşru yeniden gönderimi kapatırdı); `REJECTED` zaten GİB'in kararıdır ve
+   üzerine yazmak o kararı ve gerekçesini silerdi.
+2. **Kapı, terminal kontrolünden ÖNCE çalışır.** Aksi hâlde `ACCEPTED` —
+   yani operatörün geri çekmesi gereken asıl belge — geçişi yutardı.
+3. **Bir durum SORGUSU `CANCELLED` üretemez** (`QUERYABLE` dışındadır). Bir
+   belgenin iptal edildiğinin tek kanıtı, entegratörün BİZİM iptal
+   çağrımıza verdiği cevaptır.
 
 ## 6. Hata kodu → Türkçe mesaj tablosu
 
@@ -146,6 +171,41 @@ Ham sağlayıcı gövdesi yalnızca `raw` içinde (audit), UI'ya çıkmaz.
   ile yapılır (sağlayıcı DUPLICATE ile ikinciyi reddetmeli).
 - Idempotency anahtarı: fatura ID + şirket ID'den türetilen kararlı ETTN;
   `submit` bunu taşır, tekrarlar aynı belgeye çözülür.
+
+### 7.1 — B2B REDDİ AĞA ÇIKTIKTAN SONRA GELİR (ölçüldü)
+
+`IZIBIZ_EFATURA_SUBMIT_VERIFIED = False` olduğu sürece e-Fatura (B2B) gönderimi
+reddedilir. **Ama bu ret, sağlayıcıya HİÇ GİDİLMEDİĞİ anlamına GELMEZ** ve bu
+ayrım operasyonel olarak önemlidir: reddedilen her B2B gönderim denemesi
+İzibiz'de **bir oturum ve bir mükellefiyet sorgusu tüketir**.
+
+Ölçüm (sahte taşımayla, çağrı sırası kaydedilerek):
+
+| # | Servis | Gövde kök elemanı |
+|---|---|---|
+| 1 | `AuthenticationWS` | `LoginRequest` |
+| 2 | `AuthenticationWS` | `CheckUserRequest` |
+| — | *(EInvoiceWS'e çağrı YOK)* | — |
+
+Sonuç: `FAILED`, gerekçe `IZIBIZ_EFATURA_SUBMIT_ERROR`.
+
+**Neden böyle, ve neden bir kusur değil.** Kanal, uç tarafından
+`check_taxpayer()` sonucundan çözülüyor (`resolve_channel`), yani bir belgenin
+B2B olduğu ancak `CheckUser` cevaplandıktan SONRA bilinebiliyor;
+`_submit_gate` de kanala baktığı için ondan önce karar veremez. Kapıyı öne
+almak, mükellefiyeti sormadan "bu muhtemelen B2B'dir" diye tahmin etmek
+olurdu — spec §3'ün açıkça yasakladığı iyimser varsayım.
+
+**Karşılaştırma — hangi kapı nerede duruyor.** Üç kapı ağdan ÖNCE çalışır ve
+tek bir çağrı bile üretmez: eksik UBL alanı (`missing_required_fields`),
+yapılandırma (`_configured`), e-Arşiv durum sorgusunun ETTN önkoşulu
+(`_query_precondition`) ve e-Arşiv iptalinin ETTN önkoşulu
+(`_cancel_precondition`). B2B kapısı bunlara KATILAMAZ, çünkü girdisi
+(kanal) ağdan gelir.
+
+**Operatöre etkisi:** B2B bir alıcıya fatura kesme denemeleri, hiçbir belge
+üretmeseler de sağlayıcı tarafında görünür ve kotaya yazılır. Deneme
+tekrarlanan bir otomasyona bağlanmamalıdır.
 
 ## 8. Test stratejisi
 
@@ -208,3 +268,39 @@ bir belge için boş dönüyor. ~100 sn yoklandı, zamanlama değil. Ölçüm ve
 sebep: `docs/izibiz-sandbox-bulgular.md` §7.3.
 
 `IZIBIZ_EFATURA_SUBMIT_VERIFIED` bu yüzden `False` kaldı — §7.4.
+
+**GÜNCELLEME (E2, e-belge yaşam döngüsü).** Bu maddenin iki yarısından biri
+kapandı, biri kapanmadı — ve karışmasınlar diye ayrı yazılıyor:
+
+* **PDF YOLU ARTIK VAR.** `GET /api/invoices/{id}/einvoice/download?format=pdf|xml`
+  eklendi. `fetch_pdf` zaten şemaya uygun istek kuruyordu ama onu çağıran bir
+  UÇ YOKTU: saklanan `einvoice_web_key` hiçbir yerden okunmuyordu, yani anahtar
+  saklanıyor ama kullanılmıyordu. Uç bu boşluğu kapatıyor; anahtar seçimi
+  kanala göre (e-Arşiv → `WEB_VALIDATION_KEY`, e-Fatura → sağlayıcı belge
+  kimliği). `format=xml` ağa HİÇ çıkmaz: gönderilen UBL, dondurulmuş
+  `einvoice_payload`dan yeniden üretilir.
+* **SANDBOX'TA PDF HÂLÂ KANITLANMADI.** Ucun var olması, sağlayıcının o belgeyi
+  verdiği anlamına gelmiyor. Sandbox ölçümü ve açık soru
+  `docs/izibiz-sandbox-bulgular.md` §7.3'te; sandbox testi bu yüzden
+  `xfail(strict=False)` ile işaretli — geçerse de kırmızı yakmaz, çünkü asıl
+  belirsizlik bizde değil sağlayıcıda.
+* **B2B KAPISI HÂLÂ KAPALI** (`IZIBIZ_EFATURA_SUBMIT_VERIFIED = False`) ve E2
+  bunu DEĞİŞTİRMEDİ. Değişen tek şey, kapının ne zaman çalıştığının artık
+  yazılı olması: §7.1.
+
+### 9.4 — e-FATURA İPTALİ: UYGULAMA YANITI YOK (E2'de kasıtlı olarak açık)
+
+e-Arşiv iptali E2'de kapandı (`CancelEArchiveInvoice`, şeması `?xsd=5`ten
+okundu). **e-Fatura (B2B) iptali kapanmadı ve kapanamazdı**: giden bir ticari
+e-Fatura tek taraflı iptal edilemez. Alıcı, belgenin kendisine ulaşmasından
+itibaren **sekiz gün** içinde itiraz eder (TTK 18/3) ve iptal o sürecin
+sonucudur; teknik karşılığı `ApplicationResponse` (uygulama yanıtı)
+akışıdır ve o akış bu artışta YOKTUR.
+
+Bu yüzden uç, B2B bir belge için iptali **409 ile reddediyor** ve gerekçeyi
+operatöre yazıyor. Alternatif — yerelde sessizce iptal etmek — ERP'nin "iptal"
+dediği bir belgenin GİB'de yürürlükte kalması demekti.
+
+Kapatılması gereken iş, ayrı bir dilim: `SendInvoiceResponse` /
+`getApplicationResponse` operasyonları (envanterde var, adaptörde yok —
+`docs/izibiz-sandbox-bulgular.md` e-Fatura tablosu).

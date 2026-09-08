@@ -79,6 +79,7 @@ from .errors import (
     scrub,
 )
 from .status import (
+    CANCELLED,
     FAILED,
     NONE,
     PENDING,
@@ -174,6 +175,20 @@ class EInvoiceProvider(ABC):
         ...
 
     @abstractmethod
+    def cancel(
+        self, external_id: str, *, channel: str | None = None, uuid: str | None = None
+    ) -> EInvoiceResult:
+        """Withdraw one already-sent envelope at the integrator.
+
+        Returns ``status=CANCELLED`` only when the integrator ACCEPTED the
+        withdrawal, and ``status=FAILED`` (with ``error``) otherwise. There is
+        deliberately no third answer: the caller's next act is to cancel the
+        document locally, and an "I could not tell" result would be read as
+        permission to do so. A cancellation we are not sure of must fail.
+        """
+        ...
+
+    @abstractmethod
     def check_taxpayer(self, vkn: str) -> dict[str, bool]:
         """Decide EFATURA vs EARSIV: ``{"is_efatura_user": bool}``."""
         ...
@@ -224,6 +239,16 @@ class NoOpEInvoiceProvider(EInvoiceProvider):
     def fetch_pdf(
         self, external_id: str, *, channel: str | None = None, web_key: str | None = None
     ) -> bytes:
+        raise EInvoiceError(UNKNOWN, _NOT_CONFIGURED)
+
+    def cancel(
+        self, external_id: str, *, channel: str | None = None, uuid: str | None = None
+    ) -> EInvoiceResult:
+        # RAISES, and does NOT return ``FAILED`` — even though ``FAILED`` is the
+        # documented failure answer and would also stop the caller. A NoOp never
+        # asked anyone anything, so it cannot report on a cancellation; the same
+        # reasoning that keeps ``check_taxpayer`` from answering the channel
+        # question keeps this one from answering the cancellation question.
         raise EInvoiceError(UNKNOWN, _NOT_CONFIGURED)
 
     def check_taxpayer(self, vkn: str) -> dict[str, bool]:
@@ -870,6 +895,108 @@ class _HttpEInvoiceProvider(EInvoiceProvider):
             raise self._raise("fetch_pdf", UNKNOWN, provider_code="PDF_YOK")
         return content
 
+    def cancel(
+        self, external_id: str, *, channel: str | None = None, uuid: str | None = None
+    ) -> EInvoiceResult:
+        """Withdraw one envelope. ``CANCELLED`` only when the integrator said yes.
+
+        FAIL-CLOSED IN THE OPPOSITE DIRECTION FROM :meth:`query_status`, and the
+        asymmetry is the point. A status query that cannot be answered returns
+        ``UNRESOLVED`` and changes nothing — the safe answer there is "leave the
+        document alone". Here the caller is about to cancel the document
+        LOCALLY, so "I do not know" and "it did not work" must collapse into the
+        SAME refusal; every path below therefore ends in ``FAILED``, and the one
+        success path requires a positively-read provider answer.
+
+        NOT RETRIED, and not for the reason ``submit`` is not retried. A repeated
+        cancel is harmless in effect (the second one finds the document already
+        withdrawn), but a retry that times out on attempt 3 would report
+        ``FAILED`` for a cancellation the integrator may well have accepted on
+        attempt 1 — a local document left ISSUED while the envelope is gone.
+        Under a reported failure the operator can ask again; under a silent
+        divergence they cannot know they must.
+        """
+        ettn = str(external_id or "").strip()
+        if not ettn:
+            return self._fail("cancel", VALIDATION, field_name="ETTN", channel=channel)
+        if not self._configured():
+            return self._fail(
+                "cancel",
+                UNKNOWN,
+                message=self._unconfigured_message(),
+                external_id=ettn,
+                uuid=uuid,
+                channel=channel,
+            )
+        blocked = self._cancel_precondition(ettn, channel=channel, uuid=uuid)
+        if blocked is not None:
+            # Kurulamayan bir istek için oturum açmak, sağlayıcıda karşılığı
+            # olmayan bir giriş bırakır. Kontrol ağdan ÖNCE.
+            return self._fail(
+                "cancel", VALIDATION, message=blocked, external_id=ettn, uuid=uuid, channel=channel
+            )
+        try:
+            response = self._call_with_session(
+                "cancel", retryable=False, ettn=ettn, channel=channel, uuid=uuid
+            )
+        except EInvoiceError as exc:
+            return self._fail(
+                "cancel",
+                exc.code,
+                message=exc.message,
+                raw=exc.raw,
+                external_id=ettn,
+                uuid=uuid,
+                channel=channel,
+            )
+        except TransportError:
+            return self._fail(
+                "cancel", NETWORK, external_id=ettn, uuid=uuid, channel=channel
+            )
+
+        raw = self._summary(response)
+        if not response.ok:
+            code = classify_http(response.status_code, self._body_text(response))
+            return self._fail(
+                "cancel",
+                code,
+                provider_code=response.status_code,
+                raw=raw,
+                external_id=ettn,
+                uuid=uuid,
+                channel=channel,
+            )
+        business = self._business_failure(response)
+        if business is not None:
+            # 2xx ama iptal reddedilmiş. `CancelEArchiveInvoiceResponse` şemasında
+            # bir DURUM ALANI YOKTUR (yalnız `REQUEST_RETURN` + `ERROR_TYPE`), yani
+            # başarının tek işareti BURANIN BOŞ ÇIKMASIDIR. `_business_failure`
+            # fail-closed olduğu için okunamayan/tanınmayan bir gövde de buraya
+            # düşer ve iptal başarısız sayılır — doğru taraf.
+            code, message = business
+            return self._fail(
+                "cancel",
+                code,
+                message=message,
+                raw=raw,
+                external_id=ettn,
+                uuid=uuid,
+                channel=channel,
+            )
+        return EInvoiceResult(
+            status=CANCELLED,
+            channel=channel,
+            uuid=uuid,
+            external_id=ettn,
+            raw=raw,
+        )
+
+    def _cancel_precondition(
+        self, external_id: str, *, channel: str | None, uuid: str | None
+    ) -> str | None:
+        """Bu iptal isteği kurulabilir mi? Kurulamıyorsa gerekçesi (ağdan önce)."""
+        return None
+
     def check_taxpayer(self, vkn: str) -> dict[str, bool]:
         """GİB registration lookup. Raises when unanswerable — never defaults to True."""
         number = str(vkn or "").strip()
@@ -1214,6 +1341,40 @@ class IzibizEInvoiceProvider(_HttpEInvoiceProvider):
                 max_bytes=wire.MAX_BINARY_RESPONSE_BYTES,
             )
 
+        if operation == "cancel":
+            # İptal YALNIZ e-Arşiv için kurulur. e-Fatura tarafı çağıran
+            # katmanda (uç) reddedilir ve buraya HİÇ gelmez; yine de bu dal
+            # kanalı KONTROL EDER, çünkü "çağıran zaten engelliyor" bir
+            # adaptör güvencesi değildir.
+            if not earsiv:
+                raise self._raise("cancel", VALIDATION, provider_code="EARSIV_DISI_IPTAL")
+            ettn = str(kwargs.get("uuid") or "").strip()
+            if not ettn:
+                raise self._raise("cancel", VALIDATION, provider_code="ETTN_GEREKLI")
+            # ŞEMADAN (``?xsd=5``): zorunlu alanlar REQUEST_HEADER ve
+            # ``CancelEArsivInvoiceContent/FATURA_UUID``. Opsiyonel alanların
+            # HİÇBİRİ gönderilmiyor ve bu bir ihmal değil bir karar:
+            # ``DELETE_FLAG``/``INVOICE_CONTENT``/``IPTAL_TARIHI`` gibi alanlar
+            # sağlayıcı tarafında FARKLI bir işlem anlamına gelir (silme,
+            # yerine belge koyma, geçmişe tarihli iptal) ve hiçbiri sandbox'ta
+            # ÖLÇÜLMEDİ. Ölçülmemiş bir alanı "zararsızdır" diye göndermek,
+            # bu dosyanın var oluş sebebinin tam tersi.
+            #
+            # ``FATURA_ID`` de bilerek YOK: opsiyoneldir ve iptal ETTN ile
+            # kurulur; sağlayıcı belge kimliğini AYRICA göndermek, iki anahtarın
+            # çeliştiği bir durumda hangisinin kazandığını ÖLÇMEDEN varsaymak
+            # olurdu.
+            return self._post(
+                wire.IZIBIZ_OP_CANCEL_EARCHIVE,
+                _soap_envelope(
+                    wire.IZIBIZ_OP_CANCEL_EARCHIVE,
+                    _request_header(session)
+                    + "<CancelEArsivInvoiceContent>"
+                    + f"<FATURA_UUID>{xml_escape(ettn)}</FATURA_UUID>"
+                    + "</CancelEArsivInvoiceContent>",
+                ),
+            )
+
         # check_taxpayer
         return self._post(
             wire.IZIBIZ_OP_TAXPAYER,
@@ -1310,6 +1471,21 @@ class IzibizEInvoiceProvider(_HttpEInvoiceProvider):
         """
         if channel == CHANNEL_EARSIV and not str(uuid or "").strip():
             return wire.IZIBIZ_EARCHIVE_STATUS_NEEDS_ETTN
+        return None
+
+    def _cancel_precondition(
+        self, external_id: str, *, channel: str | None, uuid: str | None
+    ) -> str | None:
+        """e-Arşiv iptali YALNIZ ETTN kabul eder — ve bunu **login'den önce** söyler.
+
+        ``CancelEArchiveInvoiceRequest`` şemasında zorunlu tek anahtar
+        ``FATURA_UUID``. Sağlayıcı belge kimliğini oraya yazmak, durum
+        sorgusundakiyle aynı sessiz yanlışı üretirdi. Gerekçenin ikinci yarısı
+        maliyet: ETTN'siz her iptal denemesi, karşılığı olmayan bir oturum
+        açardı.
+        """
+        if channel == CHANNEL_EARSIV and not str(uuid or "").strip():
+            return wire.IZIBIZ_EARCHIVE_CANCEL_NEEDS_ETTN
         return None
 
     def check_taxpayer(self, vkn: str) -> dict[str, bool]:
@@ -1603,6 +1779,20 @@ class NesEInvoiceProvider(_HttpEInvoiceProvider):
             )
         path = wire.NES_TAXPAYER_PATH.format(vkn=_quote(kwargs["vkn"]))
         return self._transport.request("GET", f"{base}{path}", headers=headers)
+
+    def _cancel_precondition(
+        self, external_id: str, *, channel: str | None, uuid: str | None
+    ) -> str | None:
+        """İptal Nes'te KAPALI — ve kapı burada, ``_call``da değil.
+
+        ÖLÇÜLDÜ, VARSAYILMADI: bu sınıfın ``_call``ı bir if-zinciridir ve son
+        dalı ``check_taxpayer``dır, yani tanınmayan bir operasyon SESSİZCE
+        mükellefiyet yoluna düşer (ve ``kwargs["vkn"]`` ile ``KeyError``
+        verirdi). "Nes zaten yapılandırılmamış, oraya hiç gelinmez" doğrudur
+        ama bir güvence değildir: ``NES_BASE_URL`` bir gün dolduğunda bu kapı
+        kendiliğinden açılırdı.
+        """
+        return wire.NES_CANCEL_UNVERIFIED_ERROR
 
     def _extract(self, response: HttpResponse, keys: tuple[str, ...]) -> str | None:
         return _first_json_field(response.body[: wire.MAX_PARSED_RESPONSE_BYTES], keys)

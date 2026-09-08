@@ -86,7 +86,7 @@ Fault ya da 5xx ile gelmedi. Ayrıntı ve mutasyon kanıtı için §7.
 | `WriteToArchive` | `ArchiveInvoiceWriteRequest` | *(yok)* | ℹ️ Basit sürüm; e-Arşiv özellikleri yok |
 | `GetEArchiveInvoiceStatus` | `UUID` (1–500) → `INVOICE/HEADER/STATUS` | *(yok)* | ✅ canlı doğrulandı |
 | `GetEArchiveInvoice` / `ReadFromArchive` | Belge çekme | `fetch_pdf()` karşılığı | ⚠️ Eşlenmedi |
-| `CancelEArchiveInvoice` | İptal | *(yok)* | ⚠️ e-Arşiv iptali adaptörde yok |
+| `CancelEArchiveInvoice` | İptal (`CancelEArchiveInvoiceRequest`) | `cancel()` | ✅ **E2**: şema `?xsd=5`ten okundu — `REQUEST_HEADER` + `CancelEArsivInvoiceContent/FATURA_UUID` (zorunlu TEK anahtar ETTN). Yanıtta DURUM ALANI YOK: yalnız `REQUEST_RETURN` + `ERROR_TYPE` |
 | `GetEArchiveReport`, `ReadEArchiveReport`, `MarkEArchiveInvoice`, `GetEmailEarchiveInvoice`, `SendSmsEarchiveInvoice`, `EArchiveInvoiceCount`, `GetEArchiveInvoiceList`, `Get*Generic*`, `CancelEDefter`, `GetELedgerStatus` | — | *(yok)* | ℹ️ Kapsam dışı |
 
 ### `endpoints.py` için somut düzeltme listesi
@@ -240,7 +240,7 @@ içermelidir." gerekçesi kayboluyor. İki test de bunu açıkça ölçüyor.
 | e-Arşiv PDF çekme | eksik | ⛔ açık boşluk — `WEB_VALIDATION_KEY` saklanmıyor | — |
 | `Logout` | eksik | ⚠️ hâlâ yok (TTL 8 saat, kritik değil) | — |
 | Uygulama yanıtı (kabul/red) | eksik | ⚠️ hâlâ yok (ticari fatura akışı) | — |
-| e-Arşiv iptali | eksik | ⚠️ hâlâ yok | — |
+| e-Arşiv iptali | eksik | ✅ E2: `cancel()` + `POST /invoices/{id}/cancel` kapısı | — |
 | Gelen kutusu senkronu | eksik | ⚠️ hâlâ yok (`GetInvoice` yalnız smoke'ta) | — |
 | Nes sağlayıcısı | ‹doğrulanacak› | ⚪ değişmedi, bilerek | — |
 
