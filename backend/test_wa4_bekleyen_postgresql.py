@@ -136,7 +136,7 @@ def _temizle(engine) -> None:
 
     SEÇİLEN: tetikleyici YALNIZ teardown transaction'ının içinde kapatılıp
     aynı transaction'da geri açılıyor. GÜVENLİ olmasının sebebi
-    PostgreSQL'de DDL'in TRANSACTION'A DÂHİL olmasıdır: bu blok herhangi bir
+    PostgreSQL'de DDL'in TRANSACTION'A DAHIL olmasıdır: bu blok herhangi bir
     sebeple düşerse (süreç ölür, bir DELETE patlar) `DISABLE TRIGGER` de
     GERİ ALINIR ve koruma hiç kapanmamış olur. Bir sonraki `COMMIT`e kadar
     korumanın kapalı olduğu tek yer bu transaction'dır ve o transaction
@@ -535,7 +535,7 @@ def test_YIRMI_ESZAMANLI_CLAIM_TEK_JETON_VERIYOR(motor, dunya) -> None:
 
     MUTASYON: `claim_et`ten `wpa.c.status == schema.BEKLEYEN_PENDING`
     yüklemini düşürmek bunu KIRMIZI yapar — kazanan satırı APPLYING'e
-    çektikten sonra bile ikinci koşul (`expires_at > simdi`) HÂLÂ doğru
+    çektikten sonra bile ikinci koşul (`expires_at > simdi`) HALA doğru
     kalır ve yirmi işçinin yirmisi de jeton alır. O hâlde yirmi işçi ödeme
     yoluna girer; bugün ödemeyi tek tutan şey defterdir ve bir gün defter
     değişirse (ya da tür `TAHSILAT` olmayan bir işlem eklenirse) tek koruma

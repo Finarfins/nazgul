@@ -45,7 +45,7 @@ Yaşam döngüsü ve CAS'ler oradan geldi. İKİ YERDE BİLİNÇLİ AYRILDI:
 * ``SUPERSEDED`` YOK. Kaynakta yeni taslak eskisini deterministik olarak
   değiştiriyordu; burada kısmi UNIQUE indeks ikinci taslağı REDDEDER
   (:class:`BekleyenIslemSurmekte`). Gerekçe göçün başlığında: sessizce
-  değiştirilen bir taslak, kullanıcının ekranında HÂLÂ duran eski özeti
+  değiştirilen bir taslak, kullanıcının ekranında HALA duran eski özeti
   onaylamasına ve BAŞKA bir tutarın yazılmasına yol açabilirdi.
 * Kaynakta ``payment_core``a HİÇBİR çağrı yoktu (orada "PR B"ye
   bırakılmıştı). Burada uygulama BU MODÜLDEDİR ve ödemeyi bu deponun
