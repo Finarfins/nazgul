@@ -26,6 +26,10 @@ Her kapı, HANGİ değişikliğin onu kırmızı yapacağını ADIYLA söylüyor
                                     -> göç kapısı ve KOPYA adımı KIRMIZI
   * `phone_number_id` süzgecini kaldırmak
                                     -> YABANCI NUMARA adımı KIRMIZI
+  * `hmac.compare_digest`i `==` yapmak (imza VEYA doğrulama jetonu)
+                                    -> SABİT SÜRE kapıları KIRMIZI (davranış
+                                       testlerinin HİÇBİRİ bu mutantı
+                                       öldürmez; kaybolan şey zamanlamadır)
   * `_acik_ayar`ı gevşetmek (üç ayardan birini yeterli saymak)
                                     -> YAPILANDIRILMAMIŞ adımı KIRMIZI
   * Uçları `PUBLIC_API`den çıkarmak
@@ -264,6 +268,81 @@ def test_SIRA_imza_JSON_AYRISTIRMADAN_ONCE() -> None:
     )
     assert isinstance(imza_cagrisi.args[0], ast.Name)
     assert imza_cagrisi.args[0].id == "ham"
+
+
+def _sabit_sureli_kapi(yol: Path, fn_adi: str, operandlar: set[str]) -> None:
+    """`fn_adi` içindeki gizli karşılaştırma `==`/`!=` ile YAPILMIYOR.
+
+    Kalıp `tests/test_wa3_kopru.py::test_dogrula_sabit_sureli_karsilastirir`
+    ile AYNI ve gerekçesi ölçülmüş bir KÖR NOKTADIR: `hmac.compare_digest`i
+    `==` ile değiştiren bir mutant DAVRANIŞI DEĞİŞTİRMEZ — doğru imza yine
+    200, yanlış imza yine 403 alır — yani hiçbir davranış testi onu
+    öldüremez. Kaybolan şey ZAMANLAMADIR: `==` ilk farklı baytta döner ve
+    cevabın gecikmesi kaç baytın tuttuğunu sızdırır. Bu uçlar OTURUMSUZ,
+    yani deneme sayısı da serbest.
+
+    İki assert AYRI kusuru kapatıyor: birincisi çağrının VARLIĞINI, ikincisi
+    KARARIN o çağrıdan geldiğini. İkincisi olmasaydı `compare_digest`i
+    çağırıp sonucunu ATAN ve kararı `==` ile veren bir mutant geçerdi.
+
+    Operand etiketi `Name.id` ya da `Attribute.attr`tan okunuyor: gizli
+    değer bu iki uçta bir sabit adla da (`beklenen`) bir nitelikle de
+    (`ayar.verify_token`) geliyor.
+    """
+    kaynak = yol.read_text(encoding="utf-8")
+    agac = ast.parse(kaynak)
+    fn = next(
+        n for n in agac.body
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == fn_adi
+    )
+    govde = ast.get_source_segment(kaynak, fn)
+    assert "hmac.compare_digest(" in govde, (yol.name, fn_adi)
+
+    def etiket(dugum: ast.expr) -> str | None:
+        if isinstance(dugum, ast.Name):
+            return dugum.id
+        if isinstance(dugum, ast.Attribute):
+            return dugum.attr
+        return None
+
+    for dugum in ast.walk(fn):
+        if not isinstance(dugum, ast.Compare):
+            continue
+        for op in dugum.ops:
+            if not isinstance(op, (ast.Eq, ast.NotEq)):
+                continue
+            taraflar = {
+                etiket(t) for t in [dugum.left, *dugum.comparators]
+            } - {None}
+            assert not (taraflar & operandlar), (
+                f"{yol.name}::{fn_adi}: gizli değer `==`/`!=` ile kıyaslanmış "
+                f"({sorted(taraflar & operandlar)}); sabit süreli karşılaştırma "
+                "yerine erken dönen bir kıyas zamanlama sızdırır"
+            )
+
+
+def test_IMZA_SABIT_SURELI_KARSILASTIRILIYOR() -> None:
+    """POST yolu: `X-Hub-Signature-256` `==` ile DEĞİL `compare_digest` ile.
+
+    MUTASYON: `cloud_api.verify_signature`daki `hmac.compare_digest`i `==`
+    yapmak bunu KIRMIZI yapar. HİÇBİR davranış testi o mutantı öldürmez —
+    gerekçe `_sabit_sureli_kapi`nin başlığında.
+    """
+    _sabit_sureli_kapi(TASIMA, "verify_signature", {"beklenen", "verilen"})
+
+
+def test_DOGRULAMA_JETONU_SABIT_SURELI_KARSILASTIRILIYOR() -> None:
+    """GET yolu: `hub.verify_token` `==` ile DEĞİL `compare_digest` ile.
+
+    MUTASYON: `routers/whatsapp.py::dogrula`daki `hmac.compare_digest`i
+    `==`/`!=` yapmak bunu KIRMIZI yapar. Bu uç el sıkışmasıdır ve hiçbir
+    şey yazmaz, ama sızdırdığı şey KURULUM JETONUDUR: jetonu ele geçiren
+    biri Meta tarafında webhook aboneliğini kendi sunucusuna çevirebilir.
+
+    `mode != "subscribe"` KARŞILAŞTIRMASI bu kapıya TAKILMAZ ve takılmamalı:
+    operandı (`mode`) gizli DEĞİL, gövdesi sabit bir dizedir.
+    """
+    _sabit_sureli_kapi(UC, "dogrula", {"token", "verify_token"})
 
 
 def test_GOVDE_SINIRI_UCA_OZEL_ve_AYRISTIRMADAN_ONCE() -> None:
