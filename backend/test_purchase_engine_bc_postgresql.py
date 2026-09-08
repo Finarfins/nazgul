@@ -6,6 +6,13 @@ from decimal import Decimal
 from threading import Barrier
 
 import pytest
+
+try:
+    from tests.pg_ikiz_yardimci import kosu_eki
+except ImportError:
+    import uuid
+    def kosu_eki() -> str:
+        return uuid.uuid4().hex[:8]
 def _acilisa_cek() -> None:
     """Admin şifresini AÇILIŞ DURUMUNA (`admin123` + `must_change_password`) yaz.
 
@@ -17,7 +24,7 @@ def _acilisa_cek() -> None:
     ÖNCEKİ dosya olabilir. Bu yüzden İKİ UÇTAN çağrılır.
     """
     try:
-        from tests.pg_ikiz_yardimci import acilisa_cek
+        from tests.pg_ikiz_yardimci import acilisa_cek, kosu_eki
         acilisa_cek()
     except ImportError:
         from sqlalchemy import text as _text
@@ -88,7 +95,17 @@ def test_purchase_engine_bc_postgresql(monkeypatch: pytest.MonkeyPatch) -> None:
             'current_password':'admin123', 'new_password':'EngineBCPg123!'})
         assert changed.status_code == 200, changed.text
         headers['Authorization'] = 'Bearer ' + changed.json()['access_token']
+
+        k_ek = kosu_eki()
+        comp = client.post('/api/companies', headers=headers, json={'name': f'PG Engine BC {k_ek}'})
+        assert comp.status_code == 201, comp.text
+        cid = comp.json()['id']
+        headers['X-Company-ID'] = str(cid)
+        idem_reorder = f'pg-reorder-1-{k_ek}'
+        idem_parallel = f'pg-parallel-reorder-{k_ek}'
+
         today = date.today().isoformat()
+
 
         def set_stock(value: str) -> None:
             # Go through the stock endpoint: ``products.stock`` is a denormalised
@@ -171,7 +188,7 @@ def test_purchase_engine_bc_postgresql(monkeypatch: pytest.MonkeyPatch) -> None:
         before = stock_of(product)
         body_lines = {'lines':[{'product_id':product,'supplier_id':supplier_a,'quantity':'12'}]}
         drafts = client.post('/api/purchase-comparison/reorder-drafts',
-                             headers={**headers, 'Idempotency-Key':'pg-reorder-1'}, json=body_lines)
+                             headers={**headers, 'Idempotency-Key':idem_reorder}, json=body_lines)
         assert drafts.status_code == 201, drafts.text
         payload = drafts.json()
         assert payload['replayed'] is False
@@ -240,7 +257,7 @@ def test_purchase_engine_bc_postgresql(monkeypatch: pytest.MonkeyPatch) -> None:
         }]}
         raced = parallel_posts(
             raced_body,
-            {**headers, 'Idempotency-Key':'pg-parallel-reorder'},
+            {**headers, 'Idempotency-Key':idem_parallel},
         )
         assert [response.status_code for response in raced] == [201, 201]
         assert sum(response.json()['replayed'] is False for response in raced) == 1
@@ -259,14 +276,15 @@ def test_purchase_engine_bc_postgresql(monkeypatch: pytest.MonkeyPatch) -> None:
         # Replay under the same key returns the same drafts; a different body
         # under that key is refused.
         again = client.post('/api/purchase-comparison/reorder-drafts',
-                            headers={**headers, 'Idempotency-Key':'pg-reorder-1'}, json=body_lines)
+                            headers={**headers, 'Idempotency-Key':idem_reorder}, json=body_lines)
         assert again.status_code == 201, again.text
         assert again.json()['replayed'] is True
         assert [row['purchase_id'] for row in again.json()['purchases']] == \
                [row['purchase_id'] for row in payload['purchases']]
         conflict = client.post('/api/purchase-comparison/reorder-drafts',
-                               headers={**headers, 'Idempotency-Key':'pg-reorder-1'},
+                               headers={**headers, 'Idempotency-Key':idem_reorder},
                                json={'lines':[{'product_id':product,'supplier_id':supplier_b}]})
+
         assert conflict.status_code == 409, conflict.text
 
         # The open draft counts as on_order (so the next run does not re-order

@@ -23,8 +23,9 @@ def _acilisa_cek() -> None:
     """
     db_url = os.environ.get("SUPPLIER_PRICE_IMPORT_TEST_DATABASE_URL") or os.environ.get("APP_TEST_DATABASE_URL") or os.environ.get("DATABASE_URL")
     try:
-        from tests.pg_ikiz_yardimci import acilisa_cek
+        from tests.pg_ikiz_yardimci import acilisa_cek, supplier_import_temizle
         acilisa_cek(url=db_url)
+        supplier_import_temizle()
     except ImportError:
         from sqlalchemy import create_engine, text as _text
         from app.auth import hash_password
@@ -83,11 +84,14 @@ def test_supplier_price_profile_delete_race_postgresql() -> None:
 
 
 SCENARIO = r'''
+import hashlib
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
+
 from sqlalchemy import text
 
 from app.db import SessionLocal
@@ -173,7 +177,9 @@ with TestClient(app) as client:
     # transaction, so the row is spoken for while staying invisible to any
     # other session's COUNT.
     writer = SessionLocal()
-    insert_import(writer, company_a, supplier_id, race_id, "b" * 64)
+    sha_b = hashlib.sha256(f"race_b_{uuid.uuid4().hex}".encode()).hexdigest()
+    insert_import(writer, company_a, supplier_id, race_id, sha_b)
+
 
     outcome = {}
 
@@ -233,7 +239,8 @@ with TestClient(app) as client:
     assert other.status_code == 201, other.text
     other_id = int(other.json()["id"])
     with SessionLocal() as db:
-        insert_import(db, other_id, supplier_id, net_id, "c" * 64)
+        sha_c = hashlib.sha256(f"race_c_{uuid.uuid4().hex}".encode()).hexdigest()
+        insert_import(db, other_id, supplier_id, net_id, sha_c)
         db.commit()
 
     hidden = client.delete(
@@ -261,7 +268,11 @@ with TestClient(app) as client:
                 ),
                 {"h": hash_password("admin123")},
             )
+            db.execute(
+                text("DELETE FROM supplier_price_imports WHERE source_filename = 'race.xlsx'")
+            )
             db.commit()
 
     print("SUPPLIER_PRICE_PROFILE_DELETE_RACE_OK")
+
 '''

@@ -26,6 +26,13 @@ from threading import Barrier
 
 import pytest
 
+try:
+    from tests.pg_ikiz_yardimci import kosu_eki
+except ImportError:
+    import uuid
+    def kosu_eki() -> str:
+        return uuid.uuid4().hex[:8]
+
 ADMIN_PW = "MachineLockRace123!"
 ROUNDS = 15
 
@@ -41,7 +48,7 @@ def _acilisa_cek() -> None:
     ÖNCEKİ dosya olabilir. Bu yüzden İKİ UÇTAN çağrılır.
     """
     try:
-        from tests.pg_ikiz_yardimci import acilisa_cek
+        from tests.pg_ikiz_yardimci import acilisa_cek, kosu_eki
         acilisa_cek()
     except ImportError:
         from sqlalchemy import text as _text
@@ -124,6 +131,7 @@ def _customer(client, headers, name: str) -> int:
 
 
 def _machine(client, headers, owner_id: int, tag: str) -> int:
+    k_ek = kosu_eki()
     response = client.post(
         "/api/machines",
         headers=headers,
@@ -131,12 +139,13 @@ def _machine(client, headers, owner_id: int, tag: str) -> int:
             "customer_id": owner_id,
             "brand": "PG",
             "model": "LockRace",
-            "serial_number": f"PG-LOCK-{tag}",
-            "chassis_number": f"PG-LOCKC-{tag}",
+            "serial_number": f"PG-LOCK-{tag}-{k_ek}",
+            "chassis_number": f"PG-LOCKC-{tag}-{k_ek}",
         },
     )
     assert response.status_code == 201, response.text
     return int(response.json()["id"])
+
 
 
 def _run_concurrently(first, second):

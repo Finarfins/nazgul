@@ -5,6 +5,13 @@ import os
 from threading import Barrier
 
 import pytest
+
+try:
+    from tests.pg_ikiz_yardimci import kosu_eki
+except ImportError:
+    import uuid
+    def kosu_eki() -> str:
+        return uuid.uuid4().hex[:8]
 def _acilisa_cek() -> None:
     """Admin şifresini AÇILIŞ DURUMUNA (`admin123` + `must_change_password`) yaz.
 
@@ -16,7 +23,7 @@ def _acilisa_cek() -> None:
     ÖNCEKİ dosya olabilir. Bu yüzden İKİ UÇTAN çağrılır.
     """
     try:
-        from tests.pg_ikiz_yardimci import acilisa_cek
+        from tests.pg_ikiz_yardimci import acilisa_cek, kosu_eki
         acilisa_cek()
     except ImportError:
         from sqlalchemy import text as _text
@@ -84,6 +91,7 @@ def test_immediate_parts_race_for_last_available_item(
         customer = client.post(
             "/api/customers", headers=headers, json={"name": "Immediate Race"}
         ).json()
+        k_ek = kosu_eki()
         machines = [
             client.post(
                 "/api/machines",
@@ -92,11 +100,12 @@ def test_immediate_parts_race_for_last_available_item(
                     "customer_id": customer["id"],
                     "brand": "Race",
                     "model": str(index),
-                    "serial_number": f"IMMEDIATE-RACE-{index}",
+                    "serial_number": f"IMMEDIATE-RACE-{index}-{k_ek}",
                 },
             ).json()
             for index in range(2)
         ]
+
         warehouse = client.get("/api/warehouses", headers=headers).json()[0]
         product = client.post(
             "/api/products",

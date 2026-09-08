@@ -3,6 +3,13 @@ from __future__ import annotations
 import os
 
 import pytest
+
+try:
+    from tests.pg_ikiz_yardimci import kosu_eki
+except ImportError:
+    import uuid
+    def kosu_eki() -> str:
+        return uuid.uuid4().hex[:8]
 def _acilisa_cek() -> None:
     """Admin şifresini AÇILIŞ DURUMUNA (`admin123` + `must_change_password`) yaz.
 
@@ -14,7 +21,7 @@ def _acilisa_cek() -> None:
     ÖNCEKİ dosya olabilir. Bu yüzden İKİ UÇTAN çağrılır.
     """
     try:
-        from tests.pg_ikiz_yardimci import acilisa_cek
+        from tests.pg_ikiz_yardimci import acilisa_cek, kosu_eki
         acilisa_cek()
     except ImportError:
         from sqlalchemy import text as _text
@@ -69,13 +76,15 @@ def test_work_order_postgresql_roundtrip(monkeypatch: pytest.MonkeyPatch) -> Non
         })
         assert changed.status_code == 200, changed.text
         headers['Authorization'] = 'Bearer ' + changed.json()['access_token']
+        k_ek = kosu_eki()
         customer = client.post('/api/customers', headers=headers, json={'name':'PostgreSQL Servis'})
         assert customer.status_code == 201, customer.text
         machine = client.post('/api/machines', headers=headers, json={
             'customer_id':customer.json()['id'], 'brand':'PG', 'model':'PG-100',
-            'serial_number':'PG-WO-MACHINE', 'chassis_number':'PG-WO-CHASSIS',
+            'serial_number':f'PG-WO-MACHINE-{k_ek}', 'chassis_number':f'PG-WO-CHASSIS-{k_ek}',
         })
         assert machine.status_code == 201, machine.text
+
         work_order = client.post('/api/work-orders', headers=headers, json={
             'machine_id':machine.json()['id'], 'customer_id':customer.json()['id'],
             'technician_id':body['user']['id'],

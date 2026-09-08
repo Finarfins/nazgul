@@ -183,14 +183,17 @@ with TestClient(app) as client:
     product_id = product.json()['id']
     seed_stock(warehouse_id, product_id, 10)
 
+    import uuid
+    k_ek = uuid.uuid4().hex[:8]
     customer = client.post('/api/customers', headers=headers, json={'name':'F3 Müşteri'})
     assert customer.status_code == 201, customer.text
     machine = client.post('/api/machines', headers=headers, json={
         'customer_id':customer.json()['id'], 'brand':'Sungur', 'model':'F3',
-        'serial_number':'F3-SER-1',
+        'serial_number':f'F3-SER-1-{k_ek}',
     })
     assert machine.status_code == 201, machine.text
     machine_id = machine.json()['id']
+
 
     def new_work_order():
         response = client.post('/api/work-orders', headers=headers, json={

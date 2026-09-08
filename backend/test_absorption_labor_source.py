@@ -118,14 +118,21 @@ with TestClient(app) as client:
     headers, body = admin_headers(client)
     admin_id = int(body['user']['id'])
 
-    customer = client.post('/api/customers', headers=headers, json={'name':'Absorp Müşteri'})
+    import uuid
+    k_ek = uuid.uuid4().hex[:8]
+    comp = client.post('/api/companies', headers=headers, json={'name': f'Absorp Smoke {k_ek}'})
+    assert comp.status_code == 201, comp.text
+    headers = {**headers, 'X-Company-ID': str(comp.json()['id'])}
+
+    customer = client.post('/api/customers', headers=headers, json={'name': f'Absorp Müşteri {k_ek}'})
     assert customer.status_code == 201, customer.text
     machine = client.post('/api/machines', headers=headers, json={
         'customer_id':customer.json()['id'], 'brand':'Sungur', 'model':'ABS-1',
-        'serial_number':'ABS-SER-1',
+        'serial_number':f'ABS-SER-{k_ek}',
     })
     assert machine.status_code == 201, machine.text
     machine_id = machine.json()['id']
+
 
     def new_work_order():
         response = client.post('/api/work-orders', headers=headers, json={
