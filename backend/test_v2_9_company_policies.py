@@ -164,7 +164,7 @@ def test_auto_migrate_false_gate_moved_from_IMPORT_to_LIFESPAN(tmp_path: Path) -
     O iddia artık YANLIŞTIR ve bilerek: ithal-zamanı blok, uygulamayı ithal
     eden her uvicorn işçisini cluster genelindeki tek advisory kilit için
     sıraya sokuyor, kilidi 120 sn içinde alamayanı açılışta düşürüyordu
-    (`docs/durum/pr-0093.md`). Üretimde açılış artık şemaya HİÇ YAZMAZ.
+    (`docs/durum/pr-0096.md`). Üretimde açılış artık şemaya HİÇ YAZMAZ.
 
     YENİ SINIR ÜÇ CÜMLEDİR ve üçü de burada ölçülüyor: bayat şemada İTHAL
     GEÇER, aynı şemada LIFESPAN DÜŞER, göçten sonra İKİSİ DE GEÇER. Kapının
