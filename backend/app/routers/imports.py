@@ -28,6 +28,7 @@ from ..document_engine import SALES_IMPORT_NOTE
 from ..schemas import PaymentCreate
 from ..money import ZERO, decimal_value, quantity
 from ..inventory import adjust_warehouse_stock, default_warehouse, sync_product_stock
+from ..parti_defteri import _lotsuz_yazmayi_reddet, _parti_ayarla
 from ..tenancy import company_id
 
 router = APIRouter(prefix='/imports', tags=['imports'])
@@ -308,6 +309,76 @@ async def import_customers(request: Request, file: UploadFile = File(...), db: S
     return {'inserted':inserted,'updated':updated,'errors':errors,'total_rows':len(rows)}
 
 
+def _parti_kalemi(
+    db: Session,
+    cid: int,
+    *,
+    product_id: int,
+    warehouse_id: int,
+    lot_code: str | None,
+    diff,
+    satir: int,
+) -> None:
+    """Excel satırının parti ayağı: ya deftere YAZ, ya lot-suz yazmayı REDDET.
+
+    --- İKİ DAL, TEK KURAL ------------------------------------------------
+
+    `docs/PARTI_MUTABAKAT.md` §4a bu iki yazıcıyı (352/360) ADIYLA saydı:
+    Excel farkı stoğa yazılıyor, deftere yazılmıyordu. 1B-H'nin kuralı tek
+    cümledir — lot-suz yazmak TASARIMDIR, ama YALNIZ defter o çift için
+    KAPALIYKEN.
+
+      * `lot_code` VARSA: fark deftere de yazılır (`_parti_ayarla`); işaret
+        karar verir, yani bir Excel AZALTMASI partiden DÜŞER, eklemez.
+      * `lot_code` YOKSA: defter AÇIKSA 409, kapalıysa dokunulmaz.
+
+    --- NEDEN SATIR NUMARASI ÇAREDE ---------------------------------------
+
+    İçe aktarma YÜZLERCE satır okur ve red TÜM dosyayı düşürür (`except
+    HTTPException` `db.rollback()` yapıyor, ölçüldü). "Bir ürünün defteri
+    açık" demek, operatöre HANGİ satırı düzelteceğini SÖYLEMEZDİ; dosyayı
+    baştan sona elle taramak zorunda kalırdı. Numara `line_no`dan gelir ve o
+    zaten Excel'in 1'den saydığı başlık satırını hesaba katıyor (`start=2`).
+
+    --- NEDEN SATIRI ATLAMAK DEĞİL, DOSYAYI DÜŞÜRMEK ----------------------
+
+    `errors` listesine bir kayıt düşürüp devam etmek 200 dönerdi ve bu yolun
+    OKUNUŞU şudur: "aktarım başarılı, birkaç satır hariç". Oysa atlanan satır
+    stoğu YAZILMAMIŞ bir üründür ve dosyanın geri kalanı yazılmıştır — depo
+    yarı aktarılmış bir katalogla kalırdı ve hangi yarı olduğu ancak
+    `errors` okunarak anlaşılırdı. Red, `bulk_stock`unkiyle AYNI kararla
+    tüm partiyi düşürür.
+    """
+    if lot_code is None:
+        _lotsuz_yazmayi_reddet(
+            db,
+            cid,
+            product_id=product_id,
+            warehouse_id=warehouse_id,
+            care=(
+                f"{satir}. satıra `Parti Kodu` sütununu ekleyin ya da o "
+                "ürünü dosyadan çıkarın."
+            ),
+        )
+        return
+    # SKT SORULMUYOR: dosyada bir son kullanma sütunu YOK ve uydurulmuyor.
+    # `SKT_SORULMADI` (varsayılan) ile geçmek, var olan TARİHLİ bir partiyi
+    # `LOT_SKT_CELISKI` ile reddetmekten AYRI durur — gerekçe
+    # `app/parti_defteri.py`nin sentinel belgesinde.
+    _parti_ayarla(
+        db,
+        cid,
+        product_id=product_id,
+        warehouse_id=warehouse_id,
+        lot_code=lot_code,
+        diff=diff,
+        care=(
+            f"{satir}. satırdaki miktarı partide gerçekten olan kadara "
+            "düşürün."
+        ),
+    )
+
+
 @router.post('/products/excel')
 async def import_products(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not (file.filename or '').lower().endswith(('.xlsx', '.xlsm')):
@@ -316,7 +387,10 @@ async def import_products(request: Request, file: UploadFile = File(...), db: Se
     mapping = _map(headers, {
         'name':['Ürün Adı','Ürün/Hizmet Adı','Ürün','name'], 'product_code':['Ürün Kodu','Kod','product_code'], 'barcode':['Barkod','barcode'],
         'category':['Kategori','category'], 'purchase_price':['Alış Fiyatı','Alış','purchase_price'], 'sale_price':['Satış Fiyatı','Satış','sale_price'],
-        'stock':['Stok','Stok Miktarı','stock'], 'unit':['Birim','unit'], 'vat_rate':['KDV Oranı','KDV','vat_rate']
+        'stock':['Stok','Stok Miktarı','stock'], 'unit':['Birim','unit'], 'vat_rate':['KDV Oranı','KDV','vat_rate'],
+        # PARTİ KODU, 1B-H. Sütun İSTEĞE BAĞLIDIR: taşımayan bir dosya
+        # 1B-H'den önceki gibi partisiz akar (ürünün defteri KAPALIYSA).
+        'lot_code':['Parti Kodu','Parti','Lot','Lot No','lot_code']
     })
     if 'name' not in mapping: raise HTTPException(400, 'Ürün Adı sütunu bulunamadı.')
     cid=company_id(request)
@@ -339,6 +413,7 @@ async def import_products(request: Request, file: UploadFile = File(...), db: Se
             params={'cid':cid,'name':name,'code':code,'barcode':barcode,'category':str(_cell(row,mapping,'category','') or '').strip() or None,
                     'purchase':_num(_cell(row,mapping,'purchase_price',0)),'sale':_num(_cell(row,mapping,'sale_price',0)),
                     'unit':str(_cell(row,mapping,'unit','Adet') or 'Adet').strip(),'vat':int(_num(_cell(row,mapping,'vat_rate',20),20)),'stock':_num(_cell(row,mapping,'stock',0))}
+            lot_code=str(_cell(row,mapping,'lot_code','') or '').strip() or None
             existing=None
             if code: existing=db.execute(text('SELECT id,stock FROM products WHERE company_id=:cid AND product_code=:code'),params).mappings().first()
             if not existing and barcode: existing=db.execute(text('SELECT id,stock FROM products WHERE company_id=:cid AND barcode=:barcode'),params).mappings().first()
@@ -348,6 +423,7 @@ async def import_products(request: Request, file: UploadFile = File(...), db: Se
                 db.execute(text('UPDATE products SET name=:name,product_code=:code,barcode=:barcode,category=:category,purchase_price=:purchase,sale_price=:sale,unit=:unit,vat_rate=:vat WHERE id=:id AND company_id=:cid'),params)
                 diff=params['stock']-old
                 if diff:
+                    _parti_kalemi(db,cid,product_id=existing['id'],warehouse_id=wid,lot_code=lot_code,diff=diff,satir=line_no)
                     allow_negative=negative_stock_allowed(policies.negative_stock_policy,override) if diff<0 else False
                     new_stock=adjust_warehouse_stock(db,cid,wid,existing['id'],diff,allow_negative=allow_negative)
                     if new_stock<0 and policies.negative_stock_policy==POLICY_MANAGER_OVERRIDE: override_policies.add('negative_stock')
@@ -356,6 +432,13 @@ async def import_products(request: Request, file: UploadFile = File(...), db: Se
             else:
                 r=db.execute(text('INSERT INTO products(name,product_code,barcode,category,purchase_price,sale_price,vat_rate,stock,unit,company_id) VALUES(:name,:code,:barcode,:category,:purchase,:sale,:vat,0,:unit,:cid) RETURNING id'),params); pid=int(r.scalar_one())
                 if params['stock']:
+                    # YENİ ÜRÜN: defteri AÇIK olamaz (satır bu istekte doğdu),
+                    # yani `_parti_kalemi`nin red dalı burada hiç ısırmaz ve
+                    # ısırmaması bir eksiklik değil. Yine de AYNI fonksiyon
+                    # çağrılıyor: parti açma kuralı iki dalda iki kopya
+                    # olsaydı, biri SKT ya da işaret kuralını ötekinden farklı
+                    # taşıyabilirdi.
+                    _parti_kalemi(db,cid,product_id=pid,warehouse_id=wid,lot_code=lot_code,diff=params['stock'],satir=line_no)
                     stock_delta=params['stock']; allow_negative=negative_stock_allowed(policies.negative_stock_policy,override) if stock_delta<0 else False
                     new_stock=adjust_warehouse_stock(db,cid,wid,pid,stock_delta,allow_negative=allow_negative)
                     if new_stock<0 and policies.negative_stock_policy==POLICY_MANAGER_OVERRIDE: override_policies.add('negative_stock')

@@ -1,5 +1,6 @@
 test_1b_d_transfer_lot_postgresql.py	1
 test_1b_g_mutabakat_postgresql.py	1
+test_1b_h_lotsuz_yazici_postgresql.py	1
 test_absorption_labor_source.py	1
 test_activity_log_panel.py	1
 test_cari_360_bounded_summary.py	1

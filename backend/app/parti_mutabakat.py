@@ -136,12 +136,14 @@ from sqlalchemy.orm import Session
 from .money import quantity
 
 __all__ = [
+    "BOS_CIFT",
     "ESIT",
     "KOVALAR",
     "LOTSUZ_TASARIM",
     "SAPMA",
     "Mutabakat",
     "Satir",
+    "bos_cift_mi",
     "kova_sec",
     "mutabakat",
 ]
@@ -152,6 +154,36 @@ ESIT = "ESIT"
 LOTSUZ_TASARIM = "LOTSUZ_TASARIM"
 #: Parti satırı var ama toplam tutmuyor; ya da parti toplamı stoğu aşıyor.
 SAPMA = "SAPMA"
+
+#: --- 1B-H: BOŞ ÇİFT — RAPORUN DIŞINDA, ama SESSİZ DEĞİL -------------------
+#:
+#: 1B-G BU GÜRÜLTÜYÜ ADIYLA YAZDI ve ölçmedi (`docs/PARTI_MUTABAKAT.md` §2):
+#: ürün açılışında AKTİF HER DEPO için sıfır miktarlı bir `warehouse_stocks`
+#: satırı doğar (`routers/products.py` `create()`, döngü ADIYLA orada).
+#: Ürün yalnız BİR depoda kullanılsa bile geri kalan her depo için bir çift
+#: doğar ve hepsi `LOTSUZ_TASARIM`a düşer. Kova ürün × depo ÇARPIMIYLA büyür.
+#:
+#: BU ÇİFTLERDE HİÇBİR ŞEY YOKTUR: stok 0 ve parti satırı YOK — iki defter de
+#: BOŞ. Karşılaştırılacak bir sayı olmadığı için "uyuşuyor mu" sorusu bile
+#: sorulamaz. `LOTSUZ_TASARIM` ise bir ŞEY söyler: "burada mal VAR ve partisiz
+#: girdi". Aynı kovada durmaları, o cümleyi taşıyan satırları taşımayanların
+#: içinde GÖRÜNMEZ yapıyordu.
+#:
+#: --- NEDEN DÖRDÜNCÜ BİR KOVA DEĞİL ----------------------------------------
+#:
+#: Dördüncü kova `sayimlar`ı dört anahtarlı yapardı ve operatör raporu
+#: okurken dört sayıyı toplayıp "hangisi benim ürünlerim" diye sormak zorunda
+#: kalırdı. Boş çift bir SINIFLANDIRMA değil, bir YOKLUKTUR; sınıflandırmaya
+#: bir "hiçbiri" kovası eklemek, kovaların üçünün de MAL hakkında konuştuğu
+#: olgusunu bozardı.
+#:
+#: --- AMA SAYISI TAŞINIR, GİZLENMEZ ----------------------------------------
+#:
+#: Satırlar rapordan düşer ve düşen sayı `Mutabakat.bos_ciftler`de DURUR.
+#: Sessizce atmak, `toplam`ın neden depodaki çift sayısından küçük olduğunu
+#: SORULAMAZ yapardı — ve "rapor eksik mi, yoksa öyle mi" sorusunu koda
+#: bakmadan cevaplayamayan bir operatör bırakırdı.
+BOS_CIFT = "BOS_CIFT"
 
 #: Kova adları SABİT SIRADA. Sıra raporun okunuşudur (iyiden kötüye) ve
 #: `sayimlar` sözlüğü HER ÇAĞRIDA ÜÇÜNÜ DE taşır — eksik anahtar, sıfır sayıyı
@@ -193,6 +225,11 @@ class Mutabakat(NamedTuple):
     sayimlar: dict[str, int]
     toplam: int
     has_more: bool
+    #: 1B-H: rapordan DÜŞÜLEN boş çift sayısı (stok 0 VE parti satırı yok).
+    #: `toplam`a DAHİL DEĞİLDİR ve olmaması bilinçlidir: `toplam` raporun
+    #: satır sayısıdır, deponun çift sayısı değil. Sayı yine de taşınıyor
+    #: çünkü eleme SESSİZ olsaydı `toplam` açıklanamaz biçimde küçük olurdu.
+    bos_ciftler: int = 0
 
 
 # Sürücü küme `UNION`dur, `FULL OUTER JOIN` DEĞİL (SQLite 3.39 öncesi onu
@@ -263,6 +300,23 @@ def kova_sec(stok: Decimal, parti_toplami: Decimal, parti_satir_sayisi: int) -> 
     return ESIT
 
 
+def bos_cift_mi(stok: Decimal, parti_satir_sayisi: int) -> bool:
+    """İKİ DEFTER DE BOŞ MU: stok TAM 0 ve parti satırı YOK.
+
+    `kova_sec`TEN SONRA ve ONUN CEVABIYLA BİRLİKTE sorulur, tek başına
+    DEĞİL — çağıran (`mutabakat`) önce kovayı hesaplar, sonra yalnız
+    `LOTSUZ_TASARIM` çıkanları buraya sorar. Sıra `kova_sec`inkiyle AYNI
+    gerekçeyle zorunludur: NEGATİF stok + parti satırı yok bir `SAPMA`dır
+    (`0 > stok`) ve bu yüklem ona `False` derdi ama önce sorulsaydı, kararın
+    `SAPMA`dan mı `LOTSUZ_TASARIM`dan mı geldiği metinden okunamazdı.
+
+    `stok == 0` TAM EŞİTLİKTİR, `not stok` DEĞİL: eşitlik `money.quantity`
+    kuantumundaki bir `Decimal` üzerinde ölçülür ve çağıran her iki sayıyı
+    da karşılaştırmadan önce oraya çeker (bkz. `mutabakat`).
+    """
+    return parti_satir_sayisi == 0 and stok == 0
+
+
 def mutabakat(
     db: Session,
     company_id: int,
@@ -292,13 +346,23 @@ def mutabakat(
 
     satirlar: list[Satir] = []
     sayimlar = {kova: 0 for kova in KOVALAR}
+    bos_ciftler = 0
     for ham in db.execute(_MUTABAKAT_SORGU, {"cid": int(company_id)}).mappings():
         # HER İKİ SAYI DA karşılaştırmadan ÖNCE aynı kuantuma çekilir; SQLite
         # aynı sütun için `float` döndürebilir ve ham karşılaştırma sessiz bir
         # `SAPMA` uydururdu (bkz. başlık).
         stok = quantity(ham["stok"])
         parti_toplami = quantity(ham["parti_toplami"])
-        kova = kova_sec(stok, parti_toplami, int(ham["parti_satir_sayisi"]))
+        satir_sayisi = int(ham["parti_satir_sayisi"])
+        kova = kova_sec(stok, parti_toplami, satir_sayisi)
+        # 1B-H: BOŞ ÇİFT RAPORA GİRMEZ. Eleme `kova_sec`TEN SONRADIR, yani
+        # `SAPMA` denetimi ZATEN koşmuştur: negatif stoklu partisiz bir çift
+        # `SAPMA` alır ve bu dal ona HİÇ bakmaz. Elemeyi öne almak, eksi
+        # bakiyeyi "boş" diye rapordan DÜŞÜRÜRDÜ — 1B-G'nin sıra kuralının
+        # kapattığı kaçağın aynısı, bu kez öteki uçtan.
+        if kova == LOTSUZ_TASARIM and bos_cift_mi(stok, satir_sayisi):
+            bos_ciftler += 1
+            continue
         sayimlar[kova] += 1
         satirlar.append(
             Satir(
@@ -317,4 +381,5 @@ def mutabakat(
         sayimlar=sayimlar,
         toplam=len(satirlar),
         has_more=offset + len(sayfa) < len(satirlar),
+        bos_ciftler=bos_ciftler,
     )

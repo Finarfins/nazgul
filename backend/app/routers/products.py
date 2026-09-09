@@ -29,7 +29,12 @@ from ..inventory import (
     warehouses,
 )
 from ..money import HUNDRED, ZERO_MONEY, money, percentage, quantity
-from ..parti_defteri import SKT_SORULMADI, _parti_ac, _parti_bul, _parti_dus
+from ..parti_defteri import (
+    SKT_SORULMADI,
+    _lotsuz_yazmayi_reddet,
+    _parti_ac,
+    _parti_ayarla,
+)
 from ..parti_mutabakat import mutabakat as parti_mutabakat
 from ..schemas import (
     BulkPriceUpdate,
@@ -342,6 +347,11 @@ def parti_mutabakat_raporu(
     `counts` SAYFAYA DEĞİL kiracının TAMAMINA aittir: ikinci sayfadaki tek
     `SAPMA`yı ilk sayfaya bakan operatör görmezdi ve "sapma yok" diye okurdu.
 
+    BOŞ ÇİFTLER RAPORDA YOKTUR (1B-H): stoğu 0 OLAN ve HİÇ partisi açılmamış
+    çiftler ürün × depo çarpımının gürültüsüdür — ürün açılışı AKTİF HER depo
+    için sıfırlı bir satır doğurur. Düşen sayı `bos_ciftler`de taşınır, yani
+    eleme ölçülür ve gizlenmez.
+
     OKUMADIR, YALNIZ OKUMA — ve mutabakat bir DÜZELTME ucu DEĞİLDİR: farkı
     kapatmak, farkı ÜRETEN yolu partiye bağlamakla olur (1B-H), raporun
     sayıyı ezmesiyle DEĞİL. Bir `POST .../duzelt` ucu iki defteri uyumlu
@@ -355,6 +365,11 @@ def parti_mutabakat_raporu(
         "counts": rapor.sayimlar,
         "total": rapor.toplam,
         "has_more": rapor.has_more,
+        # 1B-H: rapordan DÜŞÜLEN boş çift sayısı (stok 0 VE parti satırı yok).
+        # `total`a DAHİL DEĞİL. Alan gövdededir çünkü elemenin SESSİZ olması,
+        # `total`ın deponun çift sayısından neden küçük olduğunu operatöre
+        # SORULAMAZ yapardı — gerekçe `parti_mutabakat.BOS_CIFT`te.
+        "bos_ciftler": rapor.bos_ciftler,
     }
 
 
@@ -414,6 +429,17 @@ def create(payload: ProductCreate, request: Request, db: Session = Depends(get_d
     values = payload.model_dump()
     values["company_id"] = cid
     initial = quantity(values.pop("stock", 0))
+    # --- 1B-H: AÇILIŞ STOKU PARTİ AÇABİLİR --------------------------------
+    # `lot_code` GÖNDERİLMEZSE bu yol 1B-H'den ÖNCEKİ haliyle akar ve hiçbir
+    # parti satırı doğmaz. Gönderilirse açılış stoku deftere de yazılır, yani
+    # ürün partili DOĞAR ve ilk satışı FEFO ile o partiden düşer.
+    #
+    # BURADA RED YOKTUR ve olmaması bir boşluk değil: ürün bu istekte
+    # YARATILIYOR, yani `product_lots`ta ona ait bir satır BULUNAMAZ.
+    # `_lotsuz_yazmayi_reddet`i buraya koymak, hiçbir zaman doğru olamayacak
+    # bir yüklemi sorgulamak olurdu — kapı gibi görünen, hiçbir şey
+    # savunmayan bir SQL.
+    acilis_partisi = values.pop("lot_code", None)
     # --- TABAN BİRİM: OLUŞTURMADA DA YAZILIR (C2) -------------------------
     # ÖLÇÜLEN KUSUR: `ProductCreate` `ProductUpdate`ten türediği için
     # `base_unit` gövdede KABUL EDİLİYORDU, ama INSERT'in sütun listesinde
@@ -512,6 +538,22 @@ def create(payload: ProductCreate, request: Request, db: Session = Depends(get_d
                     "movement_date": business_today().isoformat(),
                 },
             )
+            # PARTİ, HAREKETTEN SONRA ve YALNIZ `initial` VARSA: sıfır
+            # miktarlı bir açılışta yazılacak bir giriş YOKTUR. `adjust`
+            # yolunun sıfır farkı partiyi AÇAR (operatör bir kod SAYDI), ama
+            # burada operatör bir sayım yapmıyor — stok alanını boş bıraktı.
+            # Sıfır miktarlı bir parti açmak, hiç mal girmemiş bir partiyi
+            # defterde VAR gösterirdi ve o ürüne sonraki her lot-suz yazma
+            # 409 alırdı: kapı, hiç kullanılmamış bir parti yüzünden kapanır.
+            if acilis_partisi:
+                _parti_ac(
+                    db,
+                    cid,
+                    product_id=product_id,
+                    warehouse_id=default_id,
+                    lot_code=acilis_partisi,
+                    miktar=initial,
+                )
         sync_product_stock(db, cid, product_id)
         record_policy_overrides(
             db,
@@ -636,6 +678,33 @@ def update_product(
         diff = target - quantity(old["stock"])
         if diff:
             warehouse_id = default_warehouse(db, cid)
+            # --- 1B-H: PARTİ DEFTERİ AÇIKSA ELLE STOK DÜZENLEMESİ 409 -----
+            # Bu uç bir parti kodu KABUL ETMİYOR (`ProductUpdate`te alan YOK,
+            # gerekçesi `schemas.ProductCreate`te) ve KABUL ETTİRİLMEDİ:
+            # ürün kartındaki stok alanı bir DÜZELTMEDİR, bir mal hareketi
+            # değil. Parti takipli bir üründe onu geçirmek, hangi partiden
+            # girdiği/çıktığı SORULAMAYAN bir miktar üretirdi — mutabakatın
+            # `SAPMA` diye gösterdiği tam olarak bu.
+            #
+            # DOĞRU YOL VAR ve çare onu ADIYLA söylüyor: `POST
+            # /api/products/{id}/stock` parti kodunu SORAR ve defteri yazar
+            # (1B-C). Yani bu red bir yeteneği KALDIRMIYOR, operatörü
+            # cevaplanabilir olana yönlendiriyor.
+            #
+            # SIRA: red `if diff` İÇİNDE, yani stok DEĞİŞMEYEN bir kaydetme
+            # (ad/fiyat düzenlemesi) parti takipli üründe de ÇALIŞIR. Dışarı
+            # alınsaydı partili bir ürünün adını değiştirmek imkânsız olurdu.
+            _lotsuz_yazmayi_reddet(
+                db,
+                cid,
+                product_id=product_id,
+                warehouse_id=warehouse_id,
+                care=(
+                    "Stoğu `Stok Hareketi` (POST /api/products/"
+                    f"{product_id}/stock) ucundan, parti kodunu vererek "
+                    "düzeltin."
+                ),
+            )
             allow_negative = (
                 negative_stock_allowed(policies.negative_stock_policy, override)
                 if diff < 0
@@ -703,55 +772,23 @@ def _ayarlama_partisi(
     warehouse_id: int,
     diff: Decimal,
 ) -> int | None:
-    """Ayarlamanın parti ayağı: defteri YAZAR ve hareketin `lot_id`ini verir.
+    """Ayarlamanın parti ayağı: `StockAdjust` gövdesini ÇÖZER, deftere DEVREDER.
 
     PARTİ KODU YOKSA HİÇBİR ŞEY DEĞİŞMEZ ve `None` döner — 1B-C'den önceki
     davranışın BİREBİR aynısı. Bu, dilimin en dar sözüdür: parti bilmeyen
     çağıran parti defterini GÖRMEZ bile.
 
-    İŞARET KARARI VERİR, `mode` DEĞİL. `mode='set'` hem artı hem eksi bir
-    fark üretebilir ve kararı `mode`a bağlamak, sayılan bir azalmanın partiye
-    EKLENMESİNE yol açardı. Karar bu yüzden `diff`in İŞARETİNDEDİR.
+    İŞARET/AÇMA/DÜŞME KURALI ARTIK BURADA DEĞİL, `_parti_ayarla`DA: 1B-H
+    Excel içe aktarmasını da parti kodu kabul eder yaptı ve kural İKİNCİ bir
+    çağıran kazandı. Kopyalamak yerine deftere taşındı; gerekçe orada yazılı.
 
-    SIFIR FARK DA PARTİYİ AÇAR (`_parti_ac(miktar=0)`): operatör bir parti kodu
-    YAZDI ve o beyan kaydedilmelidir. Sıfırı sessizce atlamak, hareketin
-    `lot_id`ini boş bırakır ve "hangi parti sayıldı" sorusunu cevapsız
-    yapardı; `quantity + 0` ise defterde hiçbir sayıyı kımıldatmaz.
-
-    EKSİ FARK VAR OLMAYAN PARTİYE 409'DUR, sessiz açılış DEĞİL: olmayan bir
-    partiden mal düşmek, defteri eksiye iterdi ve `_parti_dus` bunu ADIYLA
-    reddeder.
+    BU FONKSİYON YİNE DE DURUYOR ve ince değil: çözdüğü şey SÖZLEŞMEDİR —
+    `lot_code`un yokluğu ile `expiry_date` alanının GÖNDERİLMEMİŞ olması iki
+    ayrı sorudur ve ikisi de `payload.model_fields_set`ten okunur. Defter bir
+    Pydantic modelini okusaydı, gövde biçimi değiştiği gün defter kırılırdı.
     """
     if payload.lot_code is None:
         return None
-    if diff < 0:
-        parti = _parti_bul(
-            db,
-            cid,
-            product_id=product_id,
-            warehouse_id=warehouse_id,
-            lot_code=payload.lot_code,
-        )
-        if parti is None:
-            raise HTTPException(
-                409,
-                {
-                    "code": "LOT_MIKTARI_EKSIYE_DUSER",
-                    "message": (
-                        f"`{payload.lot_code}` partisi bu depoda YOK; ondan "
-                        f"{-diff} birim düşülemez. Önce partiyi bir alışla "
-                        "ya da artı yönlü bir ayarlamayla açın."
-                    ),
-                },
-            )
-        _parti_dus(
-            db,
-            cid,
-            lot_id=parti.id,
-            miktar=-diff,
-            care="Ayarlama miktarını partide gerçekten olan kadara düşürün.",
-        )
-        return parti.id
     # `expiry_date` ALANI HİÇ GÖNDERİLMEDİYSE beyan YOKTUR ve SKT çatışma
     # denetimi ÇALIŞMAZ; gönderildiyse (`None` dahil) BEYANDIR ve çelişki
     # 422'dir. Ayrımın gerekçesi `app/parti_defteri.py` başlığındadır.
@@ -760,14 +797,15 @@ def _ayarlama_partisi(
         if "expiry_date" in payload.model_fields_set
         else SKT_SORULMADI
     )
-    return _parti_ac(
+    return _parti_ayarla(
         db,
         cid,
         product_id=product_id,
         warehouse_id=warehouse_id,
         lot_code=payload.lot_code,
         expiry_date=skt,
-        miktar=diff,
+        diff=diff,
+        care="Ayarlama miktarını partide gerçekten olan kadara düşürün.",
     )
 
 
@@ -1046,6 +1084,33 @@ def bulk_stock(
             )
             if not diff:
                 continue
+            # --- 1B-H: TOPLU YAZIM PARTİ TAKİPLİ ÜRÜNDE 409 ---------------
+            # Gerekçe `update_product`takiyle AYNI ve burada bir KAT DAHA
+            # ağır: toplu yazım TEK bir değeri ONLARCA ürüne basar, yani tek
+            # bir istekte onlarca `SAPMA` üretebilirdi.
+            #
+            # RED TÜM PARTİYİ DÜŞÜRÜR, o ürünü ATLAMAZ. Atlamak 200 dönerdi
+            # ve `updated` sayısı istenen ürün sayısından KÜÇÜK olurdu —
+            # `bulk_price`ın #157'de kapattığı kusurun ta kendisi: kısmen
+            # uygulanmış bir seçim, tamamlanmış olandan AYIRT EDİLEMEZDİ.
+            # `db.rollback()` `except HTTPException` dalındadır, yani daha
+            # önce yazılmış hareketler de geri alınır.
+            #
+            # `if not diff: continue`DEN SONRA: değeri zaten mevcut olan bir
+            # ürün bu istekte YAZILMIYOR, dolayısıyla iki defteri de
+            # ayrıştırmıyor. Reddi öne almak, hiçbir şey değiştirmeyecek bir
+            # ürün yüzünden toplu yazımın tamamını düşürürdü.
+            _lotsuz_yazmayi_reddet(
+                db,
+                cid,
+                product_id=product_id,
+                warehouse_id=warehouse_id,
+                care=(
+                    f"#{product_id} ürününü toplu yazımdan çıkarın; stoğunu "
+                    "`POST /api/products/{id}/stock` ucundan parti kodunu "
+                    "vererek düzeltin."
+                ),
+            )
             allow_negative = (
                 negative_stock_allowed(policies.negative_stock_policy, override)
                 if diff < 0

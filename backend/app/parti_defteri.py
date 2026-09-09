@@ -47,16 +47,20 @@ from .parti import Parti, ParticiYetersiz, PartiSecilemedi, Secim, fefo_sec
 
 __all__ = [
     "DEFTER_BOSALDI_DAMGASI",
+    "LOT_TAKIPLI_URUN_LOTSUZ_YAZILAMAZ",
     "SKT_SORULMADI",
     "SURESI_GECMIS_DAMGASI",
     "PartiSatiri",
     "Tuketim",
     "_hareket_notu",
+    "_lotsuz_yazmayi_reddet",
     "_parti_ac",
+    "_parti_ayarla",
     "_parti_bul",
     "_parti_dus",
     "_parti_geri_al",
     "_parti_iade",
+    "_parti_takipli_mi",
     "_parti_tuket",
 ]
 
@@ -916,3 +920,186 @@ def _hareket_notu(
     if defter_bosaldi:
         return f"{temel} - {DEFTER_BOSALDI_DAMGASI}"
     return f"{temel} - {SURESI_GECMIS_DAMGASI}" if suresi_gecmis else temel
+
+
+# ---------------------------------------------------------------------------
+# 1B-H — LOT-SUZ YAZICILARIN KAPISI
+#
+# `docs/PARTI_MUTABAKAT.md` §4a beş yazıcıyı ADIYLA saydı ve onları 1B-G'nin
+# KAPSAMI DIŞINDA bıraktı: hepsi `warehouse_stocks`a yazar, hiçbiri deftere
+# dokunmaz. O liste bir borçtu ve bu dilim onu kapatıyor.
+#
+# --- KURAL TEK CÜMLEDİR ---------------------------------------------------
+#
+# Lot-suz yazmak TASARIM GEREĞİ serbesttir — AMA YALNIZ o (ürün, depo) çifti
+# için defterde HİÇ SATIR YOKKEN. Satır varsa lot-suz bir yazma `SAPMA`
+# ÜRETİR: stok kımıldar, parti toplamı kımıldamaz ve `kova_sec` o çifti
+# "incelenmesi gereken" kovasına atar. Yani red bir katılık değil, mutabakatın
+# ölçtüğü kusurun KAYNAĞINDA kapatılmasıdır.
+#
+# --- NEDEN "SATIR VAR MI", "TOPLAM > 0 MI" DEĞİL --------------------------
+#
+# `parti_mutabakat.kova_sec` ile AYNI yüklem, ve aynı olmak ZORUNDA: tükenmiş
+# bir parti (`quantity=0`, satır DURUYOR) o ürünün parti TAKİPLİ olduğunun
+# kanıtıdır. "Toplam > 0" deseydik, defteri sonuna kadar tüketilmiş bir ürüne
+# lot-suz yazmak SERBEST kalırdı ve o yazma çifti doğrudan `SAPMA`ya iterdi —
+# kapı tam da savunması gereken durumda açılırdı.
+#
+# --- NEDEN DEPO BAŞINA ----------------------------------------------------
+#
+# Tekillik 0073'ten beri `(firma, ürün, kod, DEPO)`dur: aynı ürün bir şubede
+# parti takipli, ötekinde takipsiz olabilir. Yüklemi ürün düzeyine çıkarmak,
+# hiç parti görmemiş bir depoya açılış stoku yazmayı da REDDEDERDİ.
+#
+# --- NEDEN BU DOSYADA -----------------------------------------------------
+#
+# Yüklem `product_lots`u OKUR. `tests/test_1b_a_alis_lot.py` tablo adını ANAN
+# dosyaları KAPALI bir kümede tutuyor; kapıyı çağıranın içine yazmak o kümeyi
+# `imports.py` ile GENİŞLETİRDİ. Buradan çağırmak ise ÜÇÜNCÜ ekseni
+# (CAGIRANLAR) bir ADIMLA büyütür ve o eksen zaten "defteri kullananlar" diye
+# tanımlıydı. Ayrıca red METNİ ve KODU tek kopyadır: dört yazıcı aynı cümleyi
+# kurmaz.
+# ---------------------------------------------------------------------------
+
+#: Lot-suz yazmanın reddedildiği tek hata kodu. Sabit MODÜL DÜZEYİNDEDİR;
+#: dört çağıran da onu ADIYLA değil SABİTLE anar ki dizgi ayrışamasın.
+LOT_TAKIPLI_URUN_LOTSUZ_YAZILAMAZ = "LOT_TAKIPLI_URUN_LOTSUZ_YAZILAMAZ"
+
+
+def _parti_takipli_mi(
+    db: Session,
+    cid: int,
+    *,
+    product_id: int,
+    warehouse_id: int,
+) -> bool:
+    """Bu (ürün, depo) çifti için defterde EN AZ BİR satır var mı? YAZMAZ.
+
+    `_parti_bul`DAN AYRIDIR ve ayrılması zorunludur: o BELLİ bir kodu arar,
+    bu ise "herhangi bir parti" sorusunu sorar. Lot-suz yazıcının elinde bir
+    kod YOKTUR — sorabileceği tek soru budur.
+
+    `LIMIT 1` var çünkü sayı SORULMUYOR: yüklem "en az bir" ve tam sayıyı
+    okumak, büyük defterlerde bedeli olan ama hiçbir dala girmeyen bir
+    `COUNT(*)` olurdu.
+    """
+    satir = db.execute(
+        text(
+            "SELECT 1 FROM product_lots "
+            "WHERE company_id=:cid AND product_id=:pid AND warehouse_id=:wid "
+            "LIMIT 1"
+        ),
+        {"cid": cid, "pid": product_id, "wid": warehouse_id},
+    ).first()
+    return satir is not None
+
+
+def _lotsuz_yazmayi_reddet(
+    db: Session,
+    cid: int,
+    *,
+    product_id: int,
+    warehouse_id: int,
+    care: str,
+) -> None:
+    """Defter bu çift için AÇIKSA lot-suz yazmayı 409 ile REDDET.
+
+    SESSİZ GEÇMEK DE, HER ZAMAN REDDETMEK DE YANLIŞTI ve ikisi de ölçüldü:
+    sessiz geçmek `SAPMA` üretirdi (mutabakat onu ertesi gün gösterirdi ama
+    yazan operatör çoktan gitmişti); her zaman reddetmek ise parti HİÇ
+    kullanmayan bir firmanın açılış stokunu ve toplu stok yazımını
+    kırardı — yani ÇALIŞAN bir iş akışını.
+
+    `care` ÇAĞIRANDAN gelir: çıkış yolu ("partiyi belirtin") ile açılış yolu
+    ("ürünü partili açın") aynı çareyi taşımaz. Kural ve KOD değişmez —
+    `_parti_dus`teki aynı ayrım.
+    """
+    if not _parti_takipli_mi(
+        db, cid, product_id=product_id, warehouse_id=warehouse_id
+    ):
+        return
+    raise HTTPException(
+        409,
+        {
+            "code": LOT_TAKIPLI_URUN_LOTSUZ_YAZILAMAZ,
+            "message": (
+                "Bu ürünün bu depoda parti defteri AÇIK; partisiz stok "
+                "yazmak iki defteri ayrıştırır (mutabakatta SAPMA). " + care
+            ),
+        },
+    )
+
+
+def _parti_ayarla(
+    db: Session,
+    cid: int,
+    *,
+    product_id: int,
+    warehouse_id: int,
+    lot_code: str,
+    expiry_date: "str | None | _SktSorulmadi" = SKT_SORULMADI,
+    diff,
+    care: str,
+) -> int:
+    """ADIYLA verilen partiyi İŞARETE göre AÇ ya da DÜŞ; kimliğini döndür.
+
+    --- NEDEN BURADA, ÇAĞIRANIN İÇİNDE DEĞİL ------------------------------
+
+    Bu gövde 1B-C'de `routers/products.py`de (`_ayarlama_partisi`) doğdu ve
+    orada TEK çağıranı vardı. 1B-H Excel içe aktarmasını da parti kodu kabul
+    eder yaptı ve gövde İKİNCİ bir çağıran kazandı. İki seçenek vardı:
+
+      (a) İkinci bir kopya yaz. REDDEDİLDİ ve gerekçe modül başlığındakinin
+          AYNISI: iki kopya ayrıştığı gün aynı parti kodu iki uçtan iki
+          FARKLI satır üretirdi ve geri çağırma kaydı hangisinin doğru
+          olduğunu SÖYLEYEMEZDİ.
+      (b) Gövdeyi deftere taşı, çağıranlar ONU çağırsın. SEÇİLDİ.
+
+    `_ayarlama_partisi` DURUYOR ve silinmedi: o `StockAdjust` gövdesini
+    OKUR (alan gönderildi mi, `lot_code` var mı), bu ise ÇÖZÜLMÜŞ değerlerle
+    çalışır. Sözleşmeyi buraya taşımak, defteri bir Pydantic modeline
+    bağımlı yapardı.
+
+    --- İŞARET KARAR VERİR ------------------------------------------------
+
+    Çağıranın `mode`u ya da dalı DEĞİL, `diff`in İŞARETİ. Bir Excel
+    güncellemesi de bir sayım da hem artı hem eksi fark üretebilir ve kararı
+    dala bağlamak, bir azalmanın partiye EKLENMESİNE yol açardı.
+
+    SIFIR FARK PARTİYİ AÇAR (`miktar=0`): operatör bir kod YAZDI ve o beyan
+    kaydedilmelidir; `quantity + 0` defterde hiçbir sayıyı kımıldatmaz.
+
+    EKSİ FARK VAR OLMAYAN PARTİYE 409'DUR, sessiz açılış DEĞİL: olmayan bir
+    partiden mal düşmek defteri eksiye iterdi.
+    """
+    if diff < 0:
+        parti = _parti_bul(
+            db,
+            cid,
+            product_id=product_id,
+            warehouse_id=warehouse_id,
+            lot_code=lot_code,
+        )
+        if parti is None:
+            raise HTTPException(
+                409,
+                {
+                    "code": "LOT_MIKTARI_EKSIYE_DUSER",
+                    "message": (
+                        f"`{lot_code}` partisi bu depoda YOK; ondan "
+                        f"{-diff} birim düşülemez. Önce partiyi bir alışla "
+                        "ya da artı yönlü bir yazımla açın. " + care
+                    ),
+                },
+            )
+        _parti_dus(db, cid, lot_id=parti.id, miktar=-diff, care=care)
+        return parti.id
+    return _parti_ac(
+        db,
+        cid,
+        product_id=product_id,
+        warehouse_id=warehouse_id,
+        lot_code=lot_code,
+        expiry_date=expiry_date,
+        miktar=diff,
+    )

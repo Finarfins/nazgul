@@ -284,7 +284,24 @@ class PaymentCreate(BaseModel):
 
 
 class ProductCreate(ProductUpdate):
-    pass
+    """Ürün açılışı. `ProductUpdate`ten TÜREMEYE devam eder, `lot_code` EKLER.
+
+    ALAN YALNIZ BURADADIR, `ProductUpdate`e KONMADI ve bu 1B-H'nin ölçülmüş
+    kararıdır: açılış stoku bir GİRİŞTİR ve bir parti AÇABİLİR; `PUT`un stok
+    alanı ise elle bir DÜZELTMEDİR ve parti defteri açık bir üründe
+    REDDEDİLİR (`LOT_TAKIPLI_URUN_LOTSUZ_YAZILAMAZ`). Alanı ortak tabana
+    koymak, PUT'a da bir parti kodu kabul ettirir ve reddin ne anlama geldiğini
+    sorulamaz yapardı — "kodu yazdım, yine de reddedildi".
+
+    Sınır diğer parti girdileriyle ve 0073'ün sütunuyla AYNI (80).
+    """
+
+    lot_code: str | None = Field(default=None, max_length=80)
+
+    @field_validator('lot_code')
+    @classmethod
+    def validate_lot_code(cls, value: str | None) -> str | None:
+        return _clean_optional(value)
 
 
 class StockAdjust(BaseModel):

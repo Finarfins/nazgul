@@ -308,6 +308,29 @@ describe('Partiler sekmesi',()=>{
   expect(screen.getByText('Tükendi')).toBeInTheDocument();
  });
 
+ it('tükenmiş partiyi SOLDURUR, dolu partiyi soldurmaz',async()=>{
+  // BU KAPI 1B-H'DE EKLENDİ ve eksikliği ÖLÇÜLDÜ (#79 çalışma zamanı
+  // merceği): `ProductLotsPanel` başlığı "hem soluk HEM 'Tükendi'" diye
+  // YAZIYORDU ama yalnız etiket sorulmuştu. `opacity` kaldırılsa üstteki
+  // test YEŞİL kalırdı — yani belgenin yarısı savunmasızdı.
+  //
+  // SOLDURMA ETİKETİN YERİNE GEÇMEZ, ONUNLA BİRLİKTE DURUR: renk/opaklık tek
+  // başına anlam taşımamalı (erişilebilirlik), ama etiket de tek başına
+  // yetmiyor — uzun bir listede göz önce SOLUKLUĞU görür. İkisi AYRI AYRI
+  // sorulur çünkü ikisi ayrı ayrı silinebilir.
+  mockByPath(LOTS);
+  mount();
+  await screen.findByText('Hidrolik Pompa');
+  await openTab(/Partiler/);
+  const satir=(kod:string)=>screen.getByText(kod).closest('.MuiStack-root')!
+   .parentElement!.parentElement!;
+  await screen.findByText('LOT-B');
+  expect(getComputedStyle(satir('LOT-B')).opacity).toBe('0.55');
+  // DOLU PARTİ TAM OPAK: kapı "her satır soluk" gibi bozuk bir uygulamayı
+  // da tutmalı, yoksa ayrımı değil yalnız bir sayıyı ölçerdi.
+  expect(getComputedStyle(satir('LOT-A')).opacity).toBe('1');
+ });
+
  it('parti yokken boş listeyi açıklar',async()=>{
   mockByPath([]);
   mount();

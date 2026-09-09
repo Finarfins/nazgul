@@ -595,7 +595,16 @@ f_kovalar = kovalar()
 # hiç parti AÇILMADI. İkisini tek bir döngüde `ESIT` beklemek, kovanın
 # tanımını değil TESTİN kapsamını yanlış kurmak olurdu.
 assert f_kovalar[(urun_f, depo_a)] == 'ESIT', f_kovalar[(urun_f, depo_a)]
-assert f_kovalar[(urun_f, depo_b)] == 'LOTSUZ_TASARIM', f_kovalar[(urun_f, depo_b)]
+# 1B-H: OTEKI DEPONUN CIFTI ARTIK RAPORDA YOK. 1B-G onu `LOTSUZ_TASARIM`
+# bekliyordu ve o beklentiyi ancak yukaridaki bes satirlik paragrafla
+# savunabiliyordu -- gurultunun kendi testinde bile aciklanmak zorunda
+# kalmasi, 1B-H'nin elemesinin gerekcesidir. Cift BOSTUR (stok 0 VE parti
+# satiri yok): iki defter de bos, karsilastirilacak bir sayi YOK.
+assert (urun_f, depo_b) not in f_kovalar, f_kovalar[(urun_f, depo_b)]
+# ELEME OLCULUYOR, VARSAYILMIYOR: sayac artmasaydi cift raporda yok ama
+# neden yok da sorulamaz olurdu -- sessiz eleme ile olculmus eleme arasindaki
+# fark TAM OLARAK bu satirdir.
+assert rapor(limit=1000)['bos_ciftler'] > 0, rapor(limit=1000)
 
 # =========================================================================
 # ALTI DİLİMİN BİRLEŞİK CEVABI: SAPMA YOK
