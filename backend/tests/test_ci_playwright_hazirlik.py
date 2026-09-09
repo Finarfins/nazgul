@@ -43,6 +43,55 @@ def test_betik_var_ve_yuklenebiliyor() -> None:
     assert _modul() is not None
 
 
+def test_ucuncu_taraf_apt_kaynaklari_icerige_gore_kapatilir(tmp_path: Path) -> None:
+    """dl.google.com veya packages.microsoft.com içeren .sources/.list kapatılır; ubuntu.sources kalır."""
+    modul = _modul()
+
+    chrome = tmp_path / "google-chrome.sources"
+    chrome.write_text(
+        "Types: deb\n"
+        "URIs: https://dl.google.com/linux/chrome/deb/\n"
+        "Suites: stable\n"
+        "Components: main\n",
+        encoding="utf-8",
+    )
+    ms = tmp_path / "microsoft-prod.list"
+    ms.write_text(
+        "deb [arch=amd64] https://packages.microsoft.com/ubuntu/22.04/prod jammy main\n",
+        encoding="utf-8",
+    )
+    ubuntu = tmp_path / "ubuntu.sources"
+    ubuntu.write_text(
+        "Types: deb\n"
+        "URIs: http://azure.archive.ubuntu.com/ubuntu/\n"
+        "Suites: noble noble-updates\n"
+        "Components: main restricted universe multiverse\n",
+        encoding="utf-8",
+    )
+
+    kapatilan = modul.ucuncu_taraf_apt_kaynaklarini_kapat(tmp_path)
+
+    # .sources fixture with dl.google.com must be disabled:
+    assert (tmp_path / "google-chrome.sources.disabled").is_file()
+    assert not (tmp_path / "google-chrome.sources").exists()
+
+    # microsoft-prod.list with packages.microsoft.com must be disabled:
+    assert (tmp_path / "microsoft-prod.list.disabled").is_file()
+    assert not (tmp_path / "microsoft-prod.list").exists()
+
+    # ubuntu.sources must not be touched:
+    assert (tmp_path / "ubuntu.sources").is_file()
+    assert not (tmp_path / "ubuntu.sources.disabled").exists()
+
+    # kapatilan listesi doğru dosyaları raporlamalı
+    assert str(chrome) in kapatilan
+    assert str(ms) in kapatilan
+    assert str(ubuntu) not in kapatilan
+
+    # Tekrar çağrıldığında (zaten .disabled) no-op olmalı
+    assert modul.ucuncu_taraf_apt_kaynaklarini_kapat(tmp_path) == []
+
+
 # ---------------------------------------------------------------------------
 # 2. SINIR GERÇEKTEN KESİYOR MU
 # ---------------------------------------------------------------------------
