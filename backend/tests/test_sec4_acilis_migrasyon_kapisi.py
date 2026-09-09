@@ -81,6 +81,7 @@ BOOTSTRAP_PY = BACKEND / "app" / "bootstrap_data.py"
 PROD_COMPOSE = KOK / "docker-compose.prod.yml"
 TABAN_COMPOSE = KOK / "docker-compose.yml"
 DEPLOY_BETIGI = KOK / "deploy" / "sunucu-deploy.sh"
+URETIM_ORNEK = KOK / ".env.production.example"
 CI_YML = KOK / ".github" / "workflows" / "ci.yml"
 
 #: Hata metninin de deploy betiğinin de kullandığı TEK komut gövdesi.
@@ -419,6 +420,24 @@ def test_URETIM_COMPOSE_AUTO_MIGRATE_i_SABIT_false_yaziyor() -> None:
     # dayanıyor ve bu dilim onu KIMILDATMIYOR.
     taban = TABAN_COMPOSE.read_text(encoding="utf-8")
     assert "AUTO_MIGRATE: ${AUTO_MIGRATE:-true}" in taban
+
+
+def test_URETIM_ORNEGI_de_false_diyor_ve_SEBEBINI_YAZIYOR() -> None:
+    """Operator dosyasi ile compose CELISMEMELI.
+
+    SEC-5 (#94) `.env.production.example`e `AUTO_MIGRATE=true` yazmisti.
+    Compose degeri SABITLEDIGI icin oradaki deger zaten ETKISIZDIR -- ama
+    `true` yazan bir ornek, operatore uretimde auto-migrate'in ACIK oldugunu
+    soyler ve bu YANLISTIR. Satir `false` olmakla kalmiyor, ETKISIZ oldugunu
+    da SOYLUYOR: o cumle olmasa dosya "belgeli ama etkisiz ayar" sinifina
+    girerdi -- `test_env_example_completeness.py`nin var olma sebebi.
+    """
+    satirlar = URETIM_ORNEK.read_text(encoding="utf-8").splitlines()
+    (i,) = [n for n, s in enumerate(satirlar) if s.startswith("AUTO_MIGRATE=")]
+    assert satirlar[i] == "AUTO_MIGRATE=false", satirlar[i]
+    yorum = satirlar[i - 1]
+    assert yorum.startswith("#"), yorum
+    assert "docker-compose.prod.yml" in yorum and "sunucu-deploy.sh" in yorum, yorum
 
 
 def test_AUTO_MIGRATE_KOD_VARSAYILANI_ACIK_KALDI() -> None:
