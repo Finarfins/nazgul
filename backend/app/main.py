@@ -197,7 +197,18 @@ def _semayi_dogrula() -> None:
 if settings.auto_migrate:
     _semayi_hazirla()
 
-maintenance_status(engine)
+# İTHAL SALT OKUNURDUR (SEC-4b). `recover_stale=True`, PostgreSQL'de sahipsiz
+# bir bakım satırı gördüğünde onu UPDATE'ler ve bir günlük kaydı YAZAR — yani
+# AUTO_MIGRATE=false olan üretim işçisi, SEC-4'ten (#96) sonra bile ithalde
+# DML koşuyordu ve `bootstrap_data.py`nin "ithalde artık hiçbir DML yok"
+# sözleşmesi LAFZEN yanlıştı.
+#
+# Kurtarma KAYBOLMUYOR, YERİ SABİTLENİYOR: `_readiness_probe` aynı çağrıyı
+# varsayılan `recover_stale=True` ile yapar, yani sahipsiz satır ilk hazırlık
+# probunda temizlenir. Orası ithalden ÜSTÜNDÜR: prob süre bütçelidir, işçi
+# başına değil istek başına koşar ve çöktüğünde açılışı değil TEK BİR PROBU
+# düşürür.
+maintenance_status(engine, recover_stale=settings.auto_migrate)
 
 # A company that already has charge allocations while the V2c write flag is off
 # keeps a ledger the write paths can no longer maintain. Derivation stays

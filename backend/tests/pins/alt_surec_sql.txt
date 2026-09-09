@@ -125,6 +125,7 @@ tests/test_pdf_paragraf_kacisi.py	1
 tests/test_role_fallback_failclosed.py	1
 tests/test_season_cost_with_labour.py	1
 tests/test_sec11_makine_tanimlayici_uzunlugu.py	1
+tests/test_sec4b_ithal_salt_okunur.py	1
 tests/test_self_service_exemption.py	1
 tests/test_stock_transfer_item_tenancy.py	3
 tests/test_transaction_branch_tenant_scoping.py	1
