@@ -1,0 +1,202 @@
+<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nazgul Yol Haritası</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@700;800&display=swap">
+<style>
+:root{
+  --bg:#f7f5ef; --ink:#1d2419; --muted:#6a705f; --line:#d9d6c8; --card:#fffdf8;
+  --acc:#2f6b3a; --acc-ink:#ffffff; --straw:#c9a227;
+  --done:#2f6b3a; --done-bg:#e3efe4; --run:#b8760e; --run-bg:#fbf0d6; --wait:#7b7f75; --wait-bg:#ebeae3; --block:#a83a2b; --block-bg:#f9e2dd;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#171a15; --ink:#ecebe2; --muted:#a3a898; --line:#31362d; --card:#1f241d;
+  --acc:#7fbf8a; --acc-ink:#101410; --straw:#e0bb45;
+  --done:#8fd39a; --done-bg:#22351f; --run:#f0b64a; --run-bg:#3a2e12; --wait:#a5aa9d; --wait-bg:#2a2e27; --block:#f08b7a; --block-bg:#3f1f1a;
+}}
+:root[data-theme="dark"]{
+  --bg:#171a15; --ink:#ecebe2; --muted:#a3a898; --line:#31362d; --card:#1f241d;
+  --acc:#7fbf8a; --acc-ink:#101410; --straw:#e0bb45;
+  --done:#8fd39a; --done-bg:#22351f; --run:#f0b64a; --run-bg:#3a2e12; --wait:#a5aa9d; --wait-bg:#2a2e27; --block:#f08b7a; --block-bg:#3f1f1a;
+}
+body{background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;line-height:1.5;margin:0}
+.wrap{max-width:920px;margin:0 auto;padding:36px 24px 64px}
+h1{font-family:Manrope,"IBM Plex Sans",sans-serif;font-weight:800;font-size:30px;letter-spacing:-.01em;margin:0 0 4px;text-wrap:balance}
+.sub{color:var(--muted);margin:0 0 24px}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:13px}
+.state{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:32px}
+.state div{background:var(--card);border:1px solid var(--line);padding:12px 14px}
+.state .k{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.state .v{font-family:Manrope,sans-serif;font-weight:700;font-size:22px;font-variant-numeric:tabular-nums}
+h2{font-family:Manrope,sans-serif;font-weight:700;font-size:18px;margin:32px 0 10px;padding-bottom:6px;border-bottom:2px solid var(--straw)}
+h2 small{font-family:"IBM Plex Sans";font-weight:500;color:var(--muted);font-size:13px;margin-left:8px}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+td.n{font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap}
+.pill{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.04em;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.done{background:var(--done-bg);color:var(--done)}
+.run{background:var(--run-bg);color:var(--run)}
+.wait{background:var(--wait-bg);color:var(--wait)}
+.block{background:var(--block-bg);color:var(--block)}
+.rules{background:var(--card);border-left:4px solid var(--acc);padding:12px 16px;margin-top:8px}
+.rules p{margin:4px 0}
+.tw{overflow-x:auto}
+.foot{color:var(--muted);font-size:13px;margin-top:32px}
+</style></head><body>
+
+<div class="wrap">
+<h1>Nazgul Yol Haritası</h1>
+<p class="sub">Harman Zamanı · Finarfins/nazgul · güncelleme 9 Eylül 2026 gece — <b>devir notu: <code>docs/DEVIR-2026-09-09.md</code></b> · açık PR: #103 (SEC-11b, GO, CI bekler) · #104 (H15, düzeltme turu) · devir: <code>docs/DEVIR-2026-09-09.md</code></p>
+
+<div class="state">
+  <div><div class="k">develop</div><div class="v mono">3d4edb7</div></div>
+  <div><div class="k">merge sayısı</div><div class="v">82</div></div>
+  <div><div class="k">son kayıt</div><div class="v">pr-0102</div></div>
+  <div><div class="k">alembic başı</div><div class="v">0082</div></div>
+  <div><div class="k">kalan PR (mobil hariç)</div><div class="v">≈53</div></div>
+  <div><div class="k">toplam hedef</div><div class="v">82 / ≈135</div></div>
+</div>
+
+<h2>Açık işler <small>sıra: yeşil + iki lens GO olan önce merge, diğerleri rebase</small></h2>
+<div class="tw"><table>
+<tr><th>PR</th><th>İş</th><th>Göç</th><th>Durum</th></tr>
+<tr><td class="n">#84</td><td>WA4: <code>pending_actions</code> (TENANT 120), taslak→ONAY→APPLIED idempotent, İPTAL/expiry, outbound WHATSAPP sağlayıcı (SIMULATED)</td><td class="mono">0080</td><td><span class="pill done">bitti</span></td></tr>
+<tr><td class="n">—</td><td><b>SEC-1</b> WA eşleştirme kodu hedef telefona bağlanır</td><td class="mono">0082</td><td><span class="pill done">✓ #99</span></td></tr>
+<tr><td class="n">—</td><td><b>SEC-2</b> invoice_pdf ReportLab kaçış + AST kapısı + None/0</td><td>—</td><td><span class="pill done">✓ #97</span></td></tr>
+<tr><td class="n">—</td><td><b>SEC-3</b> read izni daraltma — 19 GET → purchases/sales/payments/stock; EXPECTED_READ 99→80, UNDENIABLE 114→97; A-1/A-2/C-1 ürün kararları; SEC-3b (cari alan maskeleme) kuyrukta</td><td>—</td><td><span class="pill done">✓ #102</span></td></tr>
+<tr><td class="n">—</td><td><b>SEC-4</b> göç import'tan çıkar (AUTO_MIGRATE=false + deploy 7/8)</td><td>—</td><td><span class="pill done">✓ #96</span></td></tr>
+<tr><td class="n">#100</td><td>H12 zaman duvarı (warm-up + 5 örnek) + WA2 PG docstring + docs/prompts .gitignore — test/doc-only; H14 container pip flake kayıtlı</td><td>—</td><td><span class="pill done">✓ #100</span></td></tr>
+<tr><td class="n">—</td><td>SEC-5 ✓#94 · <b>SEC-11 ✓#101</b> (makine tanımlayıcı uzunluğu; SEC-11b PG ikizi kuyrukta) · SEC-6…10 + SEC-4b ( IP limitleri, defusedxml/zip, cryptography+CORS/CSP/Caddy, idempotency user_id 0083, SecretStr/verify-email)</td><td class="mono">0083</td><td><span class="pill wait">P2/P3</span></td></tr>
+<tr><td class="n">—</td><td>E2b ✓#95 · E2c ✓#98 (PDF liste op'undan, status 100→PENDING, 10008→NOT_FOUND) · <b>E4a e-İrsaliye düz sevk</b> (keşif: <code>docs/e4-eirsaliye-kesif-2026-09-09.md</code>; yükümlülük kiracı bazlı — 2025 cirosu ≥10 M olanlar için 01.07.2026 GEÇTİ) · E4b kısmi sevk/yanıt (Faz 11-5 ile) · E3 e-MM</td><td class="mono">0083+</td><td><span class="pill run">E4a prompt sırada</span></td></tr>
+</table></div>
+
+<h2>Bugün merge olanlar <small>7–9 Eylül</small></h2>
+<p>#52 <code>__x.db</code> (0095) · #53 E1b plant-back (0096, göç 0072) · #55 requeue (0097) · #54 5.1b imha (0098) · #57 collect_ignore pini (0099) · #58 canlılık (0100) · #56 1B-A alış lot (0101, göç 0073) · #59 karantina gerekçeleri (0102) · #62 E2 tedavi+arınma (0103, göç 0074) · #63 1B-B satış FEFO (0104) · #61 5.4a mobil auth (0105) · #64 E3 karantina (0106, göç 0075) · #60 1B-C ayarlama/sayım (0107) · hijyen #66 #68 #65 #67 #69 (0108–0112) · #71 1B-D transferler (0113) · #70 1B-E iadeler (0114) · #73 H6 numaralama B (pr-0073, KESME 114) · #74 H7 pin envanterleri (pr-0074) · #72 5.4b idempotency (pr-0072, göç 0076) · #75 1B-F hasat→lot (pr-0075) · #76 5.4c push_devices (pr-0076, göç 0077) · #77 WA3-core niyet+köprü (pr-0077) · #78 e164 pini + bilinen sınırlar (pr-0078) · #79 1B-G parti mutabakatı (pr-0079) · #80 WA1 ingress (pr-0080, göç 0078) · website #10 köprü imza doğrulama · #81 H8a PG ikizi teardown (pr-0081) · #82 H8b _acilisa_cek 31 ikiz (pr-0082) · #83 WA2 eşleştirme (pr-0083, göç 0079) · #85 WA3-tam worker (pr-0085) · #84 WA4 pending_actions + outbound (pr-0084, göç 0080) · #87 E1 e-belge sertleştirme (pr-0087, göç 0081) · #91 H11 audit (js-yaml override, allowlist −1) · #90 H10 runner UTF-8 · #89 H8c 31 ikiz iki geçiş · #88 1B-H lotsuz yazıcılar (pr-0088) · #92 E2 e-belge yaşam döngüsü (pr-0092) · #86 WA5 wamid + fatura özeti + eol=lf</p>
+
+<h2>Büyük sıra <small>berkay kararı, 9 Eylül</small></h2>
+<p>1) kalan backend: 1B-E → 5.4b → 1B-F → 1B-G → 5.4c · 2) WhatsApp — keşif tamam (Antigravity, 9 Eylül): 5.330 satır kod <code>nazgul_website</code>'te, ERP deposunda yok → taşıma. <b>TAMAMLANDI — 4/4: WA1 #80 (0078) · WA2 #83 (0079) · WA3 #77/#78/#85 · WA4 #84 (0080) · WA5 #86 · website #10.</b> WA6 kuyruğu: FATURA_TASLAK göçü + gerçek çözücü, altyazılı medya, indirme sınırı, worker canlıya alma (token + bayrak) → WA2 <code>links/context/pairing_codes</code> + FİRMA SEÇ (göç, TENANT +3) → WA3 asistan + köprü — <b>core bitti (#77/#78)</b>; kalan: koşturucu DB bağlama + worker (WA2 sonrası), website PR; bilinen sınır: soyadı katlama (Yılmaz→yıl), bare "tahsilat" → WA4 <code>pending_actions</code> + outbound <code>KANAL_SAGLAYICILARI["WHATSAPP"]</code> (göç). Asistan yanıtları rıza defterinden muaf ayrı kuyruk; webhook idempotency = wamid UNIQUE · 3) e-belge — keşif tamam (Antigravity, 10 Eylül): İzibiz SOAP adaptörü var, e-Arşiv sandbox'ta canlı doğrulanmış, B2B kapı arkasında (<code>IZIBIZ_EFATURA_SUBMIT_VERIFIED=False</code>), e-MM/e-İrsaliye sıfır. Sandbox kimliği <code>backend/.env.izibiz.local</code> (git-ignored) hazır; tüm servisler açık. 4 PR: <b>E1 (#87, göç 0081) ve E2 (#92) bitti</b> · sandbox: e-Arşiv gönderimi çalışıyor, status/PDF/iptal İzibiz tarafında bizim ETTN ile bulunamıyor (10008) — cevap bekleniyor · E3 e-MM <code>CreditNoteWS</code> (göç) · E4 e-İrsaliye <code>EIrsaliyeWS</code> + taşıma kolonları (göç). Sandbox testleri CI dışı · 4) kod + güvenlik incelemesi — <b>üç rapor geldi (9 Eylül gece), SEC-1..10 listesi devir notunda</b> · 5) platform yönetim paneli (kayıt/aktif firma, kullanıcı, doğrulama, imha, outbox sağlığı — operatör rolü, kiracı guard muafiyeti ölçülür; 2–3 PR) · 6) canlı test, gerçek veri (outbox bayrağı kararı burada) · 7) arayüz yeniden tasarım + <b>Website v2</b> (aynı tasarım dili: plan/fiyat, "başla"→kayıt→e-posta doğrulama→firma açılışı sihirbazı, demo/iletişim formu, SEO; ≈5 PR, kayıt backend'i hazır) · <b>8) Faz 9 ürün boşlukları · 9) Faz 10 fark yaratan özellikler · 10) Faz 11 pazar boşlukları (BKÜ, GTS, kalite motoru, emanet, sipariş zinciri…)</b> (berkay kararı 9 Eylül: hepsi mobilden önce, "mobile sıkıntısız girelim") · 11) mobil sürüm. <b>Kalan tahmin:</b> backend 5 + WhatsApp 4 + e-belge ≈4 + güvenlik ≈3 + platform paneli ≈3 + arayüz ≈8 + website v2 ≈5 + Faz 9 ≈8 + Faz 10 ≈12 + Faz 11 ≈22 = ≈74 PR (mobil ayrı sayılır; e-belge/güvenlik keşif sonrası kesinleşir). <b>Hijyen kuyruğu:</b> H9 PG yarış testi ısınma (WA2 yarışı çoğu koşuda yarışmıyor) · WA3-tam: oran sınırı "başarısızlıkta commit" pini, soyadı katlama, bare "tahsilat" · 1B-H · .gitattributes eol=lf (website) · <b>Arayüz keşfi (Antigravity, 9 Eylül):</b> 71 rota, 70 sayfa, 28 paylaşılan bileşen, MUI 7 + merkezi token; 4 kopyala-yapıştır desen (liste/filtre, detay+sekme, 30 sayfada inline dialog, auth); 37 sayfada 318 <code>any</code>; e2e envanteri 71/71. Plan: önce desen bileşenleri + tip bağlama, sonra tema/düzen tek PR, sonra sayfa sayfa. <b>İsim kalıntıları</b> da bu aşamada tek isme iner: <code>package.json</code> "yerel-hesap-pro-next", <code>sungurTokens</code>, <code>SUNGUR_DATA_DIR</code> → Harman Zamanı (website v2 / mağaza kaydı öncesi).</p>
+
+<h2>Faz 9 — ürün boşlukları <small>adım 8, mobilden ÖNCE; sıralama canlı geri bildirimle</small></h2>
+<div class="tw"><table>
+<tr><th>#</th><th>Madde</th><th>Not</th></tr>
+<tr><td>1</td><td>Kiracı bazlı yedek/geri yükleme (5.1c)</td><td>canlı testten önce; "yanlışlıkla sildim" cevabı</td></tr>
+<tr><td>2</td><td>Kullanıcı davet / rol matrisi / zorunlu şifre</td><td>arayüz aşamasıyla</td></tr>
+<tr><td>3</td><td>Müşteri bazlı satış fiyat listeleri, peşin/vadeli, sezonluk</td><td>arayüz aşamasıyla</td></tr>
+<tr><td>4</td><td>Çek/senet portföy, vade, ciro akışı — kapsamı ölçülecek</td><td>canlı testten önce</td></tr>
+<tr><td>5</td><td>Muhasebe fişi / KDV dışa aktarımı (Luca/Mikro/Logo) + mali müşavir salt-okunur rolü</td><td>e-belge sonrası ilk istek</td></tr>
+<tr><td>6</td><td>Kantar cihazı okuma (seri/CSV)</td><td>müşteri talebine göre</td></tr>
+<tr><td>7</td><td>Sezon kapanışı: çiftçi ekstresi / mutabakat mektubu</td><td>müşteri talebine göre</td></tr>
+<tr><td>8</td><td>Bildirimlerde gerçek teslimat (PUSH FCM/APNs, WhatsApp jeton)</td><td>canlıda bir kanal çalışmalı</td></tr>
+</table></div>
+
+<h2>Faz 10 — fark yaratan özellikler <small>adım 9, mobilden ÖNCE; ≈10–12 PR</small></h2>
+<div class="tw"><table>
+<tr><th>#</th><th>Özellik</th><th>Dayandığı altyapı</th></tr>
+<tr><td>1</td><td>Çiftçi self-service: ekstre/avans/kantar/makbuz WhatsApp'tan</td><td>WA1–4, D1/D2</td></tr>
+<tr><td>2</td><td>Hasat tahmini ve sezon alım/nakit planı</td><td>crop_seasons, parsel, geçmiş hasat</td></tr>
+<tr><td>3</td><td>Piyasa/TMO fiyat uyarıları (tüccara ve çiftçiye)</td><td>bildirim outbox</td></tr>
+<tr><td>4</td><td>Lot geri çağırma: "bu partiyi kim aldı" + bildirim</td><td>1B lot izi</td></tr>
+<tr><td>5</td><td>REI / plant-back uyarısı çiftçiye WhatsApp'tan</td><td>E1a/E1b, WA</td></tr>
+<tr><td>6</td><td>Makine bakım hatırlatma, sezon öncesi revizyon kampanyası</td><td>makine + iş emri geçmişi</td></tr>
+<tr><td>7</td><td>Teknisyen saha uygulaması: fotoğraf, imza, konum, offline</td><td>/saha PWA, Capacitor</td></tr>
+<tr><td>8</td><td>30/60/90 gün nakit akışı projeksiyonu</td><td>yaşlandırma + çek + planlı ödeme</td></tr>
+<tr><td>9</td><td>Müşteri risk skoru, POS'ta veresiye uyarısı</td><td>gecikme geçmişi + limit</td></tr>
+<tr><td>10</td><td>Şablonlu belge tasarımcısı (fatura/makbuz/etiket)</td><td>mevcut PDF çıktıları</td></tr>
+</table></div>
+
+<h2>Faz 11 — pazar boşlukları <small>adım 10, mobilden ÖNCE; üç raporun birleşimi (docs/FAZ-11-adaylar-2026-09-09.md); ≈20–25 PR</small></h2>
+<div class="tw"><table>
+<tr><th>#</th><th>İş</th><th>Segment</th><th>Boyut</th><th>Not</th></tr>
+<tr><td>1</td><td>BKÜ B-Reçete + BKÜ karekod takip bildirimi (kutu bazlı kabul/satış/iade): reçete referansı, ürün/miktar kontrolü, bildirim sonucu belgeye bağlı</td><td>bayi</td><td>L+M</td><td>yasal, 1 Temmuz 2026; önce API erişimi teyidi</td></tr>
+<tr><td>2</td><td>Gübre Takip Sistemi (GTS): karekodlu kabul/satış/iade + bildirim mutabakatı</td><td>bayi</td><td>L</td><td>yasal; önce API teyidi</td></tr>
+<tr><td>3</td><td>Hububat kalite fiyat motoru: rutubet/hektolitre/yabancı madde/protein; ağırlık ve fiyat kesintisi ayrı</td><td>tüccar</td><td>M</td><td>kantar fişi üstüne</td></tr>
+<tr><td>4</td><td>Emanet ürün: sahip, fiziksel miktar, depolama bedeli, sonradan fiyat kesinleştirme</td><td>tüccar</td><td>L</td><td>mülkiyet stoğunu artırmaz</td></tr>
+<tr><td>5</td><td>Teklif → sipariş → rezervasyon → kısmi sevk → fatura zinciri</td><td>bayi/tüccar</td><td>L</td><td>e-İrsaliye kısmi sevk buna dayanır</td></tr>
+<tr><td>6</td><td>Gerçek maliyet: nakliye/kurutma/fire/komisyon/finansman dağıtımı → masraf sonrası marj</td><td>bayi/tüccar</td><td>L</td><td></td></tr>
+<tr><td>7</td><td>Şube + kasa işletimi: vardiya, kasa sayımı, açık/fazla, yoldaki stok</td><td>bayi</td><td>M</td><td></td></tr>
+<tr><td>8</td><td>Veri geçişi: eski ERP'den cari/stok/lot/açık belge, bakiye eşleşmesi</td><td>tüm</td><td>M</td><td>müşteri devralma</td></tr>
+<tr><td>9</td><td>Banka hareketi alma + önerili tahsilat eşleştirme</td><td>bayi/tüccar</td><td>L</td><td></td></tr>
+<tr><td>10</td><td>Sözleşmeli üretim: kota, kalite şartı, girdi taahhüdü; avans sözleşmeye bağlı</td><td>tüccar/bayi/çiftlik</td><td>L</td><td>D2 üstüne</td></tr>
+</table></div>
+<p><b>Faz 12 (P2, ≈22 iş):</b> POS gün sonu mutabakatı · tarım kartı kampanya/hasat vadesi · DBS · ÖKC (senaryo teyidi) · satın alma talebi/teklif · tedarik planı · mal kabul toleransı · iade/tazmin · üretici primi · vadeli satış sözleşmesi · teminat · depo mülkiyet ayrımı · silo harmanlama/fire · numune/lab · saha tahsilat · rota/teslim kanıtı · onay politikaları · MFA/TOTP · KVKK veri yönetişimi · API/webhook · SaaS abonelik · kurulum kontrol listesi. <b>Faz 13+ dikey paketler:</b> Hal (HKS), Pamuk, Süt/Sürü, Çiftlik, Kooperatif, ELÜS, OCR, anomali. <b>Düzeltmeler:</b> Ba-Bs 2024'te kalktı (Faz 9-5'ten çıktı); resmî sistem ≠ API; ÖKC genel kural değil. <b>Ürün yapısı:</b> çekirdek + Bayi Pro + Tüccar Pro + dikey paketler.</p>
+<h2>Faz 1 — tarım + hayvancılık <small>TAMAMLANDI — 9 Eylül 2026</small></h2>
+<div class="tw"><table>
+<tr><th>Kalem</th><th>İçerik</th><th>Durum</th></tr>
+<tr><td>A</td><td>#21 #22 #23</td><td><span class="pill done">bitti</span></td></tr>
+<tr><td>B</td><td>birim dönüşümü (#27) · parti + SKT + FEFO (#31)</td><td><span class="pill done">bitti</span></td></tr>
+<tr><td>C</td><td>kantar fişi C1 (#45) · neti stoğa C2 (#46)</td><td><span class="pill done">bitti</span></td></tr>
+<tr><td>D</td><td>müstahsil + stopaj D1 (#47) · avans + tescil + net ödeme D2 (#51)</td><td><span class="pill done">bitti — satılabilir tüccar</span></td></tr>
+<tr><td>E1</td><td>herbisit: REI katalog E1a (#50) · plant-back E1b (#53)</td><td><span class="pill done">bitti</span></td></tr>
+<tr><td>E2</td><td>vet ilaç kataloğu + tedavi kaydı + süt/et arınma kilitleri (#62)</td><td><span class="pill done">bitti</span></td></tr>
+<tr><td>E3</td><td>karantina (animal_quarantines) + hareket/süt kilidi (#64)</td><td><span class="pill done">bitti</span></td></tr>
+</table></div>
+
+<h2>Faz 1B — parti/lot kablolama <small>TAMAMLANDI — 10 Eylül 2026, 7/7</small></h2>
+<p>Keşif tamam (Codex): A göçlü (product_lots.warehouse_id + purchase_items lot/SKT), B tablo istemez, C core_schema'ya dokunur, G en son. <b>A–H bitti (#56 #63 #60 #71 #70 #75 #79 #88).</b> Kapandı: import/ürün oluştur-düzenle/toplu stok lotsuz yazıcıları; F hasat→lot ve G raporlar sonra. Yazıcı modülü <code>app/parti_defteri.py</code> kanonik. <code>field_activity_inputs</code>'un 0066 sözlüğüne geçişi ve tüketicinin faaliyet girdisinde <code>units.resolve</code> çağırması buraya dahil.</p>
+
+<h2>Faz 5 — platform</h2>
+<div class="tw"><table>
+<tr><th>Kalem</th><th>İçerik</th><th>Durum</th></tr>
+<tr><td>5.1a</td><td>kiracı dışa aktarım (#44)</td><td><span class="pill done">bitti</span></td></tr>
+<tr><td>5.1b</td><td>yumuşak imha (#54): is_active + üyelik silme + zamanlayıcı filtresi; ayırt edici kod yok (sızıntı önlendi)</td><td><span class="pill done">bitti</span></td></tr>
+<tr><td>5.1c</td><td>geri yükleme (111 FK sütun haritalama)</td><td><span class="pill wait">ertelendi</span></td></tr>
+<tr><td>5.4</td><td>token auth/refresh · push cihaz kaydı · idempotency anahtarları — 5.4a mobil auth (#61) bitti · 5.4b idempotency_keys (#72, göç 0076) · 5.4c push_devices (#76, göç 0077) — tamam</td><td><span class="pill done">bitti</span></td></tr>
+</table></div>
+
+<h2>Outbox bayrağı <small>field_stock_outbox_enabled = False — 4/4 koşul tamam, açma kararı berkay'da; önce canlı PENDING birikimi ölçülecek</small></h2>
+<div class="tw"><table>
+<tr><th>Koşul</th><th>İçerik</th><th>Durum</th></tr>
+<tr><td>1</td><td>hasat → ürün yolu (crop_seasons.product_id)</td><td><span class="pill done">bitti</span></td></tr>
+<tr><td>2</td><td>okuma yüzeyi (#4)</td><td><span class="pill done">bitti</span></td></tr>
+<tr><td>3</td><td>terminal olayları yeniden kuyruklama (#55)</td><td><span class="pill done">bitti</span></td></tr>
+<tr><td>4</td><td>canlılık / gecikme metriği (#58)</td><td><span class="pill done">bitti</span></td></tr>
+<tr><td>—</td><td>aynı hasat için iki tüketici yarışı (C2 kilidi ile kapandı)</td><td><span class="pill done">ölçüldü</span></td></tr>
+</table></div>
+
+<h2>Faz 8 — WhatsApp <small>en son, 2 PR</small></h2>
+<p>Keşif tamam: LLM sıfır bağımlılık, OCR dışarıda, ~5.400 satır → 3 PR. Ölçüldü: <code>whatsapp_inbound</code> webhook anında company_id NULL → platform tablosu; çok firmalı kullanıcı için FİRMA SEÇ komutu; köprü sırrında rotasyon/replay koruması yok → website tarafında 1 küçük PR gerekir. Açılmadan önce: köprü sırrı rotasyonu ve <code>whatsapp_*</code> tablolarında kiracı sınırı ölçülecek. <span class="pill wait">bekliyor</span></p>
+
+<h2>Mobil</h2>
+<p>Capacitor sarmalayıcı; 5.4 bittikten sonra. <span class="pill wait">sayıya dahil değil</span></p>
+
+<h2>Park / hijyen</h2>
+<div class="tw"><table>
+<tr><th>Madde</th><th>Durum</th></tr>
+<tr><td>Kayıt numarası merge anında atansın (durum.py + kapı) — paralel PR çakışmasını bitirir</td><td><span class="pill wait">hijyen, onaylandı</span></td></tr>
+<tr><td>E3 smoke: <code>animals.group_id</code> gerçekten yazıldı iddiası (1/4 flake ayrımı)</td><td><span class="pill wait">Cursor</span></td></tr>
+<tr><td>Kayıt zamanlama flake'i: <code>test_self_service_registration</code> 120 ms mutlak eşik → oransal</td><td><span class="pill wait">Cursor</span></td></tr>
+<tr><td>Karantina: 18 dosya dönüştürülebilir, <code>test_v2_4_dashboard</code> tek başına geçiyor — dönüştürme partileri</td><td><span class="pill wait">Cursor</span></td></tr>
+<tr><td><code>test_field_outbox_writer.py:168</code> import-time DATABASE_URL sızıntısı (#52 deseniyle)</td><td><span class="pill wait">Cursor</span></td></tr>
+<tr><td><code>run_isolated_tests.py</code> Windows cp1254'te çöküyor (stdout None) — PYTHONUTF8=1 geçici çare</td><td><span class="pill wait">Cursor</span></td></tr>
+<tr><td>İki "yerel gün" yardımcısı (<code>business_today</code> / <code>_yerel_gun</code>) birleştirilecek</td><td><span class="pill wait">düşük</span></td></tr>
+<tr><td>Hareket DELETE → ters hareket (4 rollback yolu; 1B-A lot telafisi ile birlikte açıldı)</td><td><span class="pill wait">1B sonrası</span></td></tr>
+<tr><td>PG ikizleri admin şifresini geri koymuyor (102 ikiz tek DB'de 109 kırmızı) — D2 fixture deseni yayılacak, test-only</td><td><span class="pill wait">Cursor</span></td></tr>
+<tr><td>Stopaj/SGK borcunu kapatma ucu (settled_at) — D3 adayı</td><td><span class="pill wait">karar bekliyor</span></td></tr>
+<tr><td>sorted() çoklu-seed mutasyon kontrolü</td><td><span class="pill wait">düşük</span></td></tr>
+<tr><td>Branch protection "require up to date"</td><td><span class="pill block">berkay</span></td></tr>
+<tr><td>Merge olmuş worktree temizliği</td><td><span class="pill block">berkay</span></td></tr>
+<tr><td>Arayüz elden geçirme · pazarcı profili araştırması</td><td><span class="pill wait">her şey bitince</span></td></tr>
+<tr><td><code>__x.db</code> import kirlenmesi (#52)</td><td><span class="pill done">bitti</span></td></tr>
+</table></div>
+
+<h2>Kapı kuralları</h2>
+<div class="rules">
+<p>17 CI bağlamı + sözleşme lens GO + çalışma zamanı lens GO, hepsi aynı head'de. Test-only PR → tek lens.</p>
+<p>Aynı anda tek göçlü PR. Kayıt numarası <code>durum.py --sonraki</code> ile; ikinci merge olan rebase edip yeniden numaralanır.</p>
+<p>Her düzeltme turu aynı dala push eder (yeni ajan olabilir, yeni dal/PR olamaz). Lens kendi worktree'sini açar; yazarın ağacına ve <code>F:\nazgul</code>'a girmez.</p>
+<p>PG ikizi: <code>DATABASE_URL</code> + <code>APP_TEST_DATABASE_URL</code> + <code>REQUIRE_PG=1</code> birlikte, yoksa sessizce SQLite'a düşer. "SQLite yeşili PG iddiası değildir."</p>
+<p>Merge yalnız berkay. Plan sırası, şema/ürün semantiği, PR kapatma, kural gevşetme → berkay'ın izni.</p>
+</div>
+
+<h2>Ajanlar</h2>
+<div class="tw"><table>
+<tr><th>Ajan</th><th>Rol</th><th>Kanal</th></tr>
+<tr><td>Claude Code</td><td>uygulama kodu yazarı, keşif</td><td>Buzz / IDE</td></tr>
+<tr><td>Codex</td><td>ikinci uygulama kodu yazarı (paralel göçsüz işler); Claude Code'un yazdığına lens, Claude Code onunkine lens</td><td>Buzz (harness var)</td></tr>
+<tr><td>Cursor</td><td>test-only yazar, hijyen, CI dosyaları</td><td>Buzz (harness var)</td></tr>
+<tr><td>Antigravity</td><td>sözleşme + çalışma zamanı lens, salt okunur keşif</td><td>IDE ya da <code>agy -p</code> (Buzz'a giremez: ACP yok)</td></tr>
+<tr><td>ChatGPT</td><td>dış araştırma</td><td>—</td></tr>
+</table></div>
+
+<p class="foot">Vaktimiz bol, acelemiz yok; kapı gevşemez.</p>
+</div>
+
+</body></html>
