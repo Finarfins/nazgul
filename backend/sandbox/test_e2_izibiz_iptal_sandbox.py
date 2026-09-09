@@ -85,18 +85,18 @@ def test_IPTAL_ICIN_GONDERIM_ONCE_KABUL_EDILIYOR(iptal_edilecek) -> None:
 
 @pytest.mark.xfail(
     reason=(
-        "ÖLÇÜLDÜ 2026-09-09 (E2 koşusu): sağlayıcı iptali `ERROR_CODE=10008 "
+        "ÖLÇÜLDÜ 2026-09-09: sağlayıcı iptali `ERROR_CODE=10008 "
         "\"Belirtilen kritere uygun kayıt bulunamamıştır. Belge ETTN : <ETTN>\"` "
-        "ile reddediyor. HATA BİZDE DEĞİL, ANAHTARDA: istek şemaya birebir uyuyor "
-        "(`?xsd=5`ten okundu) ve sağlayıcı gönderdiğimiz ETTN'i GERİ YANKILAYIP "
-        "'böyle bir kayıt yok' diyor — yani İzibiz e-Arşiv belgesini bizim uuid5 "
-        "ile türettiğimiz istemci ETTN'iyle ANAHTARLAMIYOR. Bu, E1'in §7.3'te "
-        "VARSAYMADAN açık bıraktığı sorunun cevabıdır ve iptal, durum sorgusunun "
-        "söyleyemediğini söyledi: boş bir yanıt hiçbir şey ayırt ettirmezken bu "
-        "hata aradığı anahtarı yankılıyor. Soru entegrasyon@izibiz.com.tr'ye "
-        "sorulmak üzere belge kimlikleriyle birlikte yazıldı: "
-        "`docs/izibiz-sandbox-bulgular.md` §8.2. strict=False: doğru anahtar "
-        "öğrenilip düzeltilince test XPASS olur ve bu satır ile spec §9.4 "
+        "ile reddediyor. GEREKÇE E2b'DE DÜZELTİLDİ — bu satır önce 'İzibiz "
+        "belgeyi bizim ETTN'imizle anahtarlamıyor' diyordu ve O ÇÜRÜTÜLDÜ "
+        "(§9.2: sağlayıcının tuttuğu UUID gönderdiğimizin TA KENDİSİ ve "
+        "AYNI anahtarla yapılan durum sorgusu AYNI oturumda CEVAP VERİYOR). "
+        "Geriye kalan tek aday: iptal, `STATUS=100` (KUYRUĞA EKLENDİ) bir "
+        "belgeyi iptal edilebilir saymıyor olabilir — ADAY, ÖLÇÜM DEĞİL, çünkü "
+        "sandbox imzalayıcısı hiçbir belgeyi bitirmiyor ve raporlanmış KENDİ "
+        "belgemiz YOK. Sağlayıcıya sorulacak yeni soru: "
+        "`docs/izibiz-sandbox-bulgular.md` §10.4. strict=False: sandbox belgeyi "
+        "imzalar hâle gelirse test XPASS olur ve bu satır ile spec §9.4 "
         "GÖZDEN GEÇİRİLİR."
     ),
     strict=False,
@@ -112,23 +112,19 @@ def test_EARSIV_IPTALI_SANDBOXTA_KABUL_EDILIYOR(saglayici, iptal_edilecek) -> No
     assert sonuc.status == CANCELLED, scrub(str(sonuc.error))
 
 
-@pytest.mark.xfail(
-    reason=(
-        "İptalin KENDİSİ başarısız (yukarıdaki xfail: kayıt ETTN ile "
-        "bulunamıyor), dolayısıyla 'iptal sonrası durum' diye ölçülecek bir şey "
-        "de yok. Ölçülen: `UNRESOLVED`, ham GİB kodu YOK — E1'in §7.3 "
-        "bulgusuyla (aynı belge, aynı anahtar, boş yanıt) BİREBİR tutarlı ve "
-        "aynı kök sebebe bağlı. strict=False."
-    ),
-    strict=False,
-)
 def test_IPTAL_SONRASI_DURUM_SORGUSU(saglayici, iptal_edilecek) -> None:
     """İptalden sonra GİB ham kodu ne diyor?
 
-    Beklenti ÖLÇÜLMEMİŞTİR, o yüzden test bir DEĞER dayatmıyor: yalnız sorgunun
-    çözümlenebildiğini ve ham kodun geldiğini ölçüyor. `IZIBIZ_STATUS_ALIASES`
-    içinde `RAPORLANDI IPTAL -> REJECTED` eşlemesi VAR ama o eşlemenin iptal
-    sonrası GERÇEKTEN geldiği GÖRÜLMEDİ; görülürse eşleme (ve `CANCELLED` ile
+    XFAIL KALKTI (E2b). Önce "iptal başarısız olduğu için ölçülecek bir şey
+    yok, sonuç `UNRESOLVED`" diyordu; §10.2 ölçtü ki `UNRESOLVED`ın sebebi
+    iptal DEĞİL, `IZIBIZ_STATUS_ALIASES`teki eksik `100` satırıydı. Eşleme
+    düzeltildi ve durum sorgusu artık iptalden BAĞIMSIZ olarak çözülüyor —
+    bu test o düzeltmenin GERÇEK ağ yolundaki kapısıdır.
+
+    Beklenti bir DEĞER dayatmıyor: yalnız sorgunun çözümlenebildiğini ve ham
+    kodun geldiğini ölçüyor. `IZIBIZ_STATUS_ALIASES` içinde
+    `RAPORLANDI IPTAL -> REJECTED` eşlemesi VAR ama o eşlemenin iptal sonrası
+    GERÇEKTEN geldiği GÖRÜLMEDİ; görülürse eşleme (ve `CANCELLED` ile
     ilişkisi) gözden geçirilmelidir.
     """
     sonuc = saglayici.query_status(
@@ -142,28 +138,21 @@ def test_IPTAL_SONRASI_DURUM_SORGUSU(saglayici, iptal_edilecek) -> None:
     assert sonuc.gib_status_code, "ham GİB kodu gelmedi"
 
 
-@pytest.mark.xfail(
-    reason=(
-        "AÇIK SORU — entegrasyon@izibiz.com.tr'ye sorulacak; metni ve SORULACAK "
-        "BELGE KİMLİKLERİ `docs/izibiz-sandbox-bulgular.md` §8.2'de. "
-        "ÖLÇÜLDÜ 2026-09-08 (E1), 2026-09-09'da (E2) YİNELENDİ: TAZE bir e-Arşiv belgesi için "
-        "`GetEArchiveInvoice` PDF vermiyor (`PDF_YOK`), 0/3/8/15/30/45 sn "
-        "beklenerek ~100 sn yoklandı — ZAMANLAMA DEĞİL. E2 bu ölçümü "
-        "DEĞİŞTİRMEDİ; değiştirdiği tek şey, PDF'i isteyen bir UCUN artık VAR "
-        "olması (`GET /invoices/{id}/einvoice/download?format=pdf`). "
-        "strict=False: sandbox bunu çözer hâle gelirse test XPASS olur."
-    ),
-    strict=False,
-)
 def test_INDIRME_UCUNUN_ISTEDIGI_PDF_GERCEKTEN_INIYOR(saglayici, iptal_edilecek) -> None:
     """Ucun sağlayıcıdan istediği baytların TA KENDİSİ — aynı argümanlarla.
 
+    XFAIL KALKTI (E2b) ve sebebi ÖLÇÜLDÜ: E1/E2'de `PDF_YOK` alınıyordu çünkü
+    `GetEArchiveInvoice` PDF DEĞİL, UBL XML taşıyan bir ZIP döndürüyor —
+    zamanlama da anahtar da değil, OPERASYON SEÇİMİ yanlıştı (§10.1). PDF
+    `GetEArchiveInvoiceList` + `HEADER_ONLY=N` + `CONTENT_TYPE=PDF` ile
+    geliyor ve `STATUS=100` bir belgede DE çalışıyor.
+
     Uç ``provider.fetch_pdf(ext, channel=..., web_key=...)`` çağırıyor; burada
     da BİREBİR o çağrı yapılıyor. Farklı bir çağrı yazmak, ucun kullanmadığı
-    bir yolu ölçmek olurdu.
+    bir yolu ölçmek olurdu. `web_key` ARTIK KULLANILMIYOR ama imzada duruyor
+    ve BİLEREK geçiliyor: ucun çağrısı bu, ve anahtar geçen bir çağrının hâlâ
+    çalıştığı da bir sözleşmedir.
     """
-    if not iptal_edilecek.web_key:
-        pytest.skip("WEB_KEY yok; PDF yolu ölçülemez")
     icerik = saglayici.fetch_pdf(
         iptal_edilecek.external_id,
         channel="EARSIV",

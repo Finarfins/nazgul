@@ -53,11 +53,13 @@ import base64
 import binascii
 import hashlib
 import hmac
+import io
 import json
 import logging
 import secrets
 import threading
 import time
+import zipfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -70,9 +72,11 @@ from . import ubl_xml
 from .errors import (
     AUTH,
     NETWORK,
+    NOT_FOUND,
     UNKNOWN,
     VALIDATION,
     EInvoiceError,
+    EInvoiceNotFoundError,
     classify_body,
     classify_http,
     message_for,
@@ -424,11 +428,14 @@ class _HttpEInvoiceProvider(EInvoiceProvider):
     ) -> EInvoiceError:
         text = message_for(code, provider_code=provider_code)
         logger.warning("e-Fatura %s/%s başarısız (sınıf=%s)", self.name, operation, code)
-        return EInvoiceError(
-            code,
-            scrub(text, self._secrets),
-            raw=scrub({"error_class": code, **(raw or {})}, self._secrets),
-        )
+        # NOT_FOUND AYRI TÜR: çağıran "belge yok, yeniden gönder" ile "bu
+        # işlem için kayıt yok, sonra dene"yi ayırt edebilmeli. ALT SINIF
+        # olduğu için var olan her `except EInvoiceError` çalışmayı sürdürür.
+        govde = scrub({"error_class": code, **(raw or {})}, self._secrets)
+        metin = scrub(text, self._secrets)
+        if code == NOT_FOUND:
+            return EInvoiceNotFoundError(metin, raw=govde)
+        return EInvoiceError(code, metin, raw=govde)
 
     def _submit_gate(self, payload: dict[str, Any]) -> str | None:
         """Sağlayıcıya özgü ek gönderim kapısı; engel varsa mesajı döner.
@@ -889,7 +896,7 @@ class _HttpEInvoiceProvider(EInvoiceProvider):
         business = self._business_failure(response)
         if business is not None:
             code, message = business
-            raise EInvoiceError(code, scrub(message, self._secrets), raw=self._summary(response))
+            raise _is_hatasi(code, scrub(message, self._secrets), self._summary(response))
         content = self._extract_pdf(response)
         if not content:
             raise self._raise("fetch_pdf", UNKNOWN, provider_code="PDF_YOK")
@@ -1016,7 +1023,7 @@ class _HttpEInvoiceProvider(EInvoiceProvider):
         business = self._business_failure(response)
         if business is not None:
             code, message = business
-            raise EInvoiceError(code, scrub(message, self._secrets), raw=self._summary(response))
+            raise _is_hatasi(code, scrub(message, self._secrets), self._summary(response))
         answer = _as_bool(self._extract(response, self._field("taxpayer")))
         if answer is None:
             # Unreadable answer: raise instead of routing the invoice to EFATURA
@@ -1048,15 +1055,49 @@ def _as_bool(value: Any) -> bool | None:
     return None
 
 
+def _is_hatasi(code: str, message: str, raw: dict[str, Any] | None = None) -> EInvoiceError:
+    """İŞ hatasını sınıfına uygun türle sar.
+
+    `_raise` ile AYNI kural, ama bu yol sağlayıcının KENDİ cümlesini taşır
+    (sabit tablo metnini değil), o yüzden ayrı bir fabrika gerekti.
+    """
+    if code == NOT_FOUND:
+        return EInvoiceNotFoundError(message, raw=raw)
+    return EInvoiceError(code, message, raw=raw)
+
+
+def _pdf_from_zip(raw: bytes) -> bytes:
+    """ZIP ise İÇİNDEKİ PDF'i çıkar; PDF ise olduğu gibi ver; değilse boş.
+
+    ADI ÜSTÜNDE SIKI: yalnız `%PDF-` ile başlayan bir girdi PDF sayılır. ZIP
+    içindeki XML (`GetEArchiveInvoice`in döndürdüğü şey) buradan BOŞ çıkar ve
+    çağıran `PDF_YOK` der — sessizce XML'i PDF diye sunmaktansa gürültülü
+    hata, `_decode_pdf`in en baştaki kuralıyla AYNI.
+    """
+    if raw[:5] == b"%PDF-":
+        return raw
+    if raw[:2] != b"PK":
+        return b""
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as arsiv:
+            for ad in arsiv.namelist():
+                icerik = arsiv.read(ad)
+                if icerik[:5] == b"%PDF-":
+                    return icerik
+    except (zipfile.BadZipFile, OSError, RuntimeError):
+        return b""
+    return b""
+
+
 def _decode_pdf(raw: bytes) -> bytes:
-    """Accept either a raw PDF body or a base64 field; reject anything else."""
+    """Accept a raw PDF body, a base64 field, or a base64 ZIP carrying a PDF."""
     if raw[:5] == b"%PDF-":
         return raw
     try:
         decoded = base64.b64decode(raw, validate=True)
     except (binascii.Error, ValueError):
         return b""
-    return decoded if decoded[:5] == b"%PDF-" else b""
+    return _pdf_from_zip(decoded)
 
 
 # --------------------------------------------------------------------------
@@ -1295,33 +1336,38 @@ class IzibizEInvoiceProvider(_HttpEInvoiceProvider):
 
         if operation == "fetch_pdf":
             if earsiv:
-                # ``GetEArchiveInvoice`` UUID değil WEB_VALIDATION_KEY ister.
-                # Anahtar ARTIK SAKLANIYOR (göç `20260911_0081`,
-                # `invoices.einvoice_web_key`) ve çağıran onu buraya veriyor.
-                # Boşsa yol yine KAPALI: anahtarsız bir istek boş bir yanıt
-                # üretir ve bu "belge yok" gibi okunur — sessiz yanlış yerine
-                # gürültülü hata, e-Arşiv durum sorgusunun ETTN kuralıyla aynı
-                # gerekçe.
-                web_key = _earchive_validation_key(kwargs.get("web_key"))
-                if not web_key:
-                    raise self._raise(
-                        "fetch_pdf", UNKNOWN, provider_code="EARSIV_WEB_KEY_YOK"
-                    )
+                # ÖLÇÜLDÜ (§10.1), ÖNCEKİ SEÇİM YANLIŞTI. E2 burada
+                # `GetEArchiveInvoice` + `WEB_VALIDATION_KEY` çağırıyordu ve
+                # o operasyon PDF DEĞİL, UBL XML'ini taşıyan bir ZIP dönüyor;
+                # `_decode_pdf` onu haklı olarak reddediyor ve sonuç kalıcı
+                # `PDF_YOK` oluyordu. Yani kusur anahtarda değil OPERASYON
+                # SEÇİMİNDEYDİ ve bu, `EARSIV_WEB_KEY_YOK` kapısının neden
+                # hiçbir zaman işe yaramadığını da açıklıyor.
+                #
+                # ŞEMA (canlı WSDL `?xsd=5`): GetEArchiveInvoiceListRequest =
+                #   REQUEST_HEADER + (LIMIT, ID, UUID, START_DATE, END_DATE,
+                #   PERIOD, PREFIX, REPORT_*, HEADER_ONLY, CONTENT_TYPE,
+                #   READ_INCLUDED) — anahtar alanların HEPSİ opsiyonel, yani
+                # belge HEM ETTN HEM belge kimliğiyle aranabilir.
+                #
+                # ANAHTAR `ID` (sağlayıcı belge kimliği) ÇÜNKÜ `fetch_pdf`e
+                # ETTN GEÇMİYOR — imzası `external_id` + `web_key`. `UUID` de
+                # ölçüldü ve ÇALIŞIYOR (§9.2) ama onu kullanmak için ayrı bir
+                # parametre geçirmek gerekirdi; koşulmayan bir dal yazmaktansa
+                # ölçülen dal yazıldı.
+                arama = f"<ID>{xml_escape(str(kwargs['ettn']))}</ID>"
                 return self._post(
                     wire.IZIBIZ_OP_PDF_EARCHIVE,
                     _soap_envelope(
                         wire.IZIBIZ_OP_PDF_EARCHIVE,
                         _request_header(session)
-                        # ŞEMA (canlı WSDL'den okundu, tahmin DEĞİL):
-                        #   GetEArchiveInvoiceRequest = REQUEST_HEADER
-                        #                             + WEB_VALIDATION_KEY
-                        # BAŞKA ALAN YOK. Önce buraya bir `DOCUMENT_TYPE`
-                        # eklenmişti ve sandbox reddetti:
-                        #   ERROR_CODE=10013 "Gönderilen istek geçersizdir.
-                        #   INVALID XML! cvc-complex-type.2.4b"
-                        # PDF'i `DOCUMENT_TYPE` seçmiyor; yanıt zaten
-                        # `INVOICE` alanında base64 belgeyi veriyor.
-                        + f"<WEB_VALIDATION_KEY>{xml_escape(web_key)}</WEB_VALIDATION_KEY>",
+                        + f"<LIMIT>1</LIMIT>{arama}"
+                        # HEADER_ONLY=N olmadan yanıt yalnız başlık taşır ve
+                        # içerik düğümü HİÇ gelmez; CONTENT_TYPE=PDF olmadan
+                        # gelen içerik XML'dir. İKİSİ BİRDEN gerekli — ayrı
+                        # ayrı ölçüldü (§10.1).
+                        + "<HEADER_ONLY>N</HEADER_ONLY>"
+                        + "<CONTENT_TYPE>PDF</CONTENT_TYPE>",
                     ),
                     max_bytes=wire.MAX_BINARY_RESPONSE_BYTES,
                 )
@@ -1395,6 +1441,7 @@ class IzibizEInvoiceProvider(_HttpEInvoiceProvider):
             return response.body
         encoded = _first_xml_field(response.body[: wire.MAX_BINARY_RESPONSE_BYTES], self._FIELDS["pdf"])
         return _decode_pdf(encoded.encode("utf-8")) if encoded else b""
+
 
     def _business_failure(self, response: HttpResponse) -> tuple[str, str] | None:
         """``ERROR_TYPE`` / sıfırdan farklı ``RETURN_CODE`` → iş hatası.
@@ -1517,7 +1564,7 @@ class IzibizEInvoiceProvider(_HttpEInvoiceProvider):
         business = self._business_failure(response)
         if business is not None:
             code, message = business
-            raise EInvoiceError(code, scrub(message, self._secrets), raw=self._summary(response))
+            raise _is_hatasi(code, scrub(message, self._secrets), self._summary(response))
 
         root = _parse_xml(response.body[: wire.MAX_PARSED_RESPONSE_BYTES])
         envelope = (

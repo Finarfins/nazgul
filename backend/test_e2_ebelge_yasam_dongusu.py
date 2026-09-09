@@ -265,21 +265,23 @@ def test_IPTAL_2XX_ICINDEKI_IS_HATASINDA_BASARISIZ() -> None:
 
     assert sonuc.status == FAILED
     assert sonuc.status != CANCELLED
-    # Sağlayıcının KENDİ gerekçesi kullanıcı mesajına taşınıyor; ham hata kodu
-    # (`10013`) `raw` içinde denetim için duruyor, kullanıcı cümlesinde değil.
-    # ÖLÇÜLDÜ, ve sonuç bugünün SINIRINI da gösteriyor: `10008` mevcut hata
-    # sınıflarının HİÇBİRİNE eşlenmiyor (kümede "kayıt bulunamadı" YOK), o
-    # yüzden `UNKNOWN` şablonuna düşüyor ve o şablon yalnız KODU taşıyor —
-    # sağlayıcının kendi cümlesi ("...bulunamamıştır") kullanıcı mesajına
-    # GİRMİYOR, `raw` içinde denetime kalıyor.
+    # E2b'DE KIMILDADI — ve tam da E2'nin öngördüğü yönde. O tur burada
+    # "`10008` hiçbir sınıfa eşlenmiyor, `UNKNOWN` şablonuna düşüyor ve
+    # yalnız KODU taşıyor" diye bugünün SINIRINI çiviliyordu ve "`NOT_FOUND`
+    # eklemek ayrı bir dilimin işi, o dilim geldiğinde bu iddia kımıldayacak"
+    # diye yazıyordu. O dilim geldi (`docs/izibiz-sandbox-bulgular.md` §9).
     #
-    # Bu, testin kabullendiği bir eksiklik değil KAYDETTİĞİ bir eksiklik:
-    # `NOT_FOUND` sınıfı eklemek spec §6 mesaj tablosunu değiştirir ve AYRI
-    # BİR DİLİMİN işidir (`docs/izibiz-sandbox-bulgular.md` §8.3). Buradaki
-    # iddia, o dilim geldiğinde KIMILDAYACAK ve gözden geçirilmeye zorlayacak.
-    assert "10008" in (sonuc.error or ""), sonuc.error
+    # ARTIK: `10008` -> `NOT_FOUND` ve mesaj SABİT TABLODAN geliyor, yani
+    # kullanıcı ham kodu DEĞİL ne yapacağını okuyor. Sağlayıcının kendi
+    # cümlesi (ve ham kod) `raw` içinde denetime kalmayı SÜRDÜRÜYOR — o
+    # sözleşme değişmedi.
+    assert sonuc.error == (
+        "Belge sağlayıcıda bu işlem için henüz bulunamadı; daha sonra tekrar deneyin."
+    ), sonuc.error
+    assert "10008" not in (sonuc.error or ""), sonuc.error
     assert "bulunamamıştır" not in (sonuc.error or ""), sonuc.error
     assert "bulunamamıştır" in str(sonuc.raw), sonuc.raw
+    assert "10008" in str(sonuc.raw), sonuc.raw
 
 
 def test_IPTAL_OKUNAMAYAN_GOVDEDE_DE_BASARISIZ() -> None:
