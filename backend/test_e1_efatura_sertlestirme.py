@@ -5,7 +5,10 @@ Beş ölçülmüş boşluk kapandı; bu dosya beşini de ADIYLA ölçer:
 1. ``WEB_KEY`` gönderim yanıtında geliyordu ve ATILIYORDU → e-Arşiv PDF'i
    kalıcı olarak erişilemezdi. Artık saklanıyor (göç ``20260911_0081``).
 2. e-Arşiv ``fetch_pdf`` çağrıyı HİÇ KURMUYORDU (``EARSIV_WEB_KEY_YOK``).
-   Artık anahtar varsa kuruyor.
+   E1'de anahtar varsa kurmaya başladı; E2b'de ÖLÇÜLDÜ ki o çağrı PDF DEĞİL
+   UBL XML'i döndürüyor ve OPERASYON DEĞİŞTİ (``GetEArchiveInvoiceList`` +
+   ``CONTENT_TYPE=PDF``), anahtar da GEREKMİYOR — bkz.
+   ``docs/izibiz-sandbox-bulgular.md`` §10 ve ``test_e2c_earsiv_pdf.py``.
 3. ``GET .../einvoice/status`` YALNIZ yerel veritabanını okuyor; sağlayıcının
    cevabını alacak bir yol YOKTU → ``POST .../einvoice/sync``.
 4. Birim kodları UN/ECE Rec.20 değildi ("kg" tel üstünde geçersiz).
@@ -17,7 +20,8 @@ MUTASYON TABLOSU — her satır ADIYLA kırmızı olur:
 mutant                                       öldüren test
 ===========================================  ==================================
 ``_submit_web_key`` -> ``return None``       ``test_WEB_KEY_gonderim_yanitindan_SAKLANIYOR``
-e-Arşiv ``fetch_pdf`` yine koşulsuz ``raise``  ``test_EARSIV_fetch_pdf_WEB_KEY_ile_PDF_DONDURUYOR``
+``CONTENT_TYPE=PDF``/``HEADER_ONLY=N`` düşer   ``test_EARSIV_fetch_pdf_LISTE_OPERASYONUNDAN_GERCEK_PDF_DONDURUYOR``
+ZIP'ten ilk dosya körlemesine döner           ``test_EARSIV_fetch_pdf_ZIP_ICINDE_XML_VARSA_PDF_YOK``
 ``resolve_unit_code`` -> ``return "C62"``    ``test_BILINMEYEN_BIRIM_SESSIZCE_C62_OLMUYOR``
 %0'da istisna kodu yazılmaz                  ``test_SIFIR_KDV_ISTISNA_KODU_OLMADAN_URETILMIYOR``
 ===========================================  ==================================
@@ -169,44 +173,86 @@ def test_WEB_KEY_URL_ICINDEN_ANAHTARI_CIKARIYOR() -> None:
 
 
 # --- 2. e-Arşiv fetch_pdf açıldı ------------------------------------------
-def test_EARSIV_fetch_pdf_WEB_KEY_ile_PDF_DONDURUYOR() -> None:
-    """Anahtar verilince çağrı KURULUYOR ve PDF baytı dönüyor.
+def test_EARSIV_fetch_pdf_LISTE_OPERASYONUNDAN_GERCEK_PDF_DONDURUYOR() -> None:
+    """PDF, GERÇEK sandbox yanıtından çıkarılıyor (fixture, uydurma değil).
 
-    MUTANT: e-Arşiv dalı yine koşulsuz ``raise`` ⇒ bu test kırmızı.
+    E2c ÖLÇÜMÜ (`docs/izibiz-sandbox-bulgular.md` §10.1): e-Arşiv PDF'i
+    `GetEArchiveInvoice` + `WEB_VALIDATION_KEY` ile GELMEZ — o operasyon UBL
+    XML'ini taşıyan bir ZIP döner. PDF `GetEArchiveInvoiceList`ten
+    `HEADER_ONLY=N` + `CONTENT_TYPE=PDF` ile gelir ve içerik yine bir ZIP'tir,
+    bu kez `<belge>.pdf` taşır.
+
+    MUTANT: `CONTENT_TYPE=PDF` satırını düşürmek ⇒ sağlayıcı XML döner ve
+    `_pdf_from_zip` onu reddeder ⇒ KIRMIZI. `HEADER_ONLY=N`i düşürmek ⇒ yanıt
+    içerik düğümü HİÇ taşımaz ⇒ KIRMIZI. Operasyonu eski
+    `GetEArchiveInvoice`a geri almak ⇒ istek iddiası KIRMIZI.
     """
-    pdf_yanit = (
+    transport = FakeTransport(
+        [fixture("Login.200.xml"), fixture("GetEArchiveInvoiceList-pdf.200.xml")]
+    )
+    icerik = _provider(transport).fetch_pdf("SNG2026252113200", channel="EARSIV")
+
+    # GERÇEK PDF: ZIP'in içinden çıkan bayt dizisi `%PDF-` ile başlıyor.
+    assert icerik.startswith(b"%PDF-"), icerik[:20]
+    assert len(icerik) > 1000, len(icerik)
+
+    gonderilen = transport.bodies()[-1]
+    assert "GetEArchiveInvoiceListRequest" in gonderilen
+    assert "<ID>SNG2026252113200</ID>" in gonderilen
+    assert "<HEADER_ONLY>N</HEADER_ONLY>" in gonderilen
+    assert "<CONTENT_TYPE>PDF</CONTENT_TYPE>" in gonderilen
+    # ESKİ YOL ARTIK KURULMUYOR — anahtar alanı isteğe HİÇ girmiyor.
+    assert "WEB_VALIDATION_KEY" not in gonderilen
+
+
+def test_EARSIV_fetch_pdf_ARTIK_WEB_KEY_ISTEMIYOR() -> None:
+    """Anahtarsız çağrı ARTIK KAPALI DEĞİL — ve bu bir gevşetme değil DÜZELTME.
+
+    E1'de `EARSIV_WEB_KEY_YOK` kapısı "anahtarsız istek boş yanıt üretir"
+    gerekçesiyle konmuştu. §10.1 ölçtü ki o gerekçe YANLIŞ TEŞHİSTİ: anahtar
+    doğruydu, çağrı kuruluyordu, dönen şey PDF DEĞİLDİ. Yeni operasyon belgeyi
+    `ID` ile arıyor, yani anahtar GEREKMİYOR — ve bu, gönderim anındaki
+    `WEB_KEY` yakalaması kaçmış ESKİ faturaların PDF'ini de erişilebilir
+    kılıyor.
+
+    MUTANT: `web_key` ön koşulunu geri koymak ⇒ bu test KIRMIZI.
+    """
+    transport = FakeTransport(
+        [fixture("Login.200.xml"), fixture("GetEArchiveInvoiceList-pdf.200.xml")]
+    )
+    icerik = _provider(transport).fetch_pdf("SNG2026252113200", channel="EARSIV", web_key=None)
+    assert icerik.startswith(b"%PDF-")
+
+
+def test_EARSIV_fetch_pdf_ZIP_ICINDE_XML_VARSA_PDF_YOK() -> None:
+    """`GetEArchiveInvoice`in GERÇEK yanıtı: ZIP içinde XML. PDF SAYILMAZ.
+
+    Bu, düzeltmenin en önemli negatif kapısıdır: ZIP'i açıp içinden ÇIKAN İLK
+    dosyayı PDF diye sunmak, kullanıcıya `.pdf` adıyla bir UBL XML'i indirtirdi
+    — sessiz yanlış. `_pdf_from_zip` yalnız `%PDF-` ile başlayan girdiyi kabul
+    eder ve `fetch_pdf` gürültülü biçimde `PDF_YOK` der.
+
+    MUTANT: `_pdf_from_zip`teki `%PDF-` denetimini düşürüp ilk dosyayı
+    döndürmek ⇒ bu test KIRMIZI.
+    """
+    import base64 as _b64
+    import io as _io
+    import zipfile as _zip
+
+    tampon = _io.BytesIO()
+    with _zip.ZipFile(tampon, "w") as arsiv:
+        arsiv.writestr("SNG1.xml", b"<Invoice/>")
+    govde = (
         b"<?xml version='1.0'?><GetEArchiveInvoiceResponse "
         b'xmlns="http://schemas.i2i.com/ei/wsdl/archive">'
         b'<REQUEST_RETURN xmlns=""><RETURN_CODE>0</RETURN_CODE></REQUEST_RETURN>'
-        b'<CONTENT xmlns="">JVBERi0xLjQKJSVFT0Y=</CONTENT>'
+        b'<INVOICE xmlns="">' + _b64.b64encode(tampon.getvalue()) + b"</INVOICE>"
         b"</GetEArchiveInvoiceResponse>"
     )
-    transport = FakeTransport([fixture("Login.200.xml"), HttpResponse(200, pdf_yanit)])
-    icerik = _provider(transport).fetch_pdf(
-        "SNG2026210141633",
-        channel="EARSIV",
-        web_key="https://p/x?webValidationKey=" + BEKLENEN_ANAHTAR,
-    )
-
-    assert icerik.startswith(b"%PDF-"), icerik[:20]
-    gonderilen = transport.bodies()[-1]
-    assert "GetEArchiveInvoiceRequest" in gonderilen
-    # URL'in TAMAMI değil, YALNIZ anahtar gitti.
-    assert f"<WEB_VALIDATION_KEY>{BEKLENEN_ANAHTAR}</WEB_VALIDATION_KEY>" in gonderilen
-    assert "webValidationKey" not in gonderilen
-
-
-def test_EARSIV_fetch_pdf_ANAHTARSIZ_HALA_KAPALI() -> None:
-    """Anahtar yoksa yol yine KAPALI.
-
-    Anahtarsız bir istek boş bir yanıt üretir ve bu "belge yok" gibi okunurdu —
-    sessiz yanlış yerine gürültülü hata (e-Arşiv durum sorgusunun ETTN
-    kuralıyla aynı gerekçe).
-    """
-    transport = FakeTransport([fixture("Login.200.xml")])
+    transport = FakeTransport([fixture("Login.200.xml"), HttpResponse(200, govde)])
     with pytest.raises(EInvoiceError) as hata:
-        _provider(transport).fetch_pdf("SNG1", channel="EARSIV", web_key=None)
-    assert "EARSIV_WEB_KEY_YOK" in str(hata.value.message)
+        _provider(transport).fetch_pdf("SNG1", channel="EARSIV")
+    assert "PDF_YOK" in str(hata.value.message)
 
 
 # --- 3. GİB ham durum kodu ------------------------------------------------

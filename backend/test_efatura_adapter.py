@@ -805,6 +805,10 @@ def test_error_classification_covers_the_spec_table() -> None:
         "DUPLICATE",
         "QUOTA",
         "NETWORK",
+        # E2b'de EKLENDİ: sağlayıcı isteği ANLADI ama kaydı BULAMADI
+        # (İzibiz `10008`). `VALIDATION`dan ayrı olması ŞART — o sınıf
+        # kullanıcıya "faturanız hatalı" dedirtirdi, oysa belge geçerli.
+        "NOT_FOUND",
         "UNKNOWN",
     }
 

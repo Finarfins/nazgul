@@ -661,3 +661,125 @@ tarihtir. Açılan üç iş, ADIYLA kayda geçti:
 * İptalin ön koşulu (§9.4) — sağlayıcıya sorulacak.
 * İki `xfail(strict=False)` testin gözden geçirilmesi (§9.2) — artık XPASS
   olabilirler.
+
+## §10 — E2c KOŞUSU (2026-09-09, GERÇEK SANDBOX): PDF BUGÜN İNİYOR, `UNRESOLVED`IN SEBEBİ EKSİK BİR EŞLEME SATIRIYDI
+
+**Bu bölüm §9.3'ün PDF hükmünü GEÇERSİZ KILAR.** §9.3 "PDF'i sağlayıcı ancak
+gönderici isterse üretir, `EARSIV_PDF_FLAG=Y` yeni bir gönderim davranışıdır,
+AYRI BİR DİLİMİN İŞİ" diyordu. Ölçüldü: **PDF, `EARSIV_PDF_FLAG=N` ile
+gönderilmiş belgeler için BUGÜN, YENİ GÖNDERİM YAPMADAN iniyor** —
+`GetEArchiveInvoiceList` + `HEADER_ONLY=N` + `CONTENT_TYPE=PDF` ile. §9'un
+geri kalan hükümleri (H1/H2/H3 çürütmeleri, iptalin 10008'i) AYNEN GEÇERLİ ve
+bu bölüm onları YİNELEMİYOR.
+
+İkinci bulgu §9'da HİÇ ARANMAMIŞTI, çünkü §9 istek tarafına bakıp durdu:
+**`query_status`un `UNRESOLVED` demesinin sebebi sağlayıcı DEĞİL, bizim
+eşleme tablomuzdu.**
+
+Betik: `backend/sandbox/izibiz_earsiv_arama.py` (CI DIŞI). Ham istek/yanıt
+çiftleri kaydedildi; `SESSION_ID`, `webValidationKey` ve VKN maskelendi.
+
+### 10.1 — PDF: DOĞRU OPERASYON `GetEArchiveInvoiceList`
+
+`GetEArchiveInvoice` (`WEB_VALIDATION_KEY` ile) §9.3'ün doğru ölçtüğü gibi
+UBL XML taşıyan bir ZIP döndürüyor. §9.3'ün ATLADIĞI şey, aynı servisteki
+BAŞKA bir operasyonun PDF döndürdüğüydü. Üç varyant ayrı ayrı ölçüldü:
+
+| İstek | ZIP üyesi | İlk baytlar |
+|---|---|---|
+| `GetEArchiveInvoiceList` + `HEADER_ONLY=N` | `<belge>.xml` | `<Invoi` |
+| `GetEArchiveInvoiceList` + `HEADER_ONLY=N` + `CONTENT_TYPE=PDF` | `<belge>.pdf` | **`%PDF-1`** |
+| … + `READ_INCLUDED=Y` | `<belge>.pdf` | `%PDF-1` |
+
+İKİ ALAN DA GEREKLİ ve ölçüm bunu ayırıyor: `HEADER_ONLY=N` olmadan yanıt
+içerik düğümü HİÇ taşımaz, `CONTENT_TYPE=PDF` olmadan gelen içerik XML'dir.
+
+**`EARSIV_PDF_FLAG` HİÇ DEĞİŞTİRİLMEDİ.** Gönderim yolu hâlâ
+`<EARSIV_PDF_FLAG>N</EARSIV_PDF_FLAG>` yazıyor (`provider.py`,
+`sandbox/izibiz_smoke.py`) ve bu koşuda da öyle yazdı. §9.3'ün "biz PDF
+istemiyoruz" tespiti gönderim tarafı için DOĞRUDUR; yanlış olan, PDF'in
+YALNIZ o bayrakla alınabileceği sonucuydu.
+
+**BU OTURUMDAN ÖNCE gönderilmiş belgelerde de ölçüldü** — yani bulgu "az önce
+yarattığım belgeye özgü" değil:
+
+| Belge (gönderim 02:18, bu oturumdan önce) | ZIP | PDF |
+|---|---|---|
+| `SNG2026518354588` | 16660 B | `SNG2026518354588.pdf`, **19184 B**, `%PDF-1` |
+| `SNG2026471382557` | 16660 B | `SNG2026471382557.pdf`, **19168 B**, `%PDF-1` |
+
+İkisi de `STATUS=100` (KUYRUĞA EKLENDİ) durumunda, yani **imza da
+beklenmiyor.**
+
+### 10.2 — `UNRESOLVED`IN GERÇEK SEBEBİ: `IZIBIZ_STATUS_ALIASES`TE `100` YOKTU
+
+§9.2 durum sorgusunun bizim ETTN'imizle KAYIT DÖNDÜRDÜĞÜNÜ ölçtü ve orada
+durdu. Ama uygulama o cevabı ALAMIYORDU:
+
+1. Sağlayıcı DOĞRU cevap veriyor: bizim ETTN'imiz + `STATUS=100`.
+2. `map_provider_status("100", …)` → `None` — tablo `105`/`120`/`130`
+   biliyor, `100` bilmiyor.
+3. `query_status` → `reported not in QUERYABLE` → **`UNRESOLVED`**.
+
+`STATUS=100` her GERÇEK gönderimin (`SUB_STATUS=NEW`) İLK durumudur, yani bu
+satır her e-Arşiv faturasını etkiliyordu.
+
+**BU KUSURUN BİRİM TESTLERİNDEN KAÇIŞ YOLU DA ÖLÇÜLDÜ:** elimizdeki fixture
+`GetEArchiveInvoiceStatus.200.xml`, `SUB_STATUS=DRAFT` ile gönderilmiş bir
+belgeden alınmış ve `STATUS=105` taşıyor — tablonun BİLDİĞİ bir kod. Test
+yeşil, üretim kırmızıydı. Yeni fixture
+`GetEArchiveInvoiceStatus-queued.200.xml` (`STATUS=100`, gönderimden SIFIR
+saniye sonra alınmış) o yolu kapatıyor.
+
+### 10.3 — TAZE BELGE SONDASI: GECİKME YOK
+
+`SNG2026252113200` (ETTN `cdd91245-91f4-5b14-aab2-b03bb2ffb5b7`,
+`SUB_STATUS=NEW`, `EARSIV_PDF_FLAG=N`) gönderildi ve `t=0`'dan yoklandı:
+
+| t | `GetEArchiveInvoiceStatus` |
+|---|---|
+| 0 s | 1 satır, `STATUS=100` KUYRUĞA EKLENDİ |
+| 5 / 15 / 30 / 60 s | değişmedi: 1 satır, `STATUS=100` |
+
+Belge gönderildiği SANİYE sorgulanabilir. Ayrıca: gönderim yanıtındaki
+`WEB_KEY` ile durum yanıtındaki `WEB_KEY` **AYNI** anahtarı taşıyor.
+
+### 10.4 — İPTAL: §9.4 AYNEN GEÇERLİ
+
+`CancelEArchiveInvoice` taze belgede de `ERROR_CODE=10008` verdi. §9.4'ün
+"artık anahtar değil" hükmü DEĞİŞMEDİ ve bu bölüm ona bir şey EKLEMİYOR;
+tek not, durum sorgusunun AYNI oturumda AYNI ETTN'i çözdüğüdür — yani
+"kayıt yok" cevabı iptale ÖZGÜDÜR. Aday sebep (`STATUS=100` bir belge iptal
+edilebilir sayılmıyor olabilir) ÖLÇÜLEMEDİ: sandbox imzalayıcısı hiçbir
+belgeyi bitirmiyor, `RAPORLANDI` durumundaki satırlar BAŞKA entegratörlerin
+belgeleridir ve ölçüm uğruna başkasının belgesine yazma işlemi uygulanmadı.
+
+### 10.5 — KODA ETKİSİ
+
+* `IZIBIZ_STATUS_ALIASES` += `"100"` / `"KUYRUGAEKLENDI"` → `PENDING`.
+  `SENT`/`ACCEPTED` DEĞİL: GİB'e raporlanmamış bir belgeyi "kabul edildi"
+  göstermek bu dosyadaki en ağır sessiz yanlış olurdu.
+* `IZIBIZ_OP_PDF_EARCHIVE` → `GetEArchiveInvoiceList`; istek `HEADER_ONLY=N`
+  + `CONTENT_TYPE=PDF` taşıyor ve belgeyi `ID` ile arıyor. Eski sabit
+  `IZIBIZ_OP_EARCHIVE_UBL` adıyla KALDI — ne döndürdüğü ölçülmüş bir olgudur.
+* `_decode_pdf` ZIP'i açıyor ama SIKI: yalnız `%PDF-` ile başlayan girdiyi
+  kabul eder. ZIP'ten çıkan ilk dosyayı körlemesine döndürmek, kullanıcıya
+  `.pdf` adıyla bir UBL XML'i indirtirdi.
+* `EARSIV_WEB_KEY_YOK` ön koşulu KALKTI — yeni operasyon anahtara ihtiyaç
+  duymuyor; bu, gönderim anındaki `WEB_KEY` yakalaması kaçmış ESKİ
+  faturaların PDF'ini de erişilebilir kılıyor.
+* `NOT_FOUND` sınıfı + `EInvoiceNotFoundError` (`EInvoiceError` ALT SINIFI,
+  var olan her `except` çalışıyor). `10008` → `NOT_FOUND`; mesaj yeniden
+  göndermeyi ÖNERMİYOR, çünkü belge sağlayıcıya inmiştir.
+* İptal SÖZLEŞMESİ DEĞİŞMEDİ: `FAILED`, `CANCELLED` DEĞİL, uç 409.
+* `IZIBIZ_EFATURA_SUBMIT_VERIFIED` **`False` KALDI.**
+
+### 10.6 — GERÇEK AĞDA DOĞRULAMA VE XFAIL TEMİZLİĞİ
+
+Üretim kodu yoluyla, gerçek sandbox: `query_status` → **`PENDING`, `gib=100`**
+(önce `UNRESOLVED`), `fetch_pdf` → **19178 bayt gerçek PDF** (önce `PDF_YOK`).
+
+§9.6'nın açtığı üçüncü iş ("iki `xfail(strict=False)` testin gözden
+geçirilmesi — artık XPASS olabilirler") KAPANDI: ikisi de XPASS oldu, xfail
+işaretleri KALDIRILDI. `test_e2_izibiz_iptal_sandbox.py`deki durum-sorgusu
+xfail'i de kalktı; iptalinki gerekçesi düzeltilerek KALDI.

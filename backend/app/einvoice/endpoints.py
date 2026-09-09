@@ -207,7 +207,20 @@ IZIBIZ_OP_PDF = "GetInvoiceWithType"
 #: e-Arşiv (EIArchiveWS)
 IZIBIZ_OP_SUBMIT_EARCHIVE = "WriteToArchiveExtended"
 IZIBIZ_OP_STATUS_EARCHIVE = "GetEArchiveInvoiceStatus"
-IZIBIZ_OP_PDF_EARCHIVE = "GetEArchiveInvoice"
+#: e-ARŞİV PDF'İNİ VEREN OPERASYON. ÖLÇÜLDÜ (§10.1), TAHMİN DEĞİL — ve BURASI
+#: E2'de YANLIŞTI: `GetEArchiveInvoice` (`WEB_VALIDATION_KEY` ile) PDF DEĞİL,
+#: UBL XML'ini taşıyan bir ZIP döndürüyor (`<belge>.xml`, ilk baytlar `<Invo`).
+#: `_decode_pdf` onu HAKLI OLARAK reddediyordu ve sonuç `PDF_YOK`tu; yani
+#: hata anahtarda değil OPERASYON SEÇİMİNDEYDİ. PDF `GetEArchiveInvoiceList`ten
+#: `HEADER_ONLY=N` + `CONTENT_TYPE=PDF` ile geliyor ve içerik yine bir ZIP'tir,
+#: bu kez `<belge>.pdf` taşır (`%PDF-1`). `STATUS=100` (KUYRUĞA EKLENDİ) bir
+#: belgede DE çalışıyor — imza beklenmiyor.
+IZIBIZ_OP_PDF_EARCHIVE = "GetEArchiveInvoiceList"
+
+#: e-Arşiv belgesinin UBL XML'i. ARTIK PDF YOLU DEĞİL (yukarı bakın); sabit
+#: KALDIRILMADI çünkü `WEB_VALIDATION_KEY` sözleşmesi hâlâ doğrudur ve bu
+#: operasyonun NE DÖNDÜRDÜĞÜ ölçülmüş bir olgudur. Bugün ÇAĞRILMIYOR.
+IZIBIZ_OP_EARCHIVE_UBL = "GetEArchiveInvoice"
 #: e-Arşiv İPTALİ. Operasyon adı ve gövde şeması TAHMİN DEĞİL: canlı
 #: ``/EIArchiveWS/EFaturaArchive?wsdl`` -> ``?xsd=5`` üzerinden okundu.
 #: Şemanın TAMAMI (aynen):
@@ -256,7 +269,8 @@ IZIBIZ_REQUEST_ELEMENT: dict[str, str] = {
     IZIBIZ_OP_PDF: "GetInvoiceWithTypeRequest",
     IZIBIZ_OP_SUBMIT_EARCHIVE: "ArchiveInvoiceExtendedRequest",
     IZIBIZ_OP_STATUS_EARCHIVE: "GetEArchiveInvoiceStatusRequest",
-    IZIBIZ_OP_PDF_EARCHIVE: "GetEArchiveInvoiceRequest",
+    IZIBIZ_OP_PDF_EARCHIVE: "GetEArchiveInvoiceListRequest",
+    IZIBIZ_OP_EARCHIVE_UBL: "GetEArchiveInvoiceRequest",
     IZIBIZ_OP_CANCEL_EARCHIVE: "CancelEArchiveInvoiceRequest",
 }
 
@@ -269,6 +283,7 @@ IZIBIZ_ARCHIVE_OPERATIONS: frozenset[str] = frozenset(
         IZIBIZ_OP_SUBMIT_EARCHIVE,
         IZIBIZ_OP_STATUS_EARCHIVE,
         IZIBIZ_OP_PDF_EARCHIVE,
+        IZIBIZ_OP_EARCHIVE_UBL,
         IZIBIZ_OP_CANCEL_EARCHIVE,
     }
 )
@@ -359,7 +374,11 @@ IZIBIZ_ERROR_CODE_CLASSES: dict[str, str] = {
     "10003": "VALIDATION",  # "Belge kontrolden geçemedi: …"
     "10007": "VALIDATION",  # "Zip bir dosya içermelidir."
     "10013": "VALIDATION",  # "Gönderilen istek geçersizdir. / INVALID XML"
-    # 10008 BİLEREK YOK. ÖLÇÜLDÜ 2026-09-09 (E2, `CancelEArchiveInvoice`):
+    # 10008 ARTIK SINIFLANDIRILIYOR — E2'de "ayrı bir dilimin işi" diye
+    # bırakılmıştı, o dilim BUDUR. Aşağıdaki eski gerekçe ÖLÇÜMLE
+    # GÜNCELLENDİ; tarihçe için bırakıldı ama sonucu ARTIK GEÇERLİ DEĞİL.
+    "10008": "NOT_FOUND",  # "Belirtilen kritere uygun kayıt bulunamamıştır."
+    # ESKİ NOT (ÖLÇÜLDÜ 2026-09-09, E2, `CancelEArchiveInvoice`):
     #   ERROR_CODE=10008 "Belirtilen kritere uygun kayıt bulunamamıştır.
     #                     Belge ETTN : <bizim gönderdiğimiz ETTN>"
     # Bu bir DOĞRULAMA hatası DEĞİL: istek geçerliydi, aranan KAYIT yoktu —
@@ -367,11 +386,13 @@ IZIBIZ_ERROR_CODE_CLASSES: dict[str, str] = {
     # diyor. `VALIDATION` yazmak, belgeyi biz bozmuşuz gibi okunurdu ve asıl
     # bulguyu (anahtar yanlış) gizlerdi.
     #
-    # Doğru karşılık yeni bir sınıf olurdu (`NOT_FOUND`) ve o, spec §6 mesaj
-    # tablosunu da değiştirir — AYRI BİR DİLİMİN işi, burada sessizce
-    # yapılmadı. Bugün kod `UNKNOWN` diyor: kullanıcı kodu görür, sağlayıcının
-    # cümlesi `raw` içinde denetime kalır. Ölçümün tamamı ve sağlayıcıya
-    # sorulacak soru: `docs/izibiz-sandbox-bulgular.md` §8.
+    # E2b DÜZELTMESİ: o zaman "anahtar yanlış" sanılıyordu; §9.2 bunu ÇÜRÜTTÜ —
+    # İzibiz belgeyi TAM OLARAK bizim ETTN'imizle tutuyor ve AYNI anahtarla
+    # yapılan durum sorgusu AYNI oturumda cevap veriyor. 10008 yalnız
+    # `CancelEArchiveInvoice`ta sürüyor ve sebebi ÖLÇÜLEMEDİ (sandbox hiçbir
+    # belgeyi imzalamıyor, `STATUS=100`in ötesine geçen kendi belgemiz YOK).
+    # Sınıf bu yüzden "bulunamadı"dır: istek geçerliydi, kayıt bulunamadı.
+    # Ölçümün tamamı: `docs/izibiz-sandbox-bulgular.md` §9 ve §10.4.
 }
 
 #: İzibiz'e özgü durum eşlemesi. Genel :data:`PROVIDER_STATUS_ALIASES`'a
@@ -380,10 +401,19 @@ IZIBIZ_ERROR_CODE_CLASSES: dict[str, str] = {
 #: göre yazılır (Türkçe harfler katlanır, boşluk/tire/alt çizgi atılır).
 IZIBIZ_STATUS_ALIASES: dict[str, str] = {
     # e-Arşiv sayısal kodları (sandbox'ta gözlendi)
+    # 100 EKSİKTİ ve EKSİKLİĞİ E2'nin "durum sorgusu çalışmıyor" TEŞHİSİNİ
+    # ÜRETEN ŞEYDİ (ölçüm: `docs/izibiz-sandbox-bulgular.md` §10.2). GÖNDERİLEN
+    # HER e-Arşiv belgesi ÖNCE bu durumdadır; sağlayıcı doğru cevap veriyordu
+    # (`STATUS=100`, `STATUS_DESC=KUYRUĞA EKLENDİ`, bizim ETTN'imizle) ama
+    # eşleme onu tanımadığı için `map_provider_status` None dönüyor,
+    # `query_status` cevabı YERE DÜŞÜRÜP `UNRESOLVED` diyordu. "Boş yanıt"
+    # sanılan şey DOLU bir yanıttı.
+    "100": "PENDING",  # KUYRUĞA EKLENDİ
     "105": "PENDING",  # TASLAK NUMARASI OLARAK EKLENDİ
     "120": "SENT",  # RAPORLANACAK
     "130": "ACCEPTED",  # RAPORLANDI — e-Arşiv'de terminal başarı budur
     # e-Arşiv metinleri
+    "KUYRUGAEKLENDI": "PENDING",
     "TASLAKNUMARASIOLARAKEKLENDI": "PENDING",
     "RAPORLANACAK": "SENT",
     "RAPORLANDI": "ACCEPTED",

@@ -28,6 +28,11 @@ TAXPAYER = "TAXPAYER"
 DUPLICATE = "DUPLICATE"
 QUOTA = "QUOTA"
 NETWORK = "NETWORK"
+#: Sağlayıcı isteği ANLADI ama aranan kaydı BULAMADI (İzibiz `ERROR_CODE=10008`).
+#: `VALIDATION`dan AYRI bir sınıf olması gerekiyordu: istek geçerlidir, belgeyi
+#: biz bozmadık — sağlayıcının o anahtarla eşleşen bir kaydı yoktur. `VALIDATION`
+#: demek kullanıcıya "faturanız hatalı" dedirtirdi ve YANLIŞ olurdu.
+NOT_FOUND = "NOT_FOUND"
 UNKNOWN = "UNKNOWN"
 
 REDACTED = "***"
@@ -52,6 +57,11 @@ ERROR_MESSAGES_TR: dict[str, str] = {
     DUPLICATE: "Bu fatura zaten gönderilmiş.",
     QUOTA: "e-Fatura kontörü yetersiz.",
     NETWORK: "e-Fatura servisine ulaşılamadı, tekrar denenecek.",
+    # "HENÜZ" KASITLI: belge sağlayıcıya İNMİŞTİR (gönderim `RETURN_CODE=0`
+    # döndü ve durum sorgusu belgeyi görüyor); bulunamayan şey İŞLEMİN
+    # aradığı kayıttır. "Belge yok" demek operatöre faturayı YENİDEN
+    # göndertirdi ve bu bir KOPYA üretirdi.
+    NOT_FOUND: "Belge sağlayıcıda bu işlem için henüz bulunamadı; daha sonra tekrar deneyin.",
     UNKNOWN: "e-Fatura işlemi tamamlanamadı (kod: {code}).",
 }
 
@@ -171,3 +181,20 @@ class EInvoiceError(RuntimeError):
         self.code = code
         self.message = message
         self.raw: dict[str, Any] = raw or {}
+
+
+class EInvoiceNotFoundError(EInvoiceError):
+    """Sağlayıcı isteği anladı, aranan kaydı bulamadı (İzibiz `10008`).
+
+    ALT SINIF, ayrı bir hiyerarşi DEĞİL: var olan her `except EInvoiceError`
+    bunu YAKALAMAYI SÜRDÜRÜR, yani bu tür eklenirken hiçbir çağıran sessizce
+    kırılmaz. Ayrı tür OLMASININ sebebi çağıranın bunu AYIRT EDEBİLMESİDİR:
+    `NOT_FOUND` "sonra tekrar dene" demektir ve belgeyi YENİDEN GÖNDERTMEZ —
+    belge sağlayıcıya inmiştir, bulunamayan yalnız o işlemin aradığı kayıttır.
+
+    `code` HER ZAMAN :data:`NOT_FOUND`tur; ayrı bir değer taşımak sınıfın
+    kendisiyle çelişirdi.
+    """
+
+    def __init__(self, message: str, *, raw: dict[str, Any] | None = None) -> None:
+        super().__init__(NOT_FOUND, message, raw=raw)

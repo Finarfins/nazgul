@@ -195,23 +195,18 @@ def test_EARSIV_WEB_KEY_GERCEKTEN_DONUYOR(earsiv_gonderimi) -> None:
     assert len(earsiv_gonderimi.web_key) <= 255, len(earsiv_gonderimi.web_key)
 
 
-@pytest.mark.xfail(
-    reason=(
-        "ÖLÇÜLDÜ 2026-09-08: TAZE gönderilen bir e-Arşiv belgesi için "
-        "GetEArchiveInvoiceStatus BOŞ dönüyor ve GetEArchiveInvoice PDF "
-        "vermiyor (PDF_YOK). 0/3/8/15/30/45 sn beklenerek yoklandı, TOPLAM "
-        "~100 sn: durum HEP UNRESOLVED kaldı, yani ZAMANLAMA DEĞİL. "
-        "Gönderimin kendisi BAŞARILI (PENDING + gerçek INVOICE_ID + WEB_KEY). "
-        "En olası sebep ÖLÇÜLMEDİ, o yüzden VARSAYILMIYOR: sorgu bizim "
-        "İSTEMCİ ETTN'imizle (uuid5) yapılıyor, oysa İzibiz belgeyi KENDİ "
-        "ürettiği bir kimlikle anahtarlıyor olabilir (kayıtlı fixture'daki "
-        "UUID bizim türettiğimize benzemiyor). strict=False: sandbox bunu "
-        "çözer hâle gelirse test XPASS olur ve bu satır GÖZDEN GEÇİRİLİR."
-    ),
-    strict=False,
-)
 def test_EARSIV_PDF_WEB_KEY_ILE_GERCEKTEN_INIYOR(saglayici, earsiv_gonderimi) -> None:
-    """Kapanan boşluk: bu yol önce `EARSIV_WEB_KEY_YOK` ile HİÇ kurulmuyordu."""
+    """Kapanan boşluk: bu yol önce `EARSIV_WEB_KEY_YOK` ile HİÇ kurulmuyordu.
+
+    XFAIL KALDIRILDI (E2b) — ve kaldırılması bu satırın KENDİ TALİMATIYDI:
+    "sandbox bunu çözer hâle gelirse test XPASS olur ve bu satır GÖZDEN
+    GEÇİRİLİR." XPASS oldu, gözden geçirildi ve sebebi ÖLÇÜLDÜ: kusur
+    sandboxta değil BİZDEYDİ. `GetEArchiveInvoice` PDF DEĞİL, UBL XML taşıyan
+    bir ZIP döndürüyor; PDF `GetEArchiveInvoiceList` + `HEADER_ONLY=N` +
+    `CONTENT_TYPE=PDF` ile geliyor (`docs/izibiz-sandbox-bulgular.md` §10.1).
+    Eski gerekçedeki "İzibiz kendi kimliğiyle anahtarlıyor olabilir" tahmini
+    de ÇÜRÜTÜLDÜ (§9.2).
+    """
     if not earsiv_gonderimi.web_key:
         pytest.skip("WEB_KEY yok; PDF yolu ölçülemez")
     icerik = saglayici.fetch_pdf(
@@ -224,22 +219,15 @@ def test_EARSIV_PDF_WEB_KEY_ILE_GERCEKTEN_INIYOR(saglayici, earsiv_gonderimi) ->
     assert len(icerik) > 1000, len(icerik)
 
 
-@pytest.mark.xfail(
-    reason=(
-        "ÖLÇÜLDÜ 2026-09-08: TAZE gönderilen bir e-Arşiv belgesi için "
-        "GetEArchiveInvoiceStatus BOŞ dönüyor ve GetEArchiveInvoice PDF "
-        "vermiyor (PDF_YOK). 0/3/8/15/30/45 sn beklenerek yoklandı, TOPLAM "
-        "~100 sn: durum HEP UNRESOLVED kaldı, yani ZAMANLAMA DEĞİL. "
-        "Gönderimin kendisi BAŞARILI (PENDING + gerçek INVOICE_ID + WEB_KEY). "
-        "En olası sebep ÖLÇÜLMEDİ, o yüzden VARSAYILMIYOR: sorgu bizim "
-        "İSTEMCİ ETTN'imizle (uuid5) yapılıyor, oysa İzibiz belgeyi KENDİ "
-        "ürettiği bir kimlikle anahtarlıyor olabilir (kayıtlı fixture'daki "
-        "UUID bizim türettiğimize benzemiyor). strict=False: sandbox bunu "
-        "çözer hâle gelirse test XPASS olur ve bu satır GÖZDEN GEÇİRİLİR."
-    ),
-    strict=False,
-)
 def test_EARSIV_DURUM_SORGUSU_HAM_KOD_TASIYOR(saglayici, earsiv_gonderimi) -> None:
+    """XFAIL KALDIRILDI (E2b) — sebep ÖLÇÜLDÜ, sandbox değişmedi.
+
+    "BOŞ dönüyor" sanılan yanıt DOLUYDU: sağlayıcı bizim ETTN'imizle
+    `STATUS=100` (KUYRUĞA EKLENDİ) cevabını veriyor ve bunu gönderimden SIFIR
+    saniye sonra bile veriyor. `IZIBIZ_STATUS_ALIASES`te `100` yoktu, o yüzden
+    `query_status` cevabı yere düşürüp `UNRESOLVED` diyordu
+    (`docs/izibiz-sandbox-bulgular.md` §10.2).
+    """
     sonuc = saglayici.query_status(
         earsiv_gonderimi.external_id, channel="EARSIV", uuid=earsiv_gonderimi.uuid
     )
