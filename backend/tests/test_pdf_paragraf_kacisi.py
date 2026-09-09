@@ -311,7 +311,7 @@ def _fatura(**degisiklik) -> dict:
     return fatura
 
 
-def _metin(pdf: bytes) -> str:
+def _metin_pdf(pdf: bytes) -> str:
     with pdfplumber.open(io.BytesIO(pdf)) as belge:
         return "\n".join(sayfa.extract_text() or "" for sayfa in belge.pages)
 
@@ -326,7 +326,7 @@ def test_MUSTERI_ADINDA_kucuktur_PDF_URETIYOR() -> None:
         _fatura(customer_snapshot=json.dumps({"name": "Ac<me & Söhne"})), []
     )
     assert pdf.startswith(b"%PDF-")
-    metin = _metin(pdf)
+    metin = _metin_pdf(pdf)
     # Metin DÜZ: `<` ve `&` etiket/varlık değil, harf olarak duruyor.
     assert "Ac<me" in metin, metin
     assert "& Söhne" in metin, metin
@@ -340,7 +340,7 @@ def test_NOTLARDA_img_DOSYA_ACMIYOR() -> None:
     """
     pdf = build_invoice_pdf(_fatura(notes="<img src='/etc/hosts'/>"), [])
     assert pdf.startswith(b"%PDF-")
-    metin = _metin(pdf)
+    metin = _metin_pdf(pdf)
     assert "/etc/hosts" in metin, metin
     # Etiket HARF olarak duruyor; yorumlansaydı metinde HİÇ görünmezdi.
     assert "<img" in metin, metin
@@ -353,7 +353,7 @@ def test_NOTLARDA_img_DOSYA_ACMIYOR() -> None:
 def test_KALIN_ETIKET_YORUMLANMIYOR_harfi_harfine() -> None:
     """MUTASYON: `payment_terms`ten `escape(...)`i düşürmek KIRMIZI."""
     pdf = build_invoice_pdf(_fatura(payment_terms="<b>x</b>"), [])
-    metin = _metin(pdf)
+    metin = _metin_pdf(pdf)
     assert "<b>x</b>" in metin, metin
 
 
@@ -374,6 +374,53 @@ def test_HER_ANLIK_GORUNTU_ALANI_kucuktur_ISARETINI_TASIYABILIR(
     """Onbir alanın hepsi tek tek: biri kaçışsız kalırsa o satır KIRMIZI."""
     pdf = build_invoice_pdf(_fatura(**{alan: json.dumps(govde)}), [])
     assert pdf.startswith(b"%PDF-")
+
+
+def test_NULL_ALANLAR_None_YAZMIYOR_ama_SIFIR_KAYBOLMUYOR() -> None:
+    """Anlık görüntüde açık ``null`` -> BOŞ; ``0`` -> "0".
+
+    İKİ AYRI SESSİZ YANLIŞ tek testte: (a) ``str(None)`` faturaya "None"
+    basardı — Türkçe bir belgede bir Python artığı; (b) düzeltmeyi ``or ""``
+    ile yapmak sıfırı yutardı, yani sıfır tutarlı bir indirim ya da sıfır
+    garanti payı BOŞ görünürdü ki bu "bilinmiyor" gibi okunur.
+
+    MUTASYON: ``_metin``i ``lambda v: str(v or "")`` yapmak -> SIFIR iddiaları
+    KIRMIZI. ``_metin``i düşürüp ``str``e dönmek -> "None" iddiaları KIRMIZI.
+    """
+    pdf = build_invoice_pdf(
+        _fatura(
+            customer_snapshot=json.dumps({"name": None}),
+            machine_snapshot=json.dumps(
+                {"brand": None, "model": None, "serial_number": None}
+            ),
+            work_order_snapshot=json.dumps({"work_order_no": None, "status": None}),
+            warranty_snapshot=json.dumps({"type": None}),
+            totals_snapshot=json.dumps({
+                "labor": "0", "parts": "0", "grand_total": 0,
+                "customer_amount": 0, "warranty_amount": 0,
+                "global_discount": 0,
+            }),
+        ),
+        [],
+    )
+    metin = _metin_pdf(pdf)
+    assert "None" not in metin, metin
+    # SIFIRLAR DURUYOR: hem tam sayı 0 hem `money()` çıktısı olan Decimal.
+    assert "Global İndirim: 0" in metin, metin
+    assert "Garanti: 0" in metin, metin
+
+
+def test_METIN_YARDIMCISI_SIFIRI_KORUYOR_None_I_BOSALTIYOR() -> None:
+    """Yardımcının kendisi ADIYLA ölçülüyor — davranış testinin dayanağı."""
+    from decimal import Decimal
+
+    from app.invoice_pdf import _metin
+
+    assert _metin(None) == ""
+    assert _metin(0) == "0"
+    assert _metin(Decimal("0.00")) == "0.00"
+    assert _metin("") == ""
+    assert _metin("Ac<me") == "Ac<me"
 
 
 def test_PARA_BIRIMI_kucuktur_ISARETINI_TASIYABILIR() -> None:
@@ -510,7 +557,7 @@ def test_UC_dusmanca_anlik_goruntuyle_PDF_200(tmp_path: Path) -> None:
     assert sonuc["durum"] == 200, sonuc
     assert sonuc["tur"] == "application/pdf", sonuc
 
-    metin = _metin((tmp_path / "uc.pdf").read_bytes())
+    metin = _metin_pdf((tmp_path / "uc.pdf").read_bytes())
     # Düşmanca değerler DÜZ METİN olarak duruyor: `<` harf, `<img>` etiket
     # değil, `<b>` biçim değil.
     assert "Ac<me & Sohne" in metin, metin
