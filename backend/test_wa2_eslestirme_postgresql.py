@@ -8,14 +8,29 @@ GELİŞTİRME DİYALEKTİNDE GÖRÜNMEYEN tuzakları ölçer.
 --- BU İKİZ NEDEN VAR — BEŞ GEREKÇE, BEŞİ DE YALNIZ BURADA GÖRÜNÜR ------
 
 1. **TEK KULLANIMLIK KOD GERÇEKTEN TEK KULLANIMLIK — YALNIZ BURADA
-   ÖLÇÜLEBİLİR.** Kod bir sırdır ve sızabilir (ekran görüntüsü, iletilmiş
-   mesaj); YİRMİ AYRI numaradan aynı anda gelen `BAĞLA <KOD>` denemesinden
-   yalnız BİRİ geçmelidir. SQLite'ta bu ÜRETİLEMEZ (tek yazar).
+   ÖLÇÜLEBİLİR.** Yirmi eşzamanlı `BAĞLA <KOD>` denemesinden yalnız BİRİ
+   bağlantı açmalıdır. SQLite'ta bu ÜRETİLEMEZ (tek yazar).
 
-   YİRMİ AYRI NUMARA ve bu seçim ÖLÇÜMLE DÜZELTİLDİ: ilk kurgu yirmi işçiye
-   AYNI numarayı veriyordu ve o kurgu kodun iki kez tüketilmiş olmasını HİÇ
-   GÖREMİYORDU — ikinci bağlantı zaten `uq_whatsapp_links_aktif_numara`
-   kısmi tekilinde ölüyordu. Ayrı numaralarla bağlantı tekili yardım EDEMEZ.
+   YİRMİSİ DE AYNI NUMARADAN ve bu SEC-1'den (göç `20260912_0082`) SONRA
+   TEK OLASI KURGUDUR — kurgunun kendisi bir ÖLÇÜMLE değişti ve eski
+   gerekçe burada KAYITLI KALIYOR ki değişimin sebebi kaybolmasın:
+
+     ESKİ KURGU (0082 ÖNCESİ): yirmi AYRI numara. Gerekçesi ölçülmüştü —
+     yirmi işçiye AYNI numarayı veren daha eski bir kurgu kodun iki kez
+     tüketilmiş olmasını HİÇ GÖREMİYORDU, çünkü ikinci bağlantı zaten
+     `uq_whatsapp_links_aktif_numara` kısmi tekilinde ölüyordu.
+
+     NEDEN ARTIK İMKÂNSIZ: kod artık `target_phone`a bağlı. Yirmi ayrı
+     numaranın on dokuzu YARIŞA HİÇ GİRMEZ — hedef denetiminde, CAS'e
+     varmadan düşerler. O kurgu bugün yazılsaydı "yirmi işçi yarışıyor"
+     diye okunur, GERÇEKTE tek işçi yarışırdı: testin ölçtüğünü sandığı
+     şeyi ölçmemesinin ta kendisi.
+
+     BUNUN BEDELİ AÇIKÇA YAZILIYOR: aynı numarayla `uq_whatsapp_links_
+     aktif_numara` yine bir HAKEMDİR, yani bu test artık "kod iki kez
+     tüketildi" halini TEK BAŞINA ayırt edemez. Ayırt eden şey aşağıdaki
+     `cas_denemesi == 1` ölçümüdür — tüketim deyimi SÜRÜCÜ SEVİYESİNDEN
+     sayılıyor, uygulamanın kendi raporundan değil.
 
    NEYİ ÖLDÜRDÜĞÜ ve NEYİ ÖLDÜRMEDİĞİ ÖLÇÜLDÜ — testin kendi başlığında
    tablo hâlinde. Kısaca: `kod_kullan` bu değişmezi ÜÇ BAĞIMSIZ katmanla
@@ -242,6 +257,11 @@ def _kod_satiri(**fazla) -> dict:
     an = datetime.now(timezone.utc)
     govde = {
         "code_digest": KOSU + "-ozet",
+        # 0082: hedef numara ACIKCA yaziliyor. `server_default` bosu
+        # doldururdu ama o zaman bu yardimciyla yazilan her satir
+        # HEDEFSIZ olurdu ve hedefi ILGILENDIREN adimlar sessizce
+        # olculemez hale gelirdi.
+        "target_phone": NUMARA,
         "status": "PENDING",
         "expires_at": an + timedelta(minutes=10),
         "attempt_count": 0,
@@ -286,6 +306,71 @@ def test_UC_TABLO_da_company_id_TASIYOR_ve_BILESIK_ANAHTARI_VAR(motor) -> None:
             for u in gozlemci.get_unique_constraints(tablo)
         }
         assert ("company_id", "id") in tekiller.values(), (tablo, tekiller)
+
+
+def test_HEDEF_NUMARA_SUTUNU_NOT_NULL_ve_LINK_ILE_AYNI_GENISLIK(
+    motor,
+) -> None:
+    """`target_phone` GERCEK PG'de NOT NULL ve VARCHAR(20) (goc 0082).
+
+    GENISLIK BIR SUS DEGIL: `kod_kullan` bu sutunu `whatsapp_links.phone`
+    ile AYNI bicimde tutulan bir degerle KARSILASTIRIYOR. PG'de sinirin
+    asilmasi GURULTULU bir hatadir (SQLite sessizce kabul eder), yani bu
+    olcum YALNIZ burada anlamlidir.
+
+    NOT NULL da yalnizca burada GERCEKTIR: SQLite sutun tipini kaydeder
+    ama uzunlugu ZORLAMAZ.
+    """
+    sutunlar = {c["name"]: c for c in inspect(motor).get_columns(KOD)}
+    hedef = sutunlar["target_phone"]
+    assert hedef["nullable"] is False, hedef
+    assert hedef["type"].length == 20, hedef["type"]
+
+    baglanti_telefonu = {
+        c["name"]: c for c in inspect(motor).get_columns(BAGLANTI)
+    }["phone"]
+    assert hedef["type"].length == baglanti_telefonu["type"].length, (
+        "hedef numara ile baglanti numarasi AYNI genislikte olmali; "
+        "ikisi karsilastiriliyor"
+    )
+
+
+def test_HEDEFSIZ_SATIR_YAZILABILIYOR_ama_KULLANILAMIYOR(motor, dunya) -> None:
+    """`server_default=''` GERCEK: sutun atlanirsa satir BOS hedefle doguyor.
+
+    IKI SEY BIRDEN olculuyor ve ikisi de PG'ye ozgu:
+
+      1. Varsayilan GERCEKTEN SUNUCUDA — INSERT sutunu HIC yazmiyor ve
+         satir yine de NOT NULL kisitini gecebiliyor. Varsayilan yalnizca
+         Python tarafinda olsaydi bu INSERT `NotNullViolation` ile duserdi.
+      2. Bos hedef FAIL-CLOSED: dogru firma, dogru kullanici, PENDING ve
+         suresi dolmamis bir kod bile HICBIR numaradan kullanilamiyor.
+
+    (2) gocun mevcut satirlari `EXPIRED` yazmasindan BAGIMSIZ ikinci
+    katmandir; o UPDATE bir gun kaldirilsa bile acik kapali kalir.
+    """
+    import sys
+
+    sys.path.insert(0, str(BACKEND))
+    from app.whatsapp import eslestirme
+
+    ozet = eslestirme._ozet(eslestirme.kod_uret_metin())
+    an = datetime.now(timezone.utc)
+    with motor.begin() as b:
+        b.execute(
+            text(
+                "INSERT INTO %s(company_id,user_id,code_digest,status,"
+                "expires_at,attempt_count,max_attempts,created_at)"
+                " VALUES(:c,:u,:d,'PENDING',:s,0,5,:t)" % KOD
+            ),
+            {"c": dunya["firma_a"], "u": dunya["kullanici"], "d": ozet,
+             "s": an + timedelta(minutes=10), "t": an},
+        )
+        hedef = b.execute(
+            text("SELECT target_phone FROM %s WHERE code_digest=:d" % KOD),
+            {"d": ozet},
+        ).scalar_one()
+    assert hedef == "", repr(hedef)
 
 
 def test_ZAMAN_SUTUNLARI_TIMESTAMPTZ(motor) -> None:
@@ -478,6 +563,128 @@ def test_BAGLAM_KAPSAM_TEKILI_gercekten_REDDEDIYOR(motor, dunya) -> None:
             yaz(b, '{"aktif_firma": 2}')
 
 
+# ---------------------------------------------------------- SEC-1 ---------
+
+def test_CAPRAZ_KIRACI_SIZAN_KOD_BASKA_NUMARADA_ISE_YARAMIYOR(
+    motor, dunya
+) -> None:
+    """SEC-1 senaryosu GERCEK PostgreSQL'de: sizan kod, yanlis numarada olu.
+
+    SQLite ikizi ayni senaryoyu zaten olcuyor; BURADA TEKRARLANMASININ
+    GEREKCESI SATIR KILIDIDIR. `kod_kullan` kod satirini PG'de
+    `SELECT ... FOR UPDATE` ile okuyor ve o dal SQLite'ta HIC KOSMUYOR.
+    Hedef denetimi kilitli okuma yolundan SONRA geliyor; yani "denetim
+    kilitsiz yolda var ama kilitli yolda yok" bicimindeki bir ayrisma
+    YALNIZ burada gorulebilirdi.
+
+    UCUNCU FIRMA YOK ve gerek de yok: `dunya` iki firma acıyor ve kod
+    firma_a'nin kullanicisina uretiliyor; saldirgan BASKA bir numaradir.
+    Olculen sey kiraci sinirinin kendisi degil (onu `test_UC_KIRACI_*`
+    olcuyor) KODUN SAHIPLIGIDIR.
+    """
+    import sys
+
+    sys.path.insert(0, str(BACKEND))
+    from app.whatsapp import eslestirme
+
+    Oturum = sessionmaker(bind=motor)
+    saldirgan = "905330000001"
+
+    with Oturum() as db:
+        uretilen = eslestirme.kod_uret(
+            db, dunya["firma_a"], dunya["kullanici"], hedef_telefon=NUMARA
+        )
+        db.commit()
+
+        # SIZAN KOD, BASKA NUMARADAN: red, baglanti YOK, kod PENDING.
+        saldiri = eslestirme.kod_kullan(db, saldirgan, uretilen.kod)
+        db.commit()
+        assert not saldiri.basarili, saldiri
+
+        # AYIRT EDILEMEZ: hic var olmamis kodun cevabiyla BIREBIR ayni.
+        yok = eslestirme.kod_kullan(db, saldirgan, "ZZZZ-ZZZZ-ZZZZ")
+        db.commit()
+        assert saldiri == yok, (saldiri, yok)
+
+    with motor.connect() as b:
+        baglantilar = b.execute(
+            text("SELECT id FROM %s WHERE company_id=:c" % BAGLANTI),
+            {"c": dunya["firma_a"]},
+        ).scalars().all()
+        durum = b.execute(
+            text("SELECT status, attempt_count FROM %s WHERE company_id=:c"
+                 % KOD),
+            {"c": dunya["firma_a"]},
+        ).mappings().one()
+    assert baglantilar == [], "CAPRAZ KIRACI BAGLANTI ACILDI"
+    assert durum["status"] == "PENDING", durum
+    assert durum["attempt_count"] == 1, durum
+
+    # DOGRU NUMARA: ayni kod baglaniyor — kapi "her seyi reddet"e donmedi.
+    with Oturum() as db:
+        dogru = eslestirme.kod_kullan(db, NUMARA, uretilen.kod)
+        db.commit()
+    assert dogru.basarili, dogru
+    assert dogru.company_id == dunya["firma_a"], dogru
+
+
+def test_GOC_0082_HEDEFSIZ_BEKLEYEN_KODU_SURESI_DOLMUS_YAPIYOR(
+    motor, dunya
+) -> None:
+    """0081'de yazilan hedefsiz PENDING satir, 0082 kosunca EXPIRED oluyor.
+
+    GRE'PLENEMEZ: `upgrade` govdesindeki UPDATE'i okumak onun KOSTUGUNU
+    soylemez. Burada 0081'e inilip GERCEK bir hedefsiz satir yaziliyor —
+    yani gocun kapattigi acigin ta kendisi uretiliyor — sonra goc
+    kosuluyor ve satirin iki alani da olculuyor.
+
+    PG'YE OZGU OLAN: `ck_wpc_expired_temiz` CHECK'i SQLite'ta YANSITILMAZ
+    (0072'de olculdu). Gocun PENDING -> EXPIRED gecisi o CHECK'i GERCEKTEN
+    gecmek zorunda; gecmeseydi goc URETIMDE duserdi ve SQLite turu bunu
+    HIC GOREMEZDI.
+
+    SATIR SONUNDA SILINIYOR: bu dosya kendi copunu toplar (`_temizle`
+    yalniz KOSU onekli firmalarin satirlarini goruyor, bu satir ise
+    firmasizdir).
+    """
+    yapilandirma = Config(str(BACKEND / "alembic.ini"))
+    yapilandirma.set_main_option("sqlalchemy.url", _url())
+    ozet = KOSU + "-0082-hedefsiz"
+    an = datetime.now(timezone.utc)
+
+    command.downgrade(yapilandirma, "20260911_0081")
+    try:
+        onceki = {c["name"] for c in inspect(motor).get_columns(KOD)}
+        assert "target_phone" not in onceki, onceki
+        with motor.begin() as b:
+            b.execute(
+                text(
+                    "INSERT INTO %s(company_id,user_id,code_digest,status,"
+                    "expires_at,attempt_count,max_attempts,created_at)"
+                    " VALUES(:c,:u,:d,'PENDING',:s,0,5,:t)" % KOD
+                ),
+                # Firma/kullanici kimlikleri BU SATIR ICIN onemsiz: goc
+                # yalnizca `status` ve `target_phone` okuyor. Yabanci
+                # anahtar GERCEK oldugu icin satir yine de `dunya`nin
+                # firmasina yaziliyor — boylece `_temizle` de goruyor.
+                {"c": dunya["firma_a"], "u": dunya["kullanici"],
+                 "d": ozet, "s": an + timedelta(minutes=10), "t": an},
+            )
+    finally:
+        command.upgrade(yapilandirma, "head")
+
+    with motor.begin() as b:
+        satir = b.execute(
+            text("SELECT status, target_phone FROM %s WHERE code_digest=:d"
+                 % KOD),
+            {"d": ozet},
+        ).mappings().one()
+        b.execute(text("DELETE FROM %s WHERE code_digest=:d" % KOD),
+                  {"d": ozet})
+    assert satir["status"] == "EXPIRED", satir
+    assert satir["target_phone"] == "", satir
+
+
 # ------------------------------------------------------- GÖÇ TURU --------
 
 def test_GOC_TURU_up_down_up_GERCEK_PostgreSQLde(motor) -> None:
@@ -585,15 +792,24 @@ def test_YIRMI_ESZAMANLI_ayni_kod_TEK_KEZ_tukeniyor(motor, dunya) -> None:
     Oturum = sessionmaker(bind=motor)
     with Oturum() as db:
         uretilen = eslestirme.kod_uret(
-            db, dunya["firma_a"], dunya["kullanici"], hedef_telefon=telefon
+            db, dunya["firma_a"], dunya["kullanici"], hedef_telefon=NUMARA
         )
         db.commit()
     kod = uretilen.kod
 
-    # YİRMİ AYRI KANONİK NUMARA. Hız sınırı TELEFON BAŞINADIR, yani hiçbiri
-    # sınıra takılmıyor ve sınırı bu test için gevşetmeye GEREK YOK —
-    # gevşetmek, ölçtüğümüz şeyi ölçmeyi bırakmak olurdu.
-    numaralar = ["9053%08d" % i for i in range(20)]
+    # YİRMİ İŞÇİ, TEK NUMARA — kodun BAĞLI OLDUĞU numara (SEC-1).
+    #
+    # HIZ SINIRI ARTIK YARIŞIN İÇİNDE ve bu GİZLENMİYOR, ÖLÇÜLÜYOR. Sınır
+    # TELEFON BAŞINADIR (`PAIRING_PENCERE_SINIRI` = 5), yani yirmi işçinin
+    # yalnız BEŞİ hedef denetimine ve CAS'e kadar ilerler; kalan on beşi
+    # `sinirda` dalında döner. Sınırı bu test için gevşetmek, üretimde
+    # ASLA oluşamayacak bir yarışı ölçmek olurdu: tek bir numara zaten
+    # pencere başına beş kez deneyebilir.
+    #
+    # BEŞ GERÇEK YARIŞÇI YİRMİDEN AZ ama YETERLİ ve bu ölçüldü, varsayılmadı:
+    # aşağıdaki `cas_denemesi` ve `for_update` sayaçları hangi katmanın kaç
+    # işçiyi durdurduğunu SÜRÜCÜ SEVİYESİNDEN söylüyor.
+    numaralar = [NUMARA] * 20
     kapi = Barrier(len(numaralar))
 
     # --- YARIŞIN KENDİSİ ÖLÇÜLÜYOR, VARSAYILMIYOR (WA3-full, H9) ----------
@@ -661,9 +877,10 @@ def test_YIRMI_ESZAMANLI_ayni_kod_TEK_KEZ_tukeniyor(motor, dunya) -> None:
     #
     # `SELECT ... FOR UPDATE` kod satırının KİLİT NOKTASIDIR; oraya
     # ulaşmayan bir thread yarışa hiç girmemiş demektir. Yirmi deyim, yirmi
-    # thread. Bir mutant `kod_kullan`ı erken döndürürse (ör. hız sınırını
-    # numara başına değil KÜRESEL sayarsa) bu sayı düşer ve testin geri
-    # kalanı YİNE DE yeşil kalırdı — bu yüzden ayrıca ölçülüyor.
+    # thread — ve bu sayı hız sınırından ETKİLENMEZ, çünkü sınır denetimi
+    # kilitli okumadan SONRA gelir (`kod_kullan` adım 3 -> adım 4). Bir
+    # mutant `kod_kullan`ı daha erken döndürürse bu sayı düşer ve testin
+    # geri kalanı YİNE DE yeşil kalırdı — bu yüzden ayrıca ölçülüyor.
     assert olcum["for_update"] == len(numaralar), olcum
 
     # --- CAS'e YALNIZ BİR THREAD ULAŞIYOR — ÖLÇÜLDÜ, VARSAYILMADI --------
@@ -699,3 +916,21 @@ def test_YIRMI_ESZAMANLI_ayni_kod_TEK_KEZ_tukeniyor(motor, dunya) -> None:
     assert len(kodlar) == 1, kodlar
     assert kodlar[0]["status"] == "CONSUMED", kodlar
     assert kodlar[0]["consumed_link_id"] == baglantilar[0], (kodlar, baglantilar)
+
+    # --- KAZANAN GERÇEKTEN HEDEF NUMARAYA BAĞLANDI (SEC-1) ---------------
+    #
+    # Yarışın kazananı kodun BAĞLI OLDUĞU numaraya açılmış olmalı. Bu bir
+    # totoloji DEĞİL: `kod_kullan` bağlantıyı ÇAĞIRANIN numarasıyla açıyor
+    # ve hedef denetimi ile INSERT AYRI iki adım. İkisini ayıran bir
+    # mutant (ör. hedefi denetleyip bağlantıyı BAŞKA bir değerle açmak)
+    # yalnız burada görünür.
+    with motor.connect() as b:
+        acilan = b.execute(
+            text("SELECT phone FROM %s WHERE id=:i" % BAGLANTI),
+            {"i": baglantilar[0]},
+        ).scalar_one()
+        hedef = b.execute(
+            text("SELECT target_phone FROM %s WHERE company_id=:c" % KOD),
+            {"c": dunya["firma_a"]},
+        ).scalar_one()
+    assert acilan == hedef == NUMARA, (acilan, hedef)

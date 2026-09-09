@@ -43,6 +43,13 @@ pytestmark = pytest.mark.postgresql
 KOSU = uuid4().hex[:8]
 GOC = "20260911_0081"
 ONCEKI = "20260910_0080"
+#: ZINCIRIN BASI — `GOC`tan AYRI bir sabit ve bu ayrim ZORUNLU.
+#: `GOC` bu dosyanin KONUSU olan gocun kimligidir ve up->down->up
+#: turunun hedefidir; `BAS` ise semanin o an bulundugu yerdir ve HER
+#: yeni gocle KIMILDAR. Ikisi 0082ye kadar TESADUFEN ayni degerdi;
+#: tek sabitle yazili kalsaydi, basi guncelleyen biri bu dosyanin
+#: goc turunu da farkinda olmadan baska bir goce cevirirdi.
+BAS = "20260912_0082"
 
 #: Göçün açtığı üç sütun ve ilan edilen uzunlukları.
 SUTUNLAR = {
@@ -134,12 +141,18 @@ def _sutunlar(engine) -> dict[str, object]:
 
 
 # --- 1. Şema başı ---------------------------------------------------------
-def test_SEMA_BASI_GERCEK_PostgreSQLde_0081(motor) -> None:
+def test_SEMA_BASI_GERCEK_PostgreSQLde(motor) -> None:
+    """`alembic upgrade head` semayi ZINCIRIN BASINA getiriyor.
+
+    Iddia `GOC` degil `BAS` uzerinedir: bu dosyanin konusu 0081 ama sema
+    bugun 0082'dedir (SEC-1). Ikisini tek sabitte tutmak, yeni bir goc
+    indigi gun bu testi "0081'e kadar goc et" diye YANLIS okutuyordu.
+    """
     with motor.connect() as baglanti:
         surumler = baglanti.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalars().all()
-    assert surumler == [GOC], surumler
+    assert surumler == [BAS], surumler
 
 
 # --- 2. Üç sütun gerçekten VAR ve NULLABLE --------------------------------
@@ -217,6 +230,16 @@ def test_GOC_TURU_up_down_up_GERCEK_PostgreSQLde(motor) -> None:
         assert baglanti.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalars().all() == [GOC]
+
+    # TUR SONUNDA SEMA `head`TE BIRAKILIYOR. 0082'ye kadar bu satira gerek
+    # YOKTU cunku 0081 zaten BASTI; artik degil ve bu dosya semayi 0081'de
+    # birakirsa KOMSU dosyalar (CI'da ayni konteyneri paylasan kosularda)
+    # eksik bir sema bulur. WA2 ikizinin ayni sozlesmesiyle BIREBIR.
+    command.upgrade(yapilandirma, "head")
+    with motor.connect() as baglanti:
+        assert baglanti.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalars().all() == [BAS]
 
 
 # --- 5. Değerler gerçekten yazılıp okunuyor -------------------------------
