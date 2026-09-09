@@ -20,6 +20,8 @@ def _run(script: str, database: Path, *, auto_migrate: bool = True, timeout: int
         text=True,
         capture_output=True,
         timeout=timeout,
+        encoding="utf-8",
+        errors="replace",
     )
 
 
@@ -147,13 +149,50 @@ client.close()
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
 
 
-def test_auto_migrate_false_fails_fast_on_stale_schema_and_accepts_head(tmp_path: Path) -> None:
+_LIFESPAN = (
+    "from fastapi.testclient import TestClient\n"
+    "from app.main import app\n"
+    "with TestClient(app):\n"
+    "    pass\n"
+)
+
+
+def test_auto_migrate_false_gate_moved_from_IMPORT_to_LIFESPAN(tmp_path: Path) -> None:
+    """SEC-4 ile KAPININ YERİ DEĞİŞTİ; İDDİA DARALDI, GEVŞEMEDİ.
+
+    Bu test eskiden "AUTO_MIGRATE=false + bayat şema ⇒ İTHAL DÜŞER" diyordu.
+    O iddia artık YANLIŞTIR ve bilerek: ithal-zamanı blok, uygulamayı ithal
+    eden her uvicorn işçisini cluster genelindeki tek advisory kilit için
+    sıraya sokuyor, kilidi 120 sn içinde alamayanı açılışta düşürüyordu
+    (`docs/durum/pr-0093.md`). Üretimde açılış artık şemaya HİÇ YAZMAZ.
+
+    YENİ SINIR ÜÇ CÜMLEDİR ve üçü de burada ölçülüyor: bayat şemada İTHAL
+    GEÇER, aynı şemada LIFESPAN DÜŞER, göçten sonra İKİSİ DE GEÇER. Kapının
+    ayrıntılı ölçümü (hata metnindeki komut, mutantlar, PG ikizi)
+    `tests/test_sec4_acilis_migrasyon_kapisi.py` ve
+    `test_sec4_acilis_migrasyon_postgresql.py` dosyalarındadır; buradaki
+    iddia, EMEKLİ EDİLEN cümlenin yerini boş bırakmamak içindir.
+    """
     database = tmp_path / "migration-gate.db"
-    stale = _run("import app.main", database, auto_migrate=False)
-    assert stale.returncode != 0
-    assert "AUTO_MIGRATE=false" in stale.stderr
+
+    bayat_ithal = _run("import app.main", database, auto_migrate=False)
+    assert bayat_ithal.returncode == 0, (
+        "AUTO_MIGRATE=false ithali artık DÜŞMEMELİ:\n"
+        + bayat_ithal.stdout + bayat_ithal.stderr
+    )
+
+    bayat_lifespan = _run(_LIFESPAN, database, auto_migrate=False)
+    assert bayat_lifespan.returncode != 0, (
+        "bayat şemada lifespan AÇILDI:\n" + bayat_lifespan.stdout + bayat_lifespan.stderr
+    )
+    assert "AUTO_MIGRATE" in (bayat_lifespan.stdout + bayat_lifespan.stderr)
 
     migrated = _run("import app.main", database, auto_migrate=True)
     assert migrated.returncode == 0, migrated.stdout + "\n" + migrated.stderr
+
     verified = _run("import app.main", database, auto_migrate=False)
     assert verified.returncode == 0, verified.stdout + "\n" + verified.stderr
+    guncel_lifespan = _run(_LIFESPAN, database, auto_migrate=False)
+    assert guncel_lifespan.returncode == 0, (
+        guncel_lifespan.stdout + "\n" + guncel_lifespan.stderr
+    )
