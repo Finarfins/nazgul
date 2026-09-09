@@ -57,12 +57,16 @@ AUTO_MIGRATE=false iken `import app.main` güncel OLMAYAN bir veritabanında
 BAŞARILI OLUR ve veritabanına HİÇ DOKUNMAZ; hata lifespan açılışında patlar.
 İki mutant bu iki yarıyı ayrı ayrı çiviliyor (`BLOK_ITHALE_GERI`,
 `DURUM_KONTROLU_DUSURULDU`) ve İKİSİ DE bu dosyanın SAĞLAM koşumda geçen
-senaryolarının TA KENDİSİNDE ölür.
+senaryolarının TA KENDİSİNDE ölür. Mutasyon KAYNAK AĞACA DEĞİL, tek
+kullanımlık bir KOPYAYA uygulanır: kanonik koşucu dosyaları paralel
+koşturuyor ve yerinde mutasyon komşu dosyaları nedensizce kırmızıya
+çevirirdi.
 """
 from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import sqlite3
@@ -254,30 +258,46 @@ def test_TOHUM_GIRIS_NOKTASI_app_main_ITHAL_ETMIYOR() -> None:
 
 
 # ------------------------------------------------------------- mutantlar ---
+#
+# MUTASYON KAYNAK AĞACINDA YAPILMAZ, KOPYASINDA YAPILIR.
+#
+# İlk yazımda mutantlar `backend/app/main.py`yi YERİNDE değiştirip `finally`de
+# geri koyuyordu. Tek başına koşarken doğru çalışıyordu ve TAM DA BU YÜZDEN
+# tehlikeliydi: kanonik koşucu (`run_isolated_tests.py --workers N`) dosyaları
+# PARALEL koşturur. Aynı anda koşan bir komşu dosya, mutasyon penceresi
+# içinde BOZULMUŞ `app/main.py`yi ithal eder ve NEDENSİZ kırmızı yanardı —
+# ya da daha kötüsü, bu dosyanın kendi mutantı komşunun ithalinde ölür ve
+# hata BAŞKA BİR DOSYANIN adıyla raporlanırdı.
+#
+# Artık her mutant kendi tek kullanımlık ağacını kurar (`app/` + `alembic/` +
+# `alembic.ini`), mutasyonu ORADA yapar ve alt süreci PYTHONPATH'i o ağaca
+# bakacak biçimde koşturur. Kaynak ağaca HİÇ DOKUNULMAZ ve bu iddia da
+# ölçülüyor (`test_MUTANTLAR_KAYNAK_AGACA_DOKUNMUYOR`).
 
-def _mutant(kaynak: Path, eski: str, yeni: str):
-    """Dosyayı yerinde mutasyona uğrat, sonra BAYT BAYT geri koy."""
 
-    class _Kapsam:
-        def __enter__(self_):
-            self_.orijinal = kaynak.read_bytes()
-            metin = self_.orijinal.decode("utf-8")
-            # Çalışma kopyası Windows'ta CRLF ile checkout edilir; çapa LF
-            # yazılıdır. Satır sonunu ÇAPAYA uydur, dosyayı DEĞİŞTİRME.
-            sonu = "\r\n" if "\r\n" in metin else "\n"
-            capa = eski.replace("\n", sonu)
-            assert capa in metin, f"mutant çapası bulunamadı: {eski!r}"
-            kaynak.write_bytes(
-                metin.replace(capa, yeni.replace("\n", sonu), 1).encode("utf-8")
-            )
-            return self_
+def _sanal_agac(hedef: Path) -> Path:
+    """`app/` + `alembic/` + `alembic.ini`den ibaret tek kullanımlık kopya.
 
-        def __exit__(self_, *_):
-            kaynak.write_bytes(self_.orijinal)
-            assert kaynak.read_bytes() == self_.orijinal
-            return False
+    `alembic/` de KOPYALANIR çünkü `runtime_migrations.expected_revision`
+    head'i `Path(__file__).parents[1] / "alembic"` altından okur; yalnız `app/`
+    kopyalansaydı beklenen sürüm HİÇ bulunamaz ve kapı yanlış sebeple çalardı.
+    """
+    hedef.mkdir(parents=True, exist_ok=True)
+    yoksay = shutil.ignore_patterns("__pycache__", "*.pyc")
+    shutil.copytree(BACKEND / "app", hedef / "app", ignore=yoksay)
+    shutil.copytree(BACKEND / "alembic", hedef / "alembic", ignore=yoksay)
+    shutil.copy2(BACKEND / "alembic.ini", hedef / "alembic.ini")
+    return hedef
 
-    return _Kapsam()
+
+def _mutasyona_ugrat(dosya: Path, eski: str, yeni: str) -> None:
+    metin = dosya.read_text(encoding="utf-8")
+    # Kopya, çalışma kopyasının satır sonlarını taşır (Windows'ta CRLF);
+    # çapa ise LF yazılıdır.
+    sonu = "\r\n" if "\r\n" in metin else "\n"
+    capa = eski.replace("\n", sonu)
+    assert capa in metin, f"mutant çapası bulunamadı: {eski!r}"
+    dosya.write_text(metin.replace(capa, yeni.replace("\n", sonu), 1), encoding="utf-8")
 
 
 def test_MUTANT_BLOK_ITHALE_GERI_kirmizi_yanar(tmp_path: Path) -> None:
@@ -286,17 +306,29 @@ def test_MUTANT_BLOK_ITHALE_GERI_kirmizi_yanar(tmp_path: Path) -> None:
     Bu, kusurun TA KENDİSİDİR: AUTO_MIGRATE=false olan üretim işçisi yine
     ithalde kilidi alıp göç sürmeye kalkardı.
     """
+    agac = _sanal_agac(tmp_path / "agac")
+    _mutasyona_ugrat(
+        agac / "app" / "main.py",
+        "if settings.auto_migrate:\n    _semayi_hazirla()",
+        "if True:\n    _semayi_hazirla()",
+    )
+
     veritabani = tmp_path / "mutant-ithal.db"
-    with _mutant(MAIN_PY, "if settings.auto_migrate:\n    _semayi_hazirla()",
-                 "if True:\n    _semayi_hazirla()"):
-        sonuc = _kos(_ITHAL, _ortam(veritabani, auto_migrate="false", veri_dizini=tmp_path))
+    env = _ortam(veritabani, auto_migrate="false", veri_dizini=tmp_path)
+    env["PYTHONPATH"] = str(agac)
+    sonuc = subprocess.run(
+        [sys.executable, "-c", _ITHAL], cwd=agac, env=env,
+        capture_output=True, text=True, timeout=600,
+        encoding="utf-8", errors="replace",
+    )
 
     assert sonuc.returncode == 0, sonuc.stdout + "\n" + sonuc.stderr
     tablolar = _tablolar(veritabani)
     assert "alembic_version" in tablolar and "app_users" in tablolar, (
-        "MUTANT HAYATTA KALDI: blok koşulsuz ithale döndü ama hiçbir iddia "
-        "kımıldamadı — `test_AUTO_MIGRATE_KAPALI_ITHAL_veritabanina_HIC_"
-        "DOKUNMUYOR` bu mutantı görmüyor demektir."
+        "MUTANT HAYATTA KALDI: blok koşulsuz ithale döndü ama veritabanına "
+        "yine dokunulmadı — `test_AUTO_MIGRATE_KAPALI_ITHAL_veritabanina_HIC_"
+        "DOKUNMUYOR` bu mutantı görmüyor demektir. Bulunan tablolar: "
+        + repr(sorted(tablolar))
     )
 
 
@@ -306,14 +338,68 @@ def test_MUTANT_DURUM_KONTROLU_DUSURULDU_kirmizi_yanar(tmp_path: Path) -> None:
     Mutant hayattaysa şeması OLMAYAN bir süreç trafik almaya başlar: kapı
     yalnız BİR YERDE, o çağrıda vardır.
     """
+    agac = _sanal_agac(tmp_path / "agac")
+    _mutasyona_ugrat(
+        agac / "app" / "main.py", "    _semayi_dogrula()\n", "    pass  # mutant\n"
+    )
+
     veritabani = tmp_path / "mutant-kapi.db"
-    with _mutant(MAIN_PY, "    _semayi_dogrula()\n", "    pass  # mutant\n"):
-        sonuc = _kos(_LIFESPAN, _ortam(veritabani, auto_migrate="false", veri_dizini=tmp_path))
+    env = _ortam(veritabani, auto_migrate="false", veri_dizini=tmp_path)
+    env["PYTHONPATH"] = str(agac)
+    sonuc = subprocess.run(
+        [sys.executable, "-c", _LIFESPAN], cwd=agac, env=env,
+        capture_output=True, text=True, timeout=600,
+        encoding="utf-8", errors="replace",
+    )
 
     assert "LIFESPAN_TAMAM" in sonuc.stdout, (
         "MUTANT HAYATTA KALDI ya da BAŞKA BİR SEBEPLE düştü; kapının TEK yeri "
         "`_semayi_dogrula()` çağrısı olmalı:\n" + sonuc.stdout + sonuc.stderr
     )
+
+
+def test_MUTANTLAR_KAYNAK_AGACA_DOKUNMUYOR() -> None:
+    """Mutasyon yolu `backend/app/main.py`ye YAZMAYI hiç bilmiyor.
+
+    "Geri koyuyoruz" bir güvence DEĞİLDİR: çöken bir koşu geri koyamaz ve
+    paralel bir komşu, geri koymadan ÖNCE okur. Bu yüzden kapı davranışsal
+    değil YAPISALDIR.
+
+    ÖLÇÜM AST İLEDİR, METİN ARAMASIYLA DEĞİL. İlk yazımda bu test yasak
+    dizeyi `in` ile arıyordu ve KENDİ KAYNAĞINDA eşleşiyordu: dosyanın
+    kendisi hakkındaki bir iddia, iddianın metnini de okuduğu için her zaman
+    kırmızıydı. AST, iddiayı yazan satırı değil ÇALIŞAN çağrıyı görür.
+    """
+    import ast
+
+    agac = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+
+    hedefler: list[str] = []
+    for dugum in ast.walk(agac):
+        if (
+            isinstance(dugum, ast.Call)
+            and isinstance(dugum.func, ast.Name)
+            and dugum.func.id == "_mutasyona_ugrat"
+        ):
+            hedefler.append(ast.dump(dugum.args[0]))
+
+    assert len(hedefler) == 2, f"iki mutant bekleniyor, {len(hedefler)} bulundu"
+    beklenen = ast.dump(
+        ast.parse('agac / "app" / "main.py"', mode="eval").body
+    )
+    assert hedefler == [beklenen, beklenen], hedefler
+
+    # Modül düzeyindeki `MAIN_PY` yalnız OKUNUR: hiçbir çağrının alıcısı
+    # olmaz (`MAIN_PY.write_text(...)` gibi) ve hiçbir yere atanmaz.
+    yazimlar = [
+        ast.dump(d)
+        for d in ast.walk(agac)
+        if isinstance(d, ast.Attribute)
+        and isinstance(d.value, ast.Name)
+        and d.value.id == "MAIN_PY"
+        and d.attr.startswith("write")
+    ]
+    assert yazimlar == [], yazimlar
 
 
 # --------------------------------------------------- statik sözleşmeler ---
