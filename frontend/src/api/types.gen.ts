@@ -15542,6 +15542,7 @@ export interface operations {
                 status?: string | null;
                 invoice_type?: string | null;
                 currency?: string | null;
+                work_order_id?: number | null;
                 page?: number;
                 page_size?: number;
                 sort?: string;
