@@ -674,10 +674,20 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Verify Email */
-        get: operations["verify_email_api_auth_verify_email_get"];
+        /**
+         * Verify Email Landing
+         * @description Non-mutating verification landing lookup.
+         *
+         *     Prefetchers and link previews hitting this GET cannot consume or burn the
+         *     token. State mutation is reserved for POST.
+         */
+        get: operations["verify_email_landing_api_auth_verify_email_get"];
         put?: never;
-        post?: never;
+        /**
+         * Verify Email
+         * @description Consume the verification token and mark the user email verified.
+         */
+        post: operations["verify_email_api_auth_verify_email_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10024,6 +10034,11 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** VerifyEmailPayload */
+        VerifyEmailPayload: {
+            /** Token */
+            token: string;
+        };
         /** VetDrugUpdate */
         VetDrugUpdate: {
             /** Dose Unit */
@@ -11819,7 +11834,7 @@ export interface operations {
             };
         };
     };
-    verify_email_api_auth_verify_email_get: {
+    verify_email_landing_api_auth_verify_email_get: {
         parameters: {
             query: {
                 token: string;
@@ -11829,6 +11844,39 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_email_api_auth_verify_email_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyEmailPayload"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

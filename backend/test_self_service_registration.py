@@ -144,10 +144,16 @@ assert resent.status_code == 200, resent.text
 resent_token = token_for("ilk@example.com")
 assert resent_token != first_token
 assert client.get("/api/auth/verify-email", params={"token": first_token}).status_code == 400
+assert client.post("/api/auth/verify-email", json={"token": first_token}).status_code == 400
 
-verified = client.get("/api/auth/verify-email", params={"token": resent_token})
+# Non-mutating GET landing: idempotent, token is NOT consumed
+assert client.get("/api/auth/verify-email", params={"token": resent_token}).status_code == 200
+assert client.get("/api/auth/verify-email", params={"token": resent_token}).status_code == 200
+
+# Mutating POST: consumes token
+verified = client.post("/api/auth/verify-email", json={"token": resent_token})
 assert verified.status_code == 200, verified.text
-reused = client.get("/api/auth/verify-email", params={"token": resent_token})
+reused = client.post("/api/auth/verify-email", json={"token": resent_token})
 assert reused.status_code == 400, reused.text
 
 login = client.post("/api/auth/login", json={
@@ -181,7 +187,7 @@ with SessionLocal() as db:
 second = register("ikinci@example.com", "İkinci Firma")
 assert second.status_code == 200, second.text
 second_token = token_for("ikinci@example.com")
-assert client.get("/api/auth/verify-email", params={"token": second_token}).status_code == 200
+assert client.post("/api/auth/verify-email", json={"token": second_token}).status_code == 200
 second_login = client.post("/api/auth/login", json={
     "username": "ikinci@example.com", "password": "GuvenliParola!2026"
 })
@@ -232,6 +238,7 @@ with SessionLocal.begin() as db:
         email_verification_tokens.c.token_hash == token_digest(expired_token)
     ).values(expires_at=utcnow()-timedelta(seconds=1)))
 assert client.get("/api/auth/verify-email", params={"token": expired_token}).status_code == 400
+assert client.post("/api/auth/verify-email", json={"token": expired_token}).status_code == 400
 
 import app.routers.auth as auth_router
 original = auth_router.create_verification_token

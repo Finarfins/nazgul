@@ -11,7 +11,7 @@ export default function VerifyEmail(){
  useEffect(()=>{
   const token=params.get('token');
   if(!token){setError('Doğrulama bağlantısında token bulunamadı.');return}
-  api.get('/auth/verify-email',{params:{token}})
+  api.post('/auth/verify-email',{token})
    .then(({data})=>setMessage(data.message))
    .catch(err=>setError(errorDetail(err,'E-posta doğrulanamadı.')));
  },[params]);

@@ -103,7 +103,7 @@ class Settings(BaseSettings):
     # unique secret through BOOTSTRAP_ADMIN_PASSWORD.
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_display_name: str = "Sistem Yöneticisi"
-    bootstrap_admin_password: str | None = None
+    bootstrap_admin_password: SecretStr | None = None
 
     # Browser sessions use short-lived HttpOnly access cookies and rotating
     # refresh cookies. COOKIE_SECURE must be true behind production HTTPS.
@@ -200,7 +200,7 @@ class Settings(BaseSettings):
     smtp_from_name: str | None = None
     smtp_use_tls: bool = True
     turnstile_site_key: str | None = None
-    turnstile_secret_key: str | None = None
+    turnstile_secret_key: SecretStr | None = None
     # §2.9: durdurulan bildirimlerin saklama süresi. Süre dolduğunda satır
     # SİLİNMEZ, notifications_archive'a taşınır. Alt sınır (30 gün) hem burada
     # hem app/notifications/archive.py içinde uygulanır: tek bir katmanın
@@ -410,7 +410,11 @@ class Settings(BaseSettings):
             )
 
         if self.environment == "production":
-            password = (self.bootstrap_admin_password or "").strip()
+            password = (
+                self.bootstrap_admin_password.get_secret_value()
+                if hasattr(self.bootstrap_admin_password, "get_secret_value")
+                else (self.bootstrap_admin_password or "")
+            ).strip()
             if not self.cookie_secure:
                 raise ValueError("Production ortamında COOKIE_SECURE=true zorunludur")
             if not password:
@@ -425,7 +429,12 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "Production ortamında TRUSTED_PROXY_CIDRS zorunludur"
                 )
-            if not (self.turnstile_secret_key or "").strip():
+            turnstile_key = (
+                self.turnstile_secret_key.get_secret_value()
+                if hasattr(self.turnstile_secret_key, "get_secret_value")
+                else (self.turnstile_secret_key or "")
+            ).strip()
+            if not turnstile_key:
                 raise ValueError(
                     "Production ortamında TURNSTILE_SECRET_KEY zorunludur"
                 )
@@ -467,7 +476,11 @@ class Settings(BaseSettings):
 
     @property
     def effective_bootstrap_admin_password(self) -> str:
-        password = (self.bootstrap_admin_password or "").strip()
+        password = (
+            self.bootstrap_admin_password.get_secret_value()
+            if hasattr(self.bootstrap_admin_password, "get_secret_value")
+            else (self.bootstrap_admin_password or "")
+        ).strip()
         if password:
             return password
         # Backward-compatible local/demo bootstrap only. Production validation

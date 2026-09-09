@@ -23,6 +23,7 @@ ROUTE_REASON_GROUPS = (
             ("POST", "/api/auth/register"),
             ("POST", "/api/auth/resend-verification"),
             ("GET", "/api/auth/verify-email"),
+            ("POST", "/api/auth/verify-email"),
             # Şifresini unutan kullanıcının oturumu yoktur; bu iki uç kimlik
             # doğrulama kapısının önünde olmak zorunda. /forgot-password adresin
             # kayıtlı olup olmadığını sızdırmaz, ikisi de IP başına saatlik
@@ -574,7 +575,9 @@ DYNAMIC_PERMISSION_CASES = {
 # `POST .../cancel` bu turda DEGISTI ama sozlesmesi KIMILDAMADI ve bu da
 # olculdu: uc zaten vardi, izni zaten "sales"ti; eklenen sey govdenin ICINDEKI
 # e-belge kapisidir, yeni bir yol ya da yeni bir izin degil.
-EXPECTED_OPERATION_COUNT = 391
+# SEC-10 (verify-email split): POST /api/auth/verify-email eklendi.
+# Sayim 391/301 -> 392/301. Yol sayisi (301) degismedi.
+EXPECTED_OPERATION_COUNT = 392
 EXPECTED_PATH_COUNT = 301
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
@@ -764,8 +767,9 @@ EXPECTED_SECURITY_FINGERPRINT = (
     #     `_build_contract` gerekceyi yalniz `read`/public/platform icin ister),
     #   * `GET /api/{kind}/{transaction_id}`in `permission_cases`i
     #     (purchases: read -> purchases; orders KOLU `read`te KALDI).
-    # Bu bir kayma degil, kapinin ISLEVIDIR. f4517670 -> d4ad9f24.
-    "d4ad9f241e7daddb7f4067fcd079f0b4749b738eeb14b5142c1b8880509fe564"
+    # SEC-10 (verify-email split): POST /api/auth/verify-email eklendi;
+    # public kumesine girdi. Parmak izi d4ad9f24 -> 618b656d.
+    "618b656d47a1eba689a0f600d9bd9c9896ce9293e0f11aa71cd46436f8f40dc1"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

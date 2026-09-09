@@ -315,6 +315,8 @@ PUBLIC_API = {
     "/api/auth/login",
     "/api/auth/refresh",
     "/api/auth/register",
+    # E-posta doğrulama uçları (GET iniş/kontrol, POST jeton tüketme); kullanıcının
+    # henüz oturumu yoktur ve link posta tarayıcılarından / önyükleyicilerden gelebilir.
     "/api/auth/verify-email",
     "/api/auth/resend-verification",
     # Şifresini unutan kullanıcının oturumu yoktur; bu iki uç kimlik doğrulama

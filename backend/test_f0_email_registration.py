@@ -200,7 +200,8 @@ assert "https://erp.ornek.test/eposta-dogrula?token=" in message.get_content()
 link = json.loads(delivered["payload"])["verification_url"]
 token = link.split("token=", 1)[1]
 assert client.get("/api/auth/verify-email", params={"token": token}).status_code == 200
-assert client.get("/api/auth/verify-email", params={"token": token}).status_code == 400
+assert client.post("/api/auth/verify-email", json={"token": token}).status_code == 200
+assert client.post("/api/auth/verify-email", json={"token": token}).status_code == 400
 
 client.close()
 print("F0_EMAIL_HTTP_OK")

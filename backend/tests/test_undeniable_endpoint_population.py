@@ -182,6 +182,9 @@ PUBLIC_SESSION_WRITE_EXEMPTIONS = frozenset({
     ("POST", "/api/auth/register"),
     ("POST", "/api/auth/resend-verification"),
     ("POST", "/api/auth/reset-password"),
+    # SEC-10: E-posta doğrulama token'ı tüketen yazma ucu. Oturumu olmayan
+    # kullanıcı tek kullanımlık token ile e-posta adresini onaylar.
+    ("POST", "/api/auth/verify-email"),
 })
 
 PUBLIC_WEBHOOK_EXEMPTIONS = frozenset({
