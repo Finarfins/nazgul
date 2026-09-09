@@ -541,8 +541,28 @@ DYNAMIC_PERMISSION_CASES = {
 # (`test_route_get_permission_inventory`) ve bu cagri hem yerel satiri YAZIYOR
 # hem de sagalayicida oturum acip kota tuketiyor. GET yazilsaydi o sozlesme
 # bozulurdu; nitekim GET envanteri bu turda KIMILDAMADI.
-EXPECTED_OPERATION_COUNT = 390
-EXPECTED_PATH_COUNT = 300
+#
+# 20260911 — E2 (e-BELGE YASAM DONGUSU, GOC YOK): TEK yeni uc,
+# `GET /api/invoices/{invoice_id}/einvoice/download`. Sayim 390/300 -> 391/301;
+# YOL da bir arttigi icin PATH sayaci KIMILDADI (var olan bir yolun yeni
+# METODU degil, YENI BIR YOL).
+#
+# IZIN OLCULDU, VARSAYILMADI ve BU KEZ ACIK BIR KURAL GEREKTI — E1'in tam
+# tersi: `required_permission("GET", ".../einvoice/download")` kural yazilmadan
+# once "read" veriyordu, cunku `app/auth.py`de `path.startswith("/api/invoices")`
+# -> "sales" kuralinin USTUNDE genel bir guvenli-metot kurali var ve her GET'i
+# oraya dusuruyor. `read` YANLIS olurdu: bu GET saglayicida oturum acip kota
+# tuketiyor (E1'in `sync` ucunu POST yapma gerekcesinin AYNISI) ve indirdigi
+# sey resmi mali belgenin kendisi. Kural ONEK+SONEK BIRLIKTE yazildi; salt
+# `/api/invoices` oneki fatura listesini ve ic PDF'i de yakalardi. Komsu
+# uclarin degeri DEGISMEDI ve bu OLCULDU: `.../einvoice/status`, `.../pdf` ve
+# `/api/invoices` hala "read".
+#
+# `POST .../cancel` bu turda DEGISTI ama sozlesmesi KIMILDAMADI ve bu da
+# olculdu: uc zaten vardi, izni zaten "sales"ti; eklenen sey govdenin ICINDEKI
+# e-belge kapisidir, yeni bir yol ya da yeni bir izin degil.
+EXPECTED_OPERATION_COUNT = 391
+EXPECTED_PATH_COUNT = 301
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -712,7 +732,16 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # Izin `required_permission` ile OLCULDU -> "sales" (`/api/invoices`
     # oneginin altinda, `submit` ile AYNI sinif); YENI ONEK KURALI EKLENMEDI.
     # Sayim 389/299 -> 390/300. Parmak izi 61223c75 -> 5cadacb3.
-    "5cadacb359d1cb4759063229aad81cfdc2f403ce3735b94397385f0da9ec86d2"
+    # 20260911 E2 (e-BELGE YASAM DONGUSU, GOC YOK): TEK yeni uc
+    # `GET /api/invoices/{invoice_id}/einvoice/download` — gonderilen belgenin
+    # SURETI (saglayici PDF'i ya da gonderilen UBL XML'i). SIRA izlendi:
+    # (1) uc yazildi, (2) `auth.py`ye ACIK kural eklendi (onek+sonek),
+    # (3) izin `required_permission` ile OLCULDU ("sales"; kural yazilmadan
+    # onceki olcum "read"di), (4) GET envanterine girdi, (5) sayim
+    # 390/300 -> 391/301 olarak yeniden olculdu, (6) EN SON parmak izi
+    # turetildi. `ROUTE_REASONS`a GIRMEDI: o kapi `read`/public uclari icin.
+    # Parmak izi 5cadacb3 -> f4517670.
+    "f451767028bc31d8f741e8e0baf7e4ec8c5c87bd56cfcd892d8161660f6f6575"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

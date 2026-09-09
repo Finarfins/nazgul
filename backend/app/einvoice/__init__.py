@@ -20,6 +20,8 @@ from .provider import (
 )
 from .status import (
     ACCEPTED,
+    CANCELLABLE,
+    CANCELLED,
     FAILED,
     NONE,
     PENDING,
@@ -37,6 +39,8 @@ from .ubl_xml import UblBuildError, build_invoice_xml, package_invoice
 
 __all__ = [
     "ACCEPTED",
+    "CANCELLABLE",
+    "CANCELLED",
     "ERROR_MESSAGES_TR",
     "EInvoiceConfiguration",
     "EInvoiceError",

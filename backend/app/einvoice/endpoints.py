@@ -208,6 +208,41 @@ IZIBIZ_OP_PDF = "GetInvoiceWithType"
 IZIBIZ_OP_SUBMIT_EARCHIVE = "WriteToArchiveExtended"
 IZIBIZ_OP_STATUS_EARCHIVE = "GetEArchiveInvoiceStatus"
 IZIBIZ_OP_PDF_EARCHIVE = "GetEArchiveInvoice"
+#: e-Arşiv İPTALİ. Operasyon adı ve gövde şeması TAHMİN DEĞİL: canlı
+#: ``/EIArchiveWS/EFaturaArchive?wsdl`` -> ``?xsd=5`` üzerinden okundu.
+#: Şemanın TAMAMI (aynen):
+#:
+#: .. code-block:: xml
+#:
+#:     <xsd:complexType name="CancelEArchiveInvoiceRequest">
+#:       <xsd:sequence>
+#:         <xsd:element name="REQUEST_HEADER" type="e:REQUEST_HEADERType"/>
+#:         <xsd:element name="CancelEArsivInvoiceContent" minOccurs="1" maxOccurs="unbounded">
+#:           <xsd:complexType><xsd:sequence>
+#:             <xsd:element name="UPLOAD_FLAG"         type="FLAG_VALUE"   minOccurs="0"/>
+#:             <xsd:element name="FATURA_UUID"         type="xsd:string"   minOccurs="1"/>
+#:             <xsd:element name="FATURA_ID"           type="xsd:string"   minOccurs="0"/>
+#:             <xsd:element name="EARSIV_CANCEL_EMAIL" type="xsd:string"   minOccurs="0"/>
+#:             <xsd:element name="DELETE_FLAG"         type="xsd:string"   minOccurs="0"/>
+#:             <xsd:element name="IPTAL_TARIHI"        type="xsd:date"     minOccurs="0"/>
+#:             <xsd:element name="TOPLAM_TUTAR"        type="xsd:decimal"  minOccurs="0"/>
+#:             <xsd:element name="INVOICE_CONTENT"     type="xmime:base64Binary" minOccurs="0"/>
+#:             <xsd:element name="IPTAL_NOTU"          type="xsd:string"   minOccurs="0"/>
+#:           </xsd:sequence></xsd:complexType>
+#:         </xsd:element>
+#:       </xsd:sequence>
+#:     </xsd:complexType>
+#:
+#: İKİ AYRINTI TÜRETİLEMEZDİ, okunmak zorundaydı:
+#:
+#: 1. İçerik elemanının adı ``CancelEArsivInvoiceContent`` — sarmalayıcı
+#:    "EArsiv" yazarken operasyonun kendisi "EArchive" yazıyor. Aynı istekte
+#:    İKİ FARKLI yazım; birinden diğerini türetmek imkânsız.
+#: 2. Zorunlu TEK anahtar ``FATURA_UUID``, yani ETTN. Sağlayıcının kendi belge
+#:    kimliği (``INVOICE_ID``, bizim ``external_id``imiz) ``FATURA_ID`` alanına
+#:    denk düşer ve OPSİYONELDİR — iptal ETTN ile kurulur, belge kimliğiyle
+#:    değil. Bu, e-Arşiv durum sorgusunun kuralıyla aynıdır.
+IZIBIZ_OP_CANCEL_EARCHIVE = "CancelEArchiveInvoice"
 
 #: Operasyon adı ≠ gövde kök elemanı. Çoğu ``<Ad>Request`` ama e-Arşiv yazımı
 #: ``ArchiveInvoiceExtendedRequest``; türetme değil, tablo gerekiyor.
@@ -222,6 +257,7 @@ IZIBIZ_REQUEST_ELEMENT: dict[str, str] = {
     IZIBIZ_OP_SUBMIT_EARCHIVE: "ArchiveInvoiceExtendedRequest",
     IZIBIZ_OP_STATUS_EARCHIVE: "GetEArchiveInvoiceStatusRequest",
     IZIBIZ_OP_PDF_EARCHIVE: "GetEArchiveInvoiceRequest",
+    IZIBIZ_OP_CANCEL_EARCHIVE: "CancelEArchiveInvoiceRequest",
 }
 
 #: Hangi operasyon hangi servise gider. Kalanı EInvoiceWS'e.
@@ -229,7 +265,12 @@ IZIBIZ_AUTH_OPERATIONS: frozenset[str] = frozenset(
     {IZIBIZ_OP_LOGIN, IZIBIZ_OP_LOGOUT, IZIBIZ_OP_TAXPAYER}
 )
 IZIBIZ_ARCHIVE_OPERATIONS: frozenset[str] = frozenset(
-    {IZIBIZ_OP_SUBMIT_EARCHIVE, IZIBIZ_OP_STATUS_EARCHIVE, IZIBIZ_OP_PDF_EARCHIVE}
+    {
+        IZIBIZ_OP_SUBMIT_EARCHIVE,
+        IZIBIZ_OP_STATUS_EARCHIVE,
+        IZIBIZ_OP_PDF_EARCHIVE,
+        IZIBIZ_OP_CANCEL_EARCHIVE,
+    }
 )
 
 # --- Oturum --------------------------------------------------------------
@@ -297,6 +338,15 @@ IZIBIZ_EARCHIVE_STATUS_NEEDS_ETTN = (
     "e-Arşiv durum sorgusu ETTN (UUID) gerektirir; sağlayıcı belge kimliği yeterli değil"
 )
 
+#: e-Arşiv iptalinin ön koşulu. ``CancelEArchiveInvoiceRequest`` şemasında
+#: zorunlu TEK anahtar ``FATURA_UUID``; sağlayıcı belge kimliği oraya YAZILAMAZ.
+#: ETTN yoksa istek KURULAMAZ ve bu, ağa çıkmadan — yani sağlayıcıda boş bir
+#: oturum açmadan — söylenir (``IZIBIZ_EARCHIVE_STATUS_NEEDS_ETTN`` ile aynı
+#: gerekçe).
+IZIBIZ_EARCHIVE_CANCEL_NEEDS_ETTN = (
+    "e-Arşiv iptali ETTN (UUID) gerektirir; sağlayıcı belge kimliği yeterli değil"
+)
+
 IZIBIZ_EFATURA_SUBMIT_ERROR = (
     "e-Fatura gönderimi (SendInvoice) sandbox'ta doğrulanmadı; şimdilik yalnız e-Arşiv açık"
 )
@@ -309,6 +359,19 @@ IZIBIZ_ERROR_CODE_CLASSES: dict[str, str] = {
     "10003": "VALIDATION",  # "Belge kontrolden geçemedi: …"
     "10007": "VALIDATION",  # "Zip bir dosya içermelidir."
     "10013": "VALIDATION",  # "Gönderilen istek geçersizdir. / INVALID XML"
+    # 10008 BİLEREK YOK. ÖLÇÜLDÜ 2026-09-11 (E2, `CancelEArchiveInvoice`):
+    #   ERROR_CODE=10008 "Belirtilen kritere uygun kayıt bulunamamıştır.
+    #                     Belge ETTN : <bizim gönderdiğimiz ETTN>"
+    # Bu bir DOĞRULAMA hatası DEĞİL: istek geçerliydi, aranan KAYIT yoktu —
+    # sağlayıcı gönderdiğimiz anahtarı geri yankılayıp "böyle bir kayıt yok"
+    # diyor. `VALIDATION` yazmak, belgeyi biz bozmuşuz gibi okunurdu ve asıl
+    # bulguyu (anahtar yanlış) gizlerdi.
+    #
+    # Doğru karşılık yeni bir sınıf olurdu (`NOT_FOUND`) ve o, spec §6 mesaj
+    # tablosunu da değiştirir — AYRI BİR DİLİMİN işi, burada sessizce
+    # yapılmadı. Bugün kod `UNKNOWN` diyor: kullanıcı kodu görür, sağlayıcının
+    # cümlesi `raw` içinde denetime kalır. Ölçümün tamamı ve sağlayıcıya
+    # sorulacak soru: `docs/izibiz-sandbox-bulgular.md` §8.
 }
 
 #: İzibiz'e özgü durum eşlemesi. Genel :data:`PROVIDER_STATUS_ALIASES`'a
@@ -351,6 +414,13 @@ NES_TOKEN_TTL_SECONDS = 0
 #: ‹doğrulanacak› API key zorunlu mu, bilinmiyor. False = gönderilmez.
 NES_REQUIRES_API_KEY = False
 NES_API_KEY_HEADER = "X-Api-Key"
+#: ‹DOĞRULANACAK› Nes'te İPTAL ucu BİLİNMİYOR — ne yolu ne gövdesi. Yol
+#: uydurmak yerine kanal KAPALI: :meth:`NesEInvoiceProvider._cancel_precondition`
+#: isteği ağdan önce reddeder. Bu bir eksiklik değil sözleşme: iptal, sonucu
+#: yanlış okunduğunda YEREL bir iptali tetikleyen tek okuma yoludur.
+NES_CANCEL_UNVERIFIED_ERROR = (
+    "Nes sağlayıcısında e-belge iptali doğrulanmadı; iptal ucu bilinmiyor"
+)
 #: ‹doğrulanacak› JSON yanıtında aranacak anahtarlar (sırayla).
 NES_FIELD_TOKEN = ("access_token", "accessToken", "token")
 NES_FIELD_ETTN = ("ettn", "uuid", "invoiceUuid", "documentUuid")

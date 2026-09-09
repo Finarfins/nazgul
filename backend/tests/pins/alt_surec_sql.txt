@@ -7,6 +7,7 @@ test_cari_360_bounded_summary.py	1
 test_cari_statement.py	1
 test_charge_document_balance.py	4
 test_db_baglanti_dayanikliligi_postgresql.py	4
+test_e2_ebelge_yasam_dongusu_uc.py	1
 test_enterprise_invoices.py	1
 test_f0_email_registration.py	4
 test_field_stok_tuketici_postgresql.py	27

@@ -86,7 +86,7 @@ Fault ya da 5xx ile gelmedi. Ayrıntı ve mutasyon kanıtı için §7.
 | `WriteToArchive` | `ArchiveInvoiceWriteRequest` | *(yok)* | ℹ️ Basit sürüm; e-Arşiv özellikleri yok |
 | `GetEArchiveInvoiceStatus` | `UUID` (1–500) → `INVOICE/HEADER/STATUS` | *(yok)* | ✅ canlı doğrulandı |
 | `GetEArchiveInvoice` / `ReadFromArchive` | Belge çekme | `fetch_pdf()` karşılığı | ⚠️ Eşlenmedi |
-| `CancelEArchiveInvoice` | İptal | *(yok)* | ⚠️ e-Arşiv iptali adaptörde yok |
+| `CancelEArchiveInvoice` | İptal (`CancelEArchiveInvoiceRequest`) | `cancel()` | ✅ **E2**: şema `?xsd=5`ten okundu — `REQUEST_HEADER` + `CancelEArsivInvoiceContent/FATURA_UUID` (zorunlu TEK anahtar ETTN). Yanıtta DURUM ALANI YOK: yalnız `REQUEST_RETURN` + `ERROR_TYPE` |
 | `GetEArchiveReport`, `ReadEArchiveReport`, `MarkEArchiveInvoice`, `GetEmailEarchiveInvoice`, `SendSmsEarchiveInvoice`, `EArchiveInvoiceCount`, `GetEArchiveInvoiceList`, `Get*Generic*`, `CancelEDefter`, `GetELedgerStatus` | — | *(yok)* | ℹ️ Kapsam dışı |
 
 ### `endpoints.py` için somut düzeltme listesi
@@ -240,7 +240,7 @@ içermelidir." gerekçesi kayboluyor. İki test de bunu açıkça ölçüyor.
 | e-Arşiv PDF çekme | eksik | ⛔ açık boşluk — `WEB_VALIDATION_KEY` saklanmıyor | — |
 | `Logout` | eksik | ⚠️ hâlâ yok (TTL 8 saat, kritik değil) | — |
 | Uygulama yanıtı (kabul/red) | eksik | ⚠️ hâlâ yok (ticari fatura akışı) | — |
-| e-Arşiv iptali | eksik | ⚠️ hâlâ yok | — |
+| e-Arşiv iptali | eksik | ✅ E2: `cancel()` + `POST /invoices/{id}/cancel` kapısı | — |
 | Gelen kutusu senkronu | eksik | ⚠️ hâlâ yok (`GetInvoice` yalnız smoke'ta) | — |
 | Nes sağlayıcısı | ‹doğrulanacak› | ⚪ değişmedi, bilerek | — |
 
@@ -394,6 +394,8 @@ dönmüyor: `PDF_YOK` ile gürültülü düşüyor. İki test bu gerçeği
 `xfail(strict=False)` ile taşıyor; sandbox çözer hâle gelirse XPASS olur ve
 satır gözden geçirilir.
 
+---
+
 ### 7.4 — B2B KAPISI: `False` KALIYOR
 
 `IZIBIZ_EFATURA_SUBMIT_VERIFIED` **DEĞİŞTİRİLMEDİ, `False` kaldı.** Kapıyı
@@ -407,3 +409,109 @@ Dahası, e-Arşiv tarafında durum sorgusunun bugün çözülmediği ÖLÇÜLDÜ
 `GetInvoiceStatus` cevabı alınamadan açılan bir kapı, gönderilen belgenin
 akıbetini SORAMAYACAĞIMIZ bir kanal açmak olurdu. Kapı, §7.3 kapandıktan
 sonra ayrı bir dilimde ve kanıtıyla birlikte açılmalıdır.
+
+---
+
+## §8 — E2 KOŞUSU (2026-09-11, GERÇEK SANDBOX): §7.3'ÜN SEBEBİ ARTIK ÖLÇÜLDÜ
+
+### 8.1 — İPTAL, DURUM SORGUSUNUN SÖYLEYEMEDİĞİNİ SÖYLEDİ
+
+E2'de eklenen `CancelEArchiveInvoice` çağrısı sandbox'ta koşturuldu. İptal
+BAŞARISIZ oldu — ama **başarısızlığın kendisi, §7.3'te "ÖLÇÜLMEDİ" diye açık
+bırakılan sorunun cevabıdır.** Ham yanıt (sırlar temizlenmiş):
+
+```xml
+<CancelEArchiveInvoiceResponse xmlns="http://schemas.i2i.com/ei/wsdl/archive">
+  <ERROR_TYPE>
+    <INTL_TXN_ID>67500845</INTL_TXN_ID>
+    <ERROR_CODE>10008</ERROR_CODE>
+    <ERROR_SHORT_DES>Belirtilen kritere uygun kayıt bulunamamıştır.
+                     Belge ETTN : 405acba6-ce9c-59c7-bc79-c37e2f141939</ERROR_SHORT_DES>
+  </ERROR_TYPE>
+</CancelEArchiveInvoiceResponse>
+```
+
+**Neden bu kanıt niteliğinde.** Durum sorgusu (`GetEArchiveInvoiceStatus`)
+başarısız olduğunda BOŞ dönüyordu; "boş" hiçbir şey söylemez, sorunun
+anahtarda mı belgede mi zamanlamada mı olduğunu ayırt ettirmez. İptal ise
+aradığı anahtarı **yankılıyor**: gönderdiğimiz istemci ETTN'ini geri yazıp
+"bu kritere uygun kayıt yok" diyor.
+
+Yani §7.3'ün "en olası aday" diye yazdığı ve VARSAYMADIĞI şey artık ölçülmüş
+durumda: **İzibiz, e-Arşiv belgesini bizim uuid5 ile türettiğimiz istemci
+ETTN'iyle anahtarlamıyor.** Gönderim aynı çağrıda `PENDING` + gerçek
+`INVOICE_ID` + `WEB_KEY` döndüğü hâlde, o belge ETTN ile geri bulunamıyor.
+
+Aynı ölçüm koşusundaki diğer üç gözlem (hepsi §7.3 ile TUTARLI):
+
+| Çağrı | Sonuç |
+|---|---|
+| `submit` (`WriteToArchiveExtended`) | ✅ `PENDING`, gerçek `INVOICE_ID`, `WEB_KEY` var |
+| `cancel` (`CancelEArchiveInvoice`) | ❌ `ERROR_CODE=10008` — kayıt bulunamadı, ETTN yankılandı |
+| `query_status` (iptal sonrası) | ❌ `UNRESOLVED` |
+| `fetch_pdf` (`GetEArchiveInvoice`) | ❌ `PDF_YOK` (§7.3 ile aynı) |
+
+### 8.2 — SORULACAK SORU (entegrasyon@izibiz.com.tr)
+
+Aşağıdaki metin, olduğu gibi gönderilmek üzere yazıldı. Belge kimlikleri
+gerçek sandbox koşularından; **VKN ve oturum jetonu içermiyor.**
+
+> Konu: e-Arşiv — `WriteToArchiveExtended` ile gönderilen belge `FATURA_UUID`
+> ile geri bulunamıyor (`ERROR_CODE=10008`)
+>
+> Merhaba,
+>
+> Test ortamında (`efaturatest.izibiz.com.tr`) `WriteToArchiveExtended` ile
+> e-Arşiv faturası gönderiyoruz. Gönderim BAŞARILI: yanıtta `RETURN_CODE=0`,
+> gerçek bir `INVOICE_ID` ve `WEB_KEY` dönüyor.
+>
+> Ancak aynı belgeyi sonrasında hiçbir şekilde geri bulamıyoruz:
+>
+> 1. `GetEArchiveInvoiceStatus` (`<UUID>` = gönderimde kullandığımız ETTN)
+>    BOŞ dönüyor (`RETURN_CODE=0`, `INVOICE` elemanı yok).
+> 2. `GetEArchiveInvoice` (`WEB_VALIDATION_KEY` = `WEB_KEY` içindeki
+>    `webValidationKey` parametresi) belge içeriği döndürmüyor.
+> 3. `CancelEArchiveInvoice` (`CancelEArsivInvoiceContent/FATURA_UUID` =
+>    aynı ETTN) şu hatayı veriyor:
+>    `ERROR_CODE=10008 — "Belirtilen kritere uygun kayıt bulunamamıştır.
+>    Belge ETTN : <ETTN>"`
+>
+> Örnek belgeler (test ortamı):
+>
+> | `INVOICE_ID` | Gönderimde kullandığımız `UUID` (ETTN) |
+> |---|---|
+> | `SNG2026518354588` | `405acba6-ce9c-59c7-bc79-c37e2f141939` |
+> | `SNG2026471382557` | `5266133a-7bf6-5e58-85ec-6a9854169dee` |
+> | `SNG2026589807117` | `70dfc021-3013-5443-81e7-53e081fbcc45` |
+>
+> Sorularımız:
+>
+> 1. e-Arşiv belgesi, gönderimde verdiğimiz `UUID` ile mi anahtarlanıyor,
+>    yoksa İzibiz kendi bir kimlik mi üretiyor? Üretiyorsa bu kimliği hangi
+>    yanıtta/operasyonda öğrenebiliriz?
+> 2. `GetEArchiveInvoiceStatus` / `CancelEArchiveInvoice` için doğru anahtar
+>    `INVOICE_ID` mi olmalıydı? Şemada alan adı `FATURA_UUID` (zorunlu) ve
+>    `FATURA_ID` (opsiyonel) olarak ayrılmış; hangisi belirleyici?
+> 3. Belgenin sorgulanabilir hâle gelmesi için bir işleme/raporlama süresi
+>    var mı? (0–100 sn arası yokladık, sonuç değişmedi.)
+> 4. `GetEArchiveInvoice` için `WEB_VALIDATION_KEY` dışında bir ön koşul
+>    (ör. belgenin `SUB_STATUS` değeri) gerekiyor mu? Gönderimi
+>    `SUB_STATUS=NEW`, `EARSIV_TYPE=NORMAL`, `VALIDATION_FLAG=Y` ile yapıyoruz.
+>
+> Teşekkürler.
+
+### 8.3 — BU ÖLÇÜMÜN KODA ETKİSİ (ve ETMEDİĞİ)
+
+* `ERROR_CODE=10008` **sınıflandırılMADI** ve bu bilinçli: mevcut sınıf
+  kümesinde (`AUTH`/`VALIDATION`/`TAXPAYER`/`DUPLICATE`/`QUOTA`/`NETWORK`)
+  "kayıt bulunamadı"nın karşılığı YOK. `VALIDATION` demek yanlış olurdu —
+  istek geçerliydi, aranan kayıt yoktu. Yeni bir sınıf (`NOT_FOUND`) eklemek
+  spec §6 mesaj tablosunu da değiştirir; **AYRI BİR DİLİMİN İŞİ**, burada
+  sessizce yapılmadı. Bugün kod `UNKNOWN` diyor ve ham kodu `raw` içinde
+  denetime bırakıyor — doğru taraf, ama iyileştirilecek taraf.
+* İptal yolu **kaldırılmadı**: şemaya uygun istek kuruluyor, sağlayıcının
+  reddi doğru okunuyor (`FAILED`, `CANCELLED` DEĞİL) ve uç bunu 409'a
+  çeviriyor. Yani bugünkü davranış GÜVENLİ: entegratör iptali kabul etmediği
+  sürece ERP de faturayı iptal etmiyor.
+* Sandbox testleri `xfail(strict=False)`: sağlayıcı/anahtar sorusu çözülünce
+  XPASS olurlar ve bu satır gözden geçirilir.

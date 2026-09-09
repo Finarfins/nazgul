@@ -232,6 +232,14 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/imports/suppliers/template.xlsx"): "read",
     ("GET", "/api/invoices"): "read",
     ("GET", "/api/invoices/{invoice_id}"): "read",
+    # E2 (GOC YOK): e-belge sureti indirme. Izin "sales" ve bu OLCULDU,
+    # VARSAYILMADI: `auth.py`ye acik kural yazilmadan once
+    # `required_permission` bu uc icin "read" veriyordu (genel guvenli-metot
+    # kurali). Envanterdeki TEK "sales" GET budur ve gerekcesi `auth.py`de
+    # yazili: uc DIS BIR YAN ETKI uretir (saglayicida oturum + kota) ve
+    # indirilen sey resmi mali belgedir. Komsu uclarin degeri DEGISMEDI, o da
+    # olculdu: `.../einvoice/status`, `.../pdf` ve `/api/invoices` hala "read".
+    ("GET", "/api/invoices/{invoice_id}/einvoice/download"): "sales",
     ("GET", "/api/invoices/{invoice_id}/einvoice/status"): "read",
     ("GET", "/api/invoices/{invoice_id}/history"): "read",
     ("GET", "/api/invoices/{invoice_id}/pdf"): "read",
@@ -423,7 +431,7 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # artis YALNIZ eklemedir, hicbir ucun izni DEGISMEDI. Ucun uc yazma ikizi bu
 # envantere GIRMEZ (bu dosya YALNIZ GET sayar); onlar
 # `test_route_security_contracts.py`nin sozlesme envanterindedir.
-GET_INVENTORY_COUNT = 185
+GET_INVENTORY_COUNT = 186
 GET_INVENTORY_FINGERPRINT = (
     # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
     # sonra `auth.py`ye `/api/push/` önek kuralı eklendi, sonra izin
@@ -444,7 +452,15 @@ GET_INVENTORY_FINGERPRINT = (
     # türetildi: bu dalın önceki `cfb171c3 -> efd2dfc0` ölçümü, taban
     # değiştiği anda GEÇERSİZ oldu ve ARİTMETİKLE taşınamazdı — parmak izi
     # envanterin TAMAMINDAN türüyor. 070f4e0a -> bdf500d3.
-    "22fcac033cb894b08aaedb813b6964bb80d24f2adcc47c85fe8d23967aca765b"
+    # E2 (GOC YOK): AYNI SIRA izlendi — (1) uc yazildi
+    # (`GET .../einvoice/download`), (2) `auth.py`ye ACIK bir kural eklendi
+    # (onek+sonek birlikte; salt onek fatura listesini de yakalardi), (3) izin
+    # `required_permission` ile OLCULDU ("sales"; kural yazilmadan onceki
+    # olcum "read"di), (4) envantere girdi — `ROUTE_REASONS`a GIRMEDI ve bu
+    # DOGRU: o kapi yalniz `read`/`public` GET'leri icin gerekce ister,
+    # "sales" onun disindadir, (5) sayim 185 -> 186 olarak yeniden olculdu,
+    # (6) EN SON parmak izi turetildi. 22fcac03 -> 445ebb4f.
+    "445ebb4fe3efb3addf3bf3df609bc28648b842f066e6462d45e2cb74930aa92c"
 )
 
 

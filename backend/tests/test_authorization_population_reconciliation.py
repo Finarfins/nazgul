@@ -309,7 +309,15 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 #     "read" DEGIL.
 #   * `EXPECTED_UNDENIABLE` KIMILDAMADI: "sales" ciplak `read` degildir —
 #     tasimayan roller VAR, yani uc bir ROL DEGERIYLE reddedilebiliyor.
-EXPECTED_AUTHENTICATED = 378
+# 20260911 — E2 (e-BELGE YASAM DONGUSU, GOC YOK): TEK yeni uc,
+# `GET /api/invoices/{invoice_id}/einvoice/download`. 378 -> 379.
+#   * `EXPECTED_READ` KIMILDAMADI ve bu, GET bir uc icin ANLAMLIDIR: izni
+#     OLCULDU -> "sales". Kural `auth.py`ye ACIKCA yazilmasaydi uc genel
+#     guvenli-metot kuralindan "read"e duserdi ve BU SAYAC 99 -> 100 olurdu.
+#     Yani 99'un SABIT KALMASI, acik kuralin gercekten calistiginin TANIGIDIR.
+#   * `EXPECTED_UNDENIABLE` KIMILDAMADI: "sales" ciplak `read` degildir —
+#     tasimayan roller VAR, yani uc bir ROL DEGERIYLE reddedilebiliyor.
+EXPECTED_AUTHENTICATED = 379
 EXPECTED_READ = 99
 EXPECTED_UNDENIABLE = 114
 

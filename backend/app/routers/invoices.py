@@ -9,7 +9,9 @@ from ..activity_log import format_money_tr, log_request_activity
 from ..auth import utcnow
 from ..config import settings
 from ..db import get_db
-from ..einvoice import advance_status,einvoice_configuration,get_einvoice_provider,resolve_channel
+from ..einvoice import (CANCELLABLE,CANCELLED,EInvoiceError,UblBuildError,advance_status,
+    build_invoice_xml,einvoice_configuration,get_einvoice_provider,resolve_channel)
+from ..einvoice.ubl import CHANNEL_EARSIV,CHANNEL_EFATURA
 from ..invoice_pdf import build_invoice_pdf
 from ..invoice_schemas import InvoiceCancelRequest,InvoiceGenerateRequest
 from ..invoice_service import generate_invoice,log_invoice_action
@@ -58,15 +60,116 @@ def detail(invoice_id:int,request:Request,db:Session=Depends(get_db)):
 def history(invoice_id:int,request:Request,db:Session=Depends(get_db)):
     cid=company_id(request); _invoice(db,cid,invoice_id); return [dict(x) for x in db.execute(text("SELECT * FROM invoice_history WHERE invoice_id=:id AND company_id=:cid ORDER BY id"),{"id":invoice_id,"cid":cid}).mappings().all()]
 
+# --- e-belge iptal kapısı -------------------------------------------------
+# GERÇEK BİR BELGE, GERÇEK BİR SIRA. Bir fatura e-Arşiv/e-Fatura olarak
+# gönderildikten sonra YEREL iptal artık tek başına bir kayıt değişikliği
+# değildir: entegratörde (ve GİB'de) o belgenin bir hayatı vardır. Yereli önce
+# iptal edip sonra entegratöre sormak, ikisinin AYRIŞTIĞI bir pencere açar —
+# ve o pencerede ERP "iptal" derken belge hâlâ yürürlüktedir.
+EARSIV_CANCEL_FAILED="EARSIV_IPTAL_BASARISIZ"
+
+#: e-Fatura (B2B) TEK TARAFLI İPTAL EDİLEMEZ ve bu bir ürün kararı değil,
+#: mevzuattır: giden bir ticari e-Faturaya alıcı, TTK 18/3 uyarınca belgenin
+#: kendisine ulaşmasından itibaren SEKİZ GÜN içinde itiraz eder; iptal, o
+#: itirazın (uygulama yanıtı / harici itiraz) sonucudur, göndericinin tek
+#: taraflı beyanı değildir. Bu artışta uygulama yanıtı (`ApplicationResponse`)
+#: YOK — bu yüzden uç, sessizce yerelde iptal etmek yerine operatöre asıl
+#: yapması gerekeni SÖYLER.
+EFATURA_CANCEL_REFUSED=(
+    "Giden e-Fatura tek taraflı iptal edilemez. Alıcı, faturanın kendisine "
+    "ulaşmasından itibaren SEKİZ GÜN içinde itiraz edebilir (TTK 18/3); iptal "
+    "ancak bu itiraz sürecinin sonucunda gerçekleşir. Bu sürüm uygulama yanıtı "
+    "(ApplicationResponse) göndermez; itirazı alıcıyla yürütün."
+)
+
+def _einvoice_cancel_gate(db:Session,cid:int,invoice_id:int,invoice:dict,now)->bool:
+    """Yerel iptalden ÖNCE entegratörle hesaplaş. Yazdıysa ``True`` döner.
+
+    ÜÇ YOL, VE SIRA ANLAMLI:
+
+    * Belgenin canlı bir zarfı yoksa (`einvoice_status` üç iptal edilebilir
+      durumdan birinde değilse) kapı hiç çalışmaz — iptal edilecek bir e-belge
+      YOKTUR ve gönderilmemiş bir fatura için sağlayıcıya gitmek anlamsızdır.
+    * `EFATURA` ⇒ 409, mevzuat gerekçesiyle. Yerelde iptal EDİLMEZ.
+    * `EARSIV` ⇒ sağlayıcıya `CancelEArchiveInvoice`. BAŞARISIZSA 409 ve yerel
+      iptal OLMAZ; başarılıysa `einvoice_status=CANCELLED` yazılır ve çağıran
+      yerel iptale devam eder. Yazma, çağıranın işlemiyle AYNI transaction'da
+      kalır: iki satır ya birlikte iner ya hiç inmez.
+
+    EŞ ZAMANLILIK — BİLİNEN VE KABUL EDİLEN PENCERE. Yerel iptalin atomik
+    kapısı aşağıdaki compare-and-set'tir (`WHERE ... status='ISSUED'`) ve o
+    BU KAPIDAN SONRA koşar. Yani iki eş zamanlı iptal isteği, ikisi de
+    entegratöre GİDEBİLİR; yerelde yalnız biri kazanır, diğeri 409 alır.
+
+    Bu bir gözden kaçma değil, sıranın DOĞRUDAN SONUCUDUR: çift çağrıyı
+    engellemenin tek yolu yerel CAS'ı öne almaktır ve bu, tam da bu kapının
+    var olma sebebini — yerel iptalin entegratörü geçememesi — ortadan
+    kaldırırdı. İki maliyet karşılaştırıldı: (a) aynı belge için ikinci bir
+    iptal çağrısı, ki ETKİSİ yoktur (ikincisi belgeyi çoktan çekilmiş bulur ve
+    hata döner, yerel duruma da yazmaz çünkü kaybeden istek zaten 409'a
+    düşer), (b) sağlayıcı reddetmişken yerelde iptal edilmiş bir fatura, ki
+    GERİ ALINAMAZ bir tutarsızlıktır. (a) seçildi.
+    """
+    durum=str(invoice.get("einvoice_status") or "").strip().upper()
+    if durum not in CANCELLABLE:
+        return False
+    kanal=invoice.get("einvoice_channel")
+    if kanal==CHANNEL_EFATURA:
+        raise HTTPException(409,EFATURA_CANCEL_REFUSED)
+    if kanal!=CHANNEL_EARSIV:
+        # Kanalı bilinmeyen ama canlı görünen bir belge. Hangi iptal yolunun
+        # geçerli olduğunu BİLMEDEN yerelde iptal etmek, iki yolun da yanlış
+        # olabileceği bir tahmindir.
+        raise HTTPException(409,f"{EARSIV_CANCEL_FAILED}: e-belge kanalı belirsiz")
+    configuration=einvoice_configuration(settings)
+    if not configuration.configured:
+        # Entegratöre SORULAMIYOR. Yerelde iptal etmek, tam da bu uçun
+        # engellemek için var olduğu ayrışmayı üretirdi.
+        logger.warning("e-Arşiv iptali reddedildi: yapılandırma eksik (sebep=%s)",configuration.reason)
+        raise HTTPException(503,EINVOICE_NOT_CONFIGURED)
+    provider=get_einvoice_provider(settings,company_id=cid)
+    ext=str(invoice.get("einvoice_external_id") or "").strip()
+    try:
+        result=provider.cancel(ext,channel=kanal,uuid=invoice.get("einvoice_uuid"))
+    except Exception as exc:
+        # Sağlayıcı katmanı `cancel` için `FAILED` döndürmeyi taahhüt ediyor;
+        # yine de bir istisna sızarsa YEREL İPTAL YAPILMAZ. "Beklenmeyen hata"
+        # bir iptal izni değildir.
+        #
+        # İSTİSNANIN METNİ İSTEMCİYE GİTMEZ, yalnız SINIF ADI log'a gider.
+        # Aşağıdaki `result.error` güvenlidir çünkü sağlayıcı katmanı onu
+        # `scrub` ediyor; BURAYA düşen şey ise sağlayıcı katmanının HİÇ
+        # görmediği bir istisnadır (ör. bir veritabanı/kod hatası) ve metni
+        # temizlenmemiştir — 400 karakterini istemciye yansıtmak, iç ayrıntıyı
+        # dışarı sızdırmanın en sessiz yoludur.
+        logger.warning("e-Arşiv iptali istisnayla düştü: %s",type(exc).__name__)
+        raise HTTPException(409,f"{EARSIV_CANCEL_FAILED}: sağlayıcı çağrısı tamamlanamadı") from None
+    if result.status!=CANCELLED:
+        raise HTTPException(409,f"{EARSIV_CANCEL_FAILED}: {(result.error or '')[:400]}")
+    # İleri-yönlü makine: `CANCELLED` yalnız üç canlı durumdan kabul edilir
+    # (`CANCELLABLE`), yani buraya gelen bir yanıt REJECTED/FAILED bir belgeyi
+    # sessizce iptal edilmiş gösteremez.
+    yeni=advance_status(invoice.get("einvoice_status"),CANCELLED)
+    db.execute(text("""UPDATE invoices SET einvoice_status=:s,einvoice_last_error=NULL,einvoice_updated_at=:now
+        WHERE id=:id AND company_id=:cid"""),{"s":yeni,"now":now,"id":invoice_id,"cid":cid})
+    return True
+
 @router.post("/{invoice_id}/cancel")
 def cancel(invoice_id:int,payload:InvoiceCancelRequest,request:Request,db:Session=Depends(get_db)):
     cid=company_id(request); invoice=_invoice(db,cid,invoice_id)
     if invoice["status"]!="ISSUED": raise HTTPException(409,"Fatura iptal edilemez")
+    now=utcnow()
+    # ENTEGRATÖR ÖNCE. Bu satırın yeri sözleşmenin kendisidir: aşağıdaki
+    # compare-and-set bir kez koştuğunda fatura YERELDE iptal olmuştur ve
+    # sağlayıcı reddederse geri alınacak bir şey kalmaz.
+    ebelge_iptal=_einvoice_cancel_gate(db,cid,invoice_id,invoice,now)
+    if ebelge_iptal:
+        log_invoice_action(db,request,cid,invoice_id,"EINVOICE_CANCEL",metadata={"status":CANCELLED})
     # Compare-and-set: the UPDATE ... WHERE status='ISSUED' is the atomic gate.
     # Two concurrent cancels both read ISSUED above, but only the row-winning
     # UPDATE affects a row — check rowcount before writing audit/history so the
     # cancellation (and its audit trail) happens exactly once.
-    result=db.execute(text("UPDATE invoices SET status='CANCELLED',cancelled_at=:now,cancel_reason=:reason,updated_at=:now WHERE id=:id AND company_id=:cid AND status='ISSUED'"),{"now":utcnow(),"reason":payload.reason,"id":invoice_id,"cid":cid})
+    result=db.execute(text("UPDATE invoices SET status='CANCELLED',cancelled_at=:now,cancel_reason=:reason,updated_at=:now WHERE id=:id AND company_id=:cid AND status='ISSUED'"),{"now":now,"reason":payload.reason,"id":invoice_id,"cid":cid})
     if not result.rowcount:
         db.rollback(); raise HTTPException(409,"Fatura eş zamanlı olarak iptal edildi")
     if invoice["work_order_id"] is not None:
@@ -129,7 +232,7 @@ def einvoice_submit(invoice_id:int,request:Request,db:Session=Depends(get_db)):
     customer=payload.get("customer") if isinstance(payload.get("customer"),dict) else {}
     customer_vkn=str(customer.get("vkn_tckn") or "").strip()
     if not customer_vkn:
-        status="FAILED"; err="Fatura e-Fatura biçimine uymuyor: alıcı VKN/TCKN."
+        status="FAILED"; err="Fatura e-Fatura bicimine uymuyor: alıcı VKN/TCKN."
     else:
         try:
             taxpayer=provider.check_taxpayer(customer_vkn)
@@ -162,6 +265,100 @@ def einvoice_submit(invoice_id:int,request:Request,db:Session=Depends(get_db)):
 @router.get("/{invoice_id}/einvoice/status")
 def einvoice_status(invoice_id:int,request:Request,db:Session=Depends(get_db)):
     cid=company_id(request); return _einvoice_view(_invoice(db,cid,invoice_id))
+
+DOWNLOAD_FORMATS=("pdf","xml")
+#: Gönderilmemiş bir belgenin indirilecek bir sureti YOKTUR. 404, 409 DEĞİL —
+#: ve fark ölçülebilir: 409 "şu an olmaz, durumu değiştir" demektir, oysa
+#: burada istenen KAYNAK hiç var olmamıştır. `einvoice/sync` 409 kullanır
+#: çünkü orada YAPILACAK bir iş vardır (önce gönder); burada indirilecek bir
+#: dosya yoktur.
+EINVOICE_DOCUMENT_MISSING="Faturanın e-belge sureti yok; henüz gönderilmemiş."
+
+@router.get("/{invoice_id}/einvoice/download")
+def einvoice_download(invoice_id:int,request:Request,format:str=Query("pdf"),db:Session=Depends(get_db)):
+    """e-Belgenin suretini indir: sağlayıcı PDF'i ya da gönderilen UBL XML'i.
+
+    İKİ BİÇİM, İKİ FARKLI KAYNAK — ve bu ayrım kasıtlı:
+
+    * ``xml`` **ağa çıkmaz.** Gönderilen belge, gönderim anında dondurulmuş
+      ``einvoice_payload``dan bire bir yeniden üretilir (``build_invoice_xml``
+      saf bir dönüşümdür). Sağlayıcıdan XML istemek, elimizde ZATEN olan ve
+      belgenin gönderilmiş hâlini tanımlayan veriyi ikinci bir kaynaktan
+      sormak olurdu.
+    * ``pdf`` sağlayıcıdan gelir, çünkü PDF'i BİZ üretmiyoruz: e-Arşiv/e-Fatura
+      görüntüsü entegratörün mühürlediği sunumdur. `GET /invoices/{id}/pdf`
+      bizim İÇ faturamızı basar; bu uç ONUNLA AYNI ŞEY DEĞİLDİR.
+
+    ANAHTAR SEÇİMİ KANALA GÖRE, ve ikisi birbirinin yerine geçmez:
+    e-Arşiv `GetEArchiveInvoice` belgeyi ``WEB_VALIDATION_KEY`` ile ister
+    (bizim ``einvoice_web_key``imiz), e-Fatura `GetInvoiceWithType` ise
+    sağlayıcı belge kimliğiyle (``einvoice_external_id``).
+
+    YETKİ ``sales``, ``read`` DEĞİL — ÖLÇÜLDÜ: kural yazılmadan önce
+    ``required_permission("GET", ".../einvoice/download")`` "read" veriyordu
+    (dosyanın genel güvenli-metot kuralı). ``read`` YANLIŞ olurdu, iki
+    sebeple: (1) bu GET DIŞ BİR YAN ETKİ üretir — sağlayıcıda oturum açar ve
+    kota tüketir, tıpkı ``einvoice/sync``in ``sales``ta tutulma gerekçesi
+    gibi; (2) indirilen şey resmî mali belgenin kendisidir, iç PDF'in bir
+    kopyası değil.
+    """
+    bicim=str(format or "").strip().lower()
+    if bicim not in DOWNLOAD_FORMATS:
+        raise HTTPException(400,f"Geçersiz bicim: yalnız {' veya '.join(DOWNLOAD_FORMATS)}")
+    cid=company_id(request); invoice=_invoice(db,cid,invoice_id)
+    durum=str(invoice.get("einvoice_status") or "").strip().upper()
+    ext=str(invoice.get("einvoice_external_id") or "").strip()
+    if durum in ("","NONE","FAILED") or not ext:
+        # İki koşul da gerekli ve İKİSİ AYRI ŞEY ÖLÇÜYOR: durum belgenin bir
+        # hayatı olup olmadığını, ``external_id`` ise sağlayıcıda bir karşılığı
+        # olup olmadığını söyler. Durumu ilerlemiş ama kimliği olmayan bir satır
+        # (ya da tersi) tutarsızdır ve indirilecek bir sureti yoktur.
+        raise HTTPException(404,EINVOICE_DOCUMENT_MISSING)
+    kanal=invoice.get("einvoice_channel")
+    if bicim=="xml":
+        ham=invoice.get("einvoice_payload")
+        if not ham:
+            raise HTTPException(404,EINVOICE_DOCUMENT_MISSING)
+        try:
+            icerik=build_invoice_xml(json.loads(ham))
+        except UblBuildError as exc:
+            # Saklanan payload'dan belge YENİDEN ÜRETİLEMİYOR. Yarım bir XML
+            # döndürmek, mali belge diye eksik bir dosya vermek olurdu.
+            # `UblBuildError`in metni BİZİM alan adlarımızdır (ör. "alıcı
+            # VKN/TCKN"), sağlayıcı gövdesi değil — o yüzden yansıtılabilir.
+            raise HTTPException(409,f"Gönderilen UBL yeniden üretilemedi: {str(exc)[:300]}") from None
+        except ValueError as exc:
+            # Saklanan payload JSON olarak OKUNAMIYOR. `ValueError`in metni
+            # gövdenin BİR PARÇASINI taşıyabilir (json ayrıştırıcısı bağlam
+            # basar), o yüzden istemciye SABİT bir cümle gider.
+            logger.warning("e-Belge XML üretilemedi: saklanan payload okunamadı (%s)",type(exc).__name__)
+            raise HTTPException(409,"Gönderilen UBL yeniden üretilemedi: saklanan veri okunamadı") from None
+        log_invoice_action(db,request,cid,invoice_id,"EINVOICE_DOWNLOAD",metadata={"format":"xml"}); db.commit()
+        return Response(icerik,media_type="application/xml",
+            headers={"Content-Disposition":f'attachment; filename="{invoice["invoice_number"]}.xml"'})
+    configuration=einvoice_configuration(settings)
+    if not configuration.configured:
+        logger.warning("e-Belge PDF indirmesi reddedildi: yapılandırma eksik (sebep=%s)",configuration.reason)
+        raise HTTPException(503,EINVOICE_NOT_CONFIGURED)
+    provider=get_einvoice_provider(settings,company_id=cid)
+    try:
+        icerik=provider.fetch_pdf(ext,channel=kanal,web_key=invoice.get("einvoice_web_key"))
+    except EInvoiceError as exc:
+        # `fetch_pdf` boş `bytes` DÖNDÜRMEZ, fırlatır (sağlayıcı katmanının
+        # sözleşmesi): boş bir gövde çağıran tarafta boş bir PDF'ten ayırt
+        # edilemezdi. Burada da aynı çizgi: 502, çünkü hata BİZDE değil.
+        # `EInvoiceError.message` sağlayıcı katmanında `scrub`lanmış SABİT
+        # cümledir (kimlik/gövde taşımaz), o yüzden yansıtılabilir.
+        logger.warning("e-Belge PDF indirmesi başarısız (sınıf=%s)",exc.code)
+        raise HTTPException(502,f"e-Belge PDF alınamadı: {exc.message[:400]}") from None
+    except Exception as exc:
+        # Sağlayıcı katmanının HİÇ görmediği bir istisna: metni temizlenmemiş,
+        # o yüzden istemciye GİTMEZ — yalnız sınıf adı log'a düşer.
+        logger.warning("e-Belge PDF indirmesi istisnayla düştü: %s",type(exc).__name__)
+        raise HTTPException(502,"e-Belge PDF alınamadı") from None
+    log_invoice_action(db,request,cid,invoice_id,"EINVOICE_DOWNLOAD",metadata={"format":"pdf"}); db.commit()
+    return Response(icerik,media_type="application/pdf",
+        headers={"Content-Disposition":f'attachment; filename="{invoice["invoice_number"]}-ebelge.pdf"'})
 
 @router.post("/{invoice_id}/einvoice/sync")
 def einvoice_sync(invoice_id:int,request:Request,db:Session=Depends(get_db)):
