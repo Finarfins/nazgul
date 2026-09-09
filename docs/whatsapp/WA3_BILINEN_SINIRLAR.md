@@ -43,11 +43,32 @@ sabit ki biri "eklerken" iki akış sessizce ayrışmasın.
 | 6 | **İşçi ayrı bir SÜREÇ değil, app süreci içinde bir THREAD.** | Kaynakta işçi kendi compose servisidir; bu depoda `app/field_stok_zamanlayici.py` deseni var ve ikinci bir konteyner açmak, bu dilimin ölçemeyeceği bir dağıtım değişikliği olurdu. Kaynağın `hazirlik.py` kapısı (şema head'de mi, app `/api/ready` 200 mü) bu yüzden **taşınmadı**: aynı süreçte ikisi de yapı gereği sağlanıyor; gerekçenin tamamı `app/whatsapp/zamanlayici.py` başlığındadır. | `tests/test_wa3_worker.py::test_ISCI_VARSAYILAN_KAPALI_hicbir_thread_acmiyor` |
 | 7 | **Köprü yalnız BAĞSIZ numaralar için.** Bağlı bir kullanıcının kapsam dışı sorusu köprüye gitmez, `niyet.KAPSAM_MESAJI` alır. | Kaynak, bağlı kullanıcının kapsam mesajını da danışmana devrediyordu. Burada devretmemenin gerekçesi ölçülebilirlik: köprüye giden metin dışarı çıkar ve bağlı kullanıcının mesajı **ERP bağlamı taşıyabilir**. Bağsız numarada böyle bir bağlam yoktur — kimlik zaten çözülmemiştir. | `tests/test_wa3_worker.py::test_KOPRU_ACIKKEN_BAGSIZ_NUMARA_KOPRUYE_GIDIYOR` |
 
+## KAPANDI — SEC-1: eşleştirme kodu artık bir NUMARAYA bağlı
+
+Güvenlik incelemesi A/1 (P1) `whatsapp_pairing_codes`ta **ölçülmüş** bir
+çapraz kiracı devralma buldu ve göç `20260912_0082` onu kapattı.
+
+| | |
+| :-- | :--- |
+| **Açık** | Kod satırı "hangi firma, hangi kullanıcı" sorusunu cevaplıyordu (`company_id` + `user_id`) ama **hangi numara** sorusunu hiç sormuyordu. `eslestirme.kod_kullan` satırı yalnız `code_digest` ile buluyor ve bağlantıyı **çağıranın** numarasıyla açıyordu. |
+| **Sonuç** | B firmasının kodunu **ele geçiren** biri (ekran görüntüsü, iletilmiş mesaj) kendi numarasını B'nin kullanıcısına bağlayabiliyordu — o numaradan gelen her mesaj B'nin borç, stok ve tahsilat verisini görürdü. Kod bir **sırdır** ama tek başına bir **kimlik değildir**. |
+| **Düzeltme** | `target_phone VARCHAR(20) NOT NULL`. Uç (`POST /api/whatsapp/pairing-codes`) gövdesinde `phone` **zorunlu** ve `telefon.e164` ile doğrulanıyor; saklanan biçim kanonik `normalize_phone` çıktısı (`whatsapp_links.phone` ile birebir aynı). `kod_kullan` özet doğrulamasından sonra iki değeri **karşılaştırıyor**. |
+| **Ret ayırt edilemez** | Yanlış numaradan gelen **doğru** kod, hiç var olmamış kodla **aynı** `RED_MESAJI`ni alır. Ayrılsaydı saldırgan elindeki kodun geçerli olduğunu öğrenirdi — bir kâhin. |
+| **Sayaçlar yanar** | Yanlış numara kodun kendi `attempt_count`unu artırır (ayrı deyim, geri alınmaz) ve saldırganın telefon+pencere sayacına da yazılır. Israr eden biri kodu **kilitler**; sahibi yeni kod ister. |
+| **Mevcut satırlar** | Tablo 0079 ile doğdu ve üretimde satırı yok; yine de göç **varsayım yapmıyor**: hedef `''` (hiçbir `normalize_phone` çıktısı olamaz — fail-closed) ve mevcut `PENDING` satırların hepsi `EXPIRED` yazılıyor. |
+| **Sabitleyen** | AST kapısı `tests/test_wa2_eslestirme.py::test_HEDEF_NUMARA_DENETIMI_BAGLANTI_INSERTINDEN_ONCE` (kıyasın **varlığı**, **operandları** ve bağlantı INSERT'inden **önce** olduğu) + beş davranış adımı + PG ikizinde `test_CAPRAZ_KIRACI_SIZAN_KOD_BASKA_NUMARADA_ISE_YARAMIYOR` ve `test_GOC_0082_HEDEFSIZ_BEKLEYEN_KODU_SURESI_DOLMUS_YAPIYOR`. |
+
+**Sıra sözleşmedir:** denetim bağlantı INSERT'inden **öncedir**. Sonraya
+alan bir mutant davranışta **aynı** görünür (SAVEPOINT geri alır) — hiçbir
+davranış testi onu öldüremez, kapı bu yüzden AST'dedir. Ölçüldü: dört
+mutantın (kıyas silindi / INSERT'ten sonra / ayırt edilebilir hata / uçta
+`phone` isteğe bağlı) dördü de kırmızı, ikincisi **yalnız** AST kapısıyla.
+
 ## Ölçülmüş bir sürpriz: CAS kaybı ÜRETİLEMİYOR
 
 WA2'nin PG ikizindeki yirmi işçilik yarış (`test_wa2_eslestirme_postgresql.py::
-test_YIRMI_ESZAMANLI_ayni_kod_TEK_KEZ_tukeniyor`) bu turda ısınma turu ve
-kendi bağlantı havuzuyla yeniden ölçüldü. Sezgiye aykırı sonuç **kaydedildi ve
+test_YIRMI_ESZAMANLI_ayni_kod_TEK_KEZ_tukeniyor`) ısınma turu ve kendi
+bağlantı havuzuyla ölçülmüştü. Sezgiye aykırı sonuç **kaydedildi ve
 teste yazıldı**:
 
 * `SELECT ... FOR UPDATE` (A katmanı) yirmi thread'i **sıraya sokuyor**;
@@ -76,3 +97,24 @@ Dürüst not: ısınma **sonucu değiştirmedi**. `for_update`=20 ve
 `cas_denemesi`=1 eski kurguda da aynı çıkıyor. Değişiklik bir kusuru
 KAPATMIYOR; testin ölçtüğü şeyi **ölçülebilir kılıyor** — sayılar artık
 bariyerin ne söz verdiğini varsaymadan doğrulanıyor.
+
+**0082 KURGUYU DEĞİŞTİRDİ ve bu burada kayıtlı** ki yukarıdaki ölçümün
+hangi kurguya ait olduğu kaybolmasın. Yarış eskiden **yirmi ayrı numara**
+kullanıyordu; kod artık `target_phone`a bağlı olduğu için o kurguda on
+dokuz işçi **yarışa hiç girmez** — hedef denetiminde, CAS'e varmadan
+düşerler. Yani o kurgu bugün yazılsaydı "yirmi işçi yarışıyor" diye okunur,
+gerçekte **tek işçi** yarışırdı: testin ölçtüğünü sandığı şeyi ölçmemesinin
+ta kendisi.
+
+Yeni kurgu **yirmi işçi, tek numara**. İki sonucu var ve ikisi de açıkça
+yazılıyor:
+
+* Hız sınırı artık yarışın **içinde**: sınır telefon başınadır
+  (`PAIRING_PENCERE_SINIRI` = 5), yani yirmi işçinin **beşi** CAS'e kadar
+  ilerler, on beşi `sinirda` dalında döner. Sınırı test için gevşetmek,
+  üretimde **asla oluşamayacak** bir yarışı ölçmek olurdu. `FOR UPDATE`
+  sayısı yine **20**'dir — sınır denetimi kilitli okumadan **sonra** gelir.
+* Aynı numarayla `uq_whatsapp_links_aktif_numara` yine bir **hakemdir**,
+  yani bu test tek başına "kod iki kez tüketildi" hâlini artık ayırt
+  edemez. Ayırt eden şey `cas_denemesi == 1` ölçümüdür — tüketim deyimi
+  **sürücü seviyesinden** sayılıyor, uygulamanın kendi raporundan değil.

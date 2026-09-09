@@ -69,7 +69,15 @@ Kullanıcı bota **kendisi yazıyor**. Dahası bağlantının kendisi
 (`whatsapp_links`) tek kullanımlık bir eşleştirme koduyla, panelden,
 kullanıcının kendi oturumuyla açılıyor (WA2). Yani "bu numaraya yazabilir
 miyiz" sorusunun cevabı bir onay kutusundan değil, **kanıtlanmış bir
-eşleştirmeden** geliyor. `whatsapp_links.is_active = false` yapmak da
+eşleştirmeden** geliyor.
+
+Göç `20260912_0082`den (SEC-1) sonra bu cümle **daha da güçlüdür**: kod
+üretilirken bir **hedef numaraya** bağlanıyor (`whatsapp_pairing_codes.
+target_phone`) ve yalnız o numaradan kullanılabiliyor. Yani eşleştirme
+artık "kodu bilen biri" değil, "kodu bilen **ve** yöneticinin yazdığı
+numaradan yazan" kişi tarafından tamamlanabilir — sızan bir kod
+başkasının elinde işe yaramaz. Ayrıntı `docs/whatsapp/
+WA3_BILINEN_SINIRLAR.md` ve göçün kendi başlığındadır. `whatsapp_links.is_active = false` yapmak da
 iptal mekanizmasının ta kendisi.
 
 ### 2.3 Meta'nın 24 saat kuralı iki yolu ZATEN ayırıyor

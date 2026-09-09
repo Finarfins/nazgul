@@ -1737,7 +1737,7 @@ CEKIRDEK_KIRACI_ISTISNALARI: dict[tuple[str, str, str], str] = {
     (
         "backend/app/whatsapp/eslestirme.py",
         "kod_kullan",
-        "d45429e099aa6bd7cf2345a576bf8b4930d6efa2b61f0cb01abf4d5c98e91cc1",
+        "6b51156b48b49ec9d378ccd9cbe2fff6b490735a5ed25bdce02df0a732f13a06",
     ): (
         "WhatsApp eşleştirme kodunun ÖZETLE aranması (WA2, göç "
         "20260910_0079). Kiracı yüklemi TAŞIYAMAZ çünkü çağıranda HENÜZ "
@@ -1748,7 +1748,13 @@ CEKIRDEK_KIRACI_ISTISNALARI: dict[tuple[str, str, str], str] = {
         "özetini bilmek zaten o firmanın yöneticisinin ürettiği sırrı "
         "bilmektir; ayrıca telefon+pencere sayacı (whatsapp_pairing_attempts) "
         "denemeyi 15 dakikada 5 ile sınırlar. Satır bulunduktan SONRA yazan "
-        "her deyim (`_denemeyi_artir`, CAS UPDATE) kiracı yüklemi TAŞIR."
+        "her deyim (`_denemeyi_artir`, CAS UPDATE) kiracı yüklemi TAŞIR. "
+        "SEC-1 (göç 20260912_0082) bu istisnayı DARALTTI: sorgu artık "
+        "`target_phone`u da SEÇİYOR ve satır bulunduktan sonra kod, "
+        "VERİLDİĞİ numaradan gelmediyse REDDEDİLİYOR — yani özetin "
+        "bilinmesi tek başına ARTIK YETMİYOR. Parmak izi d45429e0 -> "
+        "6b51156b yalnız bu sütun eklemesiyle kımıldadı; yüklem "
+        "(`code_digest == :ozet`) AYNI."
     ),
     (
         "backend/app/whatsapp/eslestirme.py",
