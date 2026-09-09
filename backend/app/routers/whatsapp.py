@@ -114,6 +114,7 @@ from ..whatsapp.cloud_api import (
     verify_signature,
 )
 from ..whatsapp.schema import whatsapp_links, whatsapp_pairing_codes
+from .auth import _consume_ip_limit
 
 log = logging.getLogger("nazgul.whatsapp.webhook")
 
@@ -217,6 +218,27 @@ async def webhook(request: Request) -> dict[str, str]:
         raise HTTPException(413, "Gövde çok büyük.")
 
     if not verify_signature(ham, request.headers.get(SIGNATURE_HEADER), ayar.app_secret):
+        # SEC-6 — TAVAN TAM BURADA, İMZA DÜŞTÜKTEN SONRA. Uç oturumsuzdur ve
+        # imzasız gövde üretmek bedavadır; sınırsız bırakıldığında HMAC
+        # doğrulaması bir saldırganın ELİNDEKİ ücretsiz CPU pompasıdır.
+        #
+        # Sayacın YERİ sözleşmenin kendisidir: imzası TUTAN bir Meta çağrısı
+        # bu satıra HİÇ ULAŞMAZ, yani meşru teslimat HİÇBİR KOŞULDA
+        # kısılamaz. Tavan `verify_signature`ın ÖNÜNE konsaydı Meta'nın
+        # yoğun bir dakikası 429 alır ve yeniden teslimat fırtınası başlardı.
+        #
+        # IP `request.client`ten okunur ve X-Forwarded-For'a ELLE BAKILMAZ:
+        # `app/client_ip.py` başlığı yalnız TANINAN bir ters vekilden
+        # geldiğinde dikkate alan bir çözümlemeyi süreç genelinde kurar
+        # (`config.py` içe aktarmasında). Başlığı burada okumak, istemcinin
+        # kendi IP'sini uydurup tavanı sonsuza kadar tazelemesi demekti.
+        with SessionLocal() as db:
+            _consume_ip_limit(
+                db,
+                action="wa_webhook_bad_sig",
+                ip_address=request.client.host if request.client else "unknown",
+                maximum=settings.whatsapp_webhook_bad_signature_limit_per_hour,
+            )
         # İmzasız istek ile imzası YANLIŞ istek aynı kapıdan düşer;
         # ayrım sızdırılmaz (başlık).
         raise HTTPException(403, "İmza doğrulanamadı.")

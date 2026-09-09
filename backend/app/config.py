@@ -62,6 +62,26 @@ class Settings(BaseSettings):
     max_supplier_price_import_request_body_bytes: int = 26 * 1024 * 1024
     trusted_proxy_cidrs: str = ""
 
+    # SEC-6 — IP BAŞINA SAATLİK TAVANLAR. İkisi de yukarıdaki
+    # `trusted_proxy_cidrs`e BAĞIMLIDIR: liste boşken ters vekilin arkasındaki
+    # her istek vekilin adresine düşer ve tavan tüm kullanıcılar için
+    # ORTAKLAŞIR (gerekçe `app/client_ip.py` içindeki uyarıda).
+    #
+    # 200 keyfi değildir. Sayaç YALNIZ BAŞARISIZ girişleri yer (başarılı
+    # giriş bütçe harcamaz, `routers/auth.py::login`), yani bu, tek bir çıkış
+    # IP'sinden saatte 200 YANLIŞ paroladır. Ortak NAT arkasındaki bir
+    # dükkânda 10-15 kişi bir saat boyunca parolasını karıştırsa bile bu
+    # tavana değmez; kimlik-doldurma (credential stuffing) ise ilk dakikada
+    # aşar. Kullanıcı BAŞINA kilit (5 deneme / 15 dakika) yerinde DURUYOR;
+    # bu tavan onun yerine geçmez, N kullanıcı adına yayılan denemeyi
+    # kapatır — kullanıcı başına kilidin göremediği saldırı tam olarak odur.
+    login_ip_limit_per_hour: int = 200
+    # Meta'nın İMZASI TUTAN çağrısı bu sayaca HİÇ dokunmaz; tavan yalnız
+    # imza doğrulaması DÜŞEN isteklere işler. Meşru bir webhook teslimatının
+    # kısılması Meta tarafında yeniden teslimat fırtınası üretirdi, bu yüzden
+    # sayacın yeri `verify_signature` başarısızlığının TAM İÇİDİR.
+    whatsapp_webhook_bad_signature_limit_per_hour: int = 60
+
     # Persistent data directory for uploaded files (work-order photos and
     # signatures). Production MUST point this OUTSIDE the release directory
     # (e.g. /opt/sungur-data): the tarball-swap deploy replaces the release

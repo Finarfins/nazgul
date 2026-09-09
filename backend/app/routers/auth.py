@@ -380,9 +380,32 @@ def _registration_response(started_at) -> dict[str, str]:
     return {"message": "Doğrulama e-postası gönderildi."}
 
 
+def _kaydet_ip_denemesi(db: Session, *, action: str, ip_address: str) -> None:
+    """Tek bir denemeyi saatlik pencereye yazar.
+
+    `_consume_ip_limit`ten AYRI durmasının tek sebebi giriş yoludur: orada
+    KONTROL kimlik doğrulamasından ÖNCE, KAYIT ise SONRA olmak zorundadır
+    (gerekçe `login` içinde). Yazan tek yer burasıdır; iki ayrı `insert`
+    olsaydı biri değiştiğinde diğeri sessizce eski kalırdı.
+    """
+    db.execute(
+        insert(auth_rate_limits).values(
+            action=action, ip_address=ip_address, attempted_at=utcnow()
+        )
+    )
+    db.commit()
+
+
 def _consume_ip_limit(
-    db: Session, *, action: str, ip_address: str, maximum: int
+    db: Session, *, action: str, ip_address: str, maximum: int, kaydet: bool = True
 ) -> None:
+    """Saatlik pencereyi süpürür, sayar ve tavan aşıldıysa 429 atar.
+
+    `kaydet=False` YALNIZ SAYAR: çağıran, denemenin bütçeden düşüp
+    düşmeyeceğine SONUCU gördükten sonra karar verir. Varsayılan `True`dur,
+    yani mevcut çağıranların (`register`, `forgot`, `reset`) davranışı
+    KIMILDAMAZ.
+    """
     cutoff = utcnow() - timedelta(hours=1)
     db.execute(
         delete(auth_rate_limits).where(auth_rate_limits.c.attempted_at < cutoff)
@@ -402,12 +425,12 @@ def _consume_ip_limit(
             status_code=429,
             detail="Çok fazla deneme. Bir saat sonra tekrar deneyin.",
         )
-    db.execute(
-        insert(auth_rate_limits).values(
-            action=action, ip_address=ip_address, attempted_at=utcnow()
-        )
-    )
-    db.commit()
+    if not kaydet:
+        # Süpürme (`delete`) yine de kalıcı olmalı; aksi halde pencere
+        # yalnız yazan çağıranlarda temizlenirdi.
+        db.commit()
+        return
+    _kaydet_ip_denemesi(db, action=action, ip_address=ip_address)
 
 
 def _cookie_common() -> dict[str, object]:
@@ -514,8 +537,27 @@ def login(
 ):
     username = payload.username
     ip_address = request.client.host if request.client else "unknown"
+    # SEC-6 — IP BAŞINA TAVAN, KULLANICI BAŞINA KİLİTTEN ÖNCE. Kilit
+    # (kullanıcı adı, IP) İKİLİSİNE bağlıdır; tek bir IP N farklı kullanıcı
+    # adına kilit eşiğinin BİR ALTINA kadar deneme yapıp hiçbir kilidi
+    # tetiklemeden ilerleyebiliyordu — kimlik-doldurmanın tanımı budur.
+    # Tavan İKİLİYE DEĞİL YALNIZ IP'ye bakar, o yüzden yayılma onu geçemez.
+    #
+    # SIRA BİLİNÇLİDİR: sayım kimlik doğrulamasından ÖNCE koşar (fren, işi
+    # yaptıktan sonra değil önce çeker) ama KAYIT sonraya bırakılır
+    # (`kaydet=False`), çünkü BAŞARILI bir giriş bütçe harcamamalıdır. İkisi
+    # tek çağrıda birleşseydi, gün boyu doğru parolayla giren ortak NAT
+    # arkasındaki bir dükkân kendi tavanını kendi yerdi.
+    _consume_ip_limit(
+        db,
+        action="login",
+        ip_address=ip_address,
+        maximum=settings.login_ip_limit_per_hour,
+        kaydet=False,
+    )
     locked_until = login_lock_status(db, username, ip_address)
     if locked_until:
+        _kaydet_ip_denemesi(db, action="login", ip_address=ip_address)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Çok fazla başarısız deneme. 15 dakika sonra tekrar deneyin.",
@@ -523,10 +565,14 @@ def login(
     user = authenticate(db, username, payload.password)
     if not user:
         record_login_failure(db, username, ip_address)
+        _kaydet_ip_denemesi(db, action="login", ip_address=ip_address)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Kullanıcı adı veya şifre hatalı",
         )
+    # Buradan sonrası PAROLASI DOĞRU bir çağırandır ve bütçeden DÜŞMEZ —
+    # e-postası doğrulanmamış olsa (403) bile: o cevap bir saldırı denemesi
+    # değil, doğru kimlik bilgisiyle gelen bir kullanıcıya verilen yönergedir.
     if not user["email_verified"]:
         raise HTTPException(
             status_code=403,
