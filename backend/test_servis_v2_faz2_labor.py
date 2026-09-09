@@ -103,15 +103,18 @@ with TestClient(app) as client:
     company_a = int(headers['X-Company-ID'])
     admin_id = int(body['user']['id'])
 
+    import uuid
+    k_ek = uuid.uuid4().hex[:8]
     customer = client.post('/api/customers', headers=headers, json={'name':'F2 Müşteri'})
     assert customer.status_code == 201, customer.text
     customer_id = customer.json()['id']
     machine = client.post('/api/machines', headers=headers, json={
         'customer_id':customer_id, 'brand':'Sungur', 'model':'F2-100',
-        'serial_number':'F2-SER-1', 'chassis_number':'F2-CHS-1',
+        'serial_number':f'F2-SER-1-{k_ek}', 'chassis_number':f'F2-CHS-1-{k_ek}',
     })
     assert machine.status_code == 201, machine.text
     machine_id = machine.json()['id']
+
 
     def new_work_order(**overrides):
         payload = {'machine_id':machine_id, 'technician_id':admin_id,
@@ -176,11 +179,11 @@ with TestClient(app) as client:
 
     # ---- RBAC: satış rolü taslak açar, onaylayamaz ----------------------------
     sales_user = client.post('/api/users', headers=headers, json={
-        'username':'f2_satis', 'display_name':'F2 Satis',
+        'username':f'f2_satis_{k_ek}', 'display_name':'F2 Satis',
         'password':'F2SatisTest123!', 'role':'satis',
     })
     assert sales_user.status_code == 201, sales_user.text
-    sales_headers = login_as(client, 'f2_satis', 'F2SatisTest123!', 'F2SatisTest456!', company_a)
+    sales_headers = login_as(client, f'f2_satis_{k_ek}', 'F2SatisTest123!', 'F2SatisTest456!', company_a)
     sales_line = client.post(f'/api/work-orders/{wo_id}/labor-lines', headers=sales_headers,
                              json={'technician_user_id':admin_id, 'hours':'1'})
     assert sales_line.status_code == 201, sales_line.text
@@ -193,11 +196,11 @@ with TestClient(app) as client:
     assert denied.status_code == 403, denied.text
     # Read-only role cannot create at all.
     report_user = client.post('/api/users', headers=headers, json={
-        'username':'f2_rapor', 'display_name':'F2 Rapor',
+        'username':f'f2_rapor_{k_ek}', 'display_name':'F2 Rapor',
         'password':'F2RaporTest123!', 'role':'rapor',
     })
     assert report_user.status_code == 201, report_user.text
-    report_headers = login_as(client, 'f2_rapor', 'F2RaporTest123!', 'F2RaporTest456!', company_a)
+    report_headers = login_as(client, f'f2_rapor_{k_ek}', 'F2RaporTest123!', 'F2RaporTest456!', company_a)
     assert client.get(f'/api/work-orders/{wo_id}/labor-lines', headers=report_headers).status_code == 200
     assert client.post(f'/api/work-orders/{wo_id}/labor-lines', headers=report_headers,
                        json={'technician_user_id':admin_id, 'hours':'1'}).status_code == 403

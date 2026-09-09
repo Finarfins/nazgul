@@ -4,6 +4,13 @@ import os
 from decimal import Decimal
 
 import pytest
+
+try:
+    from tests.pg_ikiz_yardimci import kosu_eki
+except ImportError:
+    import uuid
+    def kosu_eki() -> str:
+        return uuid.uuid4().hex[:8]
 from sqlalchemy import text
 
 
@@ -37,7 +44,7 @@ def _acilisa_cek() -> None:
     ÖNCEKİ dosya olabilir. Bu yüzden İKİ UÇTAN çağrılır.
     """
     try:
-        from tests.pg_ikiz_yardimci import acilisa_cek
+        from tests.pg_ikiz_yardimci import acilisa_cek, kosu_eki
         acilisa_cek()
     except ImportError:
         from sqlalchemy import text as _text
@@ -98,13 +105,15 @@ def test_pos_core_path_postgresql(monkeypatch: pytest.MonkeyPatch) -> None:
         assert changed.status_code == 200, changed.text
         headers["Authorization"] = "Bearer " + changed.json()["access_token"]
 
+        k_ek = kosu_eki()
+        pos_barcode = f"8690{k_ek}"
         product = client.post(
             "/api/products",
             headers=headers,
             json={
                 "name": "PG POS Filtre",
-                "product_code": "PG-POS-1",
-                "barcode": "869000009999",
+                "product_code": f"PG-POS-{k_ek}",
+                "barcode": pos_barcode,
                 "purchase_price": "5.00",
                 "sale_price": "19.95",
                 "vat_rate": 20,
@@ -118,14 +127,14 @@ def test_pos_core_path_postgresql(monkeypatch: pytest.MonkeyPatch) -> None:
         lookup = client.get(
             "/api/pos/lookup",
             headers=headers,
-            params={"barcode": "869000009999"},
+            params={"barcode": pos_barcode},
         )
         assert lookup.status_code == 200, lookup.text
         assert lookup.json()["id"] == product_id
 
         sale = client.post(
             "/api/pos/sale",
-            headers={**headers, "Idempotency-Key": "pg-pos-sale"},
+            headers={**headers, "Idempotency-Key": f"pg-pos-sale-{k_ek}"},
             json={
                 "items": [
                     {
@@ -142,7 +151,7 @@ def test_pos_core_path_postgresql(monkeypatch: pytest.MonkeyPatch) -> None:
 
         blocked = client.post(
             "/api/pos/sale",
-            headers={**headers, "Idempotency-Key": "pg-pos-insufficient"},
+            headers={**headers, "Idempotency-Key": f"pg-pos-insufficient-{k_ek}"},
             json={
                 "items": [
                     {
@@ -154,12 +163,13 @@ def test_pos_core_path_postgresql(monkeypatch: pytest.MonkeyPatch) -> None:
                 "payment_type": "card",
             },
         )
+
         assert blocked.status_code == 409, blocked.text
 
         with SessionLocal() as db:
             stock = db.execute(
                 text(
-                    "SELECT quantity FROM warehouse_stocks "
+                    "SELECT SUM(quantity) FROM warehouse_stocks "
                     "WHERE company_id=:cid AND product_id=:pid"
                 ),
                 {"cid": company_id, "pid": product_id},

@@ -427,11 +427,18 @@ with TestClient(app) as client:
                            json={'operation_id':op_id,'expected_version':version,
                                  'status':status})
 
+    import uuid
+    k_ek = uuid.uuid4().hex[:8]
+    op_bayat = f'op-bayat-{k_ek}'
+    op_iptal = f'op-iptal-{k_ek}'
+    op_ilerlet = f'op-ilerlet-{k_ek}'
+    op_yabanci = f'op-yabanci-{k_ek}'
+
     ilk = snapshot_emri()
     assert ilk['status'] == 'OPEN', ilk['status']
 
     # --- 1) Eski sürümle yazma reddedilmeli ve GÜNCEL kaydı döndürmeli -------
-    bayat = durum_degistir('op-bayat-0001', '1999-01-01T00:00:00+00:00', 'IN_PROGRESS')
+    bayat = durum_degistir(op_bayat, '1999-01-01T00:00:00+00:00', 'IN_PROGRESS')
     assert bayat.status_code == 409, bayat.text
     govde = bayat.json()
     assert 'current' in govde, govde
@@ -440,12 +447,12 @@ with TestClient(app) as client:
     assert snapshot_emri()['status'] == 'OPEN', 'reddedilen yazma durumu değiştirmiş'
 
     # --- 2) Sahadan iptal edilemez (domain izin verse bile) ------------------
-    iptal = durum_degistir('op-iptal-0001', ilk['version'], 'CANCELLED')
+    iptal = durum_degistir(op_iptal, ilk['version'], 'CANCELLED')
     assert iptal.status_code == 409, iptal.text
     assert snapshot_emri()['status'] == 'OPEN'
 
     # --- 3) Geçerli geçiş -----------------------------------------------------
-    tamam = durum_degistir('op-ilerlet-0001', ilk['version'], 'IN_PROGRESS')
+    tamam = durum_degistir(op_ilerlet, ilk['version'], 'IN_PROGRESS')
     assert tamam.status_code == 200, tamam.text
     sonra = tamam.json()
     assert sonra['status'] == 'IN_PROGRESS', sonra
@@ -456,7 +463,7 @@ with TestClient(app) as client:
     # Kuyruk cevabı kaybederse aynı işlemi yeniden yollar. İkinci gönderim
     # durumu tekrar DEĞİŞTİRMEMELİ; üstelik gönderdiği sürüm artık bayat
     # olduğu hâlde 409 da vermemeli — işlem zaten uygulanmış durumda.
-    tekrar = durum_degistir('op-ilerlet-0001', ilk['version'], 'IN_PROGRESS')
+    tekrar = durum_degistir(op_ilerlet, ilk['version'], 'IN_PROGRESS')
     assert tekrar.status_code == 200, tekrar.text
     assert tekrar.json()['status'] == 'IN_PROGRESS'
 
@@ -465,13 +472,13 @@ with TestClient(app) as client:
     from app.db import engine
     with engine.connect() as conn:
         adet = conn.execute(_sql(
-            "SELECT COUNT(*) FROM field_operations WHERE operation_id='op-ilerlet-0001'"
-        )).scalar()
+            "SELECT COUNT(*) FROM field_operations WHERE operation_id=:oid"
+        ), {'oid': op_ilerlet}).scalar()
     assert adet == 1, f'tekrar gönderim {adet} kayıt bırakmış'
 
     # --- 5) BAŞKA teknisyenin iş emri görünmemeli ---------------------------
     baska = client.post('/api/users', headers=headers,
-                        json={'username':'saha-teknisyen','password':'SahaTeknisyen!123',
+                        json={'username':f'saha-teknisyen-{k_ek}','password':'SahaTeknisyen!123',
                               'display_name':'Saha Teknisyeni','role':'satis'})
     assert baska.status_code in (200, 201), baska.text
     baska_id = baska.json()['id']
@@ -483,7 +490,7 @@ with TestClient(app) as client:
     baska_emir_id = baska_emir.json()['id']
 
     yabanci = client.post(f'/api/field/work-orders/{baska_emir_id}/status', headers=headers,
-                          json={'operation_id':'op-yabanci-0001',
+                          json={'operation_id':op_yabanci,
                                 'expected_version':'1999-01-01T00:00:00+00:00',
                                 'status':'IN_PROGRESS'})
     # 404: "var ama sana kapalı" bilgisini sızdırmamak için 403 DEĞİL.

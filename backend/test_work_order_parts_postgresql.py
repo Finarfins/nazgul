@@ -5,6 +5,13 @@ import os
 from threading import Barrier
 
 import pytest
+
+try:
+    from tests.pg_ikiz_yardimci import kosu_eki
+except ImportError:
+    import uuid
+    def kosu_eki() -> str:
+        return uuid.uuid4().hex[:8]
 def _acilisa_cek() -> None:
     """Admin şifresini AÇILIŞ DURUMUNA (`admin123` + `must_change_password`) yaz.
 
@@ -18,7 +25,7 @@ def _acilisa_cek() -> None:
     these two count rows in the company; on a shared DB the login company is polluted by neighbours, so they isolate into a fresh company — deliberate, part of the shared-DB property.
     """
     try:
-        from tests.pg_ikiz_yardimci import acilisa_cek
+        from tests.pg_ikiz_yardimci import acilisa_cek, kosu_eki
         acilisa_cek()
     except ImportError:
         from sqlalchemy import text as _text
@@ -76,8 +83,9 @@ def test_work_order_parts_postgresql_concurrency(monkeypatch: pytest.MonkeyPatch
         headers["X-Company-ID"] = str(cid)
         customer = client.post("/api/customers", headers=headers, json={"name": "PG Parts"}).json()
         machine = client.post("/api/machines", headers=headers, json={
-            "customer_id": customer["id"], "brand": "PG", "model": "Parts", "serial_number": "PG-PARTS-M"
+            "customer_id": customer["id"], "brand": "PG", "model": "Parts", "serial_number": f"PG-PARTS-M-{kosu_eki()}"
         }).json()
+
         work_orders = [client.post("/api/work-orders", headers=headers, json={
             "machine_id": machine["id"], "customer_id": customer["id"], "technician_id": uid
         }).json() for _ in range(2)]
@@ -190,8 +198,9 @@ def test_work_order_parts_postgresql_cancel_restore_and_bounds(monkeypatch: pyte
             headers["Authorization"] = "Bearer " + changed["access_token"]
         customer = client.post("/api/customers", headers=headers, json={"name": "PG Cancel"}).json()
         machine = client.post("/api/machines", headers=headers, json={
-            "customer_id": customer["id"], "brand": "PG", "model": "Cancel", "serial_number": "PG-CANCEL-M"
+            "customer_id": customer["id"], "brand": "PG", "model": "Cancel", "serial_number": f"PG-CANCEL-M-{kosu_eki()}"
         }).json()
+
         warehouse = client.get("/api/warehouses", headers=headers).json()[0]
         product = client.post("/api/products", headers=headers, json={
             "name": "PG Cancel Part", "purchase_price": 5, "sale_price": 10,

@@ -18,6 +18,7 @@ from threading import Barrier
 import pytest
 
 from test_absorption_labor_source import run_absorption_labor_source_smoke
+from tests.pg_ikiz_yardimci import kosu_eki
 
 ADMIN_PW = "AbsorpLabor!123"
 ROUNDS = 15
@@ -178,7 +179,7 @@ def test_report_never_double_counts_while_an_invoice_is_cancelled(
                 "customer_id": customer.json()["id"],
                 "brand": "PG",
                 "model": "AbsorpRace",
-                "serial_number": "PG-ABSORP-RACE",
+                "serial_number": f"PG-ABSORP-RACE-{kosu_eki()}",
             },
         )
         assert machine.status_code == 201, machine.text

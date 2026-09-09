@@ -9,12 +9,18 @@
    (_parti_bos_olmali) ardışık koşularda tetiklenmez.
 """
 from __future__ import annotations
+import uuid
 from typing import Sequence
 
 try:
     from sqlalchemy import text
 except ImportError:
     text = None  # type: ignore
+
+
+def kosu_eki() -> str:
+    """Ardışık koşularda tekillik kısıtlarına takılmamak için benzersiz koşu son eki üretir."""
+    return uuid.uuid4().hex[:8]
 
 
 def _sync_sequences(eng) -> None:
@@ -185,3 +191,105 @@ def parti_temizle(
         with SessionLocal() as db:
             _temizle_islemi(db.execute)
             db.commit()
+
+
+def saha_islem_temizle(
+    engine=None,
+    *,
+    operation_ids: Sequence[str] | None = None,
+    prefix: str | None = "op-",
+) -> None:
+    """field_operations tablosundaki test kalıntılarını temizler."""
+    from app.db import SessionLocal, engine as default_engine
+
+    eng = engine or default_engine
+    if eng.dialect.name != "postgresql":
+        return
+
+    def _temizle(execute_fn):
+        if not execute_fn(text("SELECT to_regclass('public.field_operations')")).scalar():
+            return
+        if operation_ids:
+            execute_fn(
+                text("DELETE FROM field_operations WHERE operation_id = ANY(:oids)"),
+                {"oids": list(operation_ids)},
+            )
+        elif prefix:
+            execute_fn(
+                text("DELETE FROM field_operations WHERE operation_id LIKE :pref"),
+                {"pref": f"{prefix}%"},
+            )
+
+    if engine is not None:
+        with engine.begin() as conn:
+            _temizle(conn.execute)
+    else:
+        with SessionLocal() as db:
+            _temizle(db.execute)
+            db.commit()
+
+
+def idempotency_temizle(
+    engine=None,
+    *,
+    keys: Sequence[str] | None = None,
+    prefix: str | None = "pg-",
+) -> None:
+    """idempotency_keys tablosundaki test kalıntılarını temizler."""
+    from app.db import SessionLocal, engine as default_engine
+
+    eng = engine or default_engine
+    if eng.dialect.name != "postgresql":
+        return
+
+    def _temizle(execute_fn):
+        if not execute_fn(text("SELECT to_regclass('public.idempotency_keys')")).scalar():
+            return
+        if keys:
+            execute_fn(
+                text("DELETE FROM idempotency_keys WHERE key = ANY(:keys)"),
+                {"keys": list(keys)},
+            )
+        elif prefix:
+            execute_fn(
+                text("DELETE FROM idempotency_keys WHERE key LIKE :pref"),
+                {"pref": f"{prefix}%"},
+            )
+
+    if engine is not None:
+        with engine.begin() as conn:
+            _temizle(conn.execute)
+    else:
+        with SessionLocal() as db:
+            _temizle(db.execute)
+            db.commit()
+
+
+def supplier_import_temizle(
+    engine=None,
+    *,
+    filename: str = "race.xlsx",
+) -> None:
+    """supplier_price_imports tablosundaki test kalıntılarını temizler."""
+    from app.db import SessionLocal, engine as default_engine
+
+    eng = engine or default_engine
+    if eng.dialect.name != "postgresql":
+        return
+
+    def _temizle(execute_fn):
+        if not execute_fn(text("SELECT to_regclass('public.supplier_price_imports')")).scalar():
+            return
+        execute_fn(
+            text("DELETE FROM supplier_price_imports WHERE source_filename = :fn"),
+            {"fn": filename},
+        )
+
+    if engine is not None:
+        with engine.begin() as conn:
+            _temizle(conn.execute)
+    else:
+        with SessionLocal() as db:
+            _temizle(db.execute)
+            db.commit()
+

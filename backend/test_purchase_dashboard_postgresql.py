@@ -4,6 +4,13 @@ import os
 from decimal import Decimal
 
 import pytest
+
+try:
+    from tests.pg_ikiz_yardimci import kosu_eki
+except ImportError:
+    import uuid
+    def kosu_eki() -> str:
+        return uuid.uuid4().hex[:8]
 def _acilisa_cek() -> None:
     """Admin şifresini AÇILIŞ DURUMUNA (`admin123` + `must_change_password`) yaz.
 
@@ -15,7 +22,7 @@ def _acilisa_cek() -> None:
     ÖNCEKİ dosya olabilir. Bu yüzden İKİ UÇTAN çağrılır.
     """
     try:
-        from tests.pg_ikiz_yardimci import acilisa_cek
+        from tests.pg_ikiz_yardimci import acilisa_cek, kosu_eki
         acilisa_cek()
     except ImportError:
         from sqlalchemy import text as _text
@@ -80,6 +87,12 @@ def test_purchase_dashboard_aggregates_postgresql(monkeypatch: pytest.MonkeyPatc
             'current_password':'admin123', 'new_password':'PgDashboard123!'})
         assert changed.status_code == 200, changed.text
         headers['Authorization'] = 'Bearer ' + changed.json()['access_token']
+
+        k_ek = kosu_eki()
+        comp = client.post('/api/companies', headers=headers, json={'name': f'PG Dashboard {k_ek}'})
+        assert comp.status_code == 201, comp.text
+        headers['X-Company-ID'] = str(comp.json()['id'])
+
 
         def ok(response, expected=200):
             assert response.status_code == expected, response.text

@@ -14,6 +14,7 @@ import os
 from decimal import Decimal
 
 import pytest
+from tests.pg_ikiz_yardimci import kosu_eki
 
 
 def _acilisa_cek() -> None:
@@ -82,7 +83,7 @@ def test_einvoice_seam_columns_and_payload_roundtrip_postgresql(monkeypatch: pyt
 
         cust = c.post("/api/customers", headers=h, json={"name": "PG Seam"}).json()
         mach = c.post("/api/machines", headers=h,
-                      json={"customer_id": cust["id"], "brand": "PG", "model": "Seam", "serial_number": "PG-SN"}).json()
+                      json={"customer_id": cust["id"], "brand": "PG", "model": "Seam", "serial_number": f"PG-SN-{kosu_eki()}"}).json()
         wo = c.post("/api/work-orders", headers=h,
                     json={"machine_id": mach["id"], "customer_id": cust["id"], "technician_id": uid,
                           "actual_hours": "2", "labor_rate": "50"}).json()

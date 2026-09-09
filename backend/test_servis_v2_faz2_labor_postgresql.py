@@ -20,6 +20,13 @@ from threading import Barrier
 
 import pytest
 
+try:
+    from tests.pg_ikiz_yardimci import kosu_eki
+except ImportError:
+    import uuid
+    def kosu_eki() -> str:
+        return uuid.uuid4().hex[:8]
+
 from test_servis_v2_faz2_labor import run_servis_v2_faz2_labor_smoke
 
 # Both tests in this file share one PostgreSQL database, and the smoke rotates
@@ -47,7 +54,7 @@ def _acilisa_cek() -> None:
     ÖNCEKİ dosya olabilir. Bu yüzden İKİ UÇTAN çağrılır.
     """
     try:
-        from tests.pg_ikiz_yardimci import acilisa_cek
+        from tests.pg_ikiz_yardimci import acilisa_cek, kosu_eki
         acilisa_cek()
     except ImportError:
         from sqlalchemy import text as _text
@@ -133,7 +140,7 @@ def test_concurrent_approval_has_a_single_winner(
                 "customer_id": customer.json()["id"],
                 "brand": "PG",
                 "model": "LaborRace",
-                "serial_number": "PG-LABOR-RACE",
+                "serial_number": f"PG-LABOR-RACE-{kosu_eki()}",
             },
         )
         assert machine.status_code == 201, machine.text

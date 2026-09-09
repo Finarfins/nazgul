@@ -34,6 +34,13 @@ from threading import Barrier
 
 import pytest
 
+try:
+    from tests.pg_ikiz_yardimci import kosu_eki
+except ImportError:
+    import uuid
+    def kosu_eki() -> str:
+        return uuid.uuid4().hex[:8]
+
 BACKEND = Path(__file__).resolve().parent
 
 # backend/tests bir paket değil (``__init__.py`` yok), bu yüzden ortak smoke
@@ -69,8 +76,9 @@ def _acilisa_cek() -> None:
     ÖNCEKİ dosya olabilir. Bu yüzden İKİ UÇTAN çağrılır.
     """
     try:
-        from tests.pg_ikiz_yardimci import acilisa_cek
+        from tests.pg_ikiz_yardimci import acilisa_cek, saha_islem_temizle
         acilisa_cek()
+        saha_islem_temizle()
     except ImportError:
         from sqlalchemy import text as _text
         from app.auth import hash_password
@@ -98,6 +106,7 @@ def _acilis_sifresi():
         yield
     finally:
         _acilisa_cek()
+
 
 
 def _admin(client) -> tuple[dict, int]:
@@ -204,11 +213,13 @@ def test_ayni_islem_iki_kez_ayni_anda_bir_kez_uygulanir(
 
     from app.main import app
 
+    from tests.pg_ikiz_yardimci import kosu_eki
+
     with TestClient(app) as client:
         headers, admin_id = _admin(client)
         emir_id, surum = _iş_emri_kur(client, headers, admin_id, "Saha Tekrar Yarışı")
 
-    op_id = "op-esz-tekrar-0001"
+    op_id = f"op-esz-tekrar-{kosu_eki()}"
     engel = Barrier(2)
 
     def gonder() -> int:
@@ -258,6 +269,7 @@ def test_ayni_surumden_iki_farkli_islem_yalniz_biri_gecer(
     from fastapi.testclient import TestClient
 
     from app.main import app
+    from tests.pg_ikiz_yardimci import kosu_eki
 
     with TestClient(app) as client:
         headers, admin_id = _admin(client)
@@ -278,12 +290,17 @@ def test_ayni_surumden_iki_farkli_islem_yalniz_biri_gecer(
                 },
             ).status_code
 
+    k_ek = kosu_eki()
+    op_a = f"op-kilit-a-{k_ek}"
+    op_b = f"op-kilit-b-{k_ek}"
+
     with ThreadPoolExecutor(max_workers=2) as havuz:
-        birinci = havuz.submit(gonder, "op-kilit-a-0001", "IN_PROGRESS")
-        ikinci = havuz.submit(gonder, "op-kilit-b-0001", "IN_PROGRESS")
+        birinci = havuz.submit(gonder, op_a, "IN_PROGRESS")
+        ikinci = havuz.submit(gonder, op_b, "IN_PROGRESS")
         durumlar = sorted([birinci.result(), ikinci.result()])
 
     assert durumlar == [200, 409], durumlar
     # Kaybeden hiç kayıt bırakmamalı: sürüm kontrolü ekleme İŞLEMİNDEN ÖNCE.
-    kayitli = _islem_sayisi("op-kilit-a-0001") + _islem_sayisi("op-kilit-b-0001")
+    kayitli = _islem_sayisi(op_a) + _islem_sayisi(op_b)
     assert kayitli == 1, f"{kayitli} işlem kaydedilmiş, 1 bekleniyordu"
+

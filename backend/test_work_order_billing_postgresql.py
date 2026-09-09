@@ -5,6 +5,13 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
 import pytest
+
+try:
+    from tests.pg_ikiz_yardimci import kosu_eki
+except ImportError:
+    import uuid
+    def kosu_eki() -> str:
+        return uuid.uuid4().hex[:8]
 def _acilisa_cek() -> None:
     """Admin şifresini AÇILIŞ DURUMUNA (`admin123` + `must_change_password`) yaz.
 
@@ -16,7 +23,7 @@ def _acilisa_cek() -> None:
     ÖNCEKİ dosya olabilir. Bu yüzden İKİ UÇTAN çağrılır.
     """
     try:
-        from tests.pg_ikiz_yardimci import acilisa_cek
+        from tests.pg_ikiz_yardimci import acilisa_cek, kosu_eki
         acilisa_cek()
     except ImportError:
         from sqlalchemy import text as _text
@@ -63,8 +70,9 @@ def test_work_order_invoice_postgresql(monkeypatch: pytest.MonkeyPatch) -> None:
         changed=client.post('/api/auth/change-password',headers=h,json={'current_password':'admin123','new_password':'BillingPgFoundation123!'}).json()
         h['Authorization']='Bearer '+changed['access_token']
         customer=client.post('/api/customers',headers=h,json={'name':'PG Billing'}).json()
-        machine=client.post('/api/machines',headers=h,json={'customer_id':customer['id'],'brand':'PG','model':'Billing','serial_number':'PG-BILL-M'}).json()
+        machine=client.post('/api/machines',headers=h,json={'customer_id':customer['id'],'brand':'PG','model':'Billing','serial_number':f'PG-BILL-M-{kosu_eki()}'}).json()
         warehouse=client.get('/api/warehouses',headers=h).json()[0]
+
         product=client.post('/api/products',headers=h,json={'name':'PG Billing Part','purchase_price':'1','sale_price':'12.34','vat_rate':'18','stock':'10','unit':'Adet'}).json()
         order=client.post('/api/work-orders',headers=h,json={'machine_id':machine['id'],'customer_id':customer['id'],'technician_id':uid,'actual_hours':'1.25','labor_rate':'200','warranty_type':'PARTIAL','warranty_percent':'25'}).json()
         assert client.post(f"/api/work-orders/{order['id']}/parts",headers=h,json={'product_id':product['id'],'warehouse_id':warehouse['id'],'quantity':'2','unit_price':'12.34','discount':'5','tax_rate':'18'}).status_code==201
