@@ -24,6 +24,8 @@ def _alembic(database_url: str, data_dir: Path, revision: str) -> None:
         env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=180,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
@@ -173,6 +175,8 @@ def test_0034_rejects_unknown_legacy_schema(tmp_path: Path) -> None:
         env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=180,
     )
     assert completed.returncode != 0

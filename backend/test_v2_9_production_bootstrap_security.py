@@ -21,6 +21,8 @@ def _run(code: str, **overrides: str) -> subprocess.CompletedProcess[str]:
         cwd=BACKEND,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=90,
     )
