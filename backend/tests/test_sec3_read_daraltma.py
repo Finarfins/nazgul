@@ -294,7 +294,7 @@ def rol_basliklari(istemci, admin_basliklari, tohum):
                 text(
                     "INSERT INTO user_company_memberships"
                     "(user_id,company_id,is_default,created_at)"
-                    " VALUES(:u,:c,1,:t)"
+                    " VALUES(:u,:c,true,:t)"
                 ),
                 {"u": uid, "c": company_id, "t": simdi},
             )
