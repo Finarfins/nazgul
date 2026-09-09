@@ -166,9 +166,64 @@ Deploy başladıktan sonraki geri dönüş bu değildir — imaj geri dönüşü
 
 `deploy/sunucu-deploy.sh` release dizininin yedeğini **almaz** —
 `/opt/harman-zamani-onceki-*` dizinleri yukarıdaki 6. adımın elle yapılan
-`mv`'sinden kalır. Betiğin aldığı yedek veritabanınındır (2/7 adımı,
+`mv`'sinden kalır. Betiğin aldığı yedek veritabanınındır (2/8 adımı,
 `/root/backups/pre-deploy-*.dump`), dizinin değil. Takası yapan kişi
 `-onceki-` dizinini kendisi oluşturur ve **silmez**.
+
+## Şema göçü — uygulama DEĞİL, deploy sürer
+
+**Üretimde `AUTO_MIGRATE=false`.** Değer `docker-compose.prod.yml` içinde
+SABİTTİR; `.env.production`'a `AUTO_MIGRATE=true` yazmak onu geri açmaz ve
+bu bilerek böyledir.
+
+### Neden
+
+Uygulama modülünü ithal eden **her süreç** göçü sürmeye çalışırdı:
+`WEB_CONCURRENCY>1` ile açılan her uvicorn işçisi ve her replika, cluster
+genelindeki **tek** advisory kilit için (`app/runtime_migrations.py`,
+`POSTGRES_MIGRATION_LOCK_KEY`) sıraya girer. Kilidi
+`MIGRATION_LOCK_TIMEOUT_SECONDS` (varsayılan 120 sn) içinde alamayan işçi
+`TimeoutError` ile **açılışta çöker**. Tek işçili bir kutuda bu hiç
+görünmez; işçi sayısı artırıldığı ya da ikinci bir replika eklendiği gün
+deploy nedensizce düşmeye başlar.
+
+Bloğu "lifespan'a taşımak" bunu **çözmez**: lifespan da işçi başına koşar.
+Çözüm, uygulamanın üretimde şemaya **hiç yazmamasıdır**.
+
+### Bugün ne oluyor
+
+`deploy/sunucu-deploy.sh` **7/8** adımında, `up -d app`ten **önce**, tek
+kullanımlık iki konteyner koşturur:
+
+```bash
+docker compose -p harman-zamani -f docker-compose.yml -f docker-compose.prod.yml \
+  --env-file .env.production run --rm --no-deps app \
+  sh -c 'cd /app/backend && python -m alembic upgrade head'
+
+docker compose -p harman-zamani -f docker-compose.yml -f docker-compose.prod.yml \
+  --env-file .env.production run --rm --no-deps app python -m app.bootstrap_data
+```
+
+İkisi **ayrı komuttur**: göç düşerse betik orada durur ve bootstrap
+tohumu **hiç koşmaz** — yarım kalmış bir şemanın üstüne DML yazılmaz.
+
+Tohum **idempotenttir**: `app/bootstrap_data.py` içindeki her `INSERT`'ün
+önünde onu koruyan bir `SELECT` vardır (yönetici, firma, şube, üyelik,
+depo, depo stoğu, üç finans hesabı). Kurulu bir sistemde ikinci koşu
+hiçbir satır değiştirmez; bu, `backend/tests/test_sec4_acilis_migrasyon_kapisi.py`
+içinde tablo bazında sayımla ölçülür.
+
+Uygulama işçilerinin açılışta yaptığı tek şey **salt okunur** bir
+doğrulamadır (`app/main.py::_semayi_dogrula`, lifespan): `alembic_version`
+okunur, kilit **alınmaz**.
+
+### Açılış "şema güncel değil" diye durursa
+
+Bu bir arıza değil, **kapının çalışmasıdır**: 7/8 adımı atlanmış ya da
+düşmüştür. Uygulama loglarındaki `RuntimeError` koşulacak komutu **kendisi
+yazar**. Onu koşun ve `up -d app`i tekrarlayın. Elle `AUTO_MIGRATE=true`
+verip işçilere göç sürdürmek **yapılmaz** — kapının kapattığı yarışın ta
+kendisidir.
 
 ## Belirli sürüme geçiş / geri dönüş
 
