@@ -50,6 +50,21 @@ services:
       # (/app/backend/data) düşüyor ve orası read-only kökte kaldığı için
       # attachment yüklemesi ile yedek alma 500 veriyordu.
       SUNGUR_DATA_DIR: /opt/sungur-data
+      # ÜRETİMDE GÖÇ SÜRÜLMEZ. Taban docker-compose.yml
+      # `AUTO_MIGRATE: ${AUTO_MIGRATE:-true}` yazar; Compose `environment`
+      # haritalarını -f dosyaları arasında BİRLEŞTİRİR, bu yüzden bu satır
+      # olmadan üretim app'i de auto-migrate ile açılırdı.
+      #
+      # Neden kapalı: uygulamayı ithal eden HER süreç göçü sürmeye çalışır.
+      # WEB_CONCURRENCY>1 ya da birden fazla replika ile işçiler cluster
+      # genelindeki tek advisory kilit için sıraya girer; kilidi 120 sn içinde
+      # alamayan işçi AÇILIŞTA ÇÖKER. Şema, `up -d app`ten ÖNCE TEK bir
+      # tek-kullanımlık konteynerde sürülür (deploy/sunucu-deploy.sh 7/8).
+      #
+      # DEĞER SABİTTİR, `${AUTO_MIGRATE:-false}` DEĞİL: `${...}` yazmak,
+      # .env.production'a tek satır ekleyerek üretimde auto-migrate'i geri
+      # açmayı mümkün kılardı ve bu kapının tamamı o tek satırla kaybolurdu.
+      AUTO_MIGRATE: "false"
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env.production}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?BOOTSTRAP_ADMIN_PASSWORD must be set in .env.production}
       COOKIE_SECURE: "true"

@@ -236,3 +236,29 @@ def seed_bootstrap_data(engine: Engine) -> None:
                         created_at=utcnow(),
                     )
                 )
+
+
+def main() -> int:
+    """`python -m app.bootstrap_data` — tohumu AÇILIŞTAN AYRI koştur.
+
+    Üretimde AUTO_MIGRATE kapalıdır ve `app.main` ithalinde artık hiçbir DML
+    koşmaz (bkz. app/main.py, SEC-4). Bootstrap satırlarını yazan tek yer bu
+    giriş noktasıdır ve `deploy/sunucu-deploy.sh` onu `up -d app`ten ÖNCE, TEK
+    bir tek-kullanımlık konteynerde çağırır.
+
+    `app.main` İTHAL EDİLMEZ: yönlendiricileri, ara katmanları ve zamanlayıcı
+    kablolamasını yalnızca birkaç satır tohumlamak için kurmak, tohumlamayı
+    uygulamanın tüm açılış yüzeyine bağımlı kılardı.
+
+    Bu fonksiyon ŞEMA SÜRMEZ. Göç ayrı bir adımdır ve o adım başarısızsa
+    tohumlama HİÇ koşmamalıdır; ikisini tek komutta birleştirmek, yarım kalmış
+    bir göçün üstüne DML yazma ihtimalini açardı.
+    """
+    from .db import engine
+
+    seed_bootstrap_data(engine)
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover - konteyner giriş noktası
+    raise SystemExit(main())
