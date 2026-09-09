@@ -34,10 +34,11 @@ BAŞARISIZLIK SINIFIDIR: e2e işimiz Google Chrome veya Microsoft/Azure apt
 depolarına HİÇBİR ZAMAN ihtiyaç duymaz. Tarayıcının kendisi Playwright'ın kendi
 CDN'inden (Chrome for Testing) iner; kurulan dokuz bağımlılık ise yalnızca
 Ubuntu'nun temel aynalarındaki font paketleridir (``eksik_fontlar()`` listesi).
-Bu nedenle ilgisiz üçüncü taraf depoların (en azından ``google-chrome*.list``,
-varsa ``microsoft-prod.list``, ``azure-cli.list``) bağımlılık komutundan hemen
-önce ``.disabled`` olarak kenara alınması tamamen güvenlidir ve dış depo
-arızalarının e2e hattını kırmasını engeller.
+Bu nedenle ilgisiz üçüncü taraf depoların (dosya adından bağımsız olarak metninde
+``dl.google.com`` veya ``packages.microsoft.com`` geçen her ``*.list`` ve
+``*.sources`` kaynağının) bağımlılık komutundan hemen önce ``.disabled`` olarak
+kenara alınması tamamen güvenlidir ve dış depo arızalarının e2e hattını kırmasını
+engeller.
 
 --- ÖLÇÜM ----------------------------------------------------------------------
 
@@ -136,44 +137,62 @@ FONT_PAKETLERI = (
 
 ONBELLEK = Path.home() / ".cache" / "ms-playwright"
 
-#: Devredışı bırakılacak ilgisiz üçüncü taraf apt kaynakları (bkz. H15).
+#: Devredışı bırakılacak ilgisiz üçüncü taraf apt kaynakları için aranacak hostlar (bkz. H15).
 APT_KAYNAK_DIZINI = Path(os.environ.get("PW_APT_SOURCES_DIR", "/etc/apt/sources.list.d"))
-UCUNCU_TARAF_APT_DESENLERI = (
-    "google-chrome*.list",
-    "microsoft-prod.list",
-    "azure-cli.list",
+HEDEF_HOSTLAR = (
+    "dl.google.com",
+    "packages.microsoft.com",
 )
 
 
 def ucuncu_taraf_apt_kaynaklarini_kapat(
     dizin: Path = APT_KAYNAK_DIZINI,
 ) -> list[str]:
-    """İlgisiz üçüncü taraf apt kaynaklarını devredışı bırakır.
+    """İlgisiz üçüncü taraf apt kaynaklarını dosya İÇERİĞİNE göre devredışı bırakır.
 
-    dl.google.com gibi üçüncü taraf depolarındaki arızaların (ör. Hash Sum
-    mismatch) yalnızca Ubuntu ana depolarındaki font paketlerine ihtiyaç duyan
-    e2e işini düşürmesini engeller. Dosyaları silmez, '.disabled' uzantısıyla
-    kenara alır.
+    /etc/apt/sources.list.d/ altındaki her *.list ve *.sources dosyasını tarar;
+    metninde dl.google.com veya packages.microsoft.com geçen kaynakları silmeden
+    '.disabled' uzantısıyla kenara alır. Ubuntu temel kaynaklarına dokunmaz.
     """
     if not dizin.is_dir():
         _yaz("apt kaynağı yok")
         return []
 
+    oncesi = sorted(p.name for p in dizin.iterdir() if p.is_file())
+    _yaz(f"{dizin} öncesi: {' '.join(oncesi) if oncesi else '(boş)'}")
+
     bulunan: list[Path] = []
-    for desen in UCUNCU_TARAF_APT_DESENLERI:
+    for desen in ("*.list", "*.sources"):
         bulunan.extend(sorted(dizin.glob(desen)))
 
     hedef_dosyalar = sorted(set(bulunan))
-    if not hedef_dosyalar:
+    eslesen_dosyalar: list[tuple[Path, list[str]]] = []
+    for dosya in hedef_dosyalar:
+        if not dosya.is_file():
+            continue
+        try:
+            metin = dosya.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        eslesen = [host for host in HEDEF_HOSTLAR if host in metin]
+        if eslesen:
+            eslesen_dosyalar.append((dosya, eslesen))
+
+    if not eslesen_dosyalar:
         _yaz("apt kaynağı yok")
+        sonrasi = sorted(p.name for p in dizin.iterdir() if p.is_file())
+        _yaz(f"{dizin} sonrası: {' '.join(sonrasi) if sonrasi else '(boş)'}")
         return []
 
     kapatilanlar: list[str] = []
-    for dosya in hedef_dosyalar:
+    for dosya, hostlar in eslesen_dosyalar:
         hedef = dosya.with_name(f"{dosya.name}.disabled")
         try:
             os.replace(dosya, hedef)
             kapatilanlar.append(str(dosya))
+            _yaz(
+                f"üçüncü taraf apt kaynağı devredışı bırakıldı: {dosya.name} ({', '.join(hostlar)})"
+            )
         except PermissionError:
             if shutil.which("sudo"):
                 res = subprocess.run(
@@ -183,6 +202,9 @@ def ucuncu_taraf_apt_kaynaklarini_kapat(
                 )
                 if res.returncode == 0:
                     kapatilanlar.append(str(dosya))
+                    _yaz(
+                        f"üçüncü taraf apt kaynağı devredışı bırakıldı: {dosya.name} ({', '.join(hostlar)})"
+                    )
                 else:
                     _yaz(f"uyarı: {dosya} devredışı bırakılamadı: {res.stderr.strip()}")
             else:
@@ -197,6 +219,9 @@ def ucuncu_taraf_apt_kaynaklarini_kapat(
         )
     else:
         _yaz("apt kaynağı yok")
+
+    sonrasi = sorted(p.name for p in dizin.iterdir() if p.is_file())
+    _yaz(f"{dizin} sonrası: {' '.join(sonrasi) if sonrasi else '(boş)'}")
     return kapatilanlar
 
 
