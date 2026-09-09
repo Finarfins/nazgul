@@ -722,19 +722,26 @@ def test_GOC_TURU_up_down_up_GERCEK_PostgreSQLde(motor) -> None:
 # ------------------------------------------------------------- YARIŞ ------
 
 def test_YIRMI_ESZAMANLI_ayni_kod_TEK_KEZ_tukeniyor(motor, dunya) -> None:
-    """Yirmi işçi AYNI kodu AYRI numaralarla tüketiyor; TEK'i geçiyor.
+    """Yirmi işçi AYNI kodu AYNI hedef numarayla tüketiyor; TEK'i kazanıyor.
 
     Bu dosyanın var oluş sebebi: değişmez ("tek kullanımlık kod GERÇEKTEN
     tek kullanımlıktır") yalnız gerçek eşzamanlılıkta sınanabilir ve SQLite
     tek yazarlı olduğu için orada ÜRETİLEMEZ.
 
-    --- NEDEN YİRMİ AYRI NUMARA, AYNI NUMARA DEĞİL --------------------------
+    --- GÜNCEL KURGU (YİRMİ İŞÇİ, AYNI NUMARA, BİR KAZANAN) -----------------
 
-    İlk kurgu yirmi işçiye AYNI numarayı veriyordu ve o kurgu ölçtüğünü
-    sandığı şeyi ÖLÇMÜYORDU: hakem `uq_whatsapp_links_aktif_numara` kısmi
-    tekiliydi — ikinci bağlantı zaten orada ölüyor ve kodun iki kez
-    tüketilmiş olması hiç görünmüyordu. Ayrı numaralarla bağlantı tekili
-    yardım EDEMEZ; geriye kodun kendi korumaları kalır.
+    SEC-1 (#99, göç `20260912_0082`) ile kod hedef telefona (`target_phone`)
+    bağlandı; bu yüzden yirmi işçinin tümü kodun bağlı olduğu AYNI numarayı
+    sunar. Ayrı numaralar hedef denetiminde elenip CAS'e varmadan düşeceği için
+    gerçek bir yarış yalnız aynı numarayla mümkündür. Yirmi işçiden tam biri
+    bağlantı açar; kodun tam bir kez tüketildiği sürücü seviyesinden ölçülen
+    `cas_denemesi == 1` ve `for_update == 20` sayaçlarıyla doğrulanır.
+
+    TARİHÇE: 0082 öncesinde kurgu yirmi ayrı numaraydı; kod o zaman henüz
+    `target_phone`a bağlı olmadığı için `uq_whatsapp_links_aktif_numara`
+    kısmi tekilinin erken hakemlik yapmasını önlemek amacıyla ayrı numaralar
+    kullanılıyordu. 0082 ile kod hedef numaraya bağlanınca ayrı numaraların
+    yarışa hiç giremediği görüldü ve kurgu aynı numaraya taşındı.
 
     --- ÜÇ KATMAN VE HANGİSİNİN TAŞIDIĞI — ÖLÇÜLDÜ, VARSAYILMADI -----------
 
