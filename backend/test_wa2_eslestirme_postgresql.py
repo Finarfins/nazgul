@@ -11,26 +11,19 @@ GELİŞTİRME DİYALEKTİNDE GÖRÜNMEYEN tuzakları ölçer.
    ÖLÇÜLEBİLİR.** Yirmi eşzamanlı `BAĞLA <KOD>` denemesinden yalnız BİRİ
    bağlantı açmalıdır. SQLite'ta bu ÜRETİLEMEZ (tek yazar).
 
-   YİRMİSİ DE AYNI NUMARADAN ve bu SEC-1'den (göç `20260912_0082`) SONRA
-   TEK OLASI KURGUDUR — kurgunun kendisi bir ÖLÇÜMLE değişti ve eski
-   gerekçe burada KAYITLI KALIYOR ki değişimin sebebi kaybolmasın:
+   GÜNCEL KURGU (YİRMİ İŞÇİ, AYNI NUMARA, BİR KAZANAN): SEC-1 (#99, göç
+   `20260912_0082`) ile kod hedef telefona (`target_phone`) bağlandı; bu
+   yüzden yirmi işçinin tümü kodun bağlı olduğu AYNI numarayı sunar. Ayrı
+   numaralar hedef denetiminde elenip CAS'e varmadan düşeceği için gerçek
+   bir yarış yalnız aynı numarayla mümkündür. Yirmi işçiden tam biri bağlantı
+   açar; kodun tam bir kez tüketildiği sürücü seviyesinden ölçülen
+   `cas_denemesi == 1` ve `for_update == 20` sayaçlarıyla doğrulanır.
 
-     ESKİ KURGU (0082 ÖNCESİ): yirmi AYRI numara. Gerekçesi ölçülmüştü —
-     yirmi işçiye AYNI numarayı veren daha eski bir kurgu kodun iki kez
-     tüketilmiş olmasını HİÇ GÖREMİYORDU, çünkü ikinci bağlantı zaten
-     `uq_whatsapp_links_aktif_numara` kısmi tekilinde ölüyordu.
-
-     NEDEN ARTIK İMKÂNSIZ: kod artık `target_phone`a bağlı. Yirmi ayrı
-     numaranın on dokuzu YARIŞA HİÇ GİRMEZ — hedef denetiminde, CAS'e
-     varmadan düşerler. O kurgu bugün yazılsaydı "yirmi işçi yarışıyor"
-     diye okunur, GERÇEKTE tek işçi yarışırdı: testin ölçtüğünü sandığı
-     şeyi ölçmemesinin ta kendisi.
-
-     BUNUN BEDELİ AÇIKÇA YAZILIYOR: aynı numarayla `uq_whatsapp_links_
-     aktif_numara` yine bir HAKEMDİR, yani bu test artık "kod iki kez
-     tüketildi" halini TEK BAŞINA ayırt edemez. Ayırt eden şey aşağıdaki
-     `cas_denemesi == 1` ölçümüdür — tüketim deyimi SÜRÜCÜ SEVİYESİNDEN
-     sayılıyor, uygulamanın kendi raporundan değil.
+   TARİHÇE: 0082 öncesinde kurgu yirmi ayrı numaraydı; kod o zaman henüz
+   `target_phone`a bağlı olmadığı için `uq_whatsapp_links_aktif_numara`
+   kısmi tekilinin erken hakemlik yapmasını önlemek amacıyla ayrı numaralar
+   kullanılıyordu. 0082 ile kod hedef numaraya bağlanınca ayrı numaraların
+   yarışa hiç giremediği görüldü ve kurgu aynı numaraya taşındı.
 
    NEYİ ÖLDÜRDÜĞÜ ve NEYİ ÖLDÜRMEDİĞİ ÖLÇÜLDÜ — testin kendi başlığında
    tablo hâlinde. Kısaca: `kod_kullan` bu değişmezi ÜÇ BAĞIMSIZ katmanla
