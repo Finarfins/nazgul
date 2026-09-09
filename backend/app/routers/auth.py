@@ -243,6 +243,10 @@ class RegisterPayload(BaseModel):
         return self
 
 
+class VerifyEmailPayload(BaseModel):
+    token: str = Field(min_length=1, max_length=256)
+
+
 class ResendVerificationPayload(BaseModel):
     email: str = Field(min_length=3, max_length=320)
 
@@ -319,10 +323,19 @@ _TURNSTILE_TEST_SECRETS = frozenset({
 })
 
 
+def _secret_value(value: Any) -> str:
+    if value is None:
+        return ""
+    getter = getattr(value, "get_secret_value", None)
+    if callable(getter):
+        return str(getter()).strip()
+    return str(value).strip()
+
+
 def _turnstile_test_key_in_production() -> bool:
     return (
         settings.is_production
-        and (settings.turnstile_secret_key or "").strip() in _TURNSTILE_TEST_SECRETS
+        and _secret_value(settings.turnstile_secret_key) in _TURNSTILE_TEST_SECRETS
     )
 
 
@@ -347,14 +360,15 @@ def _verify_turnstile(token: str | None, ip_address: str) -> None:
                 "Lütfen yönetici ile iletişime geçin."
             ),
         )
-    if not settings.turnstile_secret_key:
+    turnstile_key = _secret_value(settings.turnstile_secret_key)
+    if not turnstile_key:
         logger.warning("TURNSTILE_SECRET_KEY tanımlı değil; bot doğrulaması atlandı")
         return
     if not token:
         raise HTTPException(status_code=400, detail="Bot doğrulaması başarısız")
     body = parse.urlencode(
         {
-            "secret": settings.turnstile_secret_key,
+            "secret": turnstile_key,
             "response": token,
             "remoteip": ip_address,
         }
@@ -747,9 +761,40 @@ def register(
 
 
 @router.get("/auth/verify-email")
-def verify_email(token: str, db: Session = Depends(get_db)):
+def verify_email_landing(token: str, db: Session = Depends(get_db)):
+    """Non-mutating verification landing lookup.
+
+    Prefetchers and link previews hitting this GET cannot consume or burn the
+    token. State mutation is reserved for POST.
+    """
     now = utcnow()
-    with db.begin():
+    row = db.execute(
+        select(email_verification_tokens).where(
+            email_verification_tokens.c.token_hash == token_digest(token)
+        )
+    ).mappings().first()
+    expires_at = (
+        row["expires_at"].replace(tzinfo=timezone.utc)
+        if row and row["expires_at"].tzinfo is None
+        else row["expires_at"] if row else None
+    )
+    if not row or row["used_at"] is not None or expires_at <= now:
+        raise HTTPException(
+            status_code=400,
+            detail="Doğrulama bağlantısı geçersiz veya süresi dolmuş",
+        )
+    return {
+        "message": "Doğrulama bağlantısı geçerli. E-postanızı doğrulamak için onaylayın.",
+        "valid": True,
+    }
+
+
+@router.post("/auth/verify-email")
+def verify_email(payload: VerifyEmailPayload, db: Session = Depends(get_db)):
+    """Consume the verification token and mark the user email verified."""
+    now = utcnow()
+    token = payload.token
+    with (db.begin_nested() if db.in_transaction() else db.begin()):
         row = db.execute(
             select(email_verification_tokens).where(
                 email_verification_tokens.c.token_hash == token_digest(token)

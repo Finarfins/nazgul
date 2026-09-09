@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Mapping
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException, Request
-from sqlalchemy import Column, Index, Integer, MetaData, String, Table, Text, insert, select, text
+from sqlalchemy import Column, Index, Integer, MetaData, String, Table, Text, inspect, insert, select, text
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger("yerel_hesap.change_history")
 
 metadata = MetaData()
 entity_change_logs = Table(
@@ -172,11 +175,22 @@ def restore_deleted(
     if exists:
         raise HTTPException(409, "Aynı kimlikte kayıt zaten mevcut")
 
-    columns = list(payload)
+    inspector = inspect(db.get_bind())
+    live_columns = {col["name"] for col in inspector.get_columns(table_name)}
+    dump_columns = list(payload)
+    columns = [c for c in dump_columns if c in live_columns]
+    dropped = [c for c in dump_columns if c not in live_columns]
+    if dropped:
+        logger.warning(
+            "Geri yükleme sırasında canlı tabloda (%s) bulunmayan sütunlar atlandı: %s",
+            table_name,
+            dropped,
+        )
+    filtered_payload = {c: payload[c] for c in columns}
     placeholders = ",".join(f":{column}" for column in columns)
     db.execute(
         text(f"INSERT INTO {table_name} ({','.join(columns)}) VALUES ({placeholders})"),
-        payload,
+        filtered_payload,
     )
     restored = db.execute(
         text(f"SELECT * FROM {table_name} WHERE id=:id AND company_id=:cid"),

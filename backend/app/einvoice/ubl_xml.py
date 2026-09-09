@@ -300,7 +300,7 @@ def build_invoice_xml(
         f"<cbc:DocumentType>{XSLT_DOCUMENT_TYPE}</cbc:DocumentType>"
         "<cac:Attachment>"
         '<cbc:EmbeddedDocumentBinaryObject mimeCode="application/xml" encodingCode="Base64"'
-        f' characterSetCode="UTF-8" filename="{_text(invoice_id)}.xslt">{xslt_b64}'
+        f' characterSetCode="UTF-8" filename={quoteattr(f"{invoice_id}.xslt")}>{xslt_b64}'
         "</cbc:EmbeddedDocumentBinaryObject>"
         "</cac:Attachment>"
         "</cac:AdditionalDocumentReference>",
