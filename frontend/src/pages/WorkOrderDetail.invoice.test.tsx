@@ -61,21 +61,44 @@ describe('WorkOrderDetail faturalandırma',()=>{
   expect(await screen.findByText('Fatura detayına gidildi')).toBeInTheDocument();
  });
 
- it('duplicate 409 durumunda mevcut faturaya yönlendirir',async()=>{
-  mockLoads('COMPLETED');
+ // H16 — duplicate yolu artik TEK cagri. Onceki surum butun fatura listesini
+ // sayfa sayfa gezip her kalem icin ayrica `/invoices/{id}` cagiriyordu (N+1).
+ // Bu test o yolun DONMEDIGINI iki yonden birden olcuyor: (1) `/invoices`
+ // GET'i TAM BIR kez ve `work_order_id` suzgeciyle atiliyor, (2) HICBIR
+ // `/invoices/{id}` GET'i atilmiyor. Ikincisi olmadan, listenin tek cagriya
+ // inmesi detay firtinasini gizleyebilirdi.
+ const duplicateSenaryosu=(items:any[])=>{
   vi.mocked(api.post).mockRejectedValue({response:{status:409,data:{detail:'Bu iş emri için fatura zaten oluşturulmuş.'}}});
   vi.mocked(api.get).mockImplementation(async url=>{
    if(url==='/work-orders/42')return {data:workOrder('COMPLETED')} as any;
    if(url==='/work-orders/42/invoice')return {data:summary} as any;
-   if(url==='/invoices')return {data:{items:[{id:77}],pages:1}} as any;
-   if(url==='/invoices/77')return {data:{id:77,work_order_id:42}} as any;
+   if(url==='/invoices')return {data:{items,page:1,page_size:1,total:items.length,pages:items.length}} as any;
    if(String(url).includes('/parts')||String(url).includes('/labor-lines'))return {data:{items:[]}} as any;
    return {data:[]} as any;
   });
+ };
+ const faturaGetleri=()=>vi.mocked(api.get).mock.calls.map(call=>String(call[0])).filter(url=>url.startsWith('/invoices'));
+
+ it('duplicate 409 durumunda TEK sorguyla mevcut faturaya yönlendirir',async()=>{
+  mockLoads('COMPLETED');
+  duplicateSenaryosu([{id:77}]);
   renderPage();
   fireEvent.click(await screen.findByRole('button',{name:'Faturalandır'}));
   fireEvent.click(screen.getByRole('button',{name:'Faturayı Oluştur'}));
   expect(await screen.findByText('Fatura detayına gidildi')).toBeInTheDocument();
-  expect(api.get).toHaveBeenCalledWith('/invoices',{params:{page:1,page_size:200}});
+  expect(api.get).toHaveBeenCalledWith('/invoices',{params:{work_order_id:42,page:1,page_size:1}});
+  // TAM BIR liste cagrisi ve SIFIR detay cagrisi.
+  expect(faturaGetleri()).toEqual(['/invoices']);
+ });
+
+ it('duplicate 409 ve fatura bulunamazsa özgün hata gösterilir',async()=>{
+  mockLoads('COMPLETED');
+  duplicateSenaryosu([]);
+  renderPage();
+  fireEvent.click(await screen.findByRole('button',{name:'Faturalandır'}));
+  fireEvent.click(screen.getByRole('button',{name:'Faturayı Oluştur'}));
+  expect(await screen.findByText('Bu iş emri için fatura zaten oluşturulmuş.')).toBeInTheDocument();
+  expect(screen.queryByText('Fatura detayına gidildi')).not.toBeInTheDocument();
+  expect(faturaGetleri()).toEqual(['/invoices']);
  });
 });

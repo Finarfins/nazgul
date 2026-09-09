@@ -39,12 +39,25 @@ def generate(payload:InvoiceGenerateRequest,request:Request,db:Session=Depends(g
 
 @router.get("")
 def list_invoices(request:Request,q:str="",status:str|None=None,invoice_type:str|None=None,currency:str|None=None,
+    work_order_id:int|None=Query(None,gt=0),
     page:int=Query(1,ge=1),page_size:int=Query(50,ge=1,le=200),sort:str="created_at",direction:str="desc",db:Session=Depends(get_db)):
     cid=company_id(request); allowed={"created_at","invoice_number","status"}; sort=sort if sort in allowed else "created_at"; direction="ASC" if direction.lower()=="asc" else "DESC"
     conditions=["company_id=:cid","(LOWER(invoice_number) LIKE LOWER(:q) OR LOWER(customer_snapshot) LIKE LOWER(:q))"]
     params={"cid":cid,"q":f"%{q.strip()}%","limit":page_size,"offset":(page-1)*page_size}
     for name,value in (("status",status),("invoice_type",invoice_type),("currency",currency)):
         if value: conditions.append(f"{name}=:{name}"); params[name]=value.upper()
+    # H16 — IS EMRI SUZGECI. Bir is emrinin faturasini bulmak icin istemci
+    # butun listeyi gezip her kalemi ayrica okumak zorundaydi (N+1): 5 000
+    # faturali bir firmada tek bir sayfa acmak 25 liste + 5 000 detay cagrisi
+    # ediyordu. Suzgec, `status`/`invoice_type`/`currency` ile AYNI kapali
+    # mekanizmadan geciyor: sutun adi KAYNAKTA sabit, deger BAGLI parametre —
+    # istek verisi SQL metnine girmiyor. Kiraci yuklemi (`company_id=:cid`)
+    # `conditions`in ILK ogesidir ve buradan DOKUNULMAZ: baska firmanin is
+    # emri kimligi bu suzgecle bile BOS liste doner.
+    # `Query(...,gt=0)` sifir/negatif kimligi 422 ile keser; sorguya HIC
+    # ulasmaz. Endeks zaten var: `ix_invoices_company_work_order`
+    # (`company_id`,`work_order_id`, goc 20260718_0012).
+    if work_order_id is not None: conditions.append("work_order_id=:work_order_id"); params["work_order_id"]=work_order_id
     where=" AND ".join(conditions); total=db.execute(text(f"SELECT COUNT(*) FROM invoices WHERE {where}"),params).scalar_one()
     rows=db.execute(text(f"SELECT id,invoice_number,invoice_type,status,currency,exchange_rate,customer_snapshot,totals_snapshot,created_at FROM invoices WHERE {where} ORDER BY {sort} {direction},id {direction} LIMIT :limit OFFSET :offset"),params).mappings().all()
     items=[]

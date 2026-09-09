@@ -30,25 +30,6 @@ const TOUCH_TARGET_DIALOG_SX = TOUCH_TARGET_STACK_SX;
 // onlarin gunluk isi). Fatura ise satis tarafidir ve SEC-3'te `/api/invoices*`
 // `sales`a tasindi. Karar: SAYFAYI DEGIL, YALNIZ FATURA PANELINI kapatmak —
 // `depo`/`rapor` is emrini fatura paneli OLMADAN acar.
-// `findInvoiceForWorkOrder` de ayni kapinin arkasinda: bugun yalniz
-// `generateInvoice`den (o zaten `canWrite=can('sales')` ile korunuyor)
-// cagriliyor, yani pratikte ulasilamaz durumdaydi — ama fonksiyonun kendisi
-// `/api/invoices` sayfaliyor ve ileride baska bir yerden cagrilirsa kapisiz
-// kalmasin diye kapi cagri yerine DEGIL fonksiyonun basina konuldu.
-// TODO(SEC-3): `findInvoiceForWorkOrder` fatura listesini SAYFA SAYFA gezip
-// her kalem icin ayrica `/invoices/{id}` cagiriyor (N+1). Bu PR yetki
-// kapisiyla sinirli; yeniden tasarim ayri bir hijyen isi olarak ayrildi.
-async function findInvoiceForWorkOrder(workOrderId:number){
- const first=await api.get('/invoices',{params:{page:1,page_size:200}});
- const pages=Math.max(1,Number(first.data?.pages||1));
- const pageItems=[...(first.data?.items||[])];
- for(let page=2;page<=pages;page++){
-  const response=await api.get('/invoices',{params:{page,page_size:200}});
-  pageItems.push(...(response.data?.items||[]));
- }
- const details=await Promise.all(pageItems.map((item:any)=>api.get(`/invoices/${item.id}`).then(response=>response.data)));
- return details.find((invoice:any)=>Number(invoice.work_order_id??invoice.work_order?.id)===workOrderId)||null;
-}
 
 // ---- Parça ekle/düzenle dialog'u -------------------------------------------
 function PartDialog({open,workOrderId,part,onClose,onSaved}:{open:boolean;workOrderId:number;part:any|null;onClose:()=>void;onSaved:()=>void}){
@@ -270,10 +251,20 @@ export default function WorkOrderDetail(){
    const response=await api.post('/invoices/generate',{work_order_id:wo.id});
    setInvoiceOpen(false);nav(`/faturalar/${response.data.id}`);
   }catch(error:any){
+   // H16 — YINELENEN FATURA YOLU TEK SORGU.
+   // `generate` 409 verdiginde ("...zaten olusturulmus.") mevcut faturayi
+   // bulmak icin butun listeyi gezip her kalemi ayrica okuyorduk (N+1):
+   // 5 000 faturali bir firmada 25 liste + 5 000 detay istegi. Artik uc
+   // `work_order_id` suzgecini tasiyor, yani cevap TEK cagriyla geliyor ve
+   // `page_size=1` istedigimiz icin sunucu da tek satir okuyor.
+   // Fatura KIMLIGINI 409'un metnine gommemeyi bilerek reddettik: o, makine
+   // tarafindan okunacak bir degeri insan icin yazilmis bir hata dizgesine
+   // karistirir ve metin degistigi gun bu yol sessizce bozulurdu.
    if(error?.response?.status===409&&String(error?.response?.data?.detail||'').includes('zaten')){
     try{
-     const existing=await findInvoiceForWorkOrder(wo.id);
-     if(existing){setInvoiceOpen(false);nav(`/faturalar/${existing.id}`);return}
+     const existing=await api.get('/invoices',{params:{work_order_id:wo.id,page:1,page_size:1}});
+     const found=existing.data?.items?.[0];
+     if(found){setInvoiceOpen(false);nav(`/faturalar/${found.id}`);return}
     }catch{/* original duplicate error is more useful */}
    }
    setActionError(errorDetail(error,'Fatura oluşturulamadı.'));
