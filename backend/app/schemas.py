@@ -506,13 +506,21 @@ MAX_MACHINE_WORKING_HOURS = Decimal("9999999999.99")
 class MachineCreate(BaseModel):
     customer_id: int | None = Field(default=None, gt=0)
     brand: str = Field(min_length=1, max_length=160)
-    manufacturer: str | None = None
+    # Sınırlar `machines` sütunlarıyla BİREBİR aynı (app/machines.py): marka/
+    # üretici/model/varyant 160, tanımlayıcılar 120. Sınırsız bırakılan bir
+    # alan SQLite'ta `String(N)`i sessizce aşar (SQLite uzunluğu ZORLAMAZ) ve
+    # 5 000 karakterlik bir seri no kaydedilir; `invoice_pdf.py` onu sabit
+    # genişlikli bir hücrede `Paragraph`a verince reportlab `LayoutError`
+    # atar -> o faturanın PDF'i KALICI olarak 500. PostgreSQL'de aynı gövde
+    # INSERT'te `DataError` -> yine 500. İkisi de 422 olması gereken yerde.
+    # Kapı: test_sec11_makine_tanimlayici_uzunlugu.
+    manufacturer: str | None = Field(default=None, max_length=160)
     model: str = Field(min_length=1, max_length=160)
-    variant: str | None = None
-    serial_number: str | None = None
-    chassis_number: str | None = None
-    registration_number: str | None = None
-    engine_number: str | None = None
+    variant: str | None = Field(default=None, max_length=160)
+    serial_number: str | None = Field(default=None, max_length=120)
+    chassis_number: str | None = Field(default=None, max_length=120)
+    registration_number: str | None = Field(default=None, max_length=120)
+    engine_number: str | None = Field(default=None, max_length=120)
     model_year: int | None = None
     working_hours: Decimal = Field(default=Decimal("0.00"), ge=0, le=MAX_MACHINE_WORKING_HOURS)
     status: str = "active"
