@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {Alert,Box,Button,Card,CardContent,CircularProgress,Stack,Typography} from '@mui/material';
 import {useNavigate,useSearchParams} from 'react-router-dom';
 import {api,errorDetail} from '../api';
@@ -8,9 +8,16 @@ export default function VerifyEmail(){
  const navigate=useNavigate();
  const [message,setMessage]=useState('');
  const [error,setError]=useState('');
+ // H18 — doğrulama tokeni tek kullanımlık: ikinci POST 400 döner ve başarılı
+ // ekranın üstüne hata basar. StrictMode'un çift çağrısı da, `params`
+ // kimliğinin değişmesi de aynı yarışı doğurur; tüketilen tokeni akılda
+ // tutup isteği token başına bir kez atıyoruz.
+ const consumed=useRef<string|null>(null);
  useEffect(()=>{
   const token=params.get('token');
   if(!token){setError('Doğrulama bağlantısında token bulunamadı.');return}
+  if(consumed.current===token)return;
+  consumed.current=token;
   api.post('/auth/verify-email',{token})
    .then(({data})=>setMessage(data.message))
    .catch(err=>setError(errorDetail(err,'E-posta doğrulanamadı.')));
