@@ -22,9 +22,8 @@ görülüyor::
 
 İkinci bir kusur ölçüldü (2026-09-09, PR #102 koşu 34384954373 ve PR #103 koşu
 34382994237): 2. aşamada ``npx playwright install-deps chromium`` kök kullanıcı
-ile ``apt-get update`` çalıştırırken GitHub Ubuntu koşucusunda bulunan
-``/etc/apt/sources.list.d/google-chrome.list`` deposundaki ``Packages.gz`` özeti
-InRelease ile uyuşmadı::
+ile ``apt-get update`` çalıştırırken GitHub Ubuntu koşucusunda bulunan Google
+Chrome apt kaynağındaki ``Packages.gz`` özeti InRelease ile uyuşmadı::
 
     E: Failed to fetch https://dl.google.com/linux/chrome-stable/deb/dists/stable/main/binary-amd64/Packages.gz  Hash Sum mismatch
 
@@ -39,6 +38,16 @@ Bu nedenle ilgisiz üçüncü taraf depoların (dosya adından bağımsız olara
 ``*.sources`` kaynağının) bağımlılık komutundan hemen önce ``.disabled`` olarak
 kenara alınması tamamen güvenlidir ve dış depo arızalarının e2e hattını kırmasını
 engeller.
+
+Eşleşmenin DOSYA ADINA değil İÇERİĞE bakması bir varsayım değil, ölçüm sonucudur:
+koşucu imajında dosya ``/etc/apt/sources.list.d/google-chrome.sources`` (deb822
+biçimi), ``google-chrome*.list`` DEĞİLDİR. Ad tabanlı ilk sürüm (koşu 34387270771)
+yalnız ``microsoft-prod.list``i kapatabildi, Chrome kaynağı açık kaldı. İçerik
+tabanlı sürüm (koşu 34389171859) ikisini de kapattı ve fontlar 13.0 sn'de kuruldu.
+KANITIN SINIRI: dl.google.com özet uyumsuzluğu 2026-09-09 18:11 UTC itibarıyla
+düzelmişti (kaynak açıkken de apt başarılı oldu); dolayısıyla yeşil e2e canlı bir
+arıza altında alınmış bir kanıt değildir, kanıt mekanizma düzeyindedir: depo apt
+işleminden gerçekten çıkarılıyor.
 
 --- ÖLÇÜM ----------------------------------------------------------------------
 
