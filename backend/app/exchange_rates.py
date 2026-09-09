@@ -22,8 +22,8 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from urllib.request import urlopen
-from xml.etree import ElementTree
 
+from defusedxml.ElementTree import fromstring as defused_fromstring
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -99,7 +99,7 @@ def _parse_tcmb(xml_bytes: bytes) -> dict[str, Decimal]:
     ForexSelling is the cost to acquire the currency, which matches paying a
     foreign supplier, so it is the right normalisation basis for buying.
     """
-    root = ElementTree.fromstring(xml_bytes)
+    root = defused_fromstring(xml_bytes)
     rates: dict[str, Decimal] = {}
     for node in root.findall("Currency"):
         code = (node.get("CurrencyCode") or "").strip().upper()

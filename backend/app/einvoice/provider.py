@@ -67,6 +67,9 @@ from urllib.parse import quote
 from xml.etree import ElementTree
 from xml.sax.saxutils import escape as xml_escape
 
+from defusedxml.ElementTree import fromstring as defused_fromstring
+from defusedxml.common import DefusedXmlException
+
 from . import endpoints as wire
 from . import ubl_xml
 from .errors import (
@@ -107,6 +110,17 @@ from .ubl import CHANNEL_EARSIV, CHANNEL_EFATURA, missing_required_fields
 logger = logging.getLogger(__name__)
 
 _NOT_CONFIGURED = "e-Fatura sağlayıcısı yapılandırılmamış"
+
+#: ZIP bombasına karşı sınırlar. Gövde SAĞLAYICIDAN gelir; PDF taşıyan bir
+#: e-Arşiv paketi pratikte tek üyelidir ve birkaç MB'dir, o yüzden bu tavanlar
+#: meşru bir belgeyi asla kesmez ama gigabaytlık bir şişmeyi baştan keser.
+_ZIP_MAX_UYE = 8
+#: Tek üyenin ve tüm üyelerin açılmış toplam boyutu için üst sınır.
+_ZIP_MAX_BAYT = 25 * 1024 * 1024
+#: Sıkıştırma oranı tavanı: 100 kat üstü meşru bir PDF değil, bombadır.
+_ZIP_MAX_ORAN = 100
+#: Üyeler bu boyutta parçalar hâlinde okunur; tek seferde belleğe alınmaz.
+_ZIP_PARCA = 64 * 1024
 
 #: Saniye → nanosaniye. Oturum son kullanma zamanı tamsayı nanosaniye tutulur.
 _NANOSECONDS = 1_000_000_000
@@ -1066,6 +1080,20 @@ def _is_hatasi(code: str, message: str, raw: dict[str, Any] | None = None) -> EI
     return EInvoiceError(code, message, raw=raw)
 
 
+def _zip_reddet(sebep: str, olculen: int, sinir: int) -> bytes:
+    """ZIP sınırı aşıldı: TEK bir uyarı bas ve BOŞ dön (fail-closed).
+
+    Gövdenin kendisi ASLA loglanmaz — sağlayıcı belgesi müşteri verisidir.
+    """
+    logger.warning(
+        "e-belge ZIP'i reddedildi: %s sınırı aşıldı (ölçülen=%s, sınır=%s)",
+        sebep,
+        olculen,
+        sinir,
+    )
+    return b""
+
+
 def _pdf_from_zip(raw: bytes) -> bytes:
     """ZIP ise İÇİNDEKİ PDF'i çıkar; PDF ise olduğu gibi ver; değilse boş.
 
@@ -1080,11 +1108,38 @@ def _pdf_from_zip(raw: bytes) -> bytes:
         return b""
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as arsiv:
-            for ad in arsiv.namelist():
-                icerik = arsiv.read(ad)
+            uyeler = arsiv.infolist()
+            if len(uyeler) > _ZIP_MAX_UYE:
+                return _zip_reddet("üye sayısı", len(uyeler), _ZIP_MAX_UYE)
+            bildirilen = sum(bilgi.file_size for bilgi in uyeler)
+            if bildirilen > _ZIP_MAX_BAYT:
+                return _zip_reddet("bildirilen toplam boyut", bildirilen, _ZIP_MAX_BAYT)
+            for bilgi in uyeler:
+                if bilgi.file_size > _ZIP_MAX_BAYT:
+                    return _zip_reddet("bildirilen üye boyutu", bilgi.file_size, _ZIP_MAX_BAYT)
+                oran = bilgi.file_size / max(bilgi.compress_size, 1)
+                if oran > _ZIP_MAX_ORAN:
+                    return _zip_reddet("sıkıştırma oranı", int(oran), _ZIP_MAX_ORAN)
+            toplam = 0
+            for bilgi in uyeler:
+                parcalar: list[bytes] = []
+                okunan = 0
+                with arsiv.open(bilgi) as akis:
+                    while parca := akis.read(_ZIP_PARCA):
+                        okunan += len(parca)
+                        toplam += len(parca)
+                        # Başlıktaki `file_size` bombalarda YALAN SÖYLER; bu
+                        # yüzden gerçekten okunan baytı sayıyoruz ve bildirilen
+                        # boyutu aşan ilk parçada bırakıyoruz.
+                        if okunan > bilgi.file_size:
+                            return _zip_reddet("bildirilen boyut aşıldı", okunan, bilgi.file_size)
+                        if toplam > _ZIP_MAX_BAYT:
+                            return _zip_reddet("açılmış toplam boyut", toplam, _ZIP_MAX_BAYT)
+                        parcalar.append(parca)
+                icerik = b"".join(parcalar)
                 if icerik[:5] == b"%PDF-":
                     return icerik
-    except (zipfile.BadZipFile, OSError, RuntimeError):
+    except (zipfile.BadZipFile, OSError, RuntimeError, EOFError):
         return b""
     return b""
 
@@ -1685,11 +1740,22 @@ def _looks_like_uuid(value: Any) -> bool:
 
 
 def _parse_xml(body: bytes) -> ElementTree.Element | None:
+    """Sağlayıcı gövdesini SERTLEŞTİRİLMİŞ çözümleyiciyle ayrıştır.
+
+    Bu gövde İzibiz/NES'ten gelir — bizim ürettiğimiz bir şey değil, GÜVENİLMEZ
+    girdidir. ``defusedxml`` DTD ve varlık (entity) tanımlarını REDDEDER, böylece
+    bir milyar-kahkaha bombası belleği şişiremez. Dönen nesne yine stdlib
+    ``Element``'tir; ``_first_xml_element``/``_child_text`` değişmeden çalışır.
+
+    ``EntitiesForbidden`` bir ``ParseError`` DEĞİL, bir ``ValueError``'dur.
+    İkisini birden yakalamazsak bomba ``None`` yerine İSTİSNA olarak yukarı
+    kaçar ve çağıran ``_business_failure`` yolu FAILED demek yerine çökerdi.
+    """
     if not body:
         return None
     try:
-        return ElementTree.fromstring(body.decode("utf-8", errors="replace"))
-    except ElementTree.ParseError:
+        return defused_fromstring(body.decode("utf-8", errors="replace"))
+    except (ElementTree.ParseError, DefusedXmlException):
         return None
 
 
