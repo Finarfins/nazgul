@@ -24,6 +24,20 @@ const TOUCH_TARGET_STACK_SX = {
 };
 const TOUCH_TARGET_DIALOG_SX = TOUCH_TARGET_STACK_SX;
 
+// SEC-3 / BAYRAK C-1 — FATURA PANELI `sales` ARKASINDA.
+// `/is-emirleri/:id` nav izni `read`tir, yani `depo` ve `rapor` is emri
+// detayini ACABILIR ve ACMAYA DEVAM ETMELI (parca, iscilik, ek, durum akisi
+// onlarin gunluk isi). Fatura ise satis tarafidir ve SEC-3'te `/api/invoices*`
+// `sales`a tasindi. Karar: SAYFAYI DEGIL, YALNIZ FATURA PANELINI kapatmak —
+// `depo`/`rapor` is emrini fatura paneli OLMADAN acar.
+// `findInvoiceForWorkOrder` de ayni kapinin arkasinda: bugun yalniz
+// `generateInvoice`den (o zaten `canWrite=can('sales')` ile korunuyor)
+// cagriliyor, yani pratikte ulasilamaz durumdaydi — ama fonksiyonun kendisi
+// `/api/invoices` sayfaliyor ve ileride baska bir yerden cagrilirsa kapisiz
+// kalmasin diye kapi cagri yerine DEGIL fonksiyonun basina konuldu.
+// TODO(SEC-3): `findInvoiceForWorkOrder` fatura listesini SAYFA SAYFA gezip
+// her kalem icin ayrica `/invoices/{id}` cagiriyor (N+1). Bu PR yetki
+// kapisiyla sinirli; yeniden tasarim ayri bir hijyen isi olarak ayrildi.
 async function findInvoiceForWorkOrder(workOrderId:number){
  const first=await api.get('/invoices',{params:{page:1,page_size:200}});
  const pages=Math.max(1,Number(first.data?.pages||1));
@@ -231,6 +245,10 @@ function LaborCard({workOrderId,canWrite,canApprove,defaultRate,onError,onChange
 // ---- İş emri detay sayfası --------------------------------------------------
 export default function WorkOrderDetail(){
  const {id}=useParams();const nav=useNavigate();const {can,user}=useAuth();const canWrite=can('sales');
+ // Fatura paneli `sales` ister (bkz. C-1 notu). `canWrite` ile AYNI izin ama
+ // AYRI ad: biri "faturalandirabilir mi", oteki "fatura ozetini gorebilir mi"
+ // sorusunu cevapliyor ve ikisinin ileride ayrisma ihtimali var.
+ const canSeeInvoice=can('sales');
  // Onay backend'de admin/yonetici ile sınırlı; buton da aynı kapıdan geçer.
  const canApproveLabor=['admin','yonetici'].includes(String(user?.role||''));
  const [wo,setWo]=useState<any|null>(null);const [parts,setParts]=useState<any[]>([]);const [billing,setBilling]=useState<any|null>(null);const [billingState,setBillingState]=useState<'loading'|'ready'|'not-ready'|'error'>('loading');
@@ -238,7 +256,7 @@ export default function WorkOrderDetail(){
  const [editOpen,setEditOpen]=useState(false);const [partOpen,setPartOpen]=useState(false);const [editPart,setEditPart]=useState<any|null>(null);const [invoiceOpen,setInvoiceOpen]=useState(false);const [busy,setBusy]=useState(false);
  const load=()=>{setLoading(true);setError('');api.get(`/work-orders/${id}`).then(r=>setWo(r.data)).catch(e=>setError(e.response?.data?.detail||'İş emri yüklenemedi.')).finally(()=>setLoading(false))};
  const loadParts=()=>{api.get(`/work-orders/${id}/parts`).then(r=>setParts(r.data?.items||[])).catch(()=>setParts([]))};
- const loadBilling=()=>{setBillingState('loading');api.get(`/work-orders/${id}/invoice`).then(r=>{setBilling(r.data);setBillingState('ready')}).catch(error=>{setBilling(null);setBillingState(error?.response?.status===409?'not-ready':'error')})};
+ const loadBilling=()=>{if(!canSeeInvoice){setBilling(null);setBillingState('not-ready');return}setBillingState('loading');api.get(`/work-orders/${id}/invoice`).then(r=>{setBilling(r.data);setBillingState('ready')}).catch(error=>{setBilling(null);setBillingState(error?.response?.status===409?'not-ready':'error')})};
  const refresh=()=>{load();loadParts();loadBilling()};
  useEffect(()=>{refresh()},[id]);
  const changeStatus=async(next:string)=>{setActionError('');setBusy(true);try{await api.patch(`/work-orders/${id}/status`,{status:next});refresh()}catch(e:any){setActionError(e.response?.data?.detail||e.message)}finally{setBusy(false)}};
@@ -362,7 +380,10 @@ export default function WorkOrderDetail(){
   {/* Ekler */}
   <AttachmentsCard workOrderId={wo.id} canWrite={canWrite&&!isTerminal} onError={setActionError}/>
 
-  {/* Faturalandırma özeti */}
+  {/* Faturalandırma özeti — SEC-3 / C-1: `sales` arkasında. `depo` ve `rapor`
+      iş emrini bu panel OLMADAN açar; sayfanın geri kalanı (parça, işçilik,
+      ek, durum akışı) onların günlük işidir ve DOKUNULMADI. */}
+  {canSeeInvoice&&<>
    <Paper sx={{p:2}}>
     <Stack direction={{xs:'column',sm:'row'}} justifyContent="space-between" alignItems={{sm:'center'}} gap={1} mb={1}>
      <Typography variant="h6" fontWeight={800}>Faturalandırma Özeti</Typography>
@@ -384,6 +405,7 @@ export default function WorkOrderDetail(){
      <Meta label="Garanti Karşılığı" value={money(billing.warranty?.warranty_amount)}/>
     </Grid>}
    </Paper>
+  </>}
 
    <Dialog open={invoiceOpen} onClose={()=>{if(!busy)setInvoiceOpen(false)}} fullWidth maxWidth="sm" PaperProps={{sx: TOUCH_TARGET_DIALOG_SX}}>
     <DialogTitle>Fatura oluşturulsun mu?</DialogTitle>

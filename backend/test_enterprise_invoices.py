@@ -67,7 +67,12 @@ with TestClient(app) as c:
  report=c.post('/api/users',headers=h,json={'username':'invoice_report','display_name':'Invoice Report','password':'InvoiceReport123!','role':'rapor'}).json()
  rl=c.post('/api/auth/login',json={'username':'invoice_report','password':'InvoiceReport123!'}).json(); rh={'Authorization':'Bearer '+rl['access_token'],'X-Company-ID':str(cid)}
  rc=c.post('/api/auth/change-password',headers=rh,json={'current_password':'InvoiceReport123!','new_password':'InvoiceReport456!'}).json(); rh['Authorization']='Bearer '+rc['access_token']
- assert c.get('/api/invoices',headers=rh).status_code==200
+ # 2026-09-09 (SEC-3): fatura LISTESI `read` DEGIL `sales`; `rapor` o izni
+ # tasimiyor -> 403. Bu dosyanin asil iddiasi ("okuyan rol fatura URETEMEZ")
+ # bir alttaki satirda duruyor ve DEGISMEDI; degisen sey, listenin de artik
+ # kapali olmasi. Gerekce: `invoices.py:40-53` `customer_snapshot`i secip
+ # cozuyor, yani TEK istekle her faturanin musteri VKN'si ve adresi dokuluyordu.
+ assert c.get('/api/invoices',headers=rh).status_code==403
  assert c.post('/api/invoices/generate',headers=rh,json={'work_order_id':wo['id']}).status_code==403
 '''
     result=subprocess.run([sys.executable,'-c',smoke],cwd=BACKEND,env=env,text=True,capture_output=True,timeout=180)

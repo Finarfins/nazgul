@@ -113,13 +113,21 @@ describe('AppShell gruplu menü',()=>{
   }
  });
 
- // Rol filtresi sonrası ilk madde değişebilir: `depo` rolünde Finans grubunun
- // tek görünür maddesi Tahsis Defteri'dir, başlık oraya gitmelidir.
+ // Rol filtresi sonrası ilk madde değişebilir: grubun ana sayfası o rolde
+ // GÖRÜNMÜYORSA başlık, görünür İLK maddeye gitmelidir.
+ //
+ // 2026-09-09 (SEC-3): bu test ESKİDEN `depo` + Finans grubu ile yazılıydı —
+ // grubun tek görünür maddesi Tahsis Defteri (`read`) idi. /tahsis-defteri
+ // `payments`a taşınınca depo Finans grubunu TAMAMEN kaybetti ve senaryo
+ // ORTADAN KALKTI. Testi silmek yerine AYNI OLGUYU hâlâ sergileyen bir role
+ // taşıdık: `rapor` Finans grubunda YALNIZ Alacak Yaşlandırma'yı (`reports`)
+ // görüyor, grubun ana sayfası /odemeler ise ona kapalı. Ölçülen davranış
+ // değişmedi; ölçüldüğü yer değişti.
  it('başlık, o rolde görünür İLK maddeye gider',async()=>{
-  mount('depo','/');
+  mount('rapor','/');
   await waitFor(()=>expect(screen.getAllByText(NAV_LABELS.home).length).toBeGreaterThan(0));
   fireEvent.click(groupHeaderEl('finance'));
-  expect(navigate).toHaveBeenCalledWith('/tahsis-defteri');
+  expect(navigate).toHaveBeenCalledWith('/raporlar/alacak-yaslandirma');
  });
 
  // Başlık gezindiği için mobil çekmece kapanmalı; ok düğmesi gezinmediği için
@@ -222,28 +230,47 @@ describe('AppShell gruplu menü',()=>{
 });
 
 describe('AppShell rol bazlı görünürlük',()=>{
- it('satis rolü 8 üst düzey madde görür, Yönetim grubunu görmez',async()=>{
+ // 8 -> 7 (SEC-3): `satis` ALIŞ grubunu kaybetti. Grubun beş maddesinin
+ // hiçbiri satis'e açık değil: /alislar ve /tedarikciler `purchases`a taşındı,
+ // kalan üçü zaten `reports` / `supplier_prices.view` istiyordu. Kabul edilen
+ // A-2 kararının AppShell'deki karşılığı. Hızlı Satış ve Satış grubu
+ // DOKUNULMADAN duruyor — satis rolünün asli yüzeyi kesilmedi.
+ it('satis rolü 7 üst düzey madde görür, Yönetim ve Alış gruplarını görmez',async()=>{
   mount('satis');
   await waitFor(()=>expect(screen.getAllByText(NAV_LABELS.home).length).toBeGreaterThan(0));
-  expect(topLevelLabels()).toHaveLength(8);
+  expect(topLevelLabels()).toHaveLength(7);
   expect(screen.queryByText(NAV_LABELS.groupAdmin)).toBeNull();
+  expect(screen.queryByText(NAV_LABELS.groupPurchasing)).toBeNull();
   expect(screen.getAllByText(NAV_LABELS.pos).length).toBeGreaterThan(0);
+  // 'Satış' metni üst çubuktaki POS düğmesinde de geçiyor; grup başlığı
+  // olarak varlığını üst düzey etiket listesinden okuyoruz.
+  expect(topLevelLabels()).toContain(NAV_LABELS.groupSales);
  });
 
- it('depo rolü 7 üst düzey madde görür, Hızlı Satış sabitini görmez',async()=>{
+ // 7 -> 6 (SEC-3): `depo` FİNANS grubunu kaybetti (bir alttaki teste bakın).
+ // Kaybın SINIRI de burada: Alış grubu KALIYOR, çünkü depo `purchases`
+ // taşıyor — SEC-3'ün alış tarafı daralması depo'yu HİÇ etkilemiyor.
+ it('depo rolü 6 üst düzey madde görür, Hızlı Satış sabitini görmez',async()=>{
   mount('depo');
   await waitFor(()=>expect(screen.getAllByText(NAV_LABELS.home).length).toBeGreaterThan(0));
-  expect(topLevelLabels()).toHaveLength(7);
+  expect(topLevelLabels()).toHaveLength(6);
   expect(screen.queryByText(NAV_LABELS.pos)).toBeNull();
   expect(screen.queryByText(NAV_LABELS.groupAdmin)).toBeNull();
+  expect(screen.getByText(NAV_LABELS.groupPurchasing)).toBeTruthy();
+  expect(screen.getByText(NAV_LABELS.groupInventory)).toBeTruthy();
  });
 
- it('depo rolünde Finans grubu yalnız Tahsis Defteri ile açılır',async()=>{
+ // İDDİA TERSİNE DÖNDÜ (SEC-3) ve bu bilinçli. Finans grubu depo'ya
+ // ESKİDEN yalnız Tahsis Defteri'nin `read` olması sayesinde görünüyordu —
+ // yani depo, kasa/banka/alacak maddelerinin HİÇBİRİNİ açamadığı hâlde
+ // başlığı görüyordu. Defter `payments`a taşınınca o tek dayanak kalktı.
+ // Depo için tahsis defteri bir stok işi DEĞİLDİR; kaybolan şey ölü bir
+ // menü başlığıdır.
+ it('depo rolünde Finans grubu ARTIK HİÇ görünmez',async()=>{
   mount('depo');
   await waitFor(()=>expect(screen.getAllByText(NAV_LABELS.home).length).toBeGreaterThan(0));
-  fireEvent.click(groupToggleEl('finance'));
-  expect(await screen.findByText(NAV_LABELS.allocations)).toBeTruthy();
-  // payments/finance isteyen maddeler bu rolde listelenmez.
+  expect(screen.queryByText(NAV_LABELS.groupFinance)).toBeNull();
+  expect(screen.queryByText(NAV_LABELS.allocations)).toBeNull();
   expect(screen.queryByText(NAV_LABELS.payments)).toBeNull();
   expect(screen.queryByText(NAV_LABELS.cashManagement)).toBeNull();
  });

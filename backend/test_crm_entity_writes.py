@@ -273,7 +273,11 @@ assert attempt(report, 'customers', customer) == [403, 403, 403]
 assert attempt(report, 'suppliers', supplier) == [403, 403, 403]
 # ...but its baseline read access is untouched.
 assert client.get('/api/customers', headers=report).status_code == 200
-assert client.get('/api/suppliers', headers=report).status_code == 200
+# SEC-3: `/api/suppliers` -> `purchases`; `rapor` o izni tasimiyor.
+# Ustteki `attempt(report, 'suppliers', ...) == [403, 403, 403]` YAZMA
+# iddiasidir ve degismedi; bu satir artik OKUMANIN da kapali oldugunu
+# olcuyor.
+assert client.get('/api/suppliers', headers=report).status_code == 403
 
 # Sales role: customers yes, suppliers no.
 assert attempt(sales, 'customers', customer) == [201, 201, 201]

@@ -212,8 +212,20 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/customers"): "read",
     ("GET", "/api/customers/{customer_id}"): "read",
     ("GET", "/api/customers/{customer_id}/documents"): "read",
-    ("GET", "/api/customers/{customer_id}/statement"): "read",
-    ("GET", "/api/customers/{customer_id}/statement.pdf"): "read",
+    # SEC-3: `read` -> `sales`. Ekstre `StatementEntity`yi (`statement.py:87-97`
+    # tax_number/address/phone/email) ve TUM cari defteri tasiyor. Izin ADI
+    # SECILMEDI, DEPODAN OKUNDU: `statement.py:46-68` `customer` icin
+    # `"permission": "sales"` diyor ve `outputs.py:875` bunu PDF'te ZATEN
+    # uyguluyor. Yani bu satirdan ONCE ayni belgenin JSON'i `read`, PDF'i
+    # `sales` istiyordu; `depo`/`rapor` icin JSON 200, PDF 403 donuyordu ve
+    # `EntityStatementDialog.tsx:36`/`:44` ikisini YAN YANA cagiriyordu.
+    # KAYBEDEN: `depo`, `rapor`.
+    ("GET", "/api/customers/{customer_id}/statement"): "sales",
+    # PDF'in ENVANTER DEGERI DEGISTI ama ERISIM DEGISMEDI: handler kapisi zaten
+    # `sales` istiyordu. Degisen sey kapinin YERI — artik middleware'de, yani
+    # uc `GUARDED_READ`ten CIKIYOR (26 -> 24). `EXPECTED_UNDENIABLE`i zaten
+    # buyutmuyordu; kucultmuyor da.
+    ("GET", "/api/customers/{customer_id}/statement.pdf"): "sales",
     ("GET", "/api/dashboard"): "read",
     ("GET", "/api/demo/summary"): "read",
     ("GET", "/api/documents/{kind}/{document_id}/pdf"): "read",
@@ -230,8 +242,13 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/imports/customers/template.xlsx"): "read",
     ("GET", "/api/imports/products/template.xlsx"): "read",
     ("GET", "/api/imports/suppliers/template.xlsx"): "read",
-    ("GET", "/api/invoices"): "read",
-    ("GET", "/api/invoices/{invoice_id}"): "read",
+    # SEC-3: `read` -> `sales`. Bu ailenin EN GENIS sizintisi LISTEDIR:
+    # `invoices.py:40-53` `customer_snapshot`i secip `items[].customer` olarak
+    # cozuyor, yani TEK istekle firmanin TUM faturalarinin musteri VKN'si ve
+    # adresi dokuluyor (`billing_service.py:113-114` snapshot'i boyle kuruyor).
+    # `/pdf` tek belge verir, liste HEPSINI. KAYBEDEN: `depo`, `rapor`.
+    ("GET", "/api/invoices"): "sales",
+    ("GET", "/api/invoices/{invoice_id}"): "sales",
     # E2 (GOC YOK): e-belge sureti indirme. Izin "sales" ve bu OLCULDU,
     # VARSAYILMADI: `auth.py`ye acik kural yazilmadan once
     # `required_permission` bu uc icin "read" veriyordu (genel guvenli-metot
@@ -240,9 +257,20 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     # indirilen sey resmi mali belgedir. Komsu uclarin degeri DEGISMEDI, o da
     # olculdu: `.../einvoice/status`, `.../pdf` ve `/api/invoices` hala "read".
     ("GET", "/api/invoices/{invoice_id}/einvoice/download"): "sales",
-    ("GET", "/api/invoices/{invoice_id}/einvoice/status"): "read",
-    ("GET", "/api/invoices/{invoice_id}/history"): "read",
-    ("GET", "/api/invoices/{invoice_id}/pdf"): "read",
+    # SEC-3: `read` -> `sales`. `/einvoice/status` (`invoices.py:265`) bu
+    # ailenin EN hassas ucu: `_einvoice_view` `einvoice_payload`i OLDUGU GIBI
+    # donduruyor — saglayiciya gonderilen TAM UBL govdesi (alici VKN/TCKN,
+    # adres, satir fiyatlari) ve `einvoice_web_key`, yani e-Arsiv suretine
+    # erisim anahtari. Hemen ustteki `.../einvoice/download` ZATEN `sales`ti;
+    # `status`un `read`te kalmasi o kuralla ACIKCA tutarsizdi.
+    ("GET", "/api/invoices/{invoice_id}/einvoice/status"): "sales",
+    # `/history` `SELECT * FROM invoice_history` yapiyor: actor_username,
+    # ip_address, reason. Bir DENETIM yuzeyi oldugu icin `users` de savunulur
+    # (`auth.py` `/api/audit` ve `/api/history`yi oraya bagliyor); karar `sales`
+    # oldu — uc fatura ailesinin parcasi ve ayni ekrandan aciliyor. En azindan
+    # `read` OLMAMASI sart.
+    ("GET", "/api/invoices/{invoice_id}/history"): "sales",
+    ("GET", "/api/invoices/{invoice_id}/pdf"): "sales",
     ("GET", "/api/machines"): "read",
     ("GET", "/api/machines/{machine_id}"): "read",
     ("GET", "/api/machines/{machine_id}/hour-readings"): "read",
@@ -255,13 +283,33 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/notifications/rules"): "read",
     ("GET", "/api/notifications/templates"): "read",
     ("GET", "/api/notifications/{notification_id}/preview"): "read",
+    # Siparis LISTESI BILEREK `read`te KALIYOR: `depo`/`rapor` icin gunluk is
+    # yuzeyi. Daralan sey yalniz FIYAT ucudur (bir alttaki satir).
     ("GET", "/api/orders"): "read",
-    ("GET", "/api/orders/last-sale-price"): "read",
+    # SEC-3: `read` -> `sales`. Musteriye ozel SATIS `unit_price` +
+    # `discount_percent` (`transactions.py:1393`). Alis ikizi
+    # (`/api/purchases/last-purchase-price`) `purchases`a baglandi; "fiyat
+    # ticari olarak hassastir" gerekcesi kabul edildiyse iki kardes ucun
+    # AYRISMASI tutarsiz olurdu. `auth.py`de ONEK DEGIL TAM YOL
+    # karsilastirmasi kullanildi, yoksa `/api/orders` listesi de duserdi.
+    # KAYBEDEN: `depo`, `rapor`.
+    ("GET", "/api/orders/last-sale-price"): "sales",
     ("GET", "/api/part-supersessions"): "read",
-    ("GET", "/api/payment-allocations/charges/{receivable_charge_id}"): "read",
+    # SEC-3: `read` -> `payments` (UC UC). Uculu GERCEK tahsis tutarlari
+    # donduruyor (`AllocationView`, `payment_allocation_schemas.py:42-58`):
+    # hangi tahsilatin hangi belgeye ne kadar yazildigi. Kural artik
+    # "GET -> payments, yazma -> finance", yani OKUMA ile YAZMA AYRILDI:
+    # `satis` defteri okur ama tahsis edemez — `satis` tahsilat rolu oldugu
+    # icin bu tutarlidir. KAYBEDEN: `depo`, `rapor`.
+    ("GET", "/api/payment-allocations/charges/{receivable_charge_id}"): "payments",
+    # ENGINE-STATE `read`te KALIYOR ve bu BILINCLI: yanit tek bir yapilandirma
+    # boolean'i (`payment_allocations.py:76-88`), kiraci verisi yok, tutar yok,
+    # cari yok. Arayuz "hic tahsis yok" ile "ozellik kapali"yi bununla ayirir;
+    # `payments`a baglamak o ayrimi geri kirardi. Kural `auth.py`de tahsis
+    # kuralinin USTUNDE durmak ZORUNDA — altinda kalsaydi onek onu da yuturdu.
     ("GET", "/api/payment-allocations/engine-state"): "read",
-    ("GET", "/api/payment-allocations/orders/{order_id}"): "read",
-    ("GET", "/api/payment-allocations/payments/{payment_id}"): "read",
+    ("GET", "/api/payment-allocations/orders/{order_id}"): "payments",
+    ("GET", "/api/payment-allocations/payments/{payment_id}"): "payments",
     # `read` görünüyor ama router AYRICA `require_platform_operator` uyguluyor
     # (admin + ortam allowlist'i). Bkz. `app/auth.py` içindeki açıklama.
     # Aynı gerekçe: firmasız denetim satırları tek bir kiracıya ait olmadığı
@@ -296,22 +344,50 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/products/{product_id}/lots"): "read",
     ("GET", "/api/products/{product_id}/qr.png"): "read",
     ("GET", "/api/products/{product_id}/warehouse-stock"): "read",
-    ("GET", "/api/purchases"): "read",
-    ("GET", "/api/purchases/last-purchase-price"): "read",
+    # SEC-3: `read` -> `purchases`. Liste (`transactions.py:1263`)
+    # supplier_name, final_total (ALIS tutari), paid_amount, due_date;
+    # `last-purchase-price` (`:1418`) tedarikci+urun bazinda `unit_price` ve
+    # `discount_percent` — yani TEDARIKCI MALIYETININ TA KENDISI. Bu, `auth.py`
+    # icindeki mustahsil makbuzu kuralinin ("okumasi da ticari olarak
+    # hassastir") AYNI gerekcesidir ve kural onunla AYNI bolgeye yazildi.
+    # KAYBEDEN: `satis`, `rapor`. `depo` `purchases` TASIR ve ETKILENMEZ.
+    # NOT: somut `GET /api/purchases/1` bu envanterde YOKTUR — sablonu
+    # `/api/{kind}/{transaction_id}`dir ve envanter SABLONU sorar, `{kind}`
+    # hicbir oneke uymaz. O daralmanin kaniti `DYNAMIC_PERMISSION_CASES` ve
+    # `test_sec3_read_daraltma.py`nin GERCEK istegidir.
+    ("GET", "/api/purchases"): "purchases",
+    ("GET", "/api/purchases/last-purchase-price"): "purchases",
     ("GET", "/api/quick-pick"): "read",
     ("GET", "/api/search"): "read",
     ("GET", "/api/search/parts"): "read",
-    ("GET", "/api/suppliers"): "read",
-    ("GET", "/api/suppliers/{supplier_id}"): "read",
-    ("GET", "/api/suppliers/{supplier_id}/documents"): "read",
-    ("GET", "/api/suppliers/{supplier_id}/statement"): "read",
-    ("GET", "/api/suppliers/{supplier_id}/statement.pdf"): "read",
+    # SEC-3: `read` -> `purchases` (BES UC). Liste ve detay (`finance.py:128`,
+    # `:470`) tax_number, opening_balance, phone, email, address,
+    # current_balance, overdue_amount, risk_limit; `/documents` alis belgeleri
+    # + final_total; `/statement` TUM alis defteri + acilis/kapanis bakiye.
+    # KAYBEDEN: `satis`, `rapor`. `depo` ETKILENMEZ.
+    # `/api/suppliers/{id}/advances` ZATEN `purchases`ti (D2) ve DEGISMEDI —
+    # yeni kural onu da kapsiyor, sonuc AYNI.
+    ("GET", "/api/suppliers"): "purchases",
+    ("GET", "/api/suppliers/{supplier_id}"): "purchases",
+    ("GET", "/api/suppliers/{supplier_id}/documents"): "purchases",
+    ("GET", "/api/suppliers/{supplier_id}/statement"): "purchases",
+    # PDF: handler ZATEN `purchases` istiyordu (`statement.py:46-68` ->
+    # `outputs.py:875`). ERISIM DEGISMIYOR; degisen, kapinin middleware'e
+    # tasinmasi ve boylece PDF ile JSON'in TEK kapiya baglanmasi.
+    ("GET", "/api/suppliers/{supplier_id}/statement.pdf"): "purchases",
     ("GET", "/api/technician-profiles"): "read",
     ("GET", "/api/warehouse-transfers/{transfer_id}"): "read",
     ("GET", "/api/warehouses"): "read",
     ("GET", "/api/warehouses/counts"): "read",
     ("GET", "/api/warehouses/counts/{count_id}"): "read",
-    ("GET", "/api/warehouses/replenishment"): "read",
+    # SEC-3: `read` -> `stock`. Yanit `unit_price` ve TEDARIKCI ONERISI
+    # tasiyor (`warehouses.py:139`). Tek cagirani `/depolar` sayfasi ve o sayfa
+    # ZATEN `stock` nav izninde (`Warehouses.tsx:55`), yani EKRAN tarafinda
+    # kimse kaybetmiyor; daralan sey ucun API'den DOGRUDAN cagrilabilirligidir.
+    # `auth.py`de ONEK DEGIL TAM YOL: komsu depo uclari (`/warehouses`,
+    # `/stock`, `/transfers`, `/counts`) `read`te KALIYOR.
+    # KAYBEDEN: `muhasebe`, `satis`, `rapor`. `depo` ETKILENMEZ.
+    ("GET", "/api/warehouses/replenishment"): "stock",
     ("GET", "/api/warehouses/stock"): "read",
     ("GET", "/api/warehouses/transfers"): "read",
     ("GET", "/api/warehouses/{warehouse_id}"): "read",
@@ -431,6 +507,34 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # artis YALNIZ eklemedir, hicbir ucun izni DEGISMEDI. Ucun uc yazma ikizi bu
 # envantere GIRMEZ (bu dosya YALNIZ GET sayar); onlar
 # `test_route_security_contracts.py`nin sozlesme envanterindedir.
+# SEC-3 (`read` DARALTMASI, GOC YOK): sayim 186'da SABIT KALDI ve bu SAYININ
+# KENDISI BIR IDDIADIR — SEC-3 hicbir rota EKLEMEDI, SILMEDI ve yol sablonu
+# DEGISTIRMEDI; yalniz 19 GET'in IZNINI degistirdi. `missing`/`stale` UCU DE
+# BOS olculdu, `changed` ise TAM 19 satir: yedisi `purchases`, sekizi `sales`,
+# ucu `payments`, biri `stock`. Envanterin kendi hata mesaji bu 19'u tek tek
+# yazar; her satirin gerekcesi yukarida ilgili girdinin ustunde duruyor.
+#
+# 19'un DAGILIMI (olculdu, tahmin EDILMEDI):
+#   purchases (7): /api/purchases, /api/purchases/last-purchase-price,
+#                  /api/suppliers, /api/suppliers/{id},
+#                  /api/suppliers/{id}/documents,
+#                  /api/suppliers/{id}/statement,
+#                  /api/suppliers/{id}/statement.pdf
+#   sales     (8): /api/invoices, /api/invoices/{id},
+#                  /api/invoices/{id}/history, /api/invoices/{id}/pdf,
+#                  /api/invoices/{id}/einvoice/status,
+#                  /api/customers/{id}/statement,
+#                  /api/customers/{id}/statement.pdf,
+#                  /api/orders/last-sale-price
+#   payments  (3): /api/payment-allocations/{payments,orders,charges}/{id}
+#   stock     (1): /api/warehouses/replenishment
+#
+# YIRMINCI YOL BU ENVANTERDE GORUNMEZ: `GET /api/purchases/1` de `read`ten
+# `purchases`a dustu, ama SABLONU `/api/{kind}/{transaction_id}`dir ve envanter
+# `required_permission`i HAM yolla cagirir — `{kind}` hicbir oneke uymadigi
+# icin sablon `read`te KALIR ve bu SATIR KIMILDAMAZ. Daralmanin kaniti bu
+# dosyada DEGIL, `test_route_security_contracts.py`nin `DYNAMIC_PERMISSION_CASES`
+# girdisinde ve `test_sec3_read_daraltma.py`nin GERCEK HTTP istegindedir.
 GET_INVENTORY_COUNT = 186
 GET_INVENTORY_FINGERPRINT = (
     # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
@@ -460,7 +564,15 @@ GET_INVENTORY_FINGERPRINT = (
     # DOGRU: o kapi yalniz `read`/`public` GET'leri icin gerekce ister,
     # "sales" onun disindadir, (5) sayim 185 -> 186 olarak yeniden olculdu,
     # (6) EN SON parmak izi turetildi. 22fcac03 -> 445ebb4f.
-    "445ebb4fe3efb3addf3bf3df609bc28648b842f066e6462d45e2cb74930aa92c"
+    # SEC-3 (`read` DARALTMASI, GOC YOK): AYNI SIRA izlendi ama BASKA bir
+    # sirayla, cunku yeni uc YOK — (1) `auth.py`ye genel guvenli-metot
+    # kuralinin USTUNE alti kural yazildi, (2) izinler `required_permission`
+    # ile OLCULDU, (3) envanterdeki 19 satir olculen degerlerle guncellendi,
+    # (4) `missing`/`stale`in BOS ve sayimin 186'da SABIT oldugu yeniden
+    # olculdu, (5) EN SON parmak izi turetildi. Parmak izinin degismesi bir
+    # KAYMA DEGIL, kapinin ISLEVIDIR: yuk `permission` alanini tasiyor ve o
+    # alan 19 satirda bilerek degisti. 445ebb4f -> 0e8ce4f3.
+    "0e8ce4f353cbd07d0503026115ee9de9127ffc404fc258124da52e4b6e403345"
 )
 
 

@@ -176,9 +176,30 @@ def test_uclar_purchases_iznine_bagli_GET_DAHIL() -> None:
         )
         == "purchases"
     )
-    # Kapının GERÇEKTEN bu satırlar sayesinde kapalı olduğunu göster:
-    # tedarikçinin BAŞKA bir alt yolu hâlâ temel `read` kuralına düşer.
-    assert required_permission("GET", "/api/suppliers/5/notes") == "read"
+    # Kapının GERÇEKTEN bu satırlar sayesinde kapalı olduğunu göster.
+    #
+    # 2026-09-09 (SEC-3) — TANIK DEĞİŞTİ, İDDİA DEĞİŞMEDİ. Bu satır eskiden
+    # `GET /api/suppliers/5/notes` -> "read" diyordu ve tanıklığı şuydu:
+    # tedarikçinin BAŞKA bir alt yolu temel `read` kuralına düşüyorsa, avans
+    # yolunun `purchases` olması D2'nin KENDİ kuralından geliyor demektir.
+    # SEC-3 `/api/suppliers` ailesinin TÜM güvenli metotlarını `purchases`a
+    # taşıdı, yani o tanık artık ayırt edici DEĞİL — iki uç da `purchases`
+    # ve hangisinin hangi kuraldan geldiği bu satırdan okunamaz.
+    #
+    # Tanık MÜŞTERİ tarafına taşındı: `/api/customers/{id}/notes` BİLEREK
+    # `read`te kaldı (SEC-3 müşteri kartını daraltmadı, yalnız EKSTREYİ
+    # `sales`a bağladı). Yani "genel güvenli-metot kuralı HÂLÂ ÇALIŞIYOR ve
+    # her GET'i yutmuyor" iddiası korunuyor.
+    assert required_permission("GET", "/api/customers/5/notes") == "read"
+    # D2 kuralının KENDİ tanığı ise artık `/api/tax-liabilities`tir: o yol
+    # hiçbir SEC-3 önekine girmiyor, dolayısıyla `purchases` olması YALNIZ
+    # yukarıdaki D2 kuralından gelebilir (kural silinirse "read" döner).
+    #
+    # DÜRÜST KAYIT: `/api/suppliers/.../advances` kuralı bugün GET tarafında
+    # SEC-3'ün `/api/suppliers` kuralıyla ÖRTÜŞÜYOR ve tek başına kaldırılsa
+    # sonuç değişmezdi. Kural yine de duruyor: gerekçesi (çiftçiye ödenen
+    # PARA) SEC-3'ünkinden (tedarikçi kartı/defteri) AYRIDIR ve birinin
+    # daraltılması ötekini sessizce açmamalıdır.
 
 
 def test_yukumluluk_kapatma_ucu_YOK() -> None:
