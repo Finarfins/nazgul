@@ -20,6 +20,25 @@ görülüyor::
     Switching to root user to install dependencies...
     Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
 
+İkinci bir kusur ölçüldü (2026-09-09, PR #102 koşu 34384954373 ve PR #103 koşu
+34382994237): 2. aşamada ``npx playwright install-deps chromium`` kök kullanıcı
+ile ``apt-get update`` çalıştırırken GitHub Ubuntu koşucusunda bulunan
+``/etc/apt/sources.list.d/google-chrome.list`` deposundaki ``Packages.gz`` özeti
+InRelease ile uyuşmadı::
+
+    E: Failed to fetch https://dl.google.com/linux/chrome-stable/deb/dists/stable/main/binary-amd64/Packages.gz  Hash Sum mismatch
+
+ve komut çıkış kodu 100 ile düştü; hazırlık başarısız sayılarak her iki
+``npx playwright test`` adımı da atlandı. Bu, #82'deki apt asılmasının AYNI
+BAŞARISIZLIK SINIFIDIR: e2e işimiz Google Chrome veya Microsoft/Azure apt
+depolarına HİÇBİR ZAMAN ihtiyaç duymaz. Tarayıcının kendisi Playwright'ın kendi
+CDN'inden (Chrome for Testing) iner; kurulan dokuz bağımlılık ise yalnızca
+Ubuntu'nun temel aynalarındaki font paketleridir (``eksik_fontlar()`` listesi).
+Bu nedenle ilgisiz üçüncü taraf depoların (en azından ``google-chrome*.list``,
+varsa ``microsoft-prod.list``, ``azure-cli.list``) bağımlılık komutundan hemen
+önce ``.disabled`` olarak kenara alınması tamamen güvenlidir ve dış depo
+arızalarının e2e hattını kırmasını engeller.
+
 --- ÖLÇÜM ----------------------------------------------------------------------
 
 Başarılı bir koşuda (32249926793, e2e işi 96058436961) adım 46 saniye sürdü ve
@@ -49,8 +68,9 @@ bütçesini yiyemez:
   hiçbir ağ işlemi YAPMAZ. Yoksa ``playwright install chromium`` ile
   ``PW_TARAYICI_SINIR_SN`` saniyelik KENDİ sınırı içinde indirir.
 * **Font bağımlılıkları**: dokuz paketin hepsi ``dpkg`` ile kuruluysa apt'e
-  HİÇ dokunmaz. Eksik varsa ``--with-deps`` yalnız o zaman ve
-  ``PW_BAGIMLILIK_SINIR_SN`` saniyelik KENDİ sınırı içinde koşar.
+  HİÇ dokunmaz. Eksik varsa önce ilgisiz üçüncü taraf apt kaynaklarını devredışı
+  bırakır (H15); ``--with-deps`` yalnız o zaman ve ``PW_BAGIMLILIK_SINIR_SN``
+  saniyelik KENDİ sınırı içinde koşar.
 
 Sınırların ikisi de işin ``timeout-minutes``ından BAĞIMSIZDIR: kurulumda zaman
 tüketmek, testlerin başarısız olmasından ayırt edilebilir olsun diye.
@@ -78,6 +98,17 @@ aşan bir komut, sınıra yakın bir sürede kesilmeli.
 indirmesini de kaldırırdı, ama ölçüm o indirmenin 5 saniye olduğunu söylüyor;
 asılan kısım apt. Önbellek, çözülen sorunu çözmez ve bayat tarayıcı sürümünü
 sessizce taşıma riski getirir. Ayrı bir karar olarak bırakıldı.
+
+--- ALTERNATİF: APT-GET UPDATE'İ TAMAMEN ATLAMAK -------------------------------
+
+``npx playwright install-deps`` kök olup örtük ``apt-get update`` koşturur. Oysa
+GitHub Ubuntu koşucusunda Ubuntu paket listeleri önceden hazırdır ve dokuz font
+paketi Ubuntu depolarından ``apt-get update`` OLMADAN da doğrudan
+kurulabilmektedir (``sudo apt-get install -y --no-install-recommends <9 font>``).
+Bu alternatif, dış ağdaki depo indekslerini sorgulamayı tamamen kaldırırdı;
+ancak Playwright'ın ileride ihtiyaç duyabileceği tarayıcı bağımlılıklarının
+otoritesini kırmamak ve daha dar bir etki alanı (blast radius) korumak için
+bu PR'da yalnız ilgisiz kaynakların devredışı bırakılması uygulanmıştır.
 """
 from __future__ import annotations
 
@@ -104,6 +135,69 @@ FONT_PAKETLERI = (
 )
 
 ONBELLEK = Path.home() / ".cache" / "ms-playwright"
+
+#: Devredışı bırakılacak ilgisiz üçüncü taraf apt kaynakları (bkz. H15).
+APT_KAYNAK_DIZINI = Path(os.environ.get("PW_APT_SOURCES_DIR", "/etc/apt/sources.list.d"))
+UCUNCU_TARAF_APT_DESENLERI = (
+    "google-chrome*.list",
+    "microsoft-prod.list",
+    "azure-cli.list",
+)
+
+
+def ucuncu_taraf_apt_kaynaklarini_kapat(
+    dizin: Path = APT_KAYNAK_DIZINI,
+) -> list[str]:
+    """İlgisiz üçüncü taraf apt kaynaklarını devredışı bırakır.
+
+    dl.google.com gibi üçüncü taraf depolarındaki arızaların (ör. Hash Sum
+    mismatch) yalnızca Ubuntu ana depolarındaki font paketlerine ihtiyaç duyan
+    e2e işini düşürmesini engeller. Dosyaları silmez, '.disabled' uzantısıyla
+    kenara alır.
+    """
+    if not dizin.is_dir():
+        _yaz("apt kaynağı yok")
+        return []
+
+    bulunan: list[Path] = []
+    for desen in UCUNCU_TARAF_APT_DESENLERI:
+        bulunan.extend(sorted(dizin.glob(desen)))
+
+    hedef_dosyalar = sorted(set(bulunan))
+    if not hedef_dosyalar:
+        _yaz("apt kaynağı yok")
+        return []
+
+    kapatilanlar: list[str] = []
+    for dosya in hedef_dosyalar:
+        hedef = dosya.with_name(f"{dosya.name}.disabled")
+        try:
+            os.replace(dosya, hedef)
+            kapatilanlar.append(str(dosya))
+        except PermissionError:
+            if shutil.which("sudo"):
+                res = subprocess.run(
+                    ["sudo", "mv", str(dosya), str(hedef)],
+                    capture_output=True,
+                    text=True,
+                )
+                if res.returncode == 0:
+                    kapatilanlar.append(str(dosya))
+                else:
+                    _yaz(f"uyarı: {dosya} devredışı bırakılamadı: {res.stderr.strip()}")
+            else:
+                _yaz(f"uyarı: {dosya} devredışı bırakılamadı (sudo yok)")
+        except OSError as hata:
+            _yaz(f"uyarı: {dosya} devredışı bırakılamadı: {hata}")
+
+    if kapatilanlar:
+        _yaz(
+            f"üçüncü taraf apt kaynakları devredışı bırakıldı: "
+            f"{' '.join(kapatilanlar)}"
+        )
+    else:
+        _yaz("apt kaynağı yok")
+    return kapatilanlar
 
 
 def _yaz(mesaj: str) -> None:
@@ -233,6 +327,7 @@ def main() -> int:
         durumlar.append("fontlar=hazir")
     else:
         _yaz(f"eksik font ({len(eksik)}): {' '.join(eksik)}")
+        ucuncu_taraf_apt_kaynaklarini_kapat()
         _yaz(f"sınır {bagimlilik_sinir} sn ile kuruluyor")
         kod, sure, cikti = sinirli_kostur(bagimlilik_komut, bagimlilik_sinir, calisma)
         if kod is None:
