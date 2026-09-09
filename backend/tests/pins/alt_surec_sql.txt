@@ -121,6 +121,7 @@ tests/test_mustahsil_makbuzu.py	1
 tests/test_outbox_liveness.py	3
 tests/test_outbox_requeue.py	3
 tests/test_password_reset.py	3
+tests/test_pdf_paragraf_kacisi.py	1
 tests/test_role_fallback_failclosed.py	1
 tests/test_season_cost_with_labour.py	1
 tests/test_self_service_exemption.py	1
