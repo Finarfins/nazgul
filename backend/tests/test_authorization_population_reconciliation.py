@@ -317,15 +317,44 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 #     Yani 99'un SABIT KALMASI, acik kuralin gercekten calistiginin TANIGIDIR.
 #   * `EXPECTED_UNDENIABLE` KIMILDAMADI: "sales" ciplak `read` degildir —
 #     tasimayan roller VAR, yani uc bir ROL DEGERIYLE reddedilebiliyor.
+# 20260909 — SEC-3 (`read` DARALTMASI, GOC YOK). YENI UC YOK, YENI YOL YOK:
+# `EXPECTED_AUTHENTICATED` 379'da SABIT ve bu OLCULDU. Degisen tek sey 19
+# GET'in IZNIDIR (7 `purchases`, 8 `sales`, 3 `payments`, 1 `stock`).
+#
+#   * `EXPECTED_READ` 99 -> 80 (-19). Bire bir: `read`ten cikan yol sayisi.
+#   * ciplak (naked) read 73 -> 56 (-17). -19 DEGIL, cunku cikan 19 ucun
+#     IKISI (`customers/{id}/statement.pdf`, `suppliers/{id}/statement.pdf`)
+#     ZATEN `GUARDED_READ`teydi ve `naked`de HIC DEGILDI.
+#   * korumali (guarded) read 26 -> 24 (-2). Tam o iki PDF.
+#   * `EXPECTED_UNDENIABLE` 114 -> 97 (-17). `undeniable = naked | farm_herd`
+#     ve `farm_herd` 41'de SABIT KALDI (olculdu), yani dususun TAMAMI
+#     `naked`ten geliyor. O iki PDF'in tasinmasi REDDEDILEBILIRLIGI HIC
+#     DEGISTIRMEDI — zaten handler'da reddedilebiliyorlardi.
+#
+# FAZ 1 RAPORUNUN TAHMINIYLE FARK (docs/SEC-3-olcum-2026-09-09.md §3.2 82/99
+# demisti; olculen 80/97). Fark KAZAI DEGIL, KAPSAM farkidir: §3.2 17 yol
+# icin simule edilmisti; kabul edilen tabloya sonradan IKI yol daha eklendi:
+#   + `GET /api/orders/last-sale-price` (§5.1d simetrisi kabul edildi)
+#   + `GET /api/warehouses/replenishment` (E-2 bayragi kabul edildi)
+# Ikisi de CIPLAK read'deydi, yani hem `EXPECTED_READ`i hem `naked`i hem de
+# `EXPECTED_UNDENIABLE`i BIRER azaltiyorlar: 82-2 = 80 ve 99-2 = 97. Baska
+# hicbir sapma YOK; `guarded` icin tahmin (24) ile olcum (24) AYNI.
 EXPECTED_AUTHENTICATED = 379
-EXPECTED_READ = 99
-EXPECTED_UNDENIABLE = 114
+EXPECTED_READ = 80
+EXPECTED_UNDENIABLE = 97
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
 #: sonra kendi kapılarına takılırlar. 89'a dahil, 94'e DEĞİL.
 #: ELLE YAZILDI — türetimden okunmuyor.
 GUARDED_READ_OPERATIONS = {
-    ("GET", "/api/customers/{customer_id}/statement.pdf"),
+    # SEC-3: `customers/{id}/statement.pdf` ve `suppliers/{id}/statement.pdf`
+    # bu kumeden CIKTI (26 -> 24). ERISIM DEGISMEDI: handler ikisini de ZATEN
+    # `sales`/`purchases` ile kapiyordu (`statement.py:46-68` ->
+    # `outputs.py:875`). Degisen sey, middleware'in artik ONLARI da `read`
+    # DISINDA cozmesi — yani uclar `read_ops`a hic girmiyor, dolayisiyla
+    # `read_ops`un alt kumesi olan bu kumeye de giremiyorlar.
+    # `EXPECTED_UNDENIABLE` bu ikisinden HIC ETKILENMEDI ve bu bekleniyordu:
+    # korumali read zaten reddedilebilirligi buyutmuyordu.
     ("GET", "/api/documents/{kind}/{document_id}/pdf"),
     ("GET", "/api/documents/{kind}/{document_id}/xlsx"),
     ("GET", "/api/exports/producer-logbook"),
@@ -349,7 +378,6 @@ GUARDED_READ_OPERATIONS = {
     ("GET", "/api/products/{product_id}/barcode-label.pdf"),
     ("GET", "/api/products/{product_id}/label.pdf"),
     ("GET", "/api/products/{product_id}/qr.png"),
-    ("GET", "/api/suppliers/{supplier_id}/statement.pdf"),
     ("GET", "/api/warehouse-transfers/{transfer_id}"),
     ("POST", "/api/platform/backups"),
     ("POST", "/api/platform/backups/{name}/restore"),
@@ -514,30 +542,26 @@ NAKED_READ_OPERATIONS = {
     ("GET", "/api/customers"),
     ("GET", "/api/customers/{customer_id}"),
     ("GET", "/api/customers/{customer_id}/documents"),
-    ("GET", "/api/customers/{customer_id}/statement"),
+    # SEC-3: `customers/{id}/statement` bu kumeden CIKTI -> `sales`.
     ("GET", "/api/dashboard"),
     ("GET", "/api/demo/summary"),
     ("GET", "/api/exchange-rates"),
     ("GET", "/api/imports/customers/template.xlsx"),
     ("GET", "/api/imports/products/template.xlsx"),
     ("GET", "/api/imports/suppliers/template.xlsx"),
-    ("GET", "/api/invoices"),
-    ("GET", "/api/invoices/{invoice_id}"),
-    ("GET", "/api/invoices/{invoice_id}/einvoice/status"),
-    ("GET", "/api/invoices/{invoice_id}/history"),
-    ("GET", "/api/invoices/{invoice_id}/pdf"),
+    # SEC-3: fatura ailesinin BES okuma ucu bu kumeden CIKTI -> `sales`.
     ("GET", "/api/machines"),
     ("GET", "/api/machines/{machine_id}"),
     ("GET", "/api/machines/{machine_id}/hour-readings"),
     ("GET", "/api/machines/{machine_id}/ownership-history"),
     ("GET", "/api/notifications"),
     ("GET", "/api/orders"),
-    ("GET", "/api/orders/last-sale-price"),
+    # SEC-3: `orders/last-sale-price` bu kumeden CIKTI -> `sales`.
+    # `/api/orders` LISTESI KALIYOR — bilerek `read`.
     ("GET", "/api/part-supersessions"),
-    ("GET", "/api/payment-allocations/charges/{receivable_charge_id}"),
+    # SEC-3: tahsis defterinin UC ucu bu kumeden CIKTI -> `payments`.
+    # `engine-state` KALIYOR: tek yapilandirma bayragi, kiraci verisi yok.
     ("GET", "/api/payment-allocations/engine-state"),
-    ("GET", "/api/payment-allocations/orders/{order_id}"),
-    ("GET", "/api/payment-allocations/payments/{payment_id}"),
     ("GET", "/api/pos/lookup"),
     ("GET", "/api/products"),
     # 1B-G parti mutabakati (GOC YOK). CIPLAK read ve gerekcesi 1B-A'nin
@@ -556,20 +580,17 @@ NAKED_READ_OPERATIONS = {
     # bakiyesinin parti kırılımıdır ve onu ikinci bir role bağlamak aynı
     # olguyu iki farklı kapının arkasına koyardı.
     ("GET", "/api/products/{product_id}/lots"),
-    ("GET", "/api/purchases"),
-    ("GET", "/api/purchases/last-purchase-price"),
+    # SEC-3: `purchases` LISTESI ve `last-purchase-price` bu kumeden CIKTI
+    # -> `purchases`.
     ("GET", "/api/quick-pick"),
     ("GET", "/api/search"),
     ("GET", "/api/search/parts"),
-    ("GET", "/api/suppliers"),
-    ("GET", "/api/suppliers/{supplier_id}"),
-    ("GET", "/api/suppliers/{supplier_id}/documents"),
-    ("GET", "/api/suppliers/{supplier_id}/statement"),
+    # SEC-3: tedarikci kartinin DORT okuma ucu bu kumeden CIKTI -> `purchases`.
     ("GET", "/api/technician-profiles"),
     ("GET", "/api/warehouses"),
     ("GET", "/api/warehouses/counts"),
     ("GET", "/api/warehouses/counts/{count_id}"),
-    ("GET", "/api/warehouses/replenishment"),
+    # SEC-3: `warehouses/replenishment` bu kumeden CIKTI -> `stock`.
     ("GET", "/api/warehouses/stock"),
     ("GET", "/api/warehouses/transfers"),
     ("GET", "/api/warehouses/{warehouse_id}"),
@@ -645,7 +666,9 @@ def test_guarded_read_membership_not_just_magnitude() -> None:
     # ARGÜMANINA hiç bakmaz; altı rolün altısı da `farm.view` taşıdığı için bu
     # kapı bugün tanımlı hiçbir rolü reddedemez (enjekte edilmiş bir role karşı
     # 403 ölçüldü: kapı gerçek ve ateş ediyor, hedefi henüz var olmayan bir rol).
-    assert len(guarded) == 26
+    # 26 -> 24: SEC-3'un iki ekstre PDF'i. Kumeden CIKMALARI bir ZAYIFLAMA
+    # DEGIL: kapi handler'dan MIDDLEWARE'e tasindi, yani daha ERKEN duruyor.
+    assert len(guarded) == 24
 
 
 def test_farm_and_herd_view_membership_not_just_magnitude() -> None:
@@ -691,7 +714,10 @@ def test_eightynine_partitions_into_sixtysix_and_twentythree() -> None:
     # çözülüyor ve handler'daki tek denetim SAHİPLİKTİR, ROL DEĞİL.
     # 72 -> 73: 1B-G'nin `GET /api/products/lots/mutabakat`u, AYNI
     # gerekceyle — handler'da ikinci bir yetki kapisi YOK.
-    assert len(naked_read) == 73
+    # 73 -> 56: SEC-3'un `read`ten cikardigi 19 ucun 17'si ciplak read'deydi
+    # (kalan ikisi korumali read'deydi ve oradan cikti). Bu, SEC-3'un ASIL
+    # KAZANIMIDIR: 17 uc artik bir ROL DEGERIYLE reddedilebiliyor.
+    assert len(naked_read) == 56
     # Bölünme: kesişim boş ve birleşim TAM. Sayılar tutup üyelik tutmazsa burası kırmızı.
     assert guarded <= read_ops
     assert naked_read | guarded == read_ops

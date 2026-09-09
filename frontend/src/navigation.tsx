@@ -103,12 +103,28 @@ export const ROUTE_PERMISSIONS = {
   '/': 'read',
   '/hizli-satis': 'sales',
   '/satislar': 'read',
-  '/alislar': 'read',
+  // SEC-3: 'read' -> 'purchases'. Sayfa `/api/purchases` listesini ve
+  // `TransactionDialog` uzerinden `/api/suppliers` ile
+  // `/api/purchases/last-purchase-price`i cagiriyor; ucun uce backend'de
+  // artik `purchases`. Nav bu satirsiz kalsaydi `satis` ve `rapor` menude
+  // gorunen bir sayfaya girip ic ice 403 toplardi — SEC-3 oncesi
+  // `/alacaklar`da yasanan olu-madde kusurunun aynisi.
+  '/alislar': 'purchases',
   '/belge-akislari': 'read',
   '/musteriler': 'read',
   '/musteriler/:id': 'read',
-  '/tedarikciler': 'read',
-  '/tedarikciler/:id': 'read',
+  // SEC-3: 'read' -> 'purchases'. Tedarikci kartinin DORT okuma ucu
+  // (`/api/suppliers`, `/{id}`, `/{id}/documents`, `/{id}/statement`)
+  // backend'de `purchases`a tasindi.
+  //
+  // `/musteriler*` BILEREK 'read'te KALIYOR ve bu ayrisma SAYFA KODUNDA
+  // DEGIL VERIDE: `Entities.tsx` ve `EntityDetail.tsx` TEK bilesendir ve
+  // ucu `type` proposundan secer (`Entities.tsx:100`, `EntityDetail.tsx:67`).
+  // Yani ayni kod iki farkli izne baglanir ve bu, iki AYRI rota kaydiyla
+  // ifade edilir — bilesen icine bir `can()` dali yazmakla DEGIL. `satis`
+  // rolu `/musteriler`i acmaya devam eder ve 403 ALMAZ.
+  '/tedarikciler': 'purchases',
+  '/tedarikciler/:id': 'purchases',
   '/urunler': 'read',
   '/urunler/:id': 'read',
   '/parca-supersession': 'read',
@@ -154,10 +170,17 @@ export const ROUTE_PERMISSIONS = {
   // izinlerine değil `finance`a bağlı — girdi giren depo rolünün oranları
   // görmesi gerekmiyor. Backend de aynı izni istiyor.
   '/tanimlar/maliyet-oranlari': 'finance',
-  '/faturalar': 'read',
-  '/faturalar/:id': 'read',
+  // SEC-3: 'read' -> 'sales'. Fatura ailesinin BES okuma ucu backend'de
+  // `sales`a tasindi; en genisi LISTEDIR (`/api/invoices` her faturanin
+  // musteri VKN'sini ve adresini tasiyor).
+  '/faturalar': 'sales',
+  '/faturalar/:id': 'sales',
   '/odemeler': 'payments',
-  '/tahsis-defteri': 'read',
+  // SEC-3: 'read' -> 'payments'. Defterin UC okuma ucu backend'de
+  // `payments`a tasindi. Sayfanin `engine-state` cagrisi `read`te KALDI ama
+  // sayfanin KENDISI defteri gosteriyor; nav `read`te birakilsaydi `depo` ve
+  // `rapor` acilan ama bos/403 bir ekrana girerdi.
+  '/tahsis-defteri': 'payments',
   '/alacaklar': 'payments',
   '/nakit-yonetimi': 'finance',
   // Harman sezon tanımları finans yönetimidir; backend de tüm

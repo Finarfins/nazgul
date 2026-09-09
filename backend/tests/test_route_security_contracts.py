@@ -62,7 +62,6 @@ ROUTE_REASON_GROUPS = (
             ("GET", "/api/warehouses/counts/{count_id}"),
             ("GET", "/api/warehouses"),
             ("GET", "/api/warehouses/stock"),
-            ("GET", "/api/warehouses/replenishment"),
             ("GET", "/api/warehouses/transfers"),
             ("GET", "/api/warehouses/{warehouse_id}"),
             ("GET", "/api/warehouse-transfers/{transfer_id}"),
@@ -70,12 +69,10 @@ ROUTE_REASON_GROUPS = (
             ("GET", "/api/demo/summary"),
             ("GET", "/api/customers"),
             ("GET", "/api/customers/{customer_id}"),
-            ("GET", "/api/customers/{customer_id}/statement"),
             # Kart listesi bir önizlemedir; TÜM satış/alış geçmişi bu iki uçtan
             # sayfalanır. Kök sorgu company_id ile bağlıdır ve cari başka
             # firmaya aitse 404 döner (belge sayısı bile sızmaz).
             ("GET", "/api/customers/{customer_id}/documents"),
-            ("GET", "/api/suppliers/{supplier_id}/documents"),
             ("GET", "/api/machines"),
             ("GET", "/api/machines/{machine_id}"),
             ("GET", "/api/machines/{machine_id}/hour-readings"),
@@ -100,13 +97,12 @@ ROUTE_REASON_GROUPS = (
             # sorgunun yukleminden gelir.
             ("GET", "/api/products/lots/mutabakat"),
             ("GET", "/api/products/{product_id}/lots"),
-            ("GET", "/api/suppliers"),
-            ("GET", "/api/suppliers/{supplier_id}"),
-            ("GET", "/api/suppliers/{supplier_id}/statement"),
+            # SEC-3: `/api/suppliers*` ve tahsis defterinin UC ucu bu gruptan
+            # CIKTI — izinleri `read` degil (`purchases` / `payments`), yani
+            # bu grubun "baseline operasyonel role acik okuma" vaadi artik
+            # onlar icin DOGRU DEGIL. `engine-state` KALIYOR: o hala `read`
+            # ve kalmasi BILINCLI (tek yapilandirma bayragi).
             ("GET", "/api/payment-allocations/engine-state"),
-            ("GET", "/api/payment-allocations/payments/{payment_id}"),
-            ("GET", "/api/payment-allocations/orders/{order_id}"),
-            ("GET", "/api/payment-allocations/charges/{receivable_charge_id}"),
             ("GET", "/api/search"),
             ("GET", "/api/search/parts"),
             ("GET", "/api/analytics/seasonal-plan"),
@@ -115,18 +111,22 @@ ROUTE_REASON_GROUPS = (
             ("GET", "/api/imports/customers/template.xlsx"),
             ("GET", "/api/imports/suppliers/template.xlsx"),
             ("GET", "/api/imports/products/template.xlsx"),
-            ("GET", "/api/invoices"),
-            ("GET", "/api/invoices/{invoice_id}"),
-            ("GET", "/api/invoices/{invoice_id}/history"),
-            ("GET", "/api/invoices/{invoice_id}/pdf"),
-            ("GET", "/api/invoices/{invoice_id}/einvoice/status"),
+            # SEC-3: fatura ailesinin BES okuma ucu bu gruptan CIKTI —
+            # hepsi artik `sales`. `/api/exchange-rates` KALIYOR: yayimlanmis
+            # TCMB kuru ne maliyet ne marj acar.
             ("GET", "/api/exchange-rates"),
             ("GET", "/api/part-supersessions"),
             ("GET", "/api/products/{product_id}/current"),
             ("GET", "/api/orders"),
-            ("GET", "/api/purchases"),
-            ("GET", "/api/orders/last-sale-price"),
-            ("GET", "/api/purchases/last-purchase-price"),
+            # SEC-3: `/api/purchases`, `/api/purchases/last-purchase-price` ve
+            # `/api/orders/last-sale-price` bu gruptan CIKTI (`purchases` /
+            # `sales`). `/api/orders` LISTESI KALIYOR — bilerek `read`.
+            #
+            # `/api/{kind}/{transaction_id}` de KALIYOR ve bu bir CELISKI
+            # DEGIL: sablonun `permission_cases`i artik orders=read,
+            # purchases=purchases; `_build_contract` gerekceyi `has_read_case`
+            # dogru oldugu SURECE ister ve `orders` kolu hala `read`. Yani
+            # gerekce metni yalniz `orders` kolu icin vaat veriyor.
             ("GET", "/api/{kind}/{transaction_id}"),
         },
     ),
@@ -139,8 +139,9 @@ ROUTE_REASON_GROUPS = (
             ("GET", "/api/products/{product_id}/label.pdf"),
             ("GET", "/api/products/{product_id}/barcode-label.pdf"),
             ("GET", "/api/exports/products.xlsx"),
-            ("GET", "/api/customers/{customer_id}/statement.pdf"),
-            ("GET", "/api/suppliers/{supplier_id}/statement.pdf"),
+            # SEC-3: iki ekstre PDF'i bu gruptan CIKTI. Izinleri `sales` /
+            # `purchases` oldu — handler'in ZATEN istedigi seyler
+            # (`statement.py:46-68`), ama artik middleware'de.
             ("GET", "/api/exports/warehouse-count-variance.xlsx"),
             # 20260901 Uygulama Kayıt Çizelgesi: tarla uygulama ve hasat
             # kayıtlarının denetime gösterilebilir çıktısı. Middleware `read`
@@ -333,9 +334,21 @@ DYNAMIC_PERMISSION_CASES = {
         "/api/orders/1": "sales",
         "/api/purchases/1": "purchases",
     },
+    # SEC-3 — `{kind}` DARALTMASININ TEK KANITI BURADA.
+    # `GET /api/purchases/1` ALIS belgesinin SATIR fiyatlarini donduruyor
+    # (`transactions.py:1443`); listeyi `purchases`a tasiyip tekil belgeyi
+    # `read`te birakmak kapiyi listede kapatip detayda ACIK birakmak olurdu.
+    # `auth.py`deki kural SOMUT yola (`/api/purchases`) yazildi, sablona
+    # DEGIL — `required_permission` yol parametresinin DEGERINI hic gormez.
+    # Bu yuzden ne GET envanteri ne de `_populations()` bu daralmayi GORUR
+    # (ikisi de sablonu ya da `kind="orders"`u cozer); SAYAC KANITI YOKTUR,
+    # CASE KANITI ZORUNLUDUR. Asagidaki iki satir o kanittir; `orders` kolunun
+    # `read`te KALMASI ise daralmanin satis tarafini vurmadiginin tanigidir.
+    # Ayni cift `test_sec3_read_daraltma.py`de GERCEK HTTP istegiyle de
+    # dogrulaniyor (rapor jetonu: /api/purchases/1 -> 403, /api/orders/1 -> 200).
     ("GET", "/api/{kind}/{transaction_id}"): {
         "/api/orders/1": "read",
-        "/api/purchases/1": "read",
+        "/api/purchases/1": "purchases",
     },
 }
 
@@ -741,7 +754,18 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # 390/300 -> 391/301 olarak yeniden olculdu, (6) EN SON parmak izi
     # turetildi. `ROUTE_REASONS`a GIRMEDI: o kapi `read`/public uclari icin.
     # Parmak izi 5cadacb3 -> f4517670.
-    "f451767028bc31d8f741e8e0baf7e4ec8c5c87bd56cfcd892d8161660f6f6575"
+    # SEC-3 (`read` DARALTMASI, GOC YOK): 391/301 KIMILDAMADI ve bu OLCULDU —
+    # iki sayac da yalniz KAYDA bakar, izne bakmaz; SEC-3 yeni rota eklemedi,
+    # silmedi, yol sablonu degistirmedi. Parmak izi ise ZORUNLU OLARAK degisti:
+    # `fingerprint_route_contracts` yuku `permission`, `review_reason` ve
+    # `permission_cases`ten kuruyor ve UCU DE degisti —
+    #   * 19 GET'in `permission` alani (`read` -> purchases/sales/payments/stock),
+    #   * 19 `ROUTE_REASONS` girdisi kaldirildi (gerekce ARTIK ISTENMIYOR;
+    #     `_build_contract` gerekceyi yalniz `read`/public/platform icin ister),
+    #   * `GET /api/{kind}/{transaction_id}`in `permission_cases`i
+    #     (purchases: read -> purchases; orders KOLU `read`te KALDI).
+    # Bu bir kayma degil, kapinin ISLEVIDIR. f4517670 -> d4ad9f24.
+    "d4ad9f241e7daddb7f4067fcd079f0b4749b738eeb14b5142c1b8880509fe564"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

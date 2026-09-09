@@ -234,6 +234,69 @@ describe('navigasyon izin tutarlılığı',()=>{
   }
  });
 
+ /**
+  * SEC-3 — `read` DARALTMASININ NAV TARAFI.
+  *
+  * Backend'de 19 GET ucu `read`ten çıktı; nav bu satırlarla LOCKSTEP hareket
+  * ediyor. Nav geride kalsaydı hata SESSİZ olmazdı ama ÇİRKİN olurdu:
+  * menüde görünen bir sayfa açılır ve içeride 403 toplardı — `/alacaklar`da
+  * bir kez yaşanan ölü-madde kusurunun aynısı.
+  *
+  * Hangi rolün neyi kaybettiği ELLE YAZILDI, türetimden okunmadı: türetim
+  * `ROLE_PERMISSIONS`ı okur ve bu testi kendi kendini doğrulayan bir totoloji
+  * yapardı.
+  */
+ it('SEC-3: /alislar ve /tedarikciler* purchases, satis ile rapor kaybediyor',()=>{
+  expect(ROUTE_PERMISSIONS['/alislar']).toBe('purchases');
+  expect(ROUTE_PERMISSIONS['/tedarikciler']).toBe('purchases');
+  expect(ROUTE_PERMISSIONS['/tedarikciler/:id']).toBe('purchases');
+  for(const role of ['satis','rapor']){
+   expect(can(role,permissionForPath('/alislar'))).toBe(false);
+   expect(can(role,permissionForPath('/tedarikciler'))).toBe(false);
+  }
+  // `depo` `purchases` TAŞIR: alış tarafı daralmasından HİÇ etkilenmiyor.
+  // Bu satır A'nın en güçlü yanının nav'daki karşılığıdır.
+  expect(can('depo',permissionForPath('/alislar'))).toBe(true);
+  expect(can('depo',permissionForPath('/tedarikciler'))).toBe(true);
+ });
+
+ it('SEC-3: /musteriler* read te KALDI — satis ve depo 403 ALMAZ',()=>{
+  // Entities.tsx ve EntityDetail.tsx TEK bileşendir ve ucu `type`
+  // proposundan seçer. Ayrışma bileşen içinde bir `can()` dalıyla değil, iki
+  // AYRI rota kaydıyla ifade edildi. Bu satır o kararın bekçisidir: biri
+  // `/musteriler`i de `purchases`a çekerse `satis` müşteri kartını kaybeder.
+  expect(ROUTE_PERMISSIONS['/musteriler']).toBe('read');
+  expect(ROUTE_PERMISSIONS['/musteriler/:id']).toBe('read');
+  for(const role of ['satis','depo','rapor','muhasebe']){
+   expect(can(role,permissionForPath('/musteriler'))).toBe(true);
+   expect(can(role,permissionForPath('/musteriler/42'))).toBe(true);
+  }
+ });
+
+ it('SEC-3: /faturalar* sales, /tahsis-defteri payments — depo ile rapor kaybediyor',()=>{
+  expect(ROUTE_PERMISSIONS['/faturalar']).toBe('sales');
+  expect(ROUTE_PERMISSIONS['/faturalar/:id']).toBe('sales');
+  expect(ROUTE_PERMISSIONS['/tahsis-defteri']).toBe('payments');
+  for(const role of ['depo','rapor']){
+   expect(can(role,permissionForPath('/faturalar'))).toBe(false);
+   expect(can(role,permissionForPath('/tahsis-defteri'))).toBe(false);
+  }
+  // `satis` tahsilat rolüdür: tahsis defterini OKUMAYA devam eder.
+  expect(can('satis',permissionForPath('/tahsis-defteri'))).toBe(true);
+  expect(can('satis',permissionForPath('/faturalar'))).toBe(true);
+ });
+
+ it('SEC-3: /is-emirleri* read te KALDI — depo ve rapor iş emrini AÇAR',()=>{
+  // BAYRAK C-1'in nav tarafı: kapatılan şey SAYFA değil, sayfadaki FATURA
+  // PANELİ (WorkOrderDetail.tsx, `canSeeInvoice`). Nav `sales`a çekilseydi
+  // depo iş emri detayını tamamen kaybederdi ve bu bir stok işidir.
+  expect(ROUTE_PERMISSIONS['/is-emirleri']).toBe('read');
+  expect(ROUTE_PERMISSIONS['/is-emirleri/:id']).toBe('read');
+  for(const role of ['depo','rapor']){
+   expect(can(role,permissionForPath('/is-emirleri/7'))).toBe(true);
+  }
+ });
+
  it('/alacaklar menüde olduğu gibi route tarafında da payments ister',()=>{
   // Menü `payments` ile gizliyordu ama route korumasızdı: URL doğrudan
   // yazılınca açılıyordu. Tek kaynak, daha kısıtlayıcı tarafa çekildi.
@@ -250,7 +313,11 @@ describe('permissionForPath',()=>{
 
  it('dinamik segmentleri eşler',()=>{
   expect(permissionForPath('/musteriler/42')).toBe('read');
-  expect(permissionForPath('/faturalar/17')).toBe('read');
+  // SEC-3: /faturalar/:id artık `sales`. `/musteriler/:id` BİLEREK `read`te
+  // kaldı — ikisi bir arada, daralmanın nereye vurup nereye vurmadığını
+  // tek satırda gösteriyor.
+  expect(permissionForPath('/faturalar/17')).toBe('sales');
+  expect(permissionForPath('/tedarikciler/42')).toBe('purchases');
   expect(permissionForPath('/depolar/3')).toBe('stock');
   expect(permissionForPath('/stok-sayimlari/9')).toBe('stock');
   // Parsel detayı menüde yok ama rota korumalı olmalı.
@@ -298,7 +365,30 @@ describe('rol bazlı üst düzey görünürlük',()=>{
  // 2026-08-08 (mobil-erp#17): Hayvancılık grubu eklendi ve o da HER rolde
  // görünür — `herd.view` altı rolün hepsinde var (tarlayla aynı gerekçe:
  // okuma herkese açık, yazma değil). Bu yüzden bütün sayılar yine +1.
- const EXPECTED:Record<string,number>={admin:11,yonetici:11,muhasebe:11,rapor:10,satis:11,depo:9};
+ // 2026-09-09 (SEC-3, `read` daraltması): İKİ sayı düştü, dördü KIMILDAMADI.
+ // Sayılar ÖLÇÜLDÜ, aritmetikle taşınmadı — bir grup, İÇİNDEKİ HERHANGİ bir
+ // madde açıksa görünür, yani "iki madde kaybettim" ile "grubu kaybettim"
+ // arasında doğrudan bir ilişki YOK.
+ //
+ //   satis 11 -> 10: ALIŞ grubunu KAYBETTİ. Grubun beş maddesi
+ //     (/alislar, /tedarikciler -> `purchases`; iki /raporlar/* -> `reports`;
+ //     /tedarikci-fiyatlari -> `supplier_prices.view`) ve `satis` bunların
+ //     HİÇBİRİNİ taşımıyor. SEC-3 öncesi grup YALNIZ /alislar ve
+ //     /tedarikciler'in `read` olması sayesinde görünüyordu. Bu, kabul edilen
+ //     A-2 kararının nav'daki tam karşılığıdır.
+ //   depo 9 -> 8: FİNANS grubunu KAYBETTİ. Grubun yedi maddesinden depo'ya
+ //     açık olan TEK madde /tahsis-defteri idi (`read`); o da `payments`a
+ //     taşındı ve depo `payments` taşımıyor. Aşağıdaki "depo rolü ..." testi
+ //     bu kaybı ayrıca ve açıkça yazıyor.
+ //   rapor 10'da SABİT ve bu ANLAMLI: rapor da /alislar, /tedarikciler,
+ //     /faturalar ve /tahsis-defteri'ni kaybetti, ama İKİ GRUBU DA
+ //     kaybetmedi — ALIŞ grubunda iki `reports` maddesi, FİNANS grubunda
+ //     /raporlar/alacak-yaslandirma (`reports`) duruyor. Yani rapor rolünün
+ //     yüzeyi /raporlar/* altına ÇEKİLDİ, silinmedi; A-2'nin gerekçesi tam
+ //     olarak buydu ve burada ölçülüyor.
+ //   muhasebe/yonetici/admin 11'de SABİT: `purchases`, `sales` ve `payments`
+ //     izinlerinin üçünü de taşıyorlar, yani SEC-3'ten HİÇ etkilenmiyorlar.
+ const EXPECTED:Record<string,number>={admin:11,yonetici:11,muhasebe:11,rapor:10,satis:10,depo:8};
 
  for(const [role,total] of Object.entries(EXPECTED)){
   it(`${role} rolü ${total} üst düzey madde görür`,()=>{
@@ -335,12 +425,40 @@ describe('rol bazlı üst düzey görünürlük',()=>{
   expect(gorunen).toEqual(['/bildirimler','/bildirimler/sablonlar']);
  });
 
- it('depo rolü POS sabitini ve Yönetim grubunu görmez',()=>{
+ it('depo rolü POS sabitini, Yönetim ve (SEC-3 sonrası) Finans grubunu görmez',()=>{
   const {groupLabels,pinned}=topLevelFor('depo');
   expect(pinned).toBe(1); // yalnız Ana Sayfa; Hızlı Satış `sales` ister
   expect(groupLabels).not.toContain(NAV_LABELS.groupAdmin);
-  // Finans grubu yalnız Tahsis Defteri (`read`) sayesinde görünür.
-  expect(groupLabels).toContain(NAV_LABELS.groupFinance);
+  // 2026-09-09 (SEC-3): İDDİA TERSİNE DÖNDÜ ve bu BİLİNÇLİ. Eskiden Finans
+  // grubu depo'ya YALNIZ Tahsis Defteri'nin `read` olması sayesinde
+  // görünüyordu — yani depo, kasa/banka veya alacak maddelerinden HİÇBİRİNİ
+  // açamadığı hâlde başlığı görüyordu. /tahsis-defteri `payments`a taşınınca
+  // o tek dayanak kalktı ve başlık da gitti. Depo için tahsis defteri bir
+  // stok işi DEĞİLDİR; ölü bir menü başlığının kaybolması bir gerileme değil,
+  // /alacaklar'da bir kez düzeltilen aynı kusurun bu grupta da kapanmasıdır.
+  expect(groupLabels).not.toContain(NAV_LABELS.groupFinance);
+  // Kaybın SINIRI: stok yüzeyi ve servis yüzeyi DOKUNULMADAN duruyor.
+  expect(groupLabels).toContain(NAV_LABELS.groupInventory);
+  expect(groupLabels).toContain(NAV_LABELS.groupService);
+  // Alış grubu depo'da KALIYOR: `purchases` taşıyor (A'nın en güçlü yanı).
+  expect(groupLabels).toContain(NAV_LABELS.groupPurchasing);
+ });
+
+ it('SEC-3: satis Alış grubunu kaybetti, rapor yüzeyi /raporlar/* altına çekildi',()=>{
+  // A-2 kararının ölçülmüş hâli. `satis` için grup TAMAMEN kayboluyor;
+  // `rapor` için başlık KALIYOR ama içindeki maddeler değişiyor.
+  expect(topLevelFor('satis').groupLabels).not.toContain(NAV_LABELS.groupPurchasing);
+  expect(topLevelFor('rapor').groupLabels).toContain(NAV_LABELS.groupPurchasing);
+  const alis=NAV_GROUPS.find(group=>group.id==='purchasing')!;
+  const raporGorur=alis.items.filter(i=>can('rapor',permissionForPath(i.path))).map(i=>i.path);
+  // Alış defteri ve tedarikçi kartı GİTTİ; raporlama panoları KALDI.
+  expect(raporGorur).toEqual([
+   '/raporlar/satin-alma-panosu',
+   '/raporlar/tedarikci-karsilastirma',
+  ]);
+  // FAZ 1'de ölçülmüştü: `/raporlar/tedarikci-karsilastirma` tedarikçi
+  // listesini `/api/suppliers`den DEĞİL kendi rapor yanıtından okuyor
+  // (`PurchaseComparison.tsx:57`), yani bu madde SEC-3'ten sonra da çalışır.
  });
 
  it('admin tüm grupları görür',()=>{

@@ -4,6 +4,7 @@ import {useNavigate,useSearchParams} from 'react-router-dom';
 import {Alert,Autocomplete,Button,Card,CardContent,Chip,Dialog,DialogActions,DialogContent,DialogTitle,IconButton,MenuItem,Stack,TextField,Tooltip,Typography} from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';import DeleteIcon from '@mui/icons-material/Delete';import EditIcon from '@mui/icons-material/Edit';import LockIcon from '@mui/icons-material/Lock';import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import {GridColDef} from '@mui/x-data-grid';import ResponsiveTable from '../components/ResponsiveTable';
+import {useAuth} from '../AuthContext';
 import ExcelImportDialog from '../components/ExcelImportDialog';
 import UploadFileIcon from '@mui/icons-material/UploadFile';import {api,money} from '../api';
 
@@ -11,6 +12,19 @@ const methods=[['cash','Nakit'],['card','Kart / POS'],['bank_transfer','Havale /
 
 export default function Payments(){
  const nav=useNavigate();
+ // SEC-3 / BAYRAK A-1 — TEDARIKCI ODEMESI BIR ALIS-TARAFI EYLEMIDIR.
+ // `/odemeler` nav izni `payments`tir ve `satis` onu TASIR, yani sayfa satis'e
+ // aciktir. Ama tedarikci secici `GET /api/suppliers` cagirir ve o uc SEC-3'te
+ // `purchases`a tasindi. Karar: `satis`e `purchases` VERILMEDI; onun yerine bu
+ // sayfada TEDARIKCI KOLU `purchases` iznine baglandi. Boylece `satis`
+ // sayfayi musteri TAHSILATI icin tam yetkiyle kullanmaya devam eder ve
+ // tedarikci secicisinin bos/403 donmesi yerine secenek HIC GORUNMEZ —
+ // "goruyorum ama calismiyor" yerine "burada degil".
+ // Backend `POST /api/payments` DEGISMEDI: hala `payments`. Bu kapi bir
+ // GORUNURLUK karari, bir yetki karari degil; asil kapi `/api/suppliers`in
+ // kendisidir ve o backend'dedir.
+ const {can}=useAuth();
+ const canPurchases=can('purchases');
  const [searchParams,setSearchParams]=useSearchParams();
  const [rows,setRows]=useState<any[]>([]),[summary,setSummary]=useState<any>({customer_total:0,supplier_total:0,manual_total:0,document_total:0,movement_count:0}),[accounts,setAccounts]=useState<any[]>([]),[accountId,setAccountId]=useState<any>(''),[open,setOpen]=useState(false),[editId,setEditId]=useState<number|null>(null),[type,setType]=useState('customer'),[entities,setEntities]=useState<any[]>([]),[entity,setEntity]=useState<any|null>(null),[amount,setAmount]=useState(0),[date,setDate]=useState(new Date().toISOString().slice(0,10)),[note,setNote]=useState(''),[paymentMethod,setPaymentMethod]=useState('cash'),[error,setError]=useState(''),[q,setQ]=useState(''),[filterType,setFilterType]=useState(''),[dateFrom,setDateFrom]=useState(''),[dateTo,setDateTo]=useState(''),[methodFilter,setMethodFilter]=useState(''),[source,setSource]=useState(''),[sort,setSort]=useState('date_desc'),[loading,setLoading]=useState(false);
  const seq=useRef(0);
@@ -19,11 +33,13 @@ export default function Payments(){
  const load=()=>{const current=++seq.current;setLoading(true);setError('');const params={q,entity_type:filterType||undefined,date_from:dateFrom||undefined,date_to:dateTo||undefined,payment_method:methodFilter||undefined,source:source||undefined,sort};Promise.all([api.get('/payments',{params}),api.get('/payments/summary',{params:{date_from:dateFrom||undefined,date_to:dateTo||undefined}})]).then(([list,stats])=>{if(current!==seq.current)return;setRows(list.data);setSummary(stats.data)}).catch(e=>{if(current===seq.current)setError(e.response?.data?.detail||'Tahsilat/ödeme listesi yüklenemedi.')}).finally(()=>{if(current===seq.current)setLoading(false)})};
  useEffect(()=>{const t=setTimeout(load,220);return()=>clearTimeout(t)},[q,filterType,dateFrom,dateTo,methodFilter,source,sort]);
  useEffect(()=>{api.get('/payments/accounts',{params:{active_only:true}}).then(r=>setAccounts(r.data)).catch(()=>setAccounts([]))},[]);
- useEffect(()=>{if(!open)return;api.get(type==='customer'?'/customers':'/suppliers').then(r=>{setEntities(r.data);if(editId)setEntity(r.data.find((x:any)=>x.id===entity?.id)||entity)})},[open,type]);
+ useEffect(()=>{if(!open)return;if(type==='supplier'&&!canPurchases){setEntities([]);return}api.get(type==='customer'?'/customers':'/suppliers').then(r=>{setEntities(r.data);if(editId)setEntity(r.data.find((x:any)=>x.id===entity?.id)||entity)})},[open,type,canPurchases]);
  const startNew=(entityType:'customer'|'supplier'='customer')=>{setEditId(null);setType(entityType);setEntity(null);setAmount(0);setDate(new Date().toISOString().slice(0,10));setNote('');setPaymentMethod('cash');setAccountId('');setError('');setOpen(true)};
  useEffect(()=>{
   if(quickStart!=='customer'&&quickStart!=='supplier')return;
-  startNew(quickStart);
+  // `?new=supplier` kisayolu da ayni kapidan gecer, yoksa izinsiz rol
+  // diyalogu URL'den acabilirdi.
+  startNew(quickStart==='supplier'&&!canPurchases?'customer':quickStart);
   const next=new URLSearchParams(searchParams);next.delete('new');
   setSearchParams(next,{replace:true});
  },[quickStart,searchParams,setSearchParams]);
@@ -54,6 +70,6 @@ export default function Payments(){
   <Typography variant="body2" color="text.secondary">{summary.movement_count||0} hareket</Typography>
   <ResponsiveTable rows={rows} columns={columns} loading={loading} onRowClick={openEntity} cardTitle={r=>r.entity_name} cardSubtitle={r=>`${r.entity_type==='customer'?'Tahsilat':'Ödeme'} · ${r.payment_date}`} cardFields={[{label:'Tutar',value:r=>money(r.amount)},{label:'Yöntem',value:r=>methods.find(x=>x[0]===r.payment_method)?.[1]||r.payment_method},{label:'Kaynak',value:r=>r.is_document_payment?'Belge':'Manuel'}]}/>
   <ExcelImportDialog open={importOpen} kind="payments" onClose={()=>setImportOpen(false)} onDone={load}/>
-  <Dialog open={open} onClose={()=>setOpen(false)} maxWidth="sm" fullWidth><DialogTitle>{editId?'Hareket Düzenle':'Yeni Tahsilat / Ödeme'}</DialogTitle><DialogContent><Stack spacing={2} mt={1}>{error&&<Alert severity="error">{error}</Alert>}<TextField select label="İşlem Türü" value={type} onChange={e=>{setType(e.target.value);setEntity(null)}}><MenuItem value="customer">Müşteri Tahsilatı</MenuItem><MenuItem value="supplier">Tedarikçi Ödemesi</MenuItem></TextField><Autocomplete options={entities} value={entity} isOptionEqualToValue={(a,b)=>a.id===b.id} getOptionLabel={x=>x?.name||''} onChange={(_,v)=>setEntity(v)} renderInput={p=><TextField {...p} label="Cari"/>}/><TextField select label="Ödeme Yöntemi" value={paymentMethod} onChange={e=>{setPaymentMethod(e.target.value);setAccountId('')}}>{methods.map(x=><MenuItem key={x[0]} value={x[0]}>{x[1]}</MenuItem>)}</TextField>{['cash','card','bank_transfer'].includes(paymentMethod)&&<TextField select label="Kasa / Banka / POS Hesabı" value={accountId} onChange={e=>setAccountId(e.target.value)}><MenuItem value="">Varsayılan Hesap</MenuItem>{accounts.filter((a:any)=>a.account_type===({cash:'cash',card:'pos',bank_transfer:'bank'} as any)[paymentMethod]).map((a:any)=><MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}</TextField>}<TextField label="Tutar" type="number" value={amount} onChange={e=>setAmount(Number(e.target.value))}/><TextField label="Tarih" type="date" value={date} onChange={e=>setDate(e.target.value)} slotProps={{inputLabel:{shrink:true}}}/><TextField label="Not" value={note} onChange={e=>setNote(e.target.value)}/></Stack></DialogContent><DialogActions><Button onClick={()=>setOpen(false)}>Vazgeç</Button><Button variant="contained" onClick={save}>Kaydet</Button></DialogActions></Dialog>
+  <Dialog open={open} onClose={()=>setOpen(false)} maxWidth="sm" fullWidth><DialogTitle>{editId?'Hareket Düzenle':'Yeni Tahsilat / Ödeme'}</DialogTitle><DialogContent><Stack spacing={2} mt={1}>{error&&<Alert severity="error">{error}</Alert>}<TextField select label="İşlem Türü" value={type} onChange={e=>{setType(e.target.value);setEntity(null)}}><MenuItem value="customer">Müşteri Tahsilatı</MenuItem>{canPurchases&&<MenuItem value="supplier">Tedarikçi Ödemesi</MenuItem>}</TextField><Autocomplete options={entities} value={entity} isOptionEqualToValue={(a,b)=>a.id===b.id} getOptionLabel={x=>x?.name||''} onChange={(_,v)=>setEntity(v)} renderInput={p=><TextField {...p} label="Cari"/>}/><TextField select label="Ödeme Yöntemi" value={paymentMethod} onChange={e=>{setPaymentMethod(e.target.value);setAccountId('')}}>{methods.map(x=><MenuItem key={x[0]} value={x[0]}>{x[1]}</MenuItem>)}</TextField>{['cash','card','bank_transfer'].includes(paymentMethod)&&<TextField select label="Kasa / Banka / POS Hesabı" value={accountId} onChange={e=>setAccountId(e.target.value)}><MenuItem value="">Varsayılan Hesap</MenuItem>{accounts.filter((a:any)=>a.account_type===({cash:'cash',card:'pos',bank_transfer:'bank'} as any)[paymentMethod]).map((a:any)=><MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}</TextField>}<TextField label="Tutar" type="number" value={amount} onChange={e=>setAmount(Number(e.target.value))}/><TextField label="Tarih" type="date" value={date} onChange={e=>setDate(e.target.value)} slotProps={{inputLabel:{shrink:true}}}/><TextField label="Not" value={note} onChange={e=>setNote(e.target.value)}/></Stack></DialogContent><DialogActions><Button onClick={()=>setOpen(false)}>Vazgeç</Button><Button variant="contained" onClick={save}>Kaydet</Button></DialogActions></Dialog>
  </Stack>
 }

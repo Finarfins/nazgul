@@ -1016,8 +1016,33 @@ def required_permission(method: str, path: str) -> str:
         return "finance"
     if path.startswith("/api/payment-allocations/reconciliation"):
         return "finance"
+    # SEC-3 — TAHSİS MOTORU BAYRAĞI, DEFTERİN KENDİSİ DEĞİL. Yanıt tek bir
+    # yapılandırma boolean'ıdır (`payment_allocations.py:76-88`): kiracı verisi
+    # yok, tutar yok, cari yok. Kendi docstring'i niye var olduğunu yazıyor —
+    # arayüz "hiç tahsis yok" ile "özellik kapalı"yı ayırt edebilsin diye. Bunu
+    # `payments`a bağlamak, `read` rolündeki bir sayfanın boş tabloyu YANLIŞ
+    # yorumlamasına geri dönerdi. Kural, aşağıdaki tahsis kuralının ÜSTÜNDE
+    # durmak ZORUNDA: altında kalsaydı önek onu da yutardı (ölçüldü).
+    # ÖLÇÜM: rol kaybı YOK — bugün de `read`, sonra da `read`.
+    if path.startswith("/api/payment-allocations/engine-state"):
+        return "read"
+    # SEC-3 — TAHSİS DEFTERİ OKUMASI `payments`. Üç uç (`/payments/{id}`,
+    # `/orders/{id}`, `/charges/{id}`) GERÇEK tahsis tutarları döndürüyor
+    # (`AllocationView`, `payment_allocation_schemas.py:42-58`): hangi
+    # tahsilatın hangi belgeye ne kadar yazıldığı. Bu bir CARİ HESAP okumasıdır,
+    # "stok/raporlama günlük işi" DEĞİLDİR.
+    #
+    # NİYE `payments` ve NİYE `finance` DEĞİL: yazma zaten `finance` istiyor ve
+    # ÖYLE KALIYOR. Kural okuma ile yazmayı AYIRIYOR — `satis` defteri okur ama
+    # tahsis edemez; bu tutarlıdır, `satis` tahsilat rolüdür. Bilinçli bir
+    # karardır, sessiz bir yan etki değil.
+    #
+    # KAYBEDEN ROLLER (ölçüldü): `depo` ve `rapor` — ikisi de `payments`
+    # taşımıyor. `/tahsis-defteri` nav izni bu PR'da `read` -> `payments`a
+    # çekildi (`frontend/src/navigation.tsx`), yoksa iki rol boş/403 bir
+    # sayfaya girerdi.
     if path.startswith("/api/payment-allocations"):
-        return "read" if method in SAFE_METHODS else "finance"
+        return "payments" if method in SAFE_METHODS else "finance"
     # Seasonal stock planning is operational inventory guidance and is safe for
     # every baseline read role; other analytics remain reports-only.
     if path.startswith("/api/analytics/seasonal-plan"):
@@ -1098,6 +1123,113 @@ def required_permission(method: str, path: str) -> str:
     # rolleri fatura listesinden düşürürdü.
     if path.startswith("/api/invoices/") and path.endswith("/einvoice/download"):
         return "sales"
+    # =====================================================================
+    # SEC-3 — `read`e DÜŞEN TİCARİ OKUMALARIN DARALTILMASI
+    # =====================================================================
+    # YERLEŞİM. Bu blok, hemen ALTINDAKİ genel güvenli-metot kuralının
+    # (`if method in {"GET","HEAD","OPTIONS"}: return "read"`) ÜSTÜNDEDİR ve
+    # bu ZORUNLUDUR: altında kalan hiçbir kural GET'i hiç görmez, çünkü genel
+    # kural her güvenli metodu `read`e düşürür. Bugün dosyanın DİBİNDE duran
+    # `/api/purchases`, `/api/suppliers` ve `/api/invoices` kuralları tam bu
+    # yüzden YALNIZ YAZMAYI bölüyor. Aynı desen `/api/producer-receipts`
+    # (yukarıda), `/api/tax-liabilities` ve `/api/suppliers/.../advances`
+    # için zaten kullanılıyor; bu blok o üçlünün devamıdır.
+    #
+    # Blok e-BELGE SURETİ kuralının ALTINDA duruyor, üstünde değil: `/api/
+    # invoices` öneği o kuralı da yutar ve `.../einvoice/download`ın AYRI
+    # gerekçesini (dış yan etki + resmî mali belge) sessizce ölü koda
+    # çevirirdi. İzin sonucu aynı olurdu, gerekçe kaybolurdu.
+    #
+    # KAPSAM YALNIZ GÜVENLİ METOT. Her kural `method in SAFE_METHODS` ile
+    # sınırlı, çünkü SEC-3 OKUMAYI daraltıyor; yazma çözümü dosyanın
+    # dibindeki kurallarda ZATEN doğru ve orada duruyor. Ölçüldü: bu blok
+    # yazma izinlerinin HİÇBİRİNİ değiştirmiyor.
+    #
+    # `{kind}` NOTU. `GET /api/purchases/1` ŞABLON olarak
+    # `/api/{kind}/{transaction_id}`dir (`transactions.py:1443`) ve envanter
+    # ŞABLONU sorar — `{kind}` hiçbir öneke uymaz, yani envanterde `read`
+    # KALIR. Daralma SOMUT yolda gerçekleşir ve kanıtı sayaçta DEĞİL,
+    # `DYNAMIC_PERMISSION_CASES` içindeki somut satırlarda ve
+    # `test_sec3_read_daraltma.py`nin GERÇEK isteğindedir.
+    #
+    # --- ALIŞ TARAFI: `purchases` --------------------------------------
+    # `/api/purchases` (liste, `transactions.py:1263`) supplier_name,
+    # final_total, paid_amount, due_date; `/api/purchases/last-purchase-price`
+    # (`:1418`) tedarikçi+ürün bazında `unit_price` ve `discount_percent`
+    # döndürüyor — bu, yukarıdaki müstahsil makbuzu kuralının "tedarikçi
+    # maliyetinin ta kendisi" dediği şeyin AYNISI. Somut `/api/purchases/1`
+    # ise alış belgesinin SATIR fiyatlarını veriyor; listeyi kapatıp tekil
+    # belgeyi açık bırakmak kapıyı yalnız görünürde kapatırdı.
+    # `/api/suppliers*` (`finance.py:128,470,477,482`; `outputs.py:1016`)
+    # tax_number, opening_balance, phone, email, address, current_balance,
+    # overdue_amount ve TÜM alış defterini taşıyor.
+    # KAYBEDEN ROLLER: `satis` ve `rapor`. `depo` `purchases` TAŞIR ve HİÇ
+    # etkilenmez — daraltmanın en güçlü yanı budur.
+    # `/api/suppliers/{id}/statement.pdf` bugün handler'da ZATEN `purchases`
+    # istiyor (`statement.py:46-68` -> `outputs.py:875`); kuralı buraya da
+    # yazmak PDF ile JSON'ı TEK kapıya bağlıyor. Bugün ekstre JSON'ı 200,
+    # PDF'i 403 dönüyordu — aynı veri, iki farklı kapı.
+    if method in SAFE_METHODS and (
+        path.startswith("/api/purchases") or path.startswith("/api/suppliers")
+    ):
+        return "purchases"
+    # --- SATIŞ TARAFI: `invoices` --------------------------------------
+    # En geniş sızıntı LİSTEDİR: `GET /api/invoices` (`invoices.py:40-53`)
+    # `customer_snapshot`ı seçip `items[].customer` olarak çözüyor, yani TEK
+    # istekle firmanın TÜM faturalarının müşteri VKN'si ve adresi dökülüyor.
+    # `/einvoice/status` (`:265`) `einvoice_payload`ı OLDUĞU GİBİ döndürüyor:
+    # gönderilen TAM UBL gövdesi (alıcı VKN/TCKN, adres, satır fiyatları) ve
+    # `einvoice_web_key` — e-Arşiv suretine erişim anahtarı. `/pdf` (`:193`)
+    # VKN + adres + satır `unit_price`, `/history` (`:59`) `SELECT *` ile
+    # actor_username/ip_address/reason taşıyor.
+    # `.../einvoice/download` zaten `sales`ti; `/einvoice/status`un `read`te
+    # kalması o kuralla AÇIKÇA tutarsızdı.
+    # KAYBEDEN ROLLER: `depo` ve `rapor`.
+    if method in SAFE_METHODS and path.startswith("/api/invoices"):
+        return "sales"
+    # --- MÜŞTERİ EKSTRESİ: `sales` (`payments` DEĞİL) -------------------
+    # Depoda ZATEN yazılı bir karar var ve `payments` demiyor:
+    # `statement.py:46-68` `customer` -> `"permission": "sales"`,
+    # `supplier` -> `"permission": "purchases"`. `outputs.py:875` bunu
+    # okuyup `_require_permission` ile uyguluyor, yani `statement.pdf` bugün
+    # `sales` istiyor. Ekstreyi `payments`a bağlamak AYNI belgenin PDF'i ile
+    # JSON'ının FARKLI izin istediği bir sistem üretir ve mevcut kararı
+    # sessizce ters çevirirdi. Kural yeni politika ICAT ETMİYOR; zaten
+    # yazılı olanı ikinci yüzeye uyguluyor.
+    # Cari LİSTESİ ve DETAYI (`/api/customers`, `/api/customers/{id}`)
+    # BİLEREK `read`te KALIYOR — günlük iş yüzeyi; alan maskeleme ayrı bir
+    # iş olarak (SEC-3b) açıldı.
+    # KAYBEDEN ROLLER: `depo` ve `rapor`.
+    if (
+        method in SAFE_METHODS
+        and path.startswith("/api/customers/")
+        and (path.endswith("/statement") or path.endswith("/statement.pdf"))
+    ):
+        return "sales"
+    # --- SATIŞ FİYATI SİMETRİSİ: `sales` -------------------------------
+    # `/api/orders/last-sale-price` (`transactions.py:1393`) müşteriye özel
+    # SATIŞ `unit_price` + `discount_percent` döndürüyor. Alış ikizi
+    # (`last-purchase-price`) yukarıda `purchases`a bağlandıysa "fiyat
+    # ticari olarak hassastır" gerekçesi bu ucu da bağlamak zorundadır;
+    # aksi hâlde aynı gerekçe iki kardeş uçta iki farklı sonuç verirdi.
+    # ÖNEK DEĞİL TAM YOL: `/api/orders` öneği sipariş LİSTESİNİ de yakalar
+    # ve `depo`/`rapor`u günlük iş yüzeyinden düşürürdü — liste `read`te
+    # KALIYOR.
+    # KAYBEDEN ROLLER: `depo` ve `rapor`.
+    if method in SAFE_METHODS and path == "/api/orders/last-sale-price":
+        return "sales"
+    # --- DEPO İKMAL ÖNERİSİ: `stock` -----------------------------------
+    # `/api/warehouses/replenishment` (`warehouses.py:139`) `unit_price` ve
+    # TEDARİKÇİ ÖNERİSİ taşıyor. Tek çağıranı `/depolar` sayfası ve o sayfa
+    # ZATEN `stock` nav izninde (`Warehouses.tsx:55`), yani ekran tarafında
+    # kimse kaybetmiyor; daralan şey API'nin doğrudan çağrılabilirliğidir.
+    # ÖNEK DEĞİL TAM YOL: `/api/warehouses` öneği depo listesini, stok
+    # görünümünü ve transferleri de yakalar; onlar `read`te KALIYOR.
+    # KAYBEDEN ROLLER: `muhasebe`, `satis`, `rapor` (üçü de `stock`
+    # taşımıyor); `depo` etkilenmiyor.
+    if method in SAFE_METHODS and path == "/api/warehouses/replenishment":
+        return "stock"
+    # =================================================== SEC-3 SONU =====
     if method in {"GET", "HEAD", "OPTIONS"}:
         return "read"
     # Machine card writes require the dedicated ``machines`` permission (reads
