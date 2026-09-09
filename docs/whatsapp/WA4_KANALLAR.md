@@ -125,13 +125,27 @@ bir şey söyler**:
 |---|---|---|
 | `whatsapp_access_token` ya da `whatsapp_phone_number_id` **BOŞ** | `NONE` | Denenmedi, başarısız da olmadı. Ağa **hiç** çıkılmaz. |
 | `notification_provider = "simulation"` | `SIMULATED` | Akış koştu, mesaj **dışarı gitmedi**. Terminaldir. |
-| Yapılandırılmış | `SENT` | Meta bir `wamid` **döndürdü**. |
+| Yapılandırılmış | `SENT` | Meta POST'u **2xx ile kabul etti**. |
 
-**`SENT` yalnız KANIT varken yazılır.** Meta'dan mesaj kimliği gelmeyen bir
-2xx bile `GonderimHatasi`dır. Bu, `SimulationNotificationProvider` ve
+**`SENT` = "Meta KABUL ETTİ", teslimat kanıtı DEĞİL.** Ölçüt taşıyıcının
+istisna atmamasıdır. Bu, `SimulationNotificationProvider` ve
 `PushNotificationProvider` için yıllardır yazılı olan kuralın aynısı:
 gerçekten gönderilmemiş bir mesajı "gönderildi" diye raporlamak denetim
-izini yalan söyler hâle getirir.
+izini yalan söyler hâle getirir — ama gerçekten KABUL EDİLMİŞ bir mesajı
+"gönderilmedi" saymak da aynı izi yalan söyler hâle getirir.
+
+**GÜNCELLEME (WA5): `external_id` artık DOLU.** WA4 bu tabloyu yazarken
+taşıyıcı yanıt gövdesini okuyor ama AYRIŞTIRMIYORDU, bu yüzden
+`external_id` boş bırakılmıştı. WA5'te `saglayici.metin_gonder` gövdedeki
+`messages[0].id` alanını döndürüyor ve adaptör onu olduğu gibi yazıyor.
+
+`SENT`in ANLAMI BU DEĞİŞİKLİKLE GENİŞLEMEDİ. Kimlik gelmeyen bir 2xx de
+`SENT`tir ve `external_id` `None` kalır. Kimliği ŞART koşmak — yani
+"kanıt yoksa hata" demek — dar değil YANLIŞ olurdu: Meta gövde biçimini
+değiştirdiği gün gerçekten gitmiş mesajlar `GonderimHatasi` sayılır ve
+`supports_idempotency = False` olduğu için outbox aynı mesajı kullanıcıya
+**İKİNCİ KEZ** gönderirdi. Kapı:
+`tests/test_wa5_fatura.py::test_KIMLIK_YOKSA_2xx_HALA_SENT_ve_external_id_BOS`.
 
 **Varsayılan kurulumda birinci satır koşar.** `.env`de WhatsApp jetonu
 olmayan bir kurulumda bu PR hiçbir mesaj göndermez — WA4'ün eklenmesi

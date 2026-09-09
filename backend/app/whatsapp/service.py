@@ -70,7 +70,15 @@ from sqlalchemy.orm import Session
 
 from ..auth import utcnow
 from ..config import settings
-from . import baglam, eslestirme, kopru, niyet, saglayici as saglayici_modulu, schema
+from . import (
+    baglam,
+    eslestirme,
+    fatura,
+    kopru,
+    niyet,
+    saglayici as saglayici_modulu,
+    schema,
+)
 from .schema import whatsapp_inbound
 from .telefon import TelefonGecersiz, e164, normalize_phone
 
@@ -417,18 +425,12 @@ def _mesaj_isle(
         )
         return 1
 
-    # MEDYA BU TURDA İŞLENMİYOR. Fatura okuma bir MODEL çağrısıdır ve bu
-    # dilimde model yolu YOK; indirilen baytı okuyacak hiçbir çağıran da
-    # yok (`saglayici.py` başlığı). Sessiz son, kuyrukta izi kalarak.
-    if satir["media_id"]:
-        _sonlandir(
-            db, satir_id, jeton, status=schema.IGNORED,
-            last_error="medya", processed_at=_simdi(),
-        )
-        return 1
-
+    # MEDYA SATIRINDA ALTYAZI ZORUNLU DEĞİL: fotoğrafın kendisi mesajdır.
+    # `media_id` yüklemi olmasaydı altyazısız bir fatura fotoğrafı burada
+    # IGNORED ile kapanır ve fatura yolu HİÇ koşmazdı.
+    medya_mi = bool(satir["media_id"])
     metin = str(satir["text"] or "").strip()
-    if not metin:
+    if not metin and not medya_mi:
         _sonlandir(db, satir_id, jeton, status=schema.IGNORED, processed_at=_simdi())
         return 1
 
@@ -467,6 +469,19 @@ def _mesaj_isle(
                 cevap = baglam.FIRMA_SECIN_MESAJI
             elif secim.kimlik is None:
                 cevap = _bagsiz_cevap(telefon, metin)
+            elif medya_mi:
+                # FATURA YOLU KİMLİK ÇÖZÜLDÜKTEN SONRA. Bağsız numaraya ya
+                # da firma seçmemiş kullanıcıya fatura özeti dönmek, ERP
+                # bağlamı olmayan birine ERP cevabı vermek olurdu; üstteki
+                # iki dal onları KENDİ cevaplarıyla karşılıyor.
+                #
+                # Bu tur yazma YAPMIYOR (`fatura` modülü `db` bile almaz),
+                # bu yüzden AYRI bir yetki yüklemi YOK. Kaynak burada
+                # `has_permission(role, "purchases")` arıyordu ve gerekçesi
+                # taslak ALIŞ BELGESİ açmasıydı; açılan belge olmayınca
+                # yüklemin koruduğu şey de yok. Belge açan tur onu GERİ
+                # GETİRMELİDİR — `docs/whatsapp/WA5_FATURA.md` bunu yazıyor.
+                cevap = fatura.medya_ozeti(saglayici, satir)
             else:
                 cevap = cevap_uret(db, secim.kimlik, metin)
     except Exception as hata:  # noqa: BLE001 - kalıcı: aynı girdi aynı hata
