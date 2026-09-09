@@ -785,6 +785,8 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "8f2b05ec2ab554d78b2f53ccb0e15e45c4c657dd711f8d8d6b544e15042bb9ec"): (1, "email_verification_tokens", "arg0"),  # satır [651]
     ("app/routers/auth.py", "verify_email", "update",
      "ca4c2613620c6dd23ed462cfc2ff973af225e9e95573ae0621bea2d5db14953e"): (1, "users", "arg0"),  # satır [661]
+    ("app/routers/auth.py", "verify_email_landing", "select",
+     "9657853e0d437de455d7ce2be86409a3874d9dd1a998090d0e5f750b9e470d75"): (1, "email_verification_tokens", "arg0"),
     # --- app/routers/companies.py
     # Parmak izi 2026-09-04te yenilendi: projeksiyona `companies.c.profiller`
     # eklendi (göç 20260904_0068, FİRMA PROFİLİ). Sorgunun YÜKLEMİ ve hedefi
@@ -1030,8 +1032,12 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "d23339edbb978405335c326e4d4adb15923d8ffe28800478cba47f4fb3f5ac9b"): (1, "whatsapp_pending_actions", "arg0"),  # satir [419]
 }
 
-TOTAL_CORE_QUERIES = 175
-EXPECTED_OP_COUNTS = {"select": 111, "update": 54, "delete": 10}
+TOTAL_CORE_QUERIES = 176
+EXPECTED_OP_COUNTS = {"select": 112, "update": 54, "delete": 10}
+# 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
+# GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
+# olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
+# POST /api/auth/verify-email ise token tüketimi ve kullanıcı doğrulamasını yapar.
 # 2026-08-12: iki sorgu bilerek değişti — `ensure_company_default_warehouse`
 # depo adı taramasına kiracı kapsamı eklendi (şema ölçümü: warehouses.name
 # üzerinde ne küresel ne kiracı kapsamlı UNIQUE var) ve `_finalize` opak
@@ -1099,7 +1105,7 @@ EXPECTED_OP_COUNTS = {"select": 111, "update": 54, "delete": 10}
 # GECERSIZ oldu. WA4'un ekledigi sorgu sayisi (10) degismedi ama bunu
 # BILMEK icin yeniden olcmek gerekiyordu — cikarma yapmak, WA3'un
 # sorgularindan birinin WA4 ile CAKISMADIGINI VARSAYMAK olurdu.
-INVENTORY_FINGERPRINT = "732a6bde2ba3aa5267d0a68a605e4eeb2d258db5dbd3ab2415028ce3c1c57410"
+INVENTORY_FINGERPRINT = "5adfd8f592cd4458f7895642f96acf92ad3dd77aac977cd02546ee3873360b86"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:
