@@ -501,6 +501,7 @@ jobs:
           EINVOICE_SEAM_TEST_DATABASE_URL: postgresql+psycopg://yerelhesap:yerelhesap@localhost:5432/yerelhesap_test
           ABSORPTION_RATE_TEST_DATABASE_URL: postgresql+psycopg://yerelhesap:yerelhesap@localhost:5432/yerelhesap_test
           CONTRACT_TEST_DATABASE_URL: postgresql+psycopg://yerelhesap:yerelhesap@localhost:5432/yerelhesap_test
+          SEC4_TEST_DATABASE_URL: postgresql+psycopg://yerelhesap:yerelhesap@localhost:5432/yerelhesap_test
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -1231,6 +1232,21 @@ jobs:
           app_build="$(jq -r '.services.app | has("build")' <<<"$cozum_json")"
           [ "$app_build" = "false" ] \
             || { echo "::error::resolved app.build hâlâ var; üretim derlemesi yalnız CI'da yapılmalı" >&2; exit 1; }
+          # ÜRETİMDE AUTO_MIGRATE KAPALI OLMALI (SEC-4). Taban compose
+          # `${AUTO_MIGRATE:-true}` yazar ve Compose `environment` haritalarını
+          # BİRLEŞTİRİR, yani üretim örtüsündeki satır silinirse üretim app'i
+          # sessizce auto-migrate'e döner: her uvicorn işçisi göç sürmeye
+          # çalışır, cluster genelindeki tek advisory kilit için sıraya girer ve
+          # kilidi 120 sn içinde alamayan işçi AÇILIŞTA ÇÖKER.
+          #
+          # ÇÖZÜMLENMİŞ DEĞER ölçülür, dosyadaki satır değil: `${...}` biçimine
+          # geri döndürülmüş bir satır dosyada aynı görünürdü ama
+          # .env.production'dan geri açılabilir olurdu. Kapı, açılamayan bir
+          # kapı olmalı.
+          app_auto_migrate="$(jq -r '.services.app.environment.AUTO_MIGRATE // "<yok>"' <<<"$cozum_json")"
+          [ "$app_auto_migrate" = "false" ] \
+            || { echo "::error::resolved app.environment.AUTO_MIGRATE = '$app_auto_migrate', beklenen 'false' (SEC-4: üretimde göç deploy betiğinde sürülür)" >&2; exit 1; }
+          echo "resolved app.AUTO_MIGRATE = false ✓"
           echo "resolved app.image = $app_imaj (build yok) ✓"
           rm -f .env.ci-dogrulama
           echo "imaj ↔ compose sözleşmesi tamam"

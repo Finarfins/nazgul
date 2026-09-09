@@ -123,19 +123,79 @@ APP_VERSION = "2.9.0"
 
 hold_sqlite_runtime_lock(settings.database_url, settings.sungur_data_dir)
 
-# Alembic is the sole schema owner. The cluster-wide advisory lock prevents
-# multiple replicas from racing during upgrade; bootstrap seeding performs DML only.
-with database_bootstrap_lock(engine):
-    if settings.auto_migrate:
+# ŞEMA SAHİBİ ALEMBIC'TİR, AÇILIŞ DEĞİL.
+#
+# Bu blok eskiden MODÜL İTHALİNDE ve KOŞULSUZ koşuyordu: uygulamayı ithal eden
+# HER süreç -- WEB_CONCURRENCY>1 ile açılan her uvicorn işçisi, her replika --
+# cluster genelindeki advisory kilidi sırayla alıyordu. İkinci işçi kilidi 120
+# sn boyunca (settings.migration_lock_timeout_seconds) bekliyor, alamazsa
+# TimeoutError ile AÇILIŞTA ÇÖKÜYORDU; kilit yalnız PostgreSQL'de var olduğu
+# için SQLite yolu bu serileştirmeyi HİÇ yapmıyor ve aynı anda açılan iki
+# süreç aynı göçü birlikte sürebiliyordu.
+#
+# AYRIM ARTIK ŞUDUR ve iki yol AYNI ŞEYİ YAPMAZ:
+#
+#   AUTO_MIGRATE=true (geliştirme/CI/testler; varsayılan)
+#       İthalde YAZAR: kilit + `alembic upgrade head` + bootstrap tohumu.
+#       Tek süreçli kurulumların ve depodaki testlerin dayandığı yol budur
+#       (alt süreçlerin çoğu `TestClient(app)`i lifespan'a GİRMEDEN kurar,
+#       yani şemayı ithalden başka yerden alamaz).
+#
+#   AUTO_MIGRATE=false (ÜRETİM; docker-compose.prod.yml)
+#       İthalde HİÇBİR ŞEY yapmaz -- kilit YOK, DDL YOK, DML YOK. Şemayı
+#       `deploy/sunucu-deploy.sh` `up -d app`ten ÖNCE, TEK bir tek-kullanımlık
+#       konteynerde sürer. İşçilerin açılışta yaptığı tek şey aşağıdaki
+#       SALT OKUNUR doğrulamadır (bkz. `_semayi_dogrula`, lifespan).
+#
+# ÖLÇÜLEBİLİR SINIR: AUTO_MIGRATE=false iken `import app.main` güncel OLMAYAN
+# bir veritabanında BAŞARILI olur; hata lifespan açılışında patlar.
+def _semayi_hazirla() -> None:
+    """AUTO_MIGRATE=true yolunun YAZAN adımı: göç + bootstrap tohumu.
+
+    Kilit tüm evreyi sarar: eski `initialize_*` yolları Alembic'ten önce de DDL
+    üretebiliyordu, tohumlama ise DML'dir; ikisini aynı cluster kilidinde
+    tutmak, iki sürecin Alembic'in kendi kilidine ULAŞMADAN yarışmasını kapatır.
+    """
+    with database_bootstrap_lock(engine):
         run_database_migrations(engine, acquire_lock=False)
-    else:
-        status = alembic_migration_status(engine)
-        if not status["up_to_date"]:
-            raise RuntimeError(
-                "AUTO_MIGRATE=false fakat veritabanı şeması güncel değil: "
-                f"current={status['current']!r}, expected={status['expected']!r}"
-            )
-    seed_bootstrap_data(engine)
+        seed_bootstrap_data(engine)
+
+
+#: Şema güncel değilken operatöre GÖSTERİLEN tek komut. Sabit, çünkü aynı
+#: dize `deploy/sunucu-deploy.sh` içinde de koşuyor ve bir test ikisinin
+#: AYNI kaldığını ölçüyor (tests/test_sec4_acilis_migrasyon_kapisi.py).
+ALEMBIC_UPGRADE_ARGV = "sh -c 'cd /app/backend && python -m alembic upgrade head'"
+KOMUT_ALEMBIC_UPGRADE = "\n".join(
+    (
+        "",
+        "  docker compose -p <proje> -f docker-compose.yml "
+        "-f docker-compose.prod.yml --env-file .env.production \\",
+        "    run --rm --no-deps app " + ALEMBIC_UPGRADE_ARGV,
+    )
+)
+
+
+def _semayi_dogrula() -> None:
+    """SALT OKUNUR açılış kapısı: şema güncel değilse aç, ama YAZMA.
+
+    Kilit ALMAZ. Kilit almak, bu fonksiyonun kapatmak için var olduğu yarışı
+    (N işçi, tek advisory kilit, 120 sn üst sınır) geri getirirdi; okunan tek
+    şey `alembic_version` satırıdır ve onu okumak serileştirme gerektirmez.
+    """
+    durum = alembic_migration_status(engine)
+    if durum["up_to_date"]:
+        return
+    raise RuntimeError(
+        "Veritabanı şeması güncel değil ve AUTO_MIGRATE kapalı (üretim "
+        f"varsayılanı): current={durum['current']!r}, expected={durum['expected']!r}. "
+        + "Göçü uygulamadan ÖNCE, tek bir tek-kullanımlık konteynerde sürün:"
+        + KOMUT_ALEMBIC_UPGRADE
+        + "\n(deploy/sunucu-deploy.sh bunu `up -d app`ten ÖNCE zaten yapar.)"
+    )
+
+
+if settings.auto_migrate:
+    _semayi_hazirla()
 
 maintenance_status(engine)
 
@@ -172,6 +232,13 @@ async def _yasam_dongusu(_app: FastAPI):
     DeprecationWarning into an error for every ``app.*`` module, so the wiring
     lives in a lifespan handler instead.
     """
+    # AÇILIŞ KAPISI, EN ÖNDE. Şeması güncel olmayan bir süreç trafik ALMAMALI:
+    # zamanlayıcılar kurulmadan, ilk istek karşılanmadan burada durur. Kapı
+    # SALT OKUNUR ve KİLİTSİZDİR (bkz. `_semayi_dogrula`), yani N işçi bunu
+    # aynı anda koşabilir. AUTO_MIGRATE=true iken şema ithalde zaten
+    # yükseltilmiştir ve bu çağrı yalnızca onu DOĞRULAR.
+    _semayi_dogrula()
+
     # FIELD_STOCK_OUTBOX_ENABLED=false envanteri degistiren tuketiciyi hic
     # baslatmaz. Varsayilan KAPALI: acilis kosullari icin bkz.
     # app/FIELD_STOK_OUTBOX_ACILIS_KOSULLARI.md.

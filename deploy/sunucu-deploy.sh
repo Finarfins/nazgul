@@ -721,7 +721,7 @@ etiket_dogrula "$ETIKET" || exit 1
 
 cd "$KOK"
 
-echo "== 1/7 Ön kontrol: writable konteyner / veri kurtarma =="
+echo "== 1/8 Ön kontrol: writable konteyner / veri kurtarma =="
 # Docker'a ulaşılamıyorsa `docker inspect` de başarısız olur ve aşağıdaki
 # "konteyner yok" dalı yanlışlıkla "ilk kurulum, güvenli" derdi.
 docker info >/dev/null 2>&1 || {
@@ -777,29 +777,29 @@ if docker inspect "$APP_KABI" >/dev/null 2>&1; then
   mount_denetimi "$APP_KABI" || exit 1
 fi
 
-echo "== 2/7 Veritabanı yedeği (harici RDS) =="
+echo "== 2/8 Veritabanı yedeği (harici RDS) =="
 mkdir -p "$HOME/backups"
 YEDEK="$HOME/backups/pre-deploy-$(date +%Y%m%d-%H%M%S).dump"
 veritabani_yedegi_al "$YEDEK" || exit 1
 
-echo "== 3/7 Geri dönüş işareti =="
+echo "== 3/8 Geri dönüş işareti =="
 geri_donus_isaretini_yaz "$APP_KABI" || exit 1
 
-echo "== 4/7 İmaj indiriliyor: $ETIKET =="
+echo "== 4/8 İmaj indiriliyor: $ETIKET =="
 # `docker pull`, `compose pull app` DEĞİL. Compose etiketi .env.production'dan
 # çözerdi ve bu da dosyanın doğrulamadan ÖNCE yazılmasını zorunlu kılardı.
 # Doğrudan çekiş, indirme ile yapılandırmayı birbirinden ayırır: tam olarak
 # istenen referans indirilir ve dosyaya hiç dokunulmaz.
 docker pull "$IMAJ_ADI:$ETIKET" || exit 1
 
-echo "== 5/7 İmaj ↔ yapılandırma sözleşmesi =="
+echo "== 5/8 İmaj ↔ yapılandırma sözleşmesi =="
 digest_dogrula "$IMAJ_ADI:$ETIKET" "${BEKLENEN_DIGEST:-}" || exit 1
 surum_sozlesmesi_dogrula "$IMAJ_ADI:$ETIKET" || exit 1
 
 # .env.production YALNIZ BURADA yazılır — indirme, digest ve sürüm sözleşmesi
 # üçü de geçtikten SONRA.
 #
-# Eskiden etiket 4/7'nin başında yazılıyordu. 5/7 başarısız olduğunda dosya
+# Eskiden etiket 4/8'in başında yazılıyordu. 5/8 başarısız olduğunda dosya
 # DOĞRULANMAMIŞ etiketi göstermeye devam ediyordu: deploy durmuş olsa bile
 # sonraki herhangi bir `docker compose up -d` (operatör, bakım betiği, restart
 # politikası) o imajı canlıya alırdı. Kapı, arkasında açık kalan bir kapı
@@ -821,7 +821,7 @@ etiketi_yaz() {
 etiketi_yaz "$ETIKET"
 echo "   .env.production güncellendi: APP_IMAGE_TAG=$ETIKET"
 
-echo "== 6/7 Kalıcı hacim hazırlığı =="
+echo "== 6/8 Kalıcı hacim hazırlığı =="
 if [ "$KURTARMA_VAR" = "evet" ]; then
   # Uygulama DURUYORKEN tohumla: açık bir uygulamanın yazdığı yeni dosya,
   # kurtarılan eski dosyanın `cp -an` ile atlanmasına yol açardı.
@@ -851,7 +851,36 @@ else
   echo "   kurtarılacak veri yok — tohumlama gerekmiyor"
 fi
 
-echo "== 7/7 Servis güncelleniyor =="
+# ŞEMA, UYGULAMADAN ÖNCE ve TEK BİR SÜREÇTE.
+#
+# Uygulama konteyneri artık AUTO_MIGRATE=false ile açılıyor
+# (docker-compose.prod.yml): işçilerin hiçbiri göç sürmez, yalnız şemanın
+# güncel olduğunu SALT OKUNUR doğrular ve değilse açılışta durur. Eskiden
+# tersiydi -- `app.main` ithalinde her işçi göçü sürmeye çalışıyor, cluster
+# genelindeki tek advisory kilit için sıraya giriyor ve kilidi 120 sn içinde
+# alamayan işçi çöküyordu.
+#
+# `run --rm --no-deps` ZORUNLU: `--no-deps` olmadan Compose bağımlı servisleri
+# de ayağa kaldırırdı, `--rm` olmadan her deploy geride ölü bir konteyner
+# bırakırdı.
+#
+# GÖÇ ve TOHUM AYRI İKİ KOMUT. Tek komutta birleştirilseydi, yarım kalmış bir
+# göçün üstüne bootstrap DML'i yazma ihtimali açılırdı; `-e` yürürlükte olduğu
+# için göç düşerse betik burada durur ve tohum HİÇ koşmaz.
+#
+# TOHUM ETKİSİZDİR (idempotent) ve bu bir beyan değil, `app/bootstrap_data.py`
+# okunarak ölçülmüş bir özelliktir: her INSERT'ün önünde onu koruyan bir SELECT
+# vardır (admin, firma, şube, üyelik, depo, depo stoğu, üç finans hesabı) ve
+# eşleşme bulunursa satır YENİDEN YAZILMAZ. Bu yüzden her deploy'da koşması
+# güvenlidir; kurulu bir sistemde hiçbir satır değişmez.
+echo "== 7/8 Şema göçü ve bootstrap tohumu (tek kullanımlık konteyner) =="
+"${DC[@]}" run --rm --no-deps app \
+  sh -c 'cd /app/backend && python -m alembic upgrade head'
+echo "   alembic upgrade head ✓"
+"${DC[@]}" run --rm --no-deps app python -m app.bootstrap_data
+echo "   bootstrap tohumu ✓"
+
+echo "== 8/8 Servis güncelleniyor =="
 "${DC[@]}" up -d app
 
 echo "   Doğrulama"
