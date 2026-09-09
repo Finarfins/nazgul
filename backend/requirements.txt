@@ -10,3 +10,4 @@ qrcode[pil]>=8,<9
 python-multipart>=0.0.9,<1
 alembic>=1.13,<2
 pdfplumber==0.11.10
+cryptography>=50,<51
