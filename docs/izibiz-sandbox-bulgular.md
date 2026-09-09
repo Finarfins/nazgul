@@ -412,7 +412,7 @@ sonra ayrı bir dilimde ve kanıtıyla birlikte açılmalıdır.
 
 ---
 
-## §8 — E2 KOŞUSU (2026-09-11, GERÇEK SANDBOX): §7.3'ÜN SEBEBİ ARTIK ÖLÇÜLDÜ
+## §8 — E2 KOŞUSU (2026-09-09, GERÇEK SANDBOX): §7.3'ÜN SEBEBİ ARTIK ÖLÇÜLDÜ
 
 ### 8.1 — İPTAL, DURUM SORGUSUNUN SÖYLEYEMEDİĞİNİ SÖYLEDİ
 
@@ -515,3 +515,149 @@ gerçek sandbox koşularından; **VKN ve oturum jetonu içermiyor.**
   sürece ERP de faturayı iptal etmiyor.
 * Sandbox testleri `xfail(strict=False)`: sağlayıcı/anahtar sorusu çözülünce
   XPASS olurlar ve bu satır gözden geçirilir.
+
+## §9 — E2b KOŞUSU (2026-09-09, GERÇEK SANDBOX, YEREL MAKİNE): §8'İN TEŞHİSİ YANLIŞTI
+
+§8, "İzibiz e-Arşiv belgesini bizim uuid5 ETTN'imizle anahtarlamıyor" diye
+ÖLÇÜLDÜ demişti. **O ölçüm bu koşuda ÇÜRÜTÜLDÜ.** Anahtar DOĞRUDUR; §8'in
+gözlemlediği üç belirtinin (boş durum, PDF_YOK, iptal 10008) ÜÇÜ DE BAŞKA
+sebeplerden geliyor ve ikisi BİZİM KENDİ KODUMUZDA yazılı.
+
+### 9.1 — H2 (çıplak `<UUID>` gövdesi) — ÇÜRÜTÜLDÜ, KOD ŞEMAYA UYGUN
+
+Canlı WSDL'den (`EIArchiveWS/EFaturaArchive?wsdl` → `?xsd=5`) okundu:
+
+```
+GetEArchiveInvoiceStatusRequest = REQUEST_HEADER + UUID (xsd:string, 1..500)
+```
+
+BAŞKA ALAN YOK. `provider.py:1285`'in kurduğu gövde ŞEMAYA BİREBİR UYGUNDUR;
+düzeltilecek bir şey yoktur. Ayrıca ÖLÇÜLDÜ ki alanın tipi `xsd:string`'dir,
+`UUID` DEĞİL — yani oraya fatura numarası yazmak da ŞEMAYA UYGUNDUR ve
+sağlayıcı bunu bir doğrulama hatasıyla değil bir İŞ SONUCUYLA reddeder (aşağı).
+
+### 9.2 — H3 (anahtarlama) — ÇÜRÜTÜLDÜ: ETTN ÇALIŞAN ANAHTARDIR
+
+`GetEArchiveInvoiceStatus`, §8'in "geri bulunamıyor" dediği ÜÇ belgede de
+bizim ETTN'imizle KAYIT DÖNDÜRDÜ:
+
+| Sorgu anahtarı | STATUS | STATUS_DESC | Yanıttaki INVOICE_ID | WEB_KEY |
+|---|---|---|---|---|
+| `405acba6-…f2141939` (bizim ETTN) | `100` | KUYRUĞA EKLENDİ | `SNG2026518354588` | VAR (190 hane) |
+| `5266133a-…54169dee` (bizim ETTN) | `100` | KUYRUĞA EKLENDİ | `SNG2026471382557` | VAR |
+| `70dfc021-…081fbcc45` (bizim ETTN) | `100` | KUYRUĞA EKLENDİ | `SNG2026589807117` | VAR |
+| `SNG2026518354588` (fatura no) | `200` | FATURA ID BULUNAMADI | — | yok |
+| `SNG2026471382557` (fatura no) | `200` | FATURA ID BULUNAMADI | — | yok |
+| `SNG2026589807117` (fatura no) | `200` | FATURA ID BULUNAMADI | — | yok |
+| `EAR2026000001023` (İzibiz'in listelediği) | `200` | FATURA ID BULUNAMADI | — | yok |
+
+Yani ilişki §8'in yazdığının TAM TERSİDİR: belge **BİZİM ETTN'imizle
+anahtarlanıyor** ve sağlayıcı kendi `INVOICE_ID`'sini o sorgunun YANITINDA
+veriyor; `INVOICE_ID` ile sorgu ise `200 FATURA ID BULUNAMADI` ile düşüyor.
+
+§8'in "BOŞ dönüyor" gözlemi ZAMANLAMAYDI ve §7.3'ün "ZAMANLAMA DEĞİL"
+sonucu YANLIŞTI: o sonuç YALNIZ ~100 saniyelik bir pencerede ölçülmüştü.
+Belgeler bugün hâlâ `STATUS=100 KUYRUĞA EKLENDİ` — yani sandbox kuyruğu
+100 saniyeden ÇOK daha uzun sürüyor. `xfail(strict=False)` taşıyan iki
+sandbox testi bu yüzden bugün XPASS olabilir.
+
+### 9.3 — `PDF_YOK`'un GERÇEK SEBEBİ: BİZ PDF İSTEMİYORUZ
+
+`GetEArchiveInvoice`, saklanan `WEB_KEY`'den çıkarılan `webValidationKey`
+(190 haneli URL → 80 haneli anahtar) ile çağrıldı ve **BELGE DÖNDÜ**:
+
+* `INVOICE` alanı 2333 bayt, sihirli sayı `PK\x03\x04` — bir **ZIP**.
+* ZIP'in TEK üyesi: `SNG2026518354588.xml`, 6465 bayt, `<Invoice…` ile
+  başlıyor — yani **UBL belgesi, PDF DEĞİL**.
+* `_decode_pdf()` bu baytları DOĞRU biçimde reddediyor (`%PDF-` yok) → `b""`
+  → adaptör `PDF_YOK` diyor.
+
+Yani `fetch_pdf` yolunda ne anahtar eksiği ne şema hatası vardır. İki ayrı
+gerçek var ve ikisi de ÖLÇÜLDÜ:
+
+1. **`GetEArchiveInvoice` bir PDF ucu DEĞİLDİR** — belgeyi (UBL XML'i) ZIP
+   içinde verir. Adın çağrıştırdığı şey ile döndürdüğü şey aynı değil.
+2. **PDF'i sağlayıcı ancak GÖNDERİCİ isterse üretir.** Şemada PDF, gönderim
+   isteğinin bir alanıdır (`ArchiveInvoiceExtendedContent/INVOICE_PROPERTIES/
+   PDF_PROPERTIES`: `EARSIV_PDF_FLAG`, `PDF_CONTENT`, `PDF_NAME`, …) ve BİZ
+   onu `provider.py:1576` ile **`<EARSIV_PDF_FLAG>N</EARSIV_PDF_FLAG>`**
+   olarak gönderiyoruz (`sandbox/izibiz_smoke.py:465` de aynı). Yani PDF
+   ÜRETİLMESİN diye AÇIKÇA söylüyoruz, sonra PDF istiyoruz.
+
+**BU TURDA DÜZELTİLMEDİ ve bu bilinçli.** `EARSIV_PDF_FLAG=Y` yapmak yeni bir
+GÖNDERİM davranışıdır (geri alınamaz belge üretir) ve `PDF_CONTENT`/XSLT
+tarafının ne beklediği HENÜZ ÖLÇÜLMEDİ — ölçülmemiş bir bayrağı "zararsızdır"
+diye açmak §8.3'ün reddettiği şeyin ta kendisi. AYRI BİR DİLİMİN İŞİ.
+
+### 9.4 — İPTAL 10008: TEK AÇIK KALAN, AMA ARTIK "ANAHTAR" DEĞİL
+
+`CancelEArchiveInvoice`, `provider.py:1372-1374`'ün kurduğu GÖVDEYLE BİREBİR
+tekrarlandı ve AYNI hatayı verdi:
+
+```
+ERROR_CODE=10008 — Belirtilen kritere uygun kayıt bulunamamıştır.
+Belge ETTN : 405acba6-ce9c-59c7-bc79-c37e2f141939
+```
+
+Ama §8'in bundan çıkardığı sonuç ARTIK GEÇERSİZDİR: AYNI ETTN ile durum
+sorgusu kayıt döndürüyor ve belge indiriliyor. Anahtar YANLIŞ OLAMAZ. Geriye
+ÖLÇÜLMEMİŞ tek aday kalıyor ve VARSAYILMIYOR: belge `STATUS=100 KUYRUĞA
+EKLENDİ` durumundadır ve iptal muhtemelen işlenmiş/raporlanmış bir belge
+ister. Şema da bunu ima ediyor — `CancelEArsivInvoiceContent` opsiyonel
+`TOPLAM_TUTAR`, `INVOICE_CONTENT`, `IPTAL_NOTU` alanları taşıyor (ölçüldü:
+şema dışı bir `IPTAL_NEDENI` gönderilince sağlayıcı bu üçünü ADIYLA sayarak
+`10013` verdi). Hangisinin zorunlu olduğu ÖLÇÜLMEDİ.
+
+**`FATURA_ID` DE ÖLÇÜLDÜ ve DEĞİŞTİRMEDİ.** Şema `FATURA_ID`'yi opsiyonel bir
+alan olarak taşıyor, yani "belki doğru anahtar oydu" sorusu ÖLÇÜLEBİLİRDİ ve
+ÖLÇÜLDÜ. `CancelEArchiveInvoiceRequest` şeması (`?xsd=5`, BİREBİR):
+
+```xml
+<xsd:complexType name="CancelEArchiveInvoiceRequest">
+  <xsd:sequence>
+    <xsd:element name="REQUEST_HEADER" type="e:REQUEST_HEADERType"/>
+    <xsd:element name="CancelEArsivInvoiceContent" minOccurs="1" maxOccurs="unbounded">
+      <xsd:complexType>
+        <xsd:sequence>
+          <xsd:element name="UPLOAD_FLAG" type="FLAG_VALUE" minOccurs="0" maxOccurs="1"/>
+          <xsd:element name="FATURA_UUID" type="xsd:string" minOccurs="1"/>
+          <xsd:element name="FATURA_ID" type="xsd:string" minOccurs="0"/>
+          <xsd:element name="EARSIV_CANCEL_EMAIL" type="xsd:string" minOccurs="0"/>
+          <xsd:element name="DELETE_FLAG" type="xsd:string" minOccurs="0"/>
+          <xsd:element name="IPTAL_TARIHI" type="xsd:date" minOccurs="0"/>
+          <xsd:element name="TOPLAM_TUTAR" type="xsd:decimal" minOccurs="0"/>
+          <xsd:element name="INVOICE_CONTENT" type="xmime:base64Binary" minOccurs="0" maxOccurs="1"/>
+          <xsd:element name="IPTAL_NOTU" type="xsd:string" minOccurs="0"/>
+        </xsd:sequence>
+      </xsd:complexType>
+```
+
+İki çağrı, AYNI belge, tek fark `FATURA_ID`:
+
+| İstek | Sonuç |
+|---|---|
+| A) yalnız `FATURA_UUID` (bugünkü kodun gövdesi) | `10008` — kayıt bulunamadı |
+| B) `FATURA_UUID` + `FATURA_ID=SNG2026518354588` | `10008` — AYNI hata, AYNI metin |
+
+Yani `FATURA_ID` eklemek HİÇBİR ŞEYİ değiştirmiyor: sorun ANAHTARDA DEĞİL
+BELGENİN DURUMUNDA. Bugünkü kodun `FATURA_ID` göndermeme kararı
+(`provider.py:1363-1366`) bu ölçümle DOĞRULANDI — eklemek fayda vermiyor.
+Geriye ölçülmemiş tek aday `STATUS=100` (kuyrukta) kalıyor ve VARSAYILMIYOR.
+
+### 9.5 — §8.2'DEKİ MEKTUP ARTIK YANLIŞ
+
+`entegrasyon@izibiz.com.tr`'ye gönderilmek üzere yazılmış §8.2 metni, artık
+ÇÜRÜTÜLMÜŞ bir teşhis üzerine kurulu: 1. ve 2. maddeleri (durum boş dönüyor,
+belge içeriği gelmiyor) BU KOŞUDA YANLIŞLANDI. **GÖNDERİLMEMELİDİR.** Geriye
+sorulacak TEK gerçek soru §9.4'tür: kuyrukta bekleyen bir e-Arşiv belgesi
+neden iptal edilemiyor ve iptalin ön koşulu nedir.
+
+### 9.6 — BU KOŞUNUN KODA ETKİSİ
+
+Bu dilimde KOD DEĞİŞMEDİ; değişen tek şey bu kayıt ve §8 başlığındaki gelecek
+tarihtir. Açılan üç iş, ADIYLA kayda geçti:
+
+* `EARSIV_PDF_FLAG` kararı (§9.3) — gönderim davranışı, ölçüm gerektirir.
+* İptalin ön koşulu (§9.4) — sağlayıcıya sorulacak.
+* İki `xfail(strict=False)` testin gözden geçirilmesi (§9.2) — artık XPASS
+  olabilirler.

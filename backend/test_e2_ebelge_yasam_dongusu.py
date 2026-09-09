@@ -149,7 +149,7 @@ CANCEL_OK = _zarf(
     "</CancelEArchiveInvoiceResponse>"
 )
 
-#: RED yanıtı UYDURMA DEĞİL: 2026-09-11'de gerçek sandbox'tan kaydedildi
+#: RED yanıtı UYDURMA DEĞİL: 2026-09-09'da gerçek sandbox'tan kaydedildi
 #: (``tests/fixtures/izibiz/CancelEArchiveInvoice-fault.200.xml``). Başarı
 #: gövdesinin aksine bu KAYITLIDIR, çünkü sağlayıcı bu cevabı gerçekten verdi.
 #: Ölçümün kendisi ve sağlayıcıya sorulacak soru:

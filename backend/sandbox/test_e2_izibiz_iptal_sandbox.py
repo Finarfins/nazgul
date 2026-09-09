@@ -85,7 +85,7 @@ def test_IPTAL_ICIN_GONDERIM_ONCE_KABUL_EDILIYOR(iptal_edilecek) -> None:
 
 @pytest.mark.xfail(
     reason=(
-        "ÖLÇÜLDÜ 2026-09-11 (E2 koşusu): sağlayıcı iptali `ERROR_CODE=10008 "
+        "ÖLÇÜLDÜ 2026-09-09 (E2 koşusu): sağlayıcı iptali `ERROR_CODE=10008 "
         "\"Belirtilen kritere uygun kayıt bulunamamıştır. Belge ETTN : <ETTN>\"` "
         "ile reddediyor. HATA BİZDE DEĞİL, ANAHTARDA: istek şemaya birebir uyuyor "
         "(`?xsd=5`ten okundu) ve sağlayıcı gönderdiğimiz ETTN'i GERİ YANKILAYIP "
@@ -146,7 +146,7 @@ def test_IPTAL_SONRASI_DURUM_SORGUSU(saglayici, iptal_edilecek) -> None:
     reason=(
         "AÇIK SORU — entegrasyon@izibiz.com.tr'ye sorulacak; metni ve SORULACAK "
         "BELGE KİMLİKLERİ `docs/izibiz-sandbox-bulgular.md` §8.2'de. "
-        "ÖLÇÜLDÜ 2026-09-08 (E1), 2026-09-11'de (E2) YİNELENDİ: TAZE bir e-Arşiv belgesi için "
+        "ÖLÇÜLDÜ 2026-09-08 (E1), 2026-09-09'da (E2) YİNELENDİ: TAZE bir e-Arşiv belgesi için "
         "`GetEArchiveInvoice` PDF vermiyor (`PDF_YOK`), 0/3/8/15/30/45 sn "
         "beklenerek ~100 sn yoklandı — ZAMANLAMA DEĞİL. E2 bu ölçümü "
         "DEĞİŞTİRMEDİ; değiştirdiği tek şey, PDF'i isteyen bir UCUN artık VAR "

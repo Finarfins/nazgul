@@ -359,7 +359,7 @@ IZIBIZ_ERROR_CODE_CLASSES: dict[str, str] = {
     "10003": "VALIDATION",  # "Belge kontrolden geçemedi: …"
     "10007": "VALIDATION",  # "Zip bir dosya içermelidir."
     "10013": "VALIDATION",  # "Gönderilen istek geçersizdir. / INVALID XML"
-    # 10008 BİLEREK YOK. ÖLÇÜLDÜ 2026-09-11 (E2, `CancelEArchiveInvoice`):
+    # 10008 BİLEREK YOK. ÖLÇÜLDÜ 2026-09-09 (E2, `CancelEArchiveInvoice`):
     #   ERROR_CODE=10008 "Belirtilen kritere uygun kayıt bulunamamıştır.
     #                     Belge ETTN : <bizim gönderdiğimiz ETTN>"
     # Bu bir DOĞRULAMA hatası DEĞİL: istek geçerliydi, aranan KAYIT yoktu —
