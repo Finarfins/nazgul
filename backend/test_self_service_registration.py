@@ -72,14 +72,17 @@ def _median(values):
     ordered = sorted(values)
     return ordered[len(ordered) // 2]
 
-# Anti-enumeration wall-clock: 3-sample median + relative budget.
+# Anti-enumeration wall-clock: warm-up + 5-sample median + relative budget.
 # |Δ| < max(0.12, 0.35 × slower) — absolute floor on fast hosts; relative
 # term absorbs load jitter without dropping the "same shape" property.
+warmup = register("isinma@example.com", "Isınma Firma")
+assert warmup.status_code == 200, warmup.text
+
 new_samples = []
 existing_samples = []
 timing_hash_new = []
 timing_hash_existing = []
-for i in range(3):
+for i in range(5):
     email = f"zaman{i}@example.com"
     started = monotonic()
     fresh = register(email, f"Zaman Firma {i}")
@@ -98,10 +101,6 @@ for i in range(3):
 new_duration = _median(new_samples)
 existing_duration = _median(existing_samples)
 slower = max(new_duration, existing_duration)
-assert abs(new_duration - existing_duration) < max(0.12, 0.35 * slower), (
-    new_duration, existing_duration, new_samples, existing_samples
-)
-assert all(v > 0 for v in timing_hash_new) and all(v > 0 for v in timing_hash_existing)
 print(
     f"TIMING_NEW_MS={[round(v * 1000, 2) for v in new_samples]} "
     f"TIMING_EXISTING_MS={[round(v * 1000, 2) for v in existing_samples]} "
@@ -109,6 +108,10 @@ print(
     f"TIMING_MEDIAN_EXISTING_MS={existing_duration * 1000:.2f} "
     f"TIMING_BUDGET_MS={max(0.12, 0.35 * slower) * 1000:.2f}"
 )
+assert abs(new_duration - existing_duration) < max(0.12, 0.35 * slower), (
+    new_duration, existing_duration, new_samples, existing_samples
+)
+assert all(v > 0 for v in timing_hash_new) and all(v > 0 for v in timing_hash_existing)
 
 first = register("ilk@example.com", "Birinci Firma")
 new_hash_duration = hash_durations[-1]

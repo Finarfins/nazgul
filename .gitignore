@@ -65,6 +65,7 @@ logs/
 tmp/
 temp/
 .cache/
+docs/prompts/
 
 # IDE / OS
 .vscode/
