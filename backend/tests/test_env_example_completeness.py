@@ -42,7 +42,7 @@ DOC_KEY_RE = re.compile(r"^([A-Z][A-Z0-9_]*)=")
 #: alanı, yani bugün .env.production'a yazılan değerleri UYGULAMAYA HİÇ
 #: ULAŞMIYOR ve uygulama kod varsayılanında koşuyor. Taşımak bu dalın işi
 #: DEĞİL — ayrı iş olarak sıradadır; buradaki liste onları GÖRÜNÜR yapar.
-MUAF_URETIM: dict[str, str] = {
+_MUAF_ORTAK: dict[str, str] = {
     "PAYMENT_ALLOCATION_ENGINE_ENABLED":
         "tahsis motoru anahtarı; kod varsayılanı False",
     "PAYMENT_ALLOCATION_CLOSED_THROUGH":
@@ -57,10 +57,18 @@ MUAF_URETIM: dict[str, str] = {
         "geri yükleme boşaltma üstü; kod varsayılanı 60",
 }
 
+MUAF_URETIM: dict[str, str] = dict(
+    _MUAF_ORTAK,
+    EINVOICE_SENDER_VKN=(
+        "ölü ayar; gönderici VKN companies.tax_number'dan okunur, compose'a "
+        "sızmamalı (test_production_deployment:164)"
+    ),
+)
+
 #: GELİŞTİRME (yalın docker-compose.yml) yığını için aynı ölçüm, aynı tarih.
 #: Üretim örtüsü bunların bir kısmını taşıyor; taban yığın taşımıyor.
 MUAF_GELISTIRME: dict[str, str] = dict(
-    MUAF_URETIM,
+    _MUAF_ORTAK,
     TRUSTED_PROXY_CIDRS="taban yığında taşınmıyor; üretim örtüsü taşıyor",
     TURNSTILE_SECRET_KEY="taban yığında taşınmıyor; üretim örtüsü taşıyor",
     TURNSTILE_SITE_KEY=(
@@ -157,6 +165,22 @@ def test_env_production_example_covers_merged_prod_stack():
     required = _required_vars("docker-compose.yml", "docker-compose.prod.yml")
     missing = required - _documented_keys(".env.production.example")
     assert not missing, f".env.production.example missing required vars: {sorted(missing)}"
+
+
+def test_env_production_example_covers_all_settings():
+    """SEC-5: .env.production.example Settings model_fields'in tamamını kapsamalıdır."""
+    missing = _settings_env_names() - _documented_keys(".env.production.example")
+    assert not missing, (
+        f".env.production.example missing Settings keys: {sorted(missing)}"
+    )
+
+
+def test_backend_env_example_covers_all_settings():
+    """SEC-5: backend/.env.example Settings model_fields'in tamamını kapsamalıdır."""
+    missing = _settings_env_names() - _documented_keys("backend/.env.example")
+    assert not missing, (
+        f"backend/.env.example missing Settings keys: {sorted(missing)}"
+    )
 
 
 def test_belgelenen_her_URETIM_ayari_konteynere_TASINIYOR():
