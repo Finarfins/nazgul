@@ -66,6 +66,10 @@ TURA ALINMADI ve gerekçe ölçüldü:
   bu yüzden telefon+pencere bazlı KALICI sayaç
   (``whatsapp_pairing_attempts``, WA1'in açtığı platform tablosu) ayrıca
   tutulur — uygulama belleği çok konteynerde paylaşılmaz.
+* **Kod bir NUMARAYA verilir.** ``target_phone`` (göç
+  ``20260912_0082``, SEC-1) kodu ürettiği anda hedef numaraya bağlar;
+  ``kod_kullan`` çağıranın numarasıyla KARŞILAŞTIRIR. Sızan bir kod
+  BAŞKASININ elinde işe yaramaz — kod tek başına bir kimlik DEĞİLDİR.
 * **Hiçbir cevap bilgi sızdırmaz.** Geçersiz, süresi dolmuş, kullanılmış ve
   hiç var olmamış kod AYNI genel cevabı alır.
 * **Log hijyeni.** Kod, ham telefon, kullanıcı adı ve firma adı loglanmaz;
@@ -93,7 +97,7 @@ from .schema import (
     whatsapp_pairing_attempts,
     whatsapp_pairing_codes,
 )
-from .telefon import normalize_phone
+from .telefon import TelefonGecersiz, e164, normalize_phone
 
 log = logging.getLogger("nazgul.whatsapp.eslestirme")
 
@@ -127,6 +131,10 @@ class UretilenKod:
     kod_id: int
     kod: str  # DÜZ kod — yalnız bu nesnede, yalnız bir kez
     expires_at: datetime
+    #: Kodun BAĞLI OLDUĞU numara, KANONİK biçimde (`normalize_phone`).
+    #: Çağıranın yazdığıyla aynı olmayabilir ("0540 599 59 59" ->
+    #: "905405995959"); saklanan ve karşılaştırılan değer BUDUR.
+    hedef_telefon: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,6 +305,7 @@ def kod_uret(
     company_id: int,
     user_id: int,
     *,
+    hedef_telefon: str,
     created_by: int | None = None,
     simdi: datetime | None = None,
 ) -> UretilenKod:
@@ -307,6 +316,23 @@ def kod_uret(
     """
     an = simdi or utcnow()
     _hedef_dogrula(db, company_id, user_id)
+
+    # KOD BIR NUMARAYA VERILIR (SEC-1, goc `20260912_0082`). Bicim
+    # `telefon.e164` ile DOGRULANIR ama `normalize_phone` ciktisi SAKLANIR:
+    # `kod_kullan` cagiranin numarasini da o bicimde tutuyor ve iki deger
+    # DOGRUDAN karsilastiriliyor. Burada `+90...` saklansaydi karsilastirma
+    # her seferinde bir donusum daha ister, unutuldugu an HICBIR kod
+    # eslesmezdi.
+    #
+    # HATA `EslestirmeHatasi`DIR, `TelefonGecersiz` DEGIL: cagiran (router)
+    # bu modulden TEK bir hata turu bekliyor ve bicim hatasi da bir "kod
+    # uretilemedi" halidir. Metin AYRI tutuluyor cunku bu ret HEDEF
+    # ENVANTERINI sizdirmaz — yoneticinin KENDI yazdigi bicimi anlatiyor.
+    try:
+        e164(hedef_telefon)
+    except TelefonGecersiz as hata:
+        raise EslestirmeHatasi(str(hata)) from None
+    hedef = normalize_phone(hedef_telefon)
 
     # Önceki bekleyen kodlar deterministik biçimde düşer. Kısmi UNIQUE
     # indeks (`uq_wpc_aktif_kod`) bunu ZORUNLU kılar; burada açıkça yapılması
@@ -324,6 +350,7 @@ def kod_uret(
                     insert(whatsapp_pairing_codes).values(
                         company_id=company_id,
                         user_id=user_id,
+                        target_phone=hedef,
                         created_by=created_by,
                         code_digest=_ozet(kod),
                         status=schema.PAIRING_PENDING,
@@ -339,6 +366,7 @@ def kod_uret(
             kod_id=int(sonuc.inserted_primary_key[0]),
             kod=kod,
             expires_at=expires_at,
+            hedef_telefon=hedef,
         )
     raise EslestirmeHatasi("Kod üretilemedi; lütfen tekrar deneyin.")
 
@@ -457,6 +485,9 @@ def kod_kullan(
       Bağlantı yazılamazsa kod tüketilmiş KALMAZ (SAVEPOINT geri alır).
     * Aynı kodu iki işçi aynı anda kullanırsa CAS (``status='PENDING'``
       koşullu UPDATE) TAM BİR kazanan bırakır.
+    * Kod YALNIZ ``target_phone``dan kullanılabilir (SEC-1, göç
+      ``20260912_0082``). Başka bir numaradan gelen DOĞRU kod, hiç var
+      olmamış kodla AYNI cevabı alır ve kodun kendi sayacını YAKAR.
     * Aynı numara aynı firmada iki kez bağlanamaz; hakem
       ``uq_whatsapp_links_aktif_numara`` KISMİ UNIQUE indeksidir. BAŞKA bir
       firmaya bağlanmak SERBESTTİR (göç 0079 başlığı).
@@ -490,6 +521,7 @@ def kod_kullan(
         whatsapp_pairing_codes.c.id,
         whatsapp_pairing_codes.c.company_id,
         whatsapp_pairing_codes.c.user_id,
+        whatsapp_pairing_codes.c.target_phone,
         whatsapp_pairing_codes.c.code_digest,
         whatsapp_pairing_codes.c.status,
         whatsapp_pairing_codes.c.expires_at,
@@ -546,6 +578,26 @@ def kod_kullan(
 
     company_id = int(satir["company_id"])
     user_id = int(satir["user_id"])
+
+    # 4b) KOD, VERILDIGI NUMARADAN GELMEK ZORUNDA (SEC-1, goc
+    #     `20260912_0082`). Bu denetim OLMADAN kod TEK BASINA bir kimlikti:
+    #     B firmasinin kodunu ele geciren biri KENDI numarasini B'nin
+    #     kullanicisina baglayabiliyordu (capraz kiraci devralma).
+    #
+    #     SIRA SOZLESMEDIR: denetim baglanti INSERT'inden ONCEDIR. Sonraya
+    #     alinsaydi yanlis numara ONCE baglanir, sonra geri alinirdi — ve
+    #     geri alma yolunun her kusuru dogrudan bir devralma olurdu.
+    #
+    #     CEVAP AYIRT EDILEMEZ: yanlis numaradan gelen DOGRU kod ile hic var
+    #     olmamis kod AYNI `RED_MESAJI`ni alir. Ayrilsaydi saldirgan elindeki
+    #     kodun GECERLI oldugunu ogrenirdi — yani bir kahin.
+    #
+    #     DENEME YANIYOR: `_denemeyi_artir` ayri bir deyimdir ve geri
+    #     alinmaz. Yanlis numaradan israr eden biri kodun kendi tavanini
+    #     doldurur ve kod KILITLENIR; sahibi yeni kod ister.
+    if str(satir["target_phone"]) != normal:
+        _denemeyi_artir(db, company_id, int(satir["id"]))
+        return _basarisiz(cevapla)
 
     # 5) Kimlik zinciri TEKRAR doğrulanır: kod üretildikten sonra kullanıcı
     #    pasifleşmiş, üyeliği düşmüş ya da firma kapanmış olabilir.

@@ -940,8 +940,11 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "9cfdbd5059edb6d1c4e488edac9a897bb3be419ac8a77c6f40b5c490408abcde"): (1, "whatsapp_links", "arg0"),  # satır [714]
     ("app/whatsapp/eslestirme.py", "kod_iptal", "update",
      "cea0c5a99926d24a115f475d69df6b2460453b770c027a9d2160ac4fbd6cbe54"): (1, "whatsapp_pairing_codes", "arg0"),  # satır [368]
+    # SEC-1 / goc 20260912_0082: parmak izi d45429e0 -> 6b51156b. SORGU
+    # SAYISI ve HEDEFI KIMILDAMADI; degisen tek sey SECILEN SUTUN KUMESI —
+    # `target_phone` eklendi. Yuklem (`code_digest == :ozet`) AYNI.
     ("app/whatsapp/eslestirme.py", "kod_kullan", "select",
-     "d45429e099aa6bd7cf2345a576bf8b4930d6efa2b61f0cb01abf4d5c98e91cc1"): (1, "whatsapp_pairing_codes", "arg0"),  # satır [501]
+     "6b51156b48b49ec9d378ccd9cbe2fff6b490735a5ed25bdce02df0a732f13a06"): (1, "whatsapp_pairing_codes", "arg0"),  # satır [504]
     ("app/whatsapp/eslestirme.py", "kod_kullan", "update",
      "588f63e7ead0c0ef095b43683f84eff29b9c2a30322115d128b1e7d161a3f032"): (1, "whatsapp_pairing_codes", "arg0"),  # satır [612]
     # --- WHATSAPP ISCISI (WA3-full, GOC YOK)
@@ -1096,7 +1099,7 @@ EXPECTED_OP_COUNTS = {"select": 111, "update": 54, "delete": 10}
 # GECERSIZ oldu. WA4'un ekledigi sorgu sayisi (10) degismedi ama bunu
 # BILMEK icin yeniden olcmek gerekiyordu — cikarma yapmak, WA3'un
 # sorgularindan birinin WA4 ile CAKISMADIGINI VARSAYMAK olurdu.
-INVENTORY_FINGERPRINT = "3ae3e6f66aef55c97b4be05be04218ea4943c34597e6d3228528b7393fd08c84"
+INVENTORY_FINGERPRINT = "732a6bde2ba3aa5267d0a68a605e4eeb2d258db5dbd3ab2415028ce3c1c57410"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:

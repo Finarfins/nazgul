@@ -5567,6 +5567,11 @@ export interface paths {
          *     Hedef kullanıcı doğrulaması `eslestirme._hedef_dogrula`dadır ve BEŞ ret
          *     yolu AYNI metni üretir: "kullanıcı yok", "başka firmanın kullanıcısı" ve
          *     "pasif" ayırt EDİLEMEZ — başka tenant'ın varlığı sızdırılmaz.
+         *
+         *     `phone` ZORUNLUDUR (SEC-1, göç `20260912_0082`): kod ÜRETİLDİĞİ ANDA bir
+         *     numaraya bağlanır ve YALNIZ o numaradan kullanılabilir. Alan olmadan bu
+         *     uç, sızan bir kodu ELE GEÇİREN herkese o kullanıcının kimliğini veren
+         *     bir kapı açıyordu; gerekçenin tamamı göçün başlığındadır.
          */
         post: operations["eslestirme_kodu_uret_api_whatsapp_pairing_codes_post"];
         delete?: never;
@@ -7836,6 +7841,8 @@ export interface components {
          * @description Kod üretme gövdesi. `extra="forbid"`: sessizce yok sayılan alan YOK.
          */
         KodGirdisi: {
+            /** Phone */
+            phone: string;
             /** User Id */
             user_id: number;
         };

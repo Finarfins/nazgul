@@ -263,6 +263,16 @@ class KodGirdisi(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     user_id: int = Field(gt=0)
+    #: KOD KİME VERİLİYOR — ZORUNLU (SEC-1, göç `20260912_0082`).
+    #:
+    #: VARSAYILANI YOK ve bu bilinçli: varsayılan verilseydi bu alanı
+    #: yazmayan eski bir istemci sessizce "hedefsiz" kod üretmeye devam
+    #: eder, yani kapatılan açık kapalı görünürken AÇIK kalırdı. Alan
+    #: zorunlu olduğu için böyle bir istek 422 ile GÜRÜLTÜLÜ düşer.
+    #:
+    #: Biçim `eslestirme.kod_uret` içinde `telefon.e164` ile doğrulanır;
+    #: burada YALNIZ uzunluk sınırı var — asıl karar TEK yerde kalsın.
+    phone: str = Field(min_length=1, max_length=32)
 
 
 def _aktor_id(request: Request) -> int | None:
@@ -293,11 +303,20 @@ def eslestirme_kodu_uret(
     Hedef kullanıcı doğrulaması `eslestirme._hedef_dogrula`dadır ve BEŞ ret
     yolu AYNI metni üretir: "kullanıcı yok", "başka firmanın kullanıcısı" ve
     "pasif" ayırt EDİLEMEZ — başka tenant'ın varlığı sızdırılmaz.
+
+    `phone` ZORUNLUDUR (SEC-1, göç `20260912_0082`): kod ÜRETİLDİĞİ ANDA bir
+    numaraya bağlanır ve YALNIZ o numaradan kullanılabilir. Alan olmadan bu
+    uç, sızan bir kodu ELE GEÇİREN herkese o kullanıcının kimliğini veren
+    bir kapı açıyordu; gerekçenin tamamı göçün başlığındadır.
     """
     cid = company_id(request)
     try:
         uretilen = eslestirme.kod_uret(
-            db, cid, girdi.user_id, created_by=_aktor_id(request)
+            db,
+            cid,
+            girdi.user_id,
+            hedef_telefon=girdi.phone,
+            created_by=_aktor_id(request),
         )
     except eslestirme.EslestirmeHatasi as hata:
         raise HTTPException(422, str(hata)) from None
@@ -329,6 +348,10 @@ def eslestirme_kodu_uret(
         "kod_gosterim": eslestirme.kod_bicimle(uretilen.kod),
         "expires_at": uretilen.expires_at,
         "user_id": girdi.user_id,
+        # HEDEF MASKELİ döner. Yönetici numarayı ZATEN kendisi yazdı; tam
+        # numarayı geri yazmak `GET /links`in maskeleme kararını (defterin
+        # amacı "kim bağlı", "hangi numaradan" değil) bu uçtan delerdi.
+        "telefon": _maskeli_telefon(uretilen.hedef_telefon),
     }
 
 

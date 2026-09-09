@@ -247,6 +247,21 @@ whatsapp_pairing_codes = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("company_id", Integer, nullable=False),
     Column("user_id", Integer, nullable=False),
+    # KOD KIME VERILDI (goc `20260912_0082`, SEC-1). `whatsapp_links.phone`
+    # ile AYNI genislik ve AYNI bicim (`telefon.normalize_phone` ciktisi):
+    # `kod_kullan` iki degeri KARSILASTIRIYOR ve bicim ayrisirsa hicbir kod
+    # eslesmez. `server_default=""` GOCTEKIYLE BIREBIR: bos dize hicbir
+    # cagiranla eslesemez (FAIL-CLOSED), gerekce gocun basliginda.
+    #
+    # FIZIKSEL SIRA FARKLI ve bu onemsiz: sutun tabloya 0082 ile EKLENDI,
+    # yani gercek semada EN SONDA duruyor. Denetleyiciler (`inspect`) sutunu
+    # ADIYLA okuyor; her iki kapinin da olctugu sey ad, tip ve nullable'dir.
+    Column(
+        "target_phone",
+        String(20),
+        nullable=False,
+        server_default="",
+    ),
     Column("created_by", Integer, nullable=True),
     # DÜZ KOD ASLA SAKLANMAZ: yalnız SHA-256 hex özeti (`auth.token_digest`
     # ile AYNI sözleşme). Özet `WHATSAPP_APP_SECRET`e BAĞLANMAZ — App Secret
