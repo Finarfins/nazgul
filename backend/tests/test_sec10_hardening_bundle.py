@@ -16,7 +16,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import defusedxml.ElementTree as DefusedET
+from xml.etree import ElementTree as ET
 import pytest
 from fastapi import HTTPException
 from pydantic import SecretStr
@@ -283,8 +283,8 @@ def test_ubl_xml_quoteattr_hostile_invoice_id() -> None:
 
     raw_xml = build_invoice_xml(payload)
 
-    # Must be valid XML parsable by DefusedET without ParseError
-    root = DefusedET.fromstring(raw_xml)
+    # Must be valid XML parsable by ET without ParseError
+    root = ET.fromstring(raw_xml)
     assert root is not None
 
     # Check that the filename attribute in EmbeddedDocumentBinaryObject was escaped
