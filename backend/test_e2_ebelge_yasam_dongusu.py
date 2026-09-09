@@ -404,11 +404,34 @@ def test_INDIRME_UCU_GET_VE_YETKISI_SALES() -> None:
 
     assert required_permission("GET", "/api/invoices/{invoice_id}/einvoice/download") == "sales"
     assert required_permission("GET", "/api/invoices/7/einvoice/download") == "sales"
-    # Komşular KIMILDAMADI: kural önek+sonek birlikte yazıldığı için iç PDF ve
-    # liste hâlâ ``read``.
-    assert required_permission("GET", "/api/invoices/{invoice_id}/pdf") == "read"
-    assert required_permission("GET", "/api/invoices") == "read"
-    assert required_permission("GET", "/api/invoices/{invoice_id}/einvoice/status") == "read"
+    # 2026-09-09 (SEC-3) — KOMŞULAR ARTIK ``sales`` VE BU BEKLENEN.
+    #
+    # Bu satırlar E2'de "kural önek+sonek birlikte yazıldı, yani liste ve iç
+    # PDF KIMILDAMADI" demek için vardı. SEC-3 fatura ailesinin BEŞ okuma
+    # ucunu bilinçli olarak ``sales``a taşıdı, yani komşuların ``read``te
+    # kalması artık DOĞRU BİR BEKLENTİ DEĞİL — o hâlde bırakmak, bu dosyayı
+    # geçersiz bir politikanın bekçisi yapardı.
+    #
+    # E2'nin ASIL İDDİASI KORUNUYOR ve aşağıda AYRICA ölçülüyor: indirme ucu
+    # ``sales``ı SEC-3'ten DEĞİL, KENDİ açık kuralından alıyor. Tanık, o
+    # kuralın SEC-3 bloğunun ÜSTÜNDE durmasıdır — SEC-3'ün ``/api/invoices``
+    # kuralı üste konsaydı bu kural ölü koda dönerdi. Ölçüm: kaynakta indirme
+    # kuralı, SEC-3 bloğunun başlangıcından ÖNCE geçiyor.
+    assert required_permission("GET", "/api/invoices/{invoice_id}/pdf") == "sales"
+    assert required_permission("GET", "/api/invoices") == "sales"
+    assert required_permission("GET", "/api/invoices/{invoice_id}/einvoice/status") == "sales"
+
+    from pathlib import Path as _Path
+
+    auth_kaynak = _Path(ROUTER).resolve().parents[1].joinpath("auth.py").read_text(
+        encoding="utf-8"
+    )
+    indirme = auth_kaynak.index('path.endswith("/einvoice/download")')
+    sec3 = auth_kaynak.index("SEC-3 — `read`e DÜŞEN TİCARİ OKUMALARIN DARALTILMASI")
+    assert indirme < sec3, (
+        "e-belge sureti kuralı SEC-3 bloğunun ALTINA kaymış: `/api/invoices` "
+        "öneği onu yutar ve ayrı gerekçesi ölü koda döner."
+    )
 
 
 def test_INDIRME_XML_YOLU_AGA_HIC_CIKMAZ() -> None:

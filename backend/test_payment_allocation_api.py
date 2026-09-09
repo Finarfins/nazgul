@@ -172,10 +172,31 @@ with TestClient(app) as client:
         f"/api/payment-allocations/payments/{payment_id}",
         f"/api/payment-allocations/orders/{first_order}",
     )
-    for role in ("muhasebe", "satis", "depo", "rapor"):
+    # 2026-09-09 (SEC-3): tahsis defteri OKUMASI `read` DEGIL `payments`.
+    # Kural artik "GET -> payments, yazma -> finance", yani okuma ile yazma
+    # AYRILDI. Dort rolun DORDU de burada okuyordu; simdi ikiye bolunuyor ve
+    # bolunme TAM OLARAK `payments` iznini izliyor:
+    #   * `muhasebe` ve `satis` `payments` TASIR -> okumaya devam (200).
+    #     `satis`in kalmasi bilinclidir: o tahsilat rolu ve defter onun isi.
+    #   * `depo` ve `rapor` TASIMIYOR -> 403. Ikisi icin de tahsis defteri
+    #     "stok/raporlama gunluk isi" DEGILDIR.
+    # Bu satirlarin ALTINDAKI yazma iddialari (asagida) DEGISMEDI: `satis`
+    # okur ama tahsis EDEMEZ, cunku yazma hala `finance` istiyor.
+    for role in ("muhasebe", "satis"):
         for path in read_paths:
             response = client.get(path, headers=roles[role])
             assert response.status_code == 200, (role, path, response.text)
+    for role in ("depo", "rapor"):
+        for path in read_paths:
+            response = client.get(path, headers=roles[role])
+            assert response.status_code == 403, (role, path, response.text)
+    # `engine-state` `read`te KALDI ve dort rol de goruyor: arayuz "hic
+    # tahsis yok" ile "ozellik kapali"yi ayirt edebilmeli.
+    for role in ("muhasebe", "satis", "depo", "rapor"):
+        durum = client.get(
+            "/api/payment-allocations/engine-state", headers=roles[role]
+        )
+        assert durum.status_code == 200, (role, durum.text)
     for role in ("satis", "depo", "rapor"):
         denied_report = client.get(
             "/api/payment-allocations/reconciliation",
@@ -377,9 +398,14 @@ with TestClient(app) as client:
         -dec(row["amount"]) if row["status"] == "reversal" else dec(row["amount"])
         for row in history.json()
     ) == dec("10.00")
+    # 2026-09-09 (SEC-3): okuyucu rol `rapor` -> `muhasebe`. Defter okumasi
+    # `payments` istiyor ve `rapor` o izni tasimiyor; olculen sey burada
+    # YETKI DEGIL, tasinan tahsisin belge tarafinda GORUNMESIDIR, o yuzden
+    # izinli bir rolle okunuyor. `rapor`un artik 403 aldigi yukarida ayrica
+    # civilendi.
     order_history = client.get(
         f"/api/payment-allocations/orders/{second_order}",
-        headers=roles["rapor"],
+        headers=roles["muhasebe"],
     )
     assert order_history.status_code == 200, order_history.text
     assert any(row["amount"] == "10.00" for row in order_history.json())

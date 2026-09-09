@@ -54,8 +54,14 @@ assert report_rotate.status_code == 200, report_rotate.text
 report_headers['Authorization'] = 'Bearer ' + report_rotate.json()['access_token']
 
 # Baseline read access remains available.
+# Musteri LISTESI `read`te KALDI: `rapor` okumaya devam ediyor.
 assert client.get('/api/customers', headers=report_headers).status_code == 200
-assert client.get('/api/suppliers', headers=report_headers).status_code == 200
+# 2026-09-09 (SEC-3): tedarikci LISTESI `purchases`a tasindi ve `rapor` o
+# izni TASIMIYOR -> 403. Bu dosyanin asil iddiasi ("okuyan rol YAZAMAZ")
+# bundan ETKILENMIYOR; degisen sey, tedarikci tarafinda artik OKUMANIN da
+# kapali olmasi. Satir 200'de birakilsaydi bu dosya SEC-3'un tersini
+# savunan bir bekci olurdu.
+assert client.get('/api/suppliers', headers=report_headers).status_code == 403
 
 customer_payload = {'name':'Yetkisiz Müşteri','opening_balance':0}
 supplier_payload = {'name':'Yetkisiz Tedarikçi','opening_balance':0}
