@@ -812,7 +812,9 @@ def test_BAGLA_AKISI_UCTAN_UCA(oturum, dunya) -> None:
     """Geçerli kod: bağlantı doğuyor, başarı mesajı gidiyor, satır ANSWERED."""
     from app.whatsapp import eslestirme, service
 
-    uretilen = eslestirme.kod_uret(oturum, dunya["firma_a"], dunya["kul_b"])
+    uretilen = eslestirme.kod_uret(
+        oturum, dunya["firma_a"], dunya["kul_b"], hedef_telefon=NUMARA
+    )
     oturum.commit()
     satir_id = _mesaj_yaz(oturum, f"BAĞLA {uretilen.kod}")
     oturum.commit()

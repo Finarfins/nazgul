@@ -584,7 +584,9 @@ def test_YIRMI_ESZAMANLI_ayni_kod_TEK_KEZ_tukeniyor(motor, dunya) -> None:
 
     Oturum = sessionmaker(bind=motor)
     with Oturum() as db:
-        uretilen = eslestirme.kod_uret(db, dunya["firma_a"], dunya["kullanici"])
+        uretilen = eslestirme.kod_uret(
+            db, dunya["firma_a"], dunya["kullanici"], hedef_telefon=telefon
+        )
         db.commit()
     kod = uretilen.kod
 

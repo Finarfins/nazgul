@@ -43,6 +43,18 @@ Her kapı, HANGİ değişikliğin onu kırmızı yapacağını ADIYLA söylüyor
                                     -> KAPATIP YENİDEN BAĞLAMA adımı KIRMIZI
   * Kısmi tekili büsbütün düşürmek
                                     -> AYNI FİRMA İKİNCİ AKTİF adımı KIRMIZI
+  * `kod_kullan`dan `target_phone` kıyasını düşürmek ya da onu bağlantı
+    INSERT'inden SONRAYA almak
+                                    -> HEDEF NUMARA kapısı KIRMIZI (SEC-1;
+                                       ikinci mutantı hiçbir davranış testi
+                                       öldüremez — SAVEPOINT geri aldığı
+                                       için sonuç AYNI görünür)
+  * Hedef uyuşmazlığına AYRI bir metin/istisna vermek
+                                    -> HEDEF NUMARA kapısının üçüncü
+                                       assert'i ve ÇAPRAZ KİRACI adımının
+                                       "ayırt edilemez" iddiası KIRMIZI
+  * `POST /pairing-codes` gövdesinden `phone`u ZORUNLU olmaktan çıkarmak
+                                    -> TELEFON ZORUNLU adımı KIRMIZI
   * `kod_uret`i düz kodu da yazacak biçimde değiştirmek
                                     -> DÜZ KOD kapısı KIRMIZI
   * Uçlardan `company_id` yüklemini düşürmek
@@ -73,6 +85,8 @@ SERVIS = BACKEND / "app" / "whatsapp" / "eslestirme.py"
 BAGLAM = BACKEND / "app" / "whatsapp" / "baglam.py"
 UC = BACKEND / "app" / "routers" / "whatsapp.py"
 YETKI = BACKEND / "app" / "auth.py"
+
+NL = chr(10)
 
 BAGLANTI_TABLO = "whatsapp_links"
 KOD_TABLO = "whatsapp_pairing_codes"
@@ -464,6 +478,99 @@ def test_CAS_KOSULU_STATUS_PENDING_ve_KIRACI_YUKLEMLI() -> None:
     assert "begin_nested" in parca
 
 
+def test_HEDEF_NUMARA_DENETIMI_BAGLANTI_INSERTINDEN_ONCE() -> None:
+    """`kod_kullan` kodu `target_phone` ile ÇAĞIRANIN numarasını KIYASLIYOR.
+
+    SEC-1 (P1) kapatan değişmez BUDUR ve göç `20260912_0082` onu şemaya
+    yazdı: kod TEK BAŞINA bir kimlik DEĞİLDİR. Denetim düşseydi, B
+    firmasının kodunu ele geçiren biri KENDİ numarasını B'nin kullanıcısına
+    bağlayabilirdi — çapraz kiracı devralma.
+
+    KAPI NEDEN AST'DE — İKİ AYRI GEREKÇE, İKİSİ DE ÖLÇÜLDÜ:
+
+    1. DAVRANIŞ testleri denetimin VARLIĞINI görür ama SIRASINI göremez.
+       Kıyası bağlantı INSERT'inden SONRAYA alan bir mutant, SAVEPOINT geri
+       aldığı için davranışta AYNI sonucu üretir (`basarili=False`, bağlantı
+       yok) — yani `test_DAVRANIS_CAPRAZ_KIRACI_*` o mutantı ÖLDÜREMEZ.
+       Kaybolan şey SAVUNMA DERİNLİĞİDİR: yanlış numara bir an için
+       GERÇEKTEN bağlanmış olur ve geri alma yolunun her kusuru doğrudan
+       bir devralmadır.
+
+    2. Kıyasın kendisi ("hangi iki değer") bir dizge araması değil bir AST
+       sorusudur: `satir["target_phone"] != normal` yerine
+       `satir["target_phone"] != satir["target_phone"]` yazan bir mutant
+       grep'e AYNI görünürdü.
+
+    MUTASYON TABLOSU — üçü de BU kapıyı kırmızı yapar:
+      * kıyası büsbütün silmek                 -> birinci assert
+      * kıyası `insert(whatsapp_links` SONRASINA taşımak -> üçüncü assert
+      * `normal` yerine başka bir şeyle kıyaslamak -> ikinci assert
+    """
+    kaynak = SERVIS.read_text(encoding="utf-8")
+    fn = _fn(kaynak, "kod_kullan")
+    parca = ast.get_source_segment(kaynak, fn) or ""
+
+    # 1) KIYAS VAR ve İKİ TARAFI da DOĞRU — AST'den, dizgeden DEĞİL.
+    kiyaslar = [
+        d for d in ast.walk(fn)
+        if isinstance(d, ast.Compare)
+        and any(
+            isinstance(alt, ast.Subscript)
+            and isinstance(alt.slice, ast.Constant)
+            and alt.slice.value == "target_phone"
+            for t in [d.left, *d.comparators]
+            for alt in ast.walk(t)
+        )
+    ]
+    assert len(kiyaslar) == 1, (
+        "kod_kullan icinde `target_phone` kiyasi TAM BIR TANE olmali; "
+        f"bulunan: {len(kiyaslar)}"
+    )
+    (kiyas,) = kiyaslar
+    adlar = {d.id for d in ast.walk(kiyas) if isinstance(d, ast.Name)}
+    assert "normal" in adlar, (
+        "hedef numara CAGIRANIN kanonik numarasiyla (`normal`) "
+        f"kiyaslanmali; bulunan adlar: {sorted(adlar)}"
+    )
+
+    # 2) BAŞARISIZLIK OPAK: kıyasın gövdesi `_basarisiz` döner ve kodun
+    #    kendi sayacını yakar. Ayrı bir metin/istisna üretmek bir KAHİN
+    #    olurdu — saldırgan elindeki kodun GEÇERLİ olduğunu öğrenirdi.
+    #
+    #    GÖVDE AST'DEN alınıyor, DİZGE ARAMASIYLA değil: `target_phone`
+    #    kelimesi bu fonksiyonun BAŞLIĞINDA da geçiyor ve `parca.index(...)`
+    #    orayı bulup kapının tamamını anlamsız kılardı.
+    dallar = [
+        d for d in ast.walk(fn)
+        if isinstance(d, ast.If) and d.test is kiyas
+    ]
+    assert len(dallar) == 1, "kiyas bir `if` KOSULU olmali"
+    govde = NL.join(
+        ast.get_source_segment(kaynak, adim) or "" for adim in dallar[0].body
+    )
+    assert "_denemeyi_artir(" in govde, govde
+    assert "_basarisiz(cevapla)" in govde, govde
+    assert "RED_MESAJI" not in govde and "raise" not in govde, (
+        "hedef uyusmazligi AYRI bir metin/istisna URETMEMELI (kahin)"
+    )
+
+    # 3) SIRA: kıyas, bağlantı INSERT'inden ÖNCE. Karşılaştırma SATIR
+    #    NUMARASI üzerinden — dizge araması yine başlığa takılırdı.
+    eklemeler = [
+        d for d in ast.walk(fn)
+        if isinstance(d, ast.Call)
+        and getattr(d.func, "id", None) == "insert"
+        and any(
+            getattr(a, "id", None) == "whatsapp_links" for a in d.args
+        )
+    ]
+    assert len(eklemeler) == 1, eklemeler
+    assert kiyas.lineno < eklemeler[0].lineno, (
+        "hedef denetimi baglanti INSERT'inden SONRA kalmis "
+        f"(kiyas {kiyas.lineno}, insert {eklemeler[0].lineno})"
+    )
+
+
 def test_HIZ_SINIRI_KOD_ARAMASINDAN_ONCE_KOSUYOR() -> None:
     """`deneme_say` çağrısı, kod satırının OKUNMASINDAN ÖNCE.
 
@@ -629,9 +736,14 @@ assert sutunlar['created_by']['nullable'] is True
 assert sutunlar['phone']['type'].length == 20, sutunlar['phone']['type']
 
 kod_sutun = {c['name']: c for c in gozlemci.get_columns(KOD)}
-for zorunlu in ('company_id', 'user_id', 'code_digest', 'status',
-                'expires_at', 'attempt_count', 'max_attempts', 'created_at'):
+for zorunlu in ('company_id', 'user_id', 'target_phone', 'code_digest',
+                'status', 'expires_at', 'attempt_count', 'max_attempts',
+                'created_at'):
     assert kod_sutun[zorunlu]['nullable'] is False, zorunlu
+# 0082: hedef numara `whatsapp_links.phone` ile AYNI genislikte — iki taraf
+# KARSILASTIRILIYOR ve genislik ayrisirsa uzun bir numara SESSIZCE kirpilip
+# hicbir zaman eslesmezdi (PG'de kirpma degil hata, ama SQLite'ta sessiz).
+assert kod_sutun['target_phone']['type'].length == 20, kod_sutun['target_phone']
 for serbest in ('created_by', 'consumed_at', 'cancelled_at',
                 'consumed_link_id'):
     assert kod_sutun[serbest]['nullable'] is True, serbest
@@ -704,6 +816,35 @@ assert not reddedildi(1, 4, NUM, 0), 'ayni firmada PASIF satir reddedildi'
 assert not reddedildi(1, 5, NUM, 0), 'IKINCI pasif satir reddedildi'
 with motor.begin() as baglanti:
     baglanti.execute(text('DELETE FROM whatsapp_links'))
+
+# --- 0082: HEDEFSIZ BEKLEYEN KOD GOCTE SURESI DOLUYOR --------------------
+# GRE'PLENEMEZ: `upgrade` govdesindeki UPDATE'i okumak "kosuyor" demez.
+# Burada 0081'e inilip GERCEK bir hedefsiz PENDING satir yaziliyor (yani
+# gocun kapattigi acigin ta kendisi uretiliyor), sonra goc kosuluyor.
+command.downgrade(yapilandirma, '20260911_0081')
+onceki = {c['name'] for c in sa.inspect(motor).get_columns(KOD)}
+assert 'target_phone' not in onceki, onceki
+with motor.begin() as baglanti:
+    baglanti.execute(text('PRAGMA foreign_keys=OFF'))
+    baglanti.execute(
+        text("INSERT INTO whatsapp_pairing_codes"
+             "(company_id,user_id,code_digest,status,expires_at,"
+             "attempt_count,max_attempts,created_at)"
+             " VALUES(1,1,'0082-hedefsiz','PENDING',:s,0,5,:t)"),
+        {'s': '2099-01-01 00:00:00', 't': AN})
+
+command.upgrade(yapilandirma, 'head')
+with motor.begin() as baglanti:
+    tasinan = baglanti.execute(text(
+        "SELECT status,target_phone FROM whatsapp_pairing_codes"
+        " WHERE code_digest='0082-hedefsiz'")).mappings().one()
+# IKI AYRI IDDIA: birincisi satirin ARTIK BEKLEMEDIGI, ikincisi hedefin
+# BOS oldugu. Ikincisi tek basina da yeterdi (bos hedef hicbir cagiranla
+# eslesemez) ama birincisi niyetin SEMAYA yazildiginin tanigidir.
+assert tasinan['status'] == 'EXPIRED', tasinan
+assert tasinan['target_phone'] == '', tasinan
+with motor.begin() as baglanti:
+    baglanti.execute(text('DELETE FROM whatsapp_pairing_codes'))
 
 # --- GOC TURU ------------------------------------------------------------
 command.downgrade(yapilandirma, '20260910_0078')
@@ -854,10 +995,17 @@ def oturum(dunya):
         db.rollback()
 
 
-def _kod_ver(db, cid: int, uid: int, *, simdi: datetime | None = None) -> str:
+def _kod_ver(db, cid: int, uid: int, *, simdi: datetime | None = None,
+             hedef: str = NUMARA) -> str:
+    """Kod uretir. HEDEF VARSAYILANI VAR ama `kod_uret`inki YOK — bilerek.
+
+    Yardimcinin varsayilani var oldugu icin bu dosyadaki eski adimlar
+    degismeden kaldi; `kod_uret`in kendisinde varsayilan OLSAYDI, alani
+    yazmayi unutan URETIM kodu da sessizce hedefsiz kod uretirdi.
+    """
     from app.whatsapp import eslestirme
 
-    uretilen = eslestirme.kod_uret(db, cid, uid, simdi=simdi)
+    uretilen = eslestirme.kod_uret(db, cid, uid, hedef_telefon=hedef, simdi=simdi)
     db.commit()
     return uretilen.kod
 
@@ -908,7 +1056,14 @@ def test_DAVRANIS_kod_uret_KULLAN_baglanti_aciyor(oturum, dunya) -> None:
     assert kod_satiri["cancelled_at"] is None
 
     # AYNI KOD İKİNCİ KEZ KULLANILAMAZ: durum artık PENDING değil.
-    ikinci = eslestirme.kod_kullan(oturum, IKINCI_NUMARA, kod)
+    #
+    # NUMARA (İKİNCİ_NUMARA DEĞİL) ve bu SEC-1'den sonra ZORUNLU: kod artık
+    # `target_phone`a bağlı ve başka bir numara zaten HEDEF DENETİMİNDE
+    # düşerdi — yani adım "kod tükendi" yerine "numara tutmadı" ölçer, oysa
+    # ölçmek istediği DURUM MAKİNESİDİR. Doğru numarayla gelindiğinde
+    # `status != PENDING` denetimi hedef denetiminden ÖNCE koşuyor ve red
+    # GERÇEKTEN tükenmişlikten geliyor.
+    ikinci = eslestirme.kod_kullan(oturum, NUMARA, kod)
     oturum.commit()
     assert not ikinci.basarili
     assert len(_baglantilar(oturum)) == 1
@@ -959,7 +1114,15 @@ def test_DAVRANIS_YANLIS_KOD_BES_KEZ_pencereyi_KILITLIYOR(oturum, dunya) -> None
     assert kod_satiri["attempt_count"] == 1, kod_satiri
 
     # BAŞKA BİR NUMARA aynı pencerede ETKİLENMİYOR: sınır numara başınadır.
-    baska = eslestirme.kod_kullan(oturum, IKINCI_NUMARA, kod)
+    #
+    # KENDİ KODUYLA ve bu SEC-1'den sonra ZORUNLU: kod artık bir numaraya
+    # bağlı, yani `IKINCI_NUMARA`ya `NUMARA` için üretilmiş kodu vermek
+    # sınırı DEĞİL hedef denetimini ölçerdi. İkinci kod BAŞKA bir kullanıcı
+    # için üretiliyor çünkü `uq_wpc_aktif_kod` (company_id, user_id) kısmi
+    # tekili aynı kullanıcıda ikinci bir PENDING koda izin VERMEZ.
+    ikinci_kod = _kod_ver(oturum, dunya["firma_a"], dunya["kul_b"],
+                          hedef=IKINCI_NUMARA)
+    baska = eslestirme.kod_kullan(oturum, IKINCI_NUMARA, ikinci_kod)
     oturum.commit()
     assert baska.basarili, baska
 
@@ -990,6 +1153,196 @@ def test_DAVRANIS_SURESI_DOLMUS_KOD_reddediliyor(oturum, dunya) -> None:
         "SELECT status FROM whatsapp_pairing_codes WHERE company_id=:c"),
         {"c": dunya["firma_a"]}).scalar_one()
     assert durum == "PENDING", durum
+
+
+def test_DAVRANIS_CAPRAZ_KIRACI_KOD_SAHIBINDEN_BASKASINA_YARAMIYOR(
+    oturum, dunya
+) -> None:
+    """SEC-1'in TA KENDİSİ: B'nin kodu A'nın numarasında İŞE YARAMIYOR.
+
+    İnceleme senaryosu birebir: B firması KENDİ kullanıcısı için, KENDİ
+    numarasına bir kod üretiyor; kod SIZIYOR ve BAŞKA bir numaradan
+    kullanılmaya çalışılıyor.
+
+    DÜZELTMEDEN ÖNCE: bağlantı AÇILIRDI ve saldırganın numarası B'nin
+    kullanıcısına bağlanırdı — o numaradan gelen her mesaj B'nin borç, stok
+    ve tahsilat verisini görürdü. Bu testin ölçtüğü şey tam olarak budur.
+
+    ÜÇ AYRI İDDİA, ÜÇÜ DE GEREKLİ:
+      (a) yanlış numara REDDEDİLİYOR ve HİÇBİR bağlantı doğmuyor,
+      (b) kod HÂLÂ `PENDING` — yanlış deneme kodu TÜKETMİYOR, yani meşru
+          sahibi hâlâ kullanabiliyor (ret bir HİZMET KESİNTİSİ değil),
+      (c) DOĞRU numara AYNI kodu kullanıp bağlanıyor — kapı "her şeyi
+          reddet"e dönmedi. (c) olmasaydı `kod_kullan`ı hep `False`
+          döndüren bir mutant bu testten SAĞ ÇIKARDI.
+    """
+    from sqlalchemy import text
+
+    from app.whatsapp import eslestirme
+
+    # B firması KENDİ kullanıcısı için, KENDİ numarasına kod üretiyor.
+    kod = _kod_ver(oturum, dunya["firma_b"], dunya["kul_a"], hedef=NUMARA)
+
+    # (a) SIZAN KOD, BAŞKA NUMARADAN: reddediliyor, bağlantı YOK.
+    saldiri = eslestirme.kod_kullan(oturum, IKINCI_NUMARA, kod)
+    oturum.commit()
+    assert not saldiri.basarili, saldiri
+    assert saldiri.company_id is None and saldiri.link_id is None, saldiri
+    assert _baglantilar(oturum) == [], "CAPRAZ KIRACI BAGLANTI ACILDI"
+
+    # CEVAP AYIRT EDİLEMEZ: hiç var olmamış kodun cevabıyla BİREBİR aynı.
+    # Ayrılsaydı saldırgan elindeki kodun GEÇERLİ olduğunu öğrenirdi.
+    yok = eslestirme.kod_kullan(oturum, IKINCI_NUMARA, "ZZZZ-ZZZZ-ZZZZ")
+    oturum.commit()
+    assert saldiri == yok, (saldiri, yok)
+
+    # (b) KOD TÜKENMEDİ: meşru sahibi hâlâ kullanabilir.
+    durum = oturum.execute(text(
+        "SELECT status FROM whatsapp_pairing_codes WHERE company_id=:c"),
+        {"c": dunya["firma_b"]}).scalar_one()
+    assert durum == "PENDING", durum
+
+    # (c) DOĞRU NUMARA: aynı kod bağlanıyor.
+    dogru = eslestirme.kod_kullan(oturum, NUMARA, kod)
+    oturum.commit()
+    assert dogru.basarili, dogru
+    assert dogru.company_id == dunya["firma_b"], dogru
+    assert dogru.user_id == dunya["kul_a"], dogru
+    (satir,) = _baglantilar(oturum)
+    assert satir["phone"] == NUMARA and satir["company_id"] == dunya["firma_b"]
+
+
+def test_DAVRANIS_YANLIS_NUMARA_KODUN_DENEMESINI_YAKIYOR(oturum, dunya) -> None:
+    """Yanlış numaradan gelen her deneme kodun KENDİ sayacını artırıyor.
+
+    İki katmanı da ölçüyor ve İKİSİ AYRI ŞEY: telefon+pencere sayacı
+    (`whatsapp_pairing_attempts`) SALDIRGANIN numarasına yazılır, kod
+    satırının `attempt_count`u ise KODU korur. Sayaç artmasaydı, sızan bir
+    kodu farklı numaralardan sınırsızca deneyen biri hiçbir iz bırakmaz ve
+    kodu ömrü boyunca canlı tutardı.
+
+    TAVAN DOLUNCA KOD KİLİTLENİR — DOĞRU numara bile geçemez. Bu bir
+    KAYIP DEĞİL: yönetici yeni kod üretir (eskisi deterministik olarak
+    iptal olur) ve kilitlenme, kodun sızdığının GÖRÜNÜR kaydıdır.
+    """
+    from sqlalchemy import text
+
+    from app.whatsapp import eslestirme
+    from app.whatsapp.schema import PAIRING_MAX_ATTEMPTS
+
+    kod = _kod_ver(oturum, dunya["firma_a"], dunya["kul_a"], hedef=NUMARA)
+
+    def kod_sayaci() -> int:
+        return oturum.execute(text(
+            "SELECT attempt_count FROM whatsapp_pairing_codes"
+            " WHERE company_id=:c"), {"c": dunya["firma_a"]}).scalar_one()
+
+    assert kod_sayaci() == 0
+
+    # YANLIŞ NUMARADAN tek deneme: sayaç ARTTI, kod TÜKENMEDİ.
+    sonuc = eslestirme.kod_kullan(oturum, IKINCI_NUMARA, kod)
+    oturum.commit()
+    assert not sonuc.basarili, sonuc
+    assert kod_sayaci() == 1, "yanlis numara kodun denemesini YAKMADI"
+
+    # Saldırganın KENDİ penceresi de yazıldı (telefon başına sayaç).
+    saldirgan = oturum.execute(text(
+        "SELECT attempt_count FROM whatsapp_pairing_attempts WHERE phone=:p"),
+        {"p": IKINCI_NUMARA}).scalar_one()
+    assert saldirgan == 1, saldirgan
+
+    # TAVANA KADAR devam: kod KİLİTLENİYOR ve DOĞRU numara da geçemiyor.
+    for _ in range(PAIRING_MAX_ATTEMPTS - 1):
+        eslestirme.kod_kullan(oturum, IKINCI_NUMARA, kod)
+    oturum.commit()
+    assert kod_sayaci() == PAIRING_MAX_ATTEMPTS, kod_sayaci()
+
+    dogru = eslestirme.kod_kullan(oturum, NUMARA, kod)
+    oturum.commit()
+    assert not dogru.basarili, "tavani dolan kod DOGRU numarada da olmemeli"
+    assert _baglantilar(oturum) == []
+
+
+def test_DAVRANIS_HEDEFSIZ_KOD_HICBIR_NUMARADAN_KULLANILAMIYOR(
+    oturum, dunya
+) -> None:
+    """Göçün `EXPIRED` yazdığı satır CANLI olsa bile kullanılamaz.
+
+    Göç `20260912_0082` mevcut `PENDING` satırların hedefini `''` yapıp
+    durumlarını `EXPIRED` yazıyor. Bu test İKİNCİ KATMANI ölçüyor: satır
+    ELLE `PENDING`e döndürülse bile hiçbir numara onu kullanamaz, çünkü
+    `''` HİÇBİR `normalize_phone` çıktısı DEĞİLDİR (FAIL-CLOSED).
+
+    Neden ayrıca ölçülüyor: göçün UPDATE'i bir gün kaldırılsa ya da yeni
+    bir yol hedefsiz satır yazsa, bu katman TEK BAŞINA açığı kapalı tutar.
+    """
+    from sqlalchemy import text
+
+    from app.whatsapp import eslestirme
+
+    kod = _kod_ver(oturum, dunya["firma_a"], dunya["kul_a"], hedef=NUMARA)
+
+    # Satırı GÖÇ ÖNCESİ hâline döndür: hedef BOŞ, durum PENDING.
+    oturum.execute(text(
+        "UPDATE whatsapp_pairing_codes SET target_phone=''"
+        " WHERE company_id=:c"), {"c": dunya["firma_a"]})
+    oturum.commit()
+
+    for telefon in (NUMARA, IKINCI_NUMARA, NUMARA_INSAN):
+        sonuc = eslestirme.kod_kullan(oturum, telefon, kod)
+        oturum.commit()
+        assert not sonuc.basarili, (telefon, sonuc)
+    assert _baglantilar(oturum) == [], "hedefsiz kod BAGLANTI acti"
+
+
+def test_DAVRANIS_HEDEF_NUMARA_KANONIKLESIYOR(oturum, dunya) -> None:
+    """Hedef İNSAN YAZIMIYLA verilse de KANONİK saklanıyor ve EŞLEŞİYOR.
+
+    Yönetici "0540 599 59 59" yazar, WhatsApp "905405995959" gönderir. İki
+    yazım AYNI numaradır ve `normalize_phone` ikisini de aynı dizeye
+    indirger. Saklanan biçim ham girdi olsaydı, doğru numaradan gelen
+    kullanıcı KENDİ koduyla bağlanamazdı — açığın tersi bir kusur.
+    """
+    from sqlalchemy import text
+
+    from app.whatsapp import eslestirme
+
+    kod = _kod_ver(oturum, dunya["firma_a"], dunya["kul_a"],
+                   hedef=NUMARA_INSAN)
+
+    saklanan = oturum.execute(text(
+        "SELECT target_phone FROM whatsapp_pairing_codes"
+        " WHERE company_id=:c"), {"c": dunya["firma_a"]}).scalar_one()
+    assert saklanan == NUMARA, saklanan
+
+    sonuc = eslestirme.kod_kullan(oturum, NUMARA, kod)
+    oturum.commit()
+    assert sonuc.basarili, sonuc
+
+
+def test_DAVRANIS_GECERSIZ_HEDEF_NUMARASI_KOD_URETTIRMIYOR(
+    oturum, dunya
+) -> None:
+    """E.164'e indirgenemeyen hedef kod ÜRETTİRMİYOR; satır da YAZILMIYOR.
+
+    `telefon.e164` alt/üst rakam sınırını ZORLUYOR. Sessizce kırpılmış bir
+    numara saklansaydı kod HİÇ eşleşmezdi; uydurulmuş bir numara ise
+    BAŞKASININ numarasına kod bağlardı.
+    """
+    from sqlalchemy import text
+
+    from app.whatsapp import eslestirme
+
+    for kotu in ("", "abc", "12345"):
+        with pytest.raises(eslestirme.EslestirmeHatasi):
+            eslestirme.kod_uret(oturum, dunya["firma_a"], dunya["kul_a"],
+                                hedef_telefon=kotu)
+        oturum.rollback()
+
+    sayi = oturum.execute(text(
+        "SELECT COUNT(*) FROM whatsapp_pairing_codes WHERE company_id=:c"),
+        {"c": dunya["firma_a"]}).scalar_one()
+    assert sayi == 0, "gecersiz hedefle KOD SATIRI yazildi"
 
 
 def test_DAVRANIS_AYNI_FIRMADA_IKINCI_AKTIF_BAGLANTI_REDDEDILIYOR(
@@ -1257,19 +1610,22 @@ def test_DAVRANIS_PASIF_KULLANICIYA_KOD_URETILEMEZ(oturum, dunya) -> None:
 
     # Başka firmanın kullanıcısı (`kul_b` firma_b'ye üye DEĞİL).
     with pytest.raises(eslestirme.EslestirmeHatasi) as hata:
-        eslestirme.kod_uret(oturum, dunya["firma_b"], dunya["kul_b"])
+        eslestirme.kod_uret(oturum, dunya["firma_b"], dunya["kul_b"],
+                            hedef_telefon=NUMARA)
     assert str(hata.value) == eslestirme.HEDEF_RED_MESAJI
 
     # Hiç var olmayan kullanıcı — AYNI metin.
     with pytest.raises(eslestirme.EslestirmeHatasi) as hata2:
-        eslestirme.kod_uret(oturum, dunya["firma_a"], 9_999_999)
+        eslestirme.kod_uret(oturum, dunya["firma_a"], 9_999_999,
+                            hedef_telefon=NUMARA)
     assert str(hata2.value) == eslestirme.HEDEF_RED_MESAJI
 
     # Pasif kullanıcı — AYNI metin.
     oturum.execute(text("UPDATE app_users SET is_active=0 WHERE id=:u"),
                    {"u": dunya["kul_b"]})
     with pytest.raises(eslestirme.EslestirmeHatasi) as hata3:
-        eslestirme.kod_uret(oturum, dunya["firma_a"], dunya["kul_b"])
+        eslestirme.kod_uret(oturum, dunya["firma_a"], dunya["kul_b"],
+                            hedef_telefon=NUMARA)
     assert str(hata3.value) == eslestirme.HEDEF_RED_MESAJI
     oturum.rollback()
 
@@ -1318,7 +1674,7 @@ def test_UC_kod_uret_DUZ_KODU_BIR_KEZ_donuyor(uygulama, dunya, yonetici) -> None
     """
     h = yonetici(dunya["firma_a"])
     r = uygulama.post("/api/whatsapp/pairing-codes", headers=h,
-                      json={"user_id": dunya["kul_b"]})
+                      json={"user_id": dunya["kul_b"], "phone": NUMARA})
     assert r.status_code == 201, r.text
     govde = r.json()
     assert len(govde["kod"]) == 12
@@ -1341,8 +1697,64 @@ def test_UC_kod_uret_DUZ_KODU_BIR_KEZ_donuyor(uygulama, dunya, yonetici) -> None
 
     # `extra="forbid"`: sessizce yok sayılan alan YOK.
     kotu = uygulama.post("/api/whatsapp/pairing-codes", headers=h,
-                         json={"user_id": dunya["kul_b"], "company_id": 1})
+                         json={"user_id": dunya["kul_b"], "phone": NUMARA,
+                               "company_id": 1})
     assert kotu.status_code == 422, kotu.text
+
+
+def test_UC_kod_uret_TELEFON_ZORUNLU_ve_MASKELI_donuyor(
+    uygulama, dunya, yonetici
+) -> None:
+    """`phone` alanı ZORUNLU (SEC-1) ve cevapta MASKELİ dönüyor.
+
+    ZORUNLULUK bir biçim tercihi DEĞİL: alan isteğe bağlı olsaydı, onu
+    yazmayan eski bir istemci sessizce HEDEFSİZ kod üretmeye devam eder ve
+    göç `20260912_0082`nin kapattığı açık, kapalı görünürken AÇIK kalırdı.
+    422 bunu GÜRÜLTÜLÜ yapıyor.
+
+    MASKELEME `GET /links`in kararıyla AYNI: defterin hiçbir ucu tam
+    numarayı geri yazmaz. Yönetici numarayı ZATEN kendisi yazdı; cevapta
+    tekrar etmek `users` iznine sahip herkese firmanın telefon listesini
+    veren bir yol açardı.
+    """
+    h = yonetici(dunya["firma_a"])
+
+    # (a) ALAN YOK -> 422 ve HİÇBİR kod satırı yazılmıyor.
+    eksik = uygulama.post("/api/whatsapp/pairing-codes", headers=h,
+                          json={"user_id": dunya["kul_b"]})
+    assert eksik.status_code == 422, eksik.text
+
+    # (b) BİÇİM BOZUK -> 422. Ret metni HEDEF ENVANTERİ sızdırmıyor:
+    #     yöneticinin KENDİ yazdığı biçimden söz ediyor, kullanıcıdan değil.
+    for kotu in ("abc", "12345"):
+        bozuk = uygulama.post("/api/whatsapp/pairing-codes", headers=h,
+                              json={"user_id": dunya["kul_b"], "phone": kotu})
+        assert bozuk.status_code == 422, (kotu, bozuk.text)
+
+    from sqlalchemy import text
+
+    from app.db import SessionLocal
+
+    with SessionLocal() as db:
+        sayi = db.execute(text(
+            "SELECT COUNT(*) FROM whatsapp_pairing_codes WHERE company_id=:c"),
+            {"c": dunya["firma_a"]}).scalar_one()
+    assert sayi == 0, "gecersiz istekler KOD SATIRI birakti"
+
+    # (c) DOĞRU İSTEK: 201, hedef MASKELİ, saklanan biçim KANONİK.
+    iyi = uygulama.post("/api/whatsapp/pairing-codes", headers=h,
+                        json={"user_id": dunya["kul_b"],
+                              "phone": NUMARA_INSAN})
+    assert iyi.status_code == 201, iyi.text
+    govde = iyi.json()
+    assert govde["telefon"] == "***" + NUMARA[-4:], govde
+    assert NUMARA not in str(govde), "TAM NUMARA cevaba sizdi"
+
+    with SessionLocal() as db:
+        hedef = db.execute(text(
+            "SELECT target_phone FROM whatsapp_pairing_codes WHERE id=:i"),
+            {"i": govde["kod_id"]}).scalar_one()
+    assert hedef == NUMARA, hedef
 
 
 def test_UC_KIRACI_YALITIMI_dort_ucta_da(uygulama, dunya, yonetici) -> None:
@@ -1362,7 +1774,8 @@ def test_UC_KIRACI_YALITIMI_dort_ucta_da(uygulama, dunya, yonetici) -> None:
 
     # A firmasında bir kod ve bir bağlantı.
     kod_cevap = uygulama.post("/api/whatsapp/pairing-codes", headers=h_a,
-                              json={"user_id": dunya["kul_a"]})
+                              json={"user_id": dunya["kul_a"],
+                                    "phone": NUMARA})
     assert kod_cevap.status_code == 201, kod_cevap.text
     kod_id = kod_cevap.json()["kod_id"]
     with SessionLocal() as db:
@@ -1394,7 +1807,7 @@ def test_UC_KIRACI_YALITIMI_dort_ucta_da(uygulama, dunya, yonetici) -> None:
     #    üye DEĞİL ve ret metni "yok"/"başka firmanın"/"pasif" ayrımını
     #    SIZDIRMIYOR.
     red = uygulama.post("/api/whatsapp/pairing-codes", headers=h_b,
-                        json={"user_id": dunya["kul_b"]})
+                        json={"user_id": dunya["kul_b"], "phone": NUMARA})
     assert red.status_code == 422, red.text
     assert red.json()["detail"] == eslestirme.HEDEF_RED_MESAJI
 
@@ -1409,7 +1822,8 @@ def test_UC_link_kapatma_kimligi_DUSURUYOR(uygulama, dunya, yonetici) -> None:
 
     h = yonetici(dunya["firma_a"])
     kod = uygulama.post("/api/whatsapp/pairing-codes", headers=h,
-                        json={"user_id": dunya["kul_a"]}).json()["kod"]
+                        json={"user_id": dunya["kul_a"],
+                              "phone": NUMARA}).json()["kod"]
     with SessionLocal() as db:
         assert eslestirme.kod_kullan(db, NUMARA, kod).basarili
         db.commit()
@@ -1439,7 +1853,8 @@ def test_UC_kod_iptali_kodu_KULLANILAMAZ_yapiyor(uygulama, dunya, yonetici) -> N
 
     h = yonetici(dunya["firma_a"])
     cevap = uygulama.post("/api/whatsapp/pairing-codes", headers=h,
-                          json={"user_id": dunya["kul_a"]}).json()
+                          json={"user_id": dunya["kul_a"],
+                                "phone": NUMARA}).json()
 
     r = uygulama.delete(f"/api/whatsapp/pairing-codes/{cevap['kod_id']}",
                         headers=h)
@@ -1478,7 +1893,8 @@ def test_UC_AKTIVITE_KAYDI_yaziliyor_ve_SIR_TASIMIYOR(
 
     h = yonetici(dunya["firma_a"])
     cevap = uygulama.post("/api/whatsapp/pairing-codes", headers=h,
-                          json={"user_id": dunya["kul_a"]}).json()
+                          json={"user_id": dunya["kul_a"],
+                                "phone": NUMARA}).json()
     with SessionLocal() as db:
         assert eslestirme.kod_kullan(db, NUMARA, cevap["kod"]).basarili
         db.commit()
