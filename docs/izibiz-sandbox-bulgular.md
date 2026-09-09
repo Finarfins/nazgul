@@ -608,6 +608,42 @@ ister. Şema da bunu ima ediyor — `CancelEArsivInvoiceContent` opsiyonel
 şema dışı bir `IPTAL_NEDENI` gönderilince sağlayıcı bu üçünü ADIYLA sayarak
 `10013` verdi). Hangisinin zorunlu olduğu ÖLÇÜLMEDİ.
 
+**`FATURA_ID` DE ÖLÇÜLDÜ ve DEĞİŞTİRMEDİ.** Şema `FATURA_ID`'yi opsiyonel bir
+alan olarak taşıyor, yani "belki doğru anahtar oydu" sorusu ÖLÇÜLEBİLİRDİ ve
+ÖLÇÜLDÜ. `CancelEArchiveInvoiceRequest` şeması (`?xsd=5`, BİREBİR):
+
+```xml
+<xsd:complexType name="CancelEArchiveInvoiceRequest">
+  <xsd:sequence>
+    <xsd:element name="REQUEST_HEADER" type="e:REQUEST_HEADERType"/>
+    <xsd:element name="CancelEArsivInvoiceContent" minOccurs="1" maxOccurs="unbounded">
+      <xsd:complexType>
+        <xsd:sequence>
+          <xsd:element name="UPLOAD_FLAG" type="FLAG_VALUE" minOccurs="0" maxOccurs="1"/>
+          <xsd:element name="FATURA_UUID" type="xsd:string" minOccurs="1"/>
+          <xsd:element name="FATURA_ID" type="xsd:string" minOccurs="0"/>
+          <xsd:element name="EARSIV_CANCEL_EMAIL" type="xsd:string" minOccurs="0"/>
+          <xsd:element name="DELETE_FLAG" type="xsd:string" minOccurs="0"/>
+          <xsd:element name="IPTAL_TARIHI" type="xsd:date" minOccurs="0"/>
+          <xsd:element name="TOPLAM_TUTAR" type="xsd:decimal" minOccurs="0"/>
+          <xsd:element name="INVOICE_CONTENT" type="xmime:base64Binary" minOccurs="0" maxOccurs="1"/>
+          <xsd:element name="IPTAL_NOTU" type="xsd:string" minOccurs="0"/>
+        </xsd:sequence>
+      </xsd:complexType>
+```
+
+İki çağrı, AYNI belge, tek fark `FATURA_ID`:
+
+| İstek | Sonuç |
+|---|---|
+| A) yalnız `FATURA_UUID` (bugünkü kodun gövdesi) | `10008` — kayıt bulunamadı |
+| B) `FATURA_UUID` + `FATURA_ID=SNG2026518354588` | `10008` — AYNI hata, AYNI metin |
+
+Yani `FATURA_ID` eklemek HİÇBİR ŞEYİ değiştirmiyor: sorun ANAHTARDA DEĞİL
+BELGENİN DURUMUNDA. Bugünkü kodun `FATURA_ID` göndermeme kararı
+(`provider.py:1363-1366`) bu ölçümle DOĞRULANDI — eklemek fayda vermiyor.
+Geriye ölçülmemiş tek aday `STATUS=100` (kuyrukta) kalıyor ve VARSAYILMIYOR.
+
 ### 9.5 — §8.2'DEKİ MEKTUP ARTIK YANLIŞ
 
 `entegrasyon@izibiz.com.tr`'ye gönderilmek üzere yazılmış §8.2 metni, artık
