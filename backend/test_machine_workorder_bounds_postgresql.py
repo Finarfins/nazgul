@@ -48,14 +48,23 @@ def _acilis_sifresi():
 
 
 def _get_database_url() -> str:
-    database_url = (
-        os.environ.get("NUMERIC_BOUNDS_TEST_DATABASE_URL")
-        or os.environ.get("APP_TEST_DATABASE_URL")
-        or os.environ.get("DATABASE_URL")
-    )
+    database_url = os.environ.get("NUMERIC_BOUNDS_TEST_DATABASE_URL")
+    if not database_url and os.environ.get("REQUIRE_PG") == "1":
+        database_url = os.environ.get("APP_TEST_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if not database_url:
         pytest.skip("NUMERIC_BOUNDS_TEST_DATABASE_URL is not configured")
     return database_url
+
+
+def _login_client(client, new_pw: str = "NumericBoundsPg123!") -> dict[str, str]:
+    login = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"}).json()
+    cid = login["companies"][0]["id"]
+    headers = {"Authorization": "Bearer " + login["access_token"], "X-Company-ID": str(cid)}
+    changed = client.post("/api/auth/change-password", headers=headers, json={
+        "current_password": "admin123", "new_password": new_pw
+    }).json()
+    headers["Authorization"] = "Bearer " + changed["access_token"]
+    return headers
 
 
 @pytest.mark.postgresql
@@ -75,13 +84,7 @@ def test_machine_workorder_numeric_bounds_postgresql(monkeypatch: pytest.MonkeyP
     from app.main import app
 
     with TestClient(app) as client:
-        login = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"}).json()
-        cid = login["companies"][0]["id"]
-        headers = {"Authorization": "Bearer " + login["access_token"], "X-Company-ID": str(cid)}
-        changed = client.post("/api/auth/change-password", headers=headers, json={
-            "current_password": "admin123", "new_password": "NumericBoundsPg123!"
-        }).json()
-        headers["Authorization"] = "Bearer " + changed["access_token"]
+        headers = _login_client(client)
 
         def machine(**over):
             body = {"brand": "John Deere", "model": "6155R"}
@@ -141,13 +144,7 @@ def test_machine_string_identifier_bounds_postgresql(monkeypatch: pytest.MonkeyP
     created_machines: dict[str, int] = {}
     try:
         with TestClient(app) as client:
-            login = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"}).json()
-            cid = login["companies"][0]["id"]
-            headers = {"Authorization": "Bearer " + login["access_token"], "X-Company-ID": str(cid)}
-            changed = client.post("/api/auth/change-password", headers=headers, json={
-                "current_password": "admin123", "new_password": "StringBoundsPg123!"
-            }).json()
-            headers["Authorization"] = "Bearer " + changed["access_token"]
+            headers = _login_client(client)
 
             for idx, (field, n) in enumerate(bounded_fields):
                 prefix = f"t{idx}{uuid.uuid4().hex[:6]}"
