@@ -412,7 +412,7 @@ sonra ayrı bir dilimde ve kanıtıyla birlikte açılmalıdır.
 
 ---
 
-## §8 — E2 KOŞUSU (2026-09-11, GERÇEK SANDBOX): §7.3'ÜN SEBEBİ ARTIK ÖLÇÜLDÜ
+## §8 — E2 KOŞUSU (2026-09-09, GERÇEK SANDBOX): §7.3'ÜN SEBEBİ ARTIK ÖLÇÜLDÜ
 
 ### 8.1 — İPTAL, DURUM SORGUSUNUN SÖYLEYEMEDİĞİNİ SÖYLEDİ
 
