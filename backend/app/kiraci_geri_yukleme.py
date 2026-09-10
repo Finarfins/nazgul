@@ -13,7 +13,7 @@ o günden beri yazdığı her şeyi de geri sarardı. Bu modül tam tersini yapa
 ------------------------------------------
 Varsayılan kip ``yeni``: zip'teki firma YENİ bir ``company_id`` ile doğar.
 Var olan aktif bir kiracının üstüne HİÇBİR KOŞULDA yazılmaz. ``yerine`` kipi
-yalnız kaynak firma HÂLÂ VAR, KAPALI (``is_active=false``) ve o kimliğe ait
+yalnız kaynak firma HALA VAR, KAPALI (``is_active=false``) ve o kimliğe ait
 satır HİÇBİR kiracı tablosunda YOKKEN kimliği yerinde canlandırır; ölçülen
 tek bir artık satır 409 verir.
 
