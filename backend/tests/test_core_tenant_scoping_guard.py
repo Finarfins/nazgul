@@ -1884,7 +1884,16 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # DOKUZ ifadeyi birden ihlal sayiyordu. Yardimci KALDIRILDI ve yuklem her
 # sorguya ACIKCA yazildi; `_sahip_mi` ile `_jetonla_kapat` da artik
 # `kimlik` aliyor (once yalnizca satir kimligi + jetonla daraliyorlardi).
-BEKLENEN_CORE_IFADE_SAYISI = 150
+# 150 -> 152: 5.1c KIRACI GERI YUKLEME (GOC YOK). `app/kiraci_geri_yukleme.py`de
+# `user_company_memberships`e IKI `insert(memberships).values(company_id=
+# yeni_cid, ...)`: zip'teki uyeliklerin VAR OLAN kullanicilar icin geri
+# getirilmesi ve operatorun uyeligi. Ikisi de yeni firmanin kimligini ACIKCA
+# tasir. Ayni dosyanin yansimadan gelen tablolara yazdigi 120 ekleme bu
+# sayaca GIRMEZ (tablo nesnesi degiskendir, kapinin bildigi bir ad degil);
+# o yuzey `tests/test_kiraci_geri_yukleme.py`de calisma zamaninda olculur:
+# yuvarlak yolculuk sonrasi kaynak firmanin satirlari DOKUNULMAMIS ve yeni
+# firmanin her tablosu manifeste BIREBIR esit.
+BEKLENEN_CORE_IFADE_SAYISI = 152
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
     # WA4 bekleyen islem defteri (goc 20260910_0080). `company_id` tasir.

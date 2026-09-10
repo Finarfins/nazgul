@@ -97,6 +97,11 @@ class Settings(BaseSettings):
     # Streaming cap enforced by the attachment endpoint itself (HTTP 413). The
     # transport-level body override adds 1 MiB for multipart framing.
     max_attachment_upload_bytes: int = 10 * 1024 * 1024
+    # 5.1c kiracı geri yükleme zip tavanı. Uç (`routers/kiraci_geri_yukleme.py`)
+    # gövdeyi parça parça geçici dosyaya yazar ve bu sayıyı aşınca 413 verir;
+    # `main.py`deki yol tavanı bunun 1 MiB üstüdür (multipart çerçevesi).
+    # Sınır bellek değil DİSK korumasıdır: 5.1a zip'i sıkıştırılmış akar.
+    max_tenant_restore_upload_bytes: int = 512 * 1024 * 1024
 
     # First-run administrator credentials. Development keeps the historical
     # bootstrap password for local compatibility; production must provide a
@@ -327,6 +332,15 @@ class Settings(BaseSettings):
         if value < 1024 or value > 100 * 1024 * 1024:
             raise ValueError(
                 "MAX_ATTACHMENT_UPLOAD_BYTES 1024 ile 104857600 arasında olmalıdır"
+            )
+        return value
+
+    @field_validator("max_tenant_restore_upload_bytes")
+    @classmethod
+    def validate_max_tenant_restore_upload_bytes(cls, value: int) -> int:
+        if value < 1024 or value > 4 * 1024 * 1024 * 1024:
+            raise ValueError(
+                "MAX_TENANT_RESTORE_UPLOAD_BYTES 1024 ile 4294967296 arasında olmalıdır"
             )
         return value
 

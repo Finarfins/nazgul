@@ -97,6 +97,10 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
         "activity_log.archive", "activity_log.unarchive",
         "company.exported",
         "company.erased",
+        # 5.1c: 5.1a zip'inden geri yukleme. Ayri eylem adi GEREKLI: `backup.*`
+        # kumenin tamamini geri sarar, bu ise TEK firmayi YENI kimlikle yazar;
+        # panelde ikisi ayirt edilmeli. Satir OPERATORUN firmasina yazilir.
+        "company.restored",
         "backup.created", "backup.downloaded",
         "backup.restore_started", "backup.restore_completed", "backup.restore_failed",
         "backup.restore_rollback_started", "backup.restore_rollback_completed",
@@ -242,7 +246,8 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
     # yani panelin kaynak baglantisi bugun bir yere gitmez. Tipi yine de
     # AYRI acmak, taslak izini odeme izinden ayirt edilebilir kilar — panel
     # geldiginde gecmis kayitlarin tipi DEGISMEK zorunda kalmaz.
-    assert len(ACTION_TYPES) == 75, sorted(ACTION_TYPES)
+    # 75 -> 76: 5.1c KIRACI GERI YUKLEME (`company.restored`).
+    assert len(ACTION_TYPES) == 76, sorted(ACTION_TYPES)
     assert "whatsapp_pending" in RESOURCE_TYPES
     assert len(RESOURCE_TYPES) == 22, sorted(RESOURCE_TYPES)
     assert all(ACTION_TYPES.values()), ACTION_TYPES

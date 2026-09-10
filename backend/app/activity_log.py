@@ -147,6 +147,9 @@ ACTION_TYPES: dict[str, str] = {
     # eylem adı olmasaydı ikisi panelde birbirine karışırdı.
     "company.exported": "Kiracı verisi dışa aktarma",
     "company.erased": "Kiracı kapatma",
+    # 5.1c: 5.1a zip'inden yeni firma olarak dönüş. Satır OPERATÖRÜN firmasına
+    # yazılır (geri yüklenen firmanın tabloları manifeste birebir eşit kalır).
+    "company.restored": "Kiracı geri yükleme",
     "backup.created": "Veritabanı yedeği oluşturma",
     "backup.downloaded": "Veritabanı yedeği indirme",
     "backup.restore_started": "Veritabanı geri yükleme başlatma",

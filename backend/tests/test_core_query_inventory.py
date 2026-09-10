@@ -898,6 +898,32 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "cd50bebcd58d7320694fa287dd30cd8b9bd4599f558d97f225c68932c351763f"): (1, None, "unresolved"),  # satır [225]
     ("app/routers/kiraci_disa_aktarim.py", "_uret", "select",
      "22146e8f2b8865b09df07eb95d99700ca20acb0071dc458f749716f9457560f1"): (1, None, "unresolved"),  # satır [282]
+    # --- app/kiraci_geri_yukleme.py (5.1c KIRACI GERI YUKLEME, GOC YOK)
+    # SEKIZ sorgu: UCU cozuldu (`companies` okumasi ve UPDATE'i, `app_users`
+    # kimlik listesi), BESI cozulemedi cunku tablo disa aktarimla AYNI
+    # gerekceyle yansimadan gelir (`MetaData.reflect` cagrisi bu dosyada
+    # DEGIL, `routers/kiraci_disa_aktarim._yansit`ten ithal; yansima kapisi
+    # `YANSIMA_DOSYA_MUAFIYETI` bu yuzden BUYUMEDI). Besi de
+    # `UNRESOLVED_ALLOWLIST`te gerekcesiyle. `values(**)` / `where(*)` /
+    # `select_from(<ad>)` bicimleri BILEREK kullanilmadi: satir sozlugu
+    # calistirma parametresi olarak verilir, boylece `VARIABLE_ARG_ALLOWLIST`
+    # (4) de BUYUMEDI.
+    ("app/kiraci_geri_yukleme.py", "_artik_satirlar", "select",
+     "987dc305e4bcf7c98f2e64da55ebd1108b6389b3de1f8b07baba37467ef8810a"): (1, None, "unresolved"),
+    ("app/kiraci_geri_yukleme.py", "_firmayi_yaz", "update",
+     "011cc3927d02b1cd12900550c83271350dc3eef78c1a1654f71ed393d95135a1"): (1, "companies", "arg0"),
+    ("app/kiraci_geri_yukleme.py", "_kaynak_firma_durumu", "select",
+     "d66912f3cd06c8c16e1a3214f32d2a990fcb8f59be8bfb3318f12847d50543d5"): (1, "companies", "arg0"),
+    ("app/kiraci_geri_yukleme.py", "_kuresel_tekil_var", "select",
+     "f218bf750f9e746f8df45408c01a510c56666c49fe60fde07d9ac4de08aa62a5"): (1, None, "unresolved"),
+    ("app/kiraci_geri_yukleme.py", "_en_buyuk_kimlik", "select",
+     "2a66468d335be2d5e2c99f6c07ff62382fb382bf2cae072233963650453e3299"): (1, None, "unresolved"),
+    ("app/kiraci_geri_yukleme.py", "_sirayi_ilerlet", "select",
+     "34249e0784b05aed237059267f1c7fb9a2f96e01a1e570621dfbe1c66b47b887"): (1, None, "unresolved"),
+    ("app/kiraci_geri_yukleme.py", "_satiri_guncelle", "update",
+     "ca946138a90e4cf669eed7964a504a54ff4dc76fd41b884661890dbdfc8fa208"): (1, None, "unresolved"),
+    ("app/kiraci_geri_yukleme.py", "geri_yukle", "select",
+     "650a4a1795805771782d7613ea6d6cecba7093b8a95ec7dfb3513d966217e1ae"): (1, "users", "arg0"),
     # --- WHATSAPP ESLESTIRME (WA2, goc 20260910_0079)
     # ON BES sorgu, UC dosya (eslestirme.py 7, baglam.py 4, routers/whatsapp.py 4). KIRACI tablosuna bakan her sorgu `company_id`
     # yuklemi TASIYOR ve yuklem parmak izinde GORUNUR; bu kapi yuklemin
@@ -1032,8 +1058,12 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "d23339edbb978405335c326e4d4adb15923d8ffe28800478cba47f4fb3f5ac9b"): (1, "whatsapp_pending_actions", "arg0"),  # satir [419]
 }
 
-TOTAL_CORE_QUERIES = 176
-EXPECTED_OP_COUNTS = {"select": 112, "update": 54, "delete": 10}
+# 20260910 5.1c KIRACI GERI YUKLEME (GOC YOK): 176 -> 184, +6 select +2 update,
+# HEPSI app/kiraci_geri_yukleme.py. Drift raporu OLCULDU: `changed` ve `stale`
+# BOS — artis YALNIZ ekleme; disa aktarim dosyasinin uc girdisi KIMILDAMADI
+# (yardimcilar tasinmadi, ithal edildi). `UNRESOLVED_ALLOWLIST` 3 -> 8.
+TOTAL_CORE_QUERIES = 184
+EXPECTED_OP_COUNTS = {"select": 118, "update": 56, "delete": 10}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1105,7 +1135,9 @@ EXPECTED_OP_COUNTS = {"select": 112, "update": 54, "delete": 10}
 # GECERSIZ oldu. WA4'un ekledigi sorgu sayisi (10) degismedi ama bunu
 # BILMEK icin yeniden olcmek gerekiyordu — cikarma yapmak, WA3'un
 # sorgularindan birinin WA4 ile CAKISMADIGINI VARSAYMAK olurdu.
-INVENTORY_FINGERPRINT = "5adfd8f592cd4458f7895642f96acf92ad3dd77aac977cd02546ee3873360b86"
+# 5.1c (KIRACI GERI YUKLEME, GOC YOK): 176 -> 184, sekizi de
+# app/kiraci_geri_yukleme.py; TABAN develop `72cfa09`. 5adfd8f5 -> 67be5d1e.
+INVENTORY_FINGERPRINT = "0c53dc66a7d1b4fbf63b18e71bef442483be68dfb7f13a1b01e4d7b8e104c2e7"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:
@@ -1131,6 +1163,38 @@ UNRESOLVED_ALLOWLIST: dict[Kimlik, str] = {
         "Dışa aktarılan firmanın KENDİ satırı: `companies` tablosundan "
         "`.where(firmalar.c.id == cid)` ile TEK satır. Kiracı sınırı burada "
         "birincil anahtar eşitliğidir.",
+    # --- 5.1c KIRACI GERI YUKLEME: tablo yansimadan gelir (disa aktarimla
+    # AYNI gerekce); kiraci yuklemi calisma zamaninda
+    # `tests/test_kiraci_geri_yukleme.py` (yuvarlak yolculuk + kaynak firma
+    # dokunulmadi iddiasi) ile olculur.
+    ("app/kiraci_geri_yukleme.py", "_artik_satirlar", "select",
+     "987dc305e4bcf7c98f2e64da55ebd1108b6389b3de1f8b07baba37467ef8810a"):
+        "`yerine` kipinin artik satir sayimi: her kiraci tablosunda "
+        "`.where(tablo.c.company_id == cid)` ile KAYNAK firmanin satirlari. "
+        "Tek bir artik satir 409 verir; yuklem dusse hic kimse yerinde "
+        "geri yukleme yapamazdi (her tablo dolu gorunurdu).",
+    ("app/kiraci_geri_yukleme.py", "_kuresel_tekil_var", "select",
+     "f218bf750f9e746f8df45408c01a510c56666c49fe60fde07d9ac4de08aa62a5"):
+        "Firma DISI tekil sutunda (`KURESEL_TEKIL_ATLANIR`: iki WhatsApp sirri) "
+        "degerin varligi. Kiraci yuklemi BILEREK YOK: kisit kureseldir, "
+        "cakisma baska firmanin satiriyla da olur ve tam olarak o sorulur; "
+        "okunan sey tek bir sutunun VARLIGI, satir icerigi degil.",
+    ("app/kiraci_geri_yukleme.py", "_en_buyuk_kimlik", "select",
+     "2a66468d335be2d5e2c99f6c07ff62382fb382bf2cae072233963650453e3299"):
+        "`max(id)`: (a) `yerine` kipinde serial sirasini ilerletmek, (b) "
+        "PostgreSQL'de serial olmayan tek tamsayi PK (`notifications_archive`) "
+        "icin `yeni` kipinde kimlik uretmek. Firma suzgeci BILEREK YOK: kimlik "
+        "uzayi kureseldir; satir icerigi okunmaz.",
+    ("app/kiraci_geri_yukleme.py", "_sirayi_ilerlet", "select",
+     "34249e0784b05aed237059267f1c7fb9a2f96e01a1e570621dfbe1c66b47b887"):
+        "PostgreSQL `setval(pg_get_serial_sequence(...), max)`: yukaridakinin "
+        "yazan yarisi. Tablo yoktur; sira nesnesi guncellenir.",
+    ("app/kiraci_geri_yukleme.py", "_satiri_guncelle", "update",
+     "ca946138a90e4cf669eed7964a504a54ff4dc76fd41b884661890dbdfc8fa208"):
+        "Ertelenen referansin (kendine FK ya da donguden kirilan yumusak "
+        "referans) baglanmasi: `.where(tablo.c.company_id == yeni_cid, "
+        "tablo.c.id == yeni_id)`; SET listesi calistirma parametresidir. "
+        "Yuklem YENI firmadir ve satir bu islemde yazilmistir.",
 }
 
 #: Metot biçimi kullanımlar için dar, gerekçeli muafiyet. Bugün boş.

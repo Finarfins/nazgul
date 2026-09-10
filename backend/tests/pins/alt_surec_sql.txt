@@ -116,6 +116,7 @@ tests/test_kantar_fisi_sonluluk.py	1
 tests/test_kantar_fisi_sozlesme.py	1
 tests/test_kantar_neti_stoga.py	1
 tests/test_kiraci_disa_aktarim.py	2
+tests/test_kiraci_geri_yukleme.py	3
 tests/test_kiraci_imha.py	4
 tests/test_mustahsil_makbuzu.py	1
 tests/test_outbox_liveness.py	3
