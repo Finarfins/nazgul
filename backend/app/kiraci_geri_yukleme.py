@@ -150,6 +150,10 @@ KULLANICI_SUTUNLARI: frozenset[tuple[str, str]] = frozenset(
 METIN_KIMLIK_SUTUNLARI: frozenset[tuple[str, str]] = frozenset(
     {
         ("activity_logs", "correlation_id"),
+        # E4a (göç 0083): şoförün TCKN'si — metin kimlik, satır referansı DEĞİL.
+        # `*_id` soneki bu sınıflandırıcıya düşürür; kayıt YOKSA
+        # `test_siniflandirilmamis_yumusak_referans_yok` adıyla kırmızı olur.
+        ("despatch_notes", "driver_national_id"),
         ("entity_change_logs", "request_id"),
         ("farm_operations", "operation_id"),
         ("field_operations", "operation_id"),

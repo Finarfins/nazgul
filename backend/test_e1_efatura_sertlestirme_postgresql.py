@@ -49,7 +49,7 @@ ONCEKI = "20260910_0080"
 #: yeni gocle KIMILDAR. Ikisi 0082ye kadar TESADUFEN ayni degerdi;
 #: tek sabitle yazili kalsaydi, basi guncelleyen biri bu dosyanin
 #: goc turunu da farkinda olmadan baska bir goce cevirirdi.
-BAS = "20260912_0082"
+BAS = "20260913_0083"
 
 #: Göçün açtığı üç sütun ve ilan edilen uzunlukları.
 SUTUNLAR = {

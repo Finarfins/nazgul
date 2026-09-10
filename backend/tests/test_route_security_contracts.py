@@ -601,8 +601,37 @@ DYNAMIC_PERMISSION_CASES = {
 # genislemesine karsi civi), (4) `ROUTE_REASONS`a KENDI gerekce grubuyla girdi
 # (platform onekli her yol gerekce ister), (5) sayim 392/301 -> 393/302 olarak
 # yeniden olculdu, (6) EN SON parmak izi turetildi (TABAN develop `72cfa09`).
-EXPECTED_OPERATION_COUNT = 393
-EXPECTED_PATH_COUNT = 302
+#
+# 20260913 — E4a (e-IRSALIYE DUZ SEVK, goc 20260913_0083): YEDI yeni uc,
+# ALTI yeni yol. Sayim 393/302 -> 400/308 (REBASE, TABAN develop `c66e232`).
+#
+#   POST /api/despatch-notes                                 (irsaliye ac)
+#   GET  /api/despatch-notes                                 (liste)
+#   GET  /api/despatch-notes/{despatch_id}                   (detay)
+#   POST /api/despatch-notes/{despatch_id}/edespatch/submit  (gonderim)
+#   GET  /api/despatch-notes/{despatch_id}/edespatch/status  (yerel durum)
+#   POST /api/despatch-notes/{despatch_id}/edespatch/sync    (saglayiciya sor)
+#   GET  /api/despatch-notes/{despatch_id}/edespatch/download(xml sureti)
+#
+# YEDI UC AMA ALTI YOL, ve fark OLCULDU: liste ile olusturma AYNI YOLU
+# (`/api/despatch-notes`) paylasiyor, farkli METOTLA. `EXPECTED_PATH_COUNT`
+# METOT degil YOL sayar; +7/+6 ayrisimi bu yuzden dogrudur ve iki sayacin
+# birlikte kaymamasi kapinin ISLEDIGININ kanitidir.
+#
+# IZIN OLCULDU, VARSAYILMADI ve ACIK BIR KURAL GEREKTI. Kural yazilmadan
+# once `required_permission` AYNI UC AILESINE metoda gore IKI FARKLI cevap
+# veriyordu: dort GET "read", uc POST "__admin_only__". IKISI DE YANLISTI
+# ve gerekcesi `app/auth.py`deki kuralin ustunde satir satir yaziyor
+# (ozet: `read` sofor TCKN'sini ve musteri VKN'sini `depo`/`rapor` rollerine
+# acardi; `__admin_only__` ise `satis` rolunun irsaliye kesmesini engellerdi).
+# Kural TEK ONEKTIR (`/api/despatch-notes`), `invoices`taki gibi onek+sonek
+# DEGIL: bu ailede `read`te KALMASI gereken bir uc YOK.
+#
+# KOMSULAR KIMILDAMADI ve bu OLCULDU: `/api/invoices` (sales),
+# `.../einvoice/status` (sales), `.../invoices/{id}/pdf` (sales) ve
+# `/api/customers` (read) degerlerini KORUDU.
+EXPECTED_OPERATION_COUNT = 400
+EXPECTED_PATH_COUNT = 308
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -795,7 +824,9 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # public kumesine girdi. Parmak izi d4ad9f24 -> 618b656d.
     # 5.1c (KIRACI GERI YUKLEME, GOC YOK): POST /api/platform/tenant-restore,
     # `__admin_only__`, platform gerekce grubu. 618b656d -> f131e483.
-    "f131e4839242370a8437791f2a2d4092530dbc1c5584353dc269bd92dfe57ce7"
+    # E4a (goc 20260913_0083): YEDI e-Irsaliye ucu eklendi, YEDISI DE
+    # "sales". REBASE TABAN c66e232: parmak izi f131e483 -> 3506f532.
+    "3506f5328bda6e1ae32de66deccb5b9151b7f4892cd6055c6f8b3e9bc7338e83"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

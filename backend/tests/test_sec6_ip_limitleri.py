@@ -406,4 +406,7 @@ def test_TENANT_TABLES_auth_rate_limits_ICERMIYOR() -> None:
     assert "auth_rate_limits" not in TENANT_TABLES
     assert "login_attempts" not in TENANT_TABLES
     # Envanterin BOYU da çivili: bu dilim ona DOKUNMADI.
-    assert len(TENANT_TABLES) == 120
+# 120 -> 121: E4a e-IRSALIYE DEFTERI (goc 20260913_0083). Tek yeni kiraci
+    # tablosu `despatch_notes`; `company_id` tasir, yani envantere OTOMATIK
+    # girer ve her sorgusundan `company_id=:cid` yuklemi istenir.
+    assert len(TENANT_TABLES) == 121

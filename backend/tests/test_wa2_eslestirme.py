@@ -307,7 +307,10 @@ def test_KIRACI_ENVANTERI_UCU_DE_ICERIYOR() -> None:
         assert tablo in TENANT_TABLES, tablo
     assert "whatsapp_inbound" not in TENANT_TABLES
     assert "whatsapp_pairing_attempts" not in TENANT_TABLES
-    assert len(TENANT_TABLES) == 120, len(TENANT_TABLES)
+# 120 -> 121: E4a e-IRSALIYE DEFTERI (goc 20260913_0083). Tek yeni kiraci
+    # tablosu `despatch_notes`; `company_id` tasir, yani envantere OTOMATIK
+    # girer ve her sorgusundan `company_id=:cid` yuklemi istenir.
+    assert len(TENANT_TABLES) == 121, len(TENANT_TABLES)
 
 
 def test_MUAFIYET_DORT_UCU_KAPSAMIYOR() -> None:

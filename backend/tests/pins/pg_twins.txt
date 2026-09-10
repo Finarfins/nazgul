@@ -24,6 +24,7 @@ test_e1_efatura_sertlestirme_postgresql.py
 test_e1b_plantback_postgresql.py
 test_e2_tedavi_arinma_postgresql.py
 test_e3_karantina_postgresql.py
+test_e4a_despatch_notes_postgresql.py
 test_einvoice_seam_postgresql.py
 test_enterprise_invoices_postgresql.py
 test_f0_email_dispatch_postgresql.py

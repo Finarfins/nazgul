@@ -185,10 +185,28 @@ def izibiz_endpoint_violation(url: str, environment: str) -> str | None:
 IZIBIZ_AUTH_PATH = "/AuthenticationWS"
 IZIBIZ_EINVOICE_PATH = "/EInvoiceWS"
 IZIBIZ_EARCHIVE_PATH = "/EIArchiveWS/EFaturaArchive"
+#: e-İrsaliye. Yol test WSDL'inin ``soap:address``inden OKUNDU, türetilmedi
+#: (``docs/e4-eirsaliye-kesif-2026-09-09.md`` §2.1): servis adı ile operasyon
+#: yolu AYNI kelimenin iki ayrı yazımıdır (``EIrsaliyeWS/EIrsaliye``) ve
+#: birinden ötekini üretmek imkânsızdır.
+#:
+#: PRODUCTION ADRESİ BU DOSYADA YOK ve bu bir eksiklik değil: keşif §2.1 iki
+#: production adayını da denedi (HTTP 404 ve 502) ve ikisini de
+#: **DOĞRULANMADI** işaretledi. Yol yalnız TABAN adrese eklenir; hangi tabana
+#: bağlanılacağı ``EINVOICE_BASE_URL`` + ``IZIBIZ_ENV`` kararıdır ve canlı
+#: allowlist (:data:`IZIBIZ_LIVE_HOST_ALLOWLIST`) bugün BOŞTUR — yani
+#: e-İrsaliye canlı kanalı da :func:`izibiz_endpoint_violation` tarafından
+#: fiilen kapalı tutulur, ayrı bir kapı YAZILMASINA gerek kalmadan.
+IZIBIZ_EDESPATCH_PATH = "/EIrsaliyeWS/EIrsaliye"
 
 #: Gövde ad alanları. (Eski tahmin ``http://tempuri.org/`` idi — yanlıştı.)
 IZIBIZ_SOAP_NAMESPACE = "http://schemas.i2i.com/ei/wsdl"
 IZIBIZ_SOAP_NAMESPACE_ARCHIVE = "http://schemas.i2i.com/ei/wsdl/archive"
+#: e-İrsaliye ad alanı e-Fatura ile AYNIDIR — keşif §2.1'den OKUNDU, bir
+#: varsayım değil: WSDL namespace ``http://schemas.i2i.com/ei/wsdl``. e-Arşiv
+#: (``.../archive``) burada İSTİSNADIR. Sabit yine de AYRI bir adla duruyor
+#: ki bir gün ayrışırlarsa değişecek yer tek olsun.
+IZIBIZ_SOAP_NAMESPACE_EDESPATCH = IZIBIZ_SOAP_NAMESPACE
 
 #: WSDL binding'lerinde ``soapAction=""``. Başlık gönderilir ama BOŞ gönderilir;
 #: operasyon adı taşımaz — hedef operasyonu gövdenin kök elemanı belirler.
@@ -216,6 +234,42 @@ IZIBIZ_OP_STATUS_EARCHIVE = "GetEArchiveInvoiceStatus"
 #: bu kez `<belge>.pdf` taşır (`%PDF-1`). `STATUS=100` (KUYRUĞA EKLENDİ) bir
 #: belgede DE çalışıyor — imza beklenmiyor.
 IZIBIZ_OP_PDF_EARCHIVE = "GetEArchiveInvoiceList"
+
+# --- e-İrsaliye (EIrsaliyeWS) --------------------------------------------
+#: Test WSDL'inde ON İKİ operasyon var (keşif §2.2). Buraya YALNIZ ÜÇÜ
+#: yazıldı ve dokuzunun yokluğu bir eksiklik değil bir KAPSAM kararıdır:
+#: `SendReceiptAdvice` / `GetReceiptAdvice` / `GetReceiptAdviceStatus` /
+#: `SendDespatchResponse` ticari YANIT akışıdır (E4b), `LoadDespatchAdvice`
+#: / `LoadReceiptAdvice` gelen belge yüklemesidir, `MarkDespatchAdvice` /
+#: `MarkReceiptAdvice` okundu işaretidir ve `GetDespatchAdviceWithStatus`
+#: aşağıdaki ikisinin birleşimidir. Yazılmayan bir operasyon çağrılamaz;
+#: koşulmayan bir dal yazmaktansa hiç yazmamak.
+#:
+#: **İPTAL OPERASYONU YOKTUR.** Keşif §2.4 ölçtü: `CancelDocumentRequest`
+#: şemada var ama WSDL portType/binding'de bir operasyon DEĞİL. Bu yüzden
+#: bu dosyada bir `IZIBIZ_OP_CANCEL_DESPATCH` sabiti YOK ve uç katmanında
+#: bir iptal yolu da yok — `Mark*` işlemlerini iptal saymak, olmayan bir
+#: yeteneği varmış gibi göstermek olurdu.
+IZIBIZ_OP_SUBMIT_DESPATCH = "SendDespatchAdvice"
+IZIBIZ_OP_STATUS_DESPATCH = "GetDespatchAdviceStatus"
+#: Gönderilen belgenin XML suretini okuma yolu. AYRI BİR PDF OPERASYONU
+#: YOKTUR (keşif §2.4): `SEARCH_KEY/CONTENT_TYPE` bir `xs:string`tir ve
+#: `PDF` değerinin desteklendiği YALNIZ şemadan çıkarılamaz. Bu yüzden uç
+#: `format=pdf`i 501 ile REDDEDER; tahminle bir PDF çağrısı kurmaz.
+IZIBIZ_OP_GET_DESPATCH = "GetDespatchAdvice"
+
+#: e-İrsaliye durum sorgusunun ön koşulu. `GetDespatchAdviceStatus` şemada
+#: `UUID` 1+ ister (keşif §2.2) — sağlayıcı belge kimliği oraya YAZILAMAZ.
+#: ETTN olmadan sorgu KURULAMAZ ve bu, ağa çıkmadan söylenir
+#: (`IZIBIZ_EARCHIVE_STATUS_NEEDS_ETTN` ile aynı gerekçe).
+IZIBIZ_EDESPATCH_STATUS_NEEDS_ETTN = (
+    "e-İrsaliye durum sorgusu ETTN (UUID) gerektirir; sağlayıcı belge kimliği yeterli değil"
+)
+
+#: e-İrsaliye PDF'i. Keşif §2.4 ve §5: ayrı operasyon YOK, `CONTENT_TYPE`
+#: değer kümesi tanımsız, canlı PDF dönüşü **DOĞRULANMADI**. Uç bu cümleyle
+#: 501 döner — sessizce boş bir gövde ya da tahmini bir çağrı DEĞİL.
+IZIBIZ_EDESPATCH_PDF_UNVERIFIED = "e-İrsaliye PDF sağlayıcı tarafında doğrulanmadı"
 
 #: e-Arşiv belgesinin UBL XML'i. ARTIK PDF YOLU DEĞİL (yukarı bakın); sabit
 #: KALDIRILMADI çünkü `WEB_VALIDATION_KEY` sözleşmesi hâlâ doğrudur ve bu
@@ -272,6 +326,13 @@ IZIBIZ_REQUEST_ELEMENT: dict[str, str] = {
     IZIBIZ_OP_PDF_EARCHIVE: "GetEArchiveInvoiceListRequest",
     IZIBIZ_OP_EARCHIVE_UBL: "GetEArchiveInvoiceRequest",
     IZIBIZ_OP_CANCEL_EARCHIVE: "CancelEArchiveInvoiceRequest",
+    # e-İrsaliye: keşif §2.2 kuralı — her `Op` için kök `OpRequest`. Üçü de
+    # bu kalıba uyuyor, ama tablo yine de AÇIKÇA yazılıyor: e-Arşiv'in
+    # `ArchiveInvoiceExtendedRequest` istisnası, "kural var, türetebiliriz"
+    # varsayımının bu sağlayıcıda tutmadığının kanıtıdır.
+    IZIBIZ_OP_SUBMIT_DESPATCH: "SendDespatchAdviceRequest",
+    IZIBIZ_OP_STATUS_DESPATCH: "GetDespatchAdviceStatusRequest",
+    IZIBIZ_OP_GET_DESPATCH: "GetDespatchAdviceRequest",
 }
 
 #: Hangi operasyon hangi servise gider. Kalanı EInvoiceWS'e.
@@ -285,6 +346,13 @@ IZIBIZ_ARCHIVE_OPERATIONS: frozenset[str] = frozenset(
         IZIBIZ_OP_PDF_EARCHIVE,
         IZIBIZ_OP_EARCHIVE_UBL,
         IZIBIZ_OP_CANCEL_EARCHIVE,
+    }
+)
+IZIBIZ_EDESPATCH_OPERATIONS: frozenset[str] = frozenset(
+    {
+        IZIBIZ_OP_SUBMIT_DESPATCH,
+        IZIBIZ_OP_STATUS_DESPATCH,
+        IZIBIZ_OP_GET_DESPATCH,
     }
 )
 
@@ -361,6 +429,27 @@ IZIBIZ_EARCHIVE_STATUS_NEEDS_ETTN = (
 IZIBIZ_EARCHIVE_CANCEL_NEEDS_ETTN = (
     "e-Arşiv iptali ETTN (UUID) gerektirir; sağlayıcı belge kimliği yeterli değil"
 )
+
+#: e-İRSALİYE GÖNDERİMİ SANDBOX'TA DOĞRULANDI (uçtan uca, gerçek çağrı).
+#: `IZIBIZ_EFATURA_SUBMIT_VERIFIED` gibi bir KAPI GEREKMEDİ ve bu bir ihmal
+#: değil bir ÖLÇÜM SONUCU: e-Fatura tarafı hiç denenmemişken, bu kanal
+#: denendi ve belge KABUL EDİLDİ (`SendDespatchAdvice` -> `DESPATCH_ID`
+#: döndü, `ERROR_TYPE` YOK).
+#:
+#: Yol üç turda açıldı ve ÜÇÜ DE ŞEMADAN DEĞİL SAĞLAYICIDAN öğrenildi —
+#: üçü de artık kodda bir kapıdır:
+#:
+#:   1. `10003` "Geçersiz ID elemanı değeri. ID elemanı 'ABC2009123456789'
+#:      formatında olmalıdır."  -> `edespatch.GIB_BELGE_NO_DESENI`
+#:   2. `10003` "Hatalı Posta Kodu :'' ... DeliveryAddress/PostalZone
+#:      elemanı içermelidir."   -> `despatch_notes.delivery_postal_code`
+#:   3. `10013` `XSLT_NOT_FOUND_IN_DOCUMENT`
+#:                              -> `edespatch.DEFAULT_DESPATCH_XSLT`
+#:
+#: DÖRDÜNCÜ TUR YOK: üçüncü düzeltmeden sonra gönderim `ERROR_TYPE`
+#: TAŞIMADAN döndü ve durum sorgusu ham `100` verdi ("durum
+#: güncellenmedi") — yani belge sağlayıcıda VAR. Kayıt: `docs/durum/`
+#: #116 girdisi.
 
 IZIBIZ_EFATURA_SUBMIT_ERROR = (
     "e-Fatura gönderimi (SendInvoice) sandbox'ta doğrulanmadı; şimdilik yalnız e-Arşiv açık"
@@ -542,8 +631,12 @@ def resolve_endpoint(configured: Any, fallback: str) -> str:
 def izibiz_service_url(base_url: str, operation: str) -> str:
     """Operasyonun ait olduğu servisin tam adresi.
 
-    Üç servis tek tabandan türer ve aynı ``SESSION_ID``'yi paylaşır; ayrı ayrı
+    Dört servis tek tabandan türer ve aynı ``SESSION_ID``'yi paylaşır; ayrı ayrı
     yapılandırılmazlar ki biri test biri canlı gösteren bir karışım imkânsız olsun.
+
+    e-İrsaliye bu listeye SONRADAN girdi ve ortam kilidinden MUAF DEĞİLDİR:
+    adres yine :func:`izibiz_endpoint_violation`dan geçer, yani sandbox
+    dışına çıkan bir e-İrsaliye çağrısı da reddedilir.
     """
     root = (base_url or "").rstrip("/")
     if not root:
@@ -552,11 +645,22 @@ def izibiz_service_url(base_url: str, operation: str) -> str:
         return f"{root}{IZIBIZ_AUTH_PATH}"
     if operation in IZIBIZ_ARCHIVE_OPERATIONS:
         return f"{root}{IZIBIZ_EARCHIVE_PATH}"
+    if operation in IZIBIZ_EDESPATCH_OPERATIONS:
+        return f"{root}{IZIBIZ_EDESPATCH_PATH}"
     return f"{root}{IZIBIZ_EINVOICE_PATH}"
 
 
 def izibiz_namespace(operation: str) -> str:
-    """Gövde kök elemanının ad alanı — e-Arşiv operasyonları ayrı ad alanında."""
+    """Gövde kök elemanının ad alanı — e-Arşiv operasyonları ayrı ad alanında.
+
+    e-İrsaliye AYRI BİR DAL olarak yazılıyor ve bugün e-Fatura ile AYNI
+    değeri döndürüyor. Dal gereksiz görünebilir ama değil: sonuç eşitliği
+    ÖLÇÜLMÜŞ bir olgudur (keşif §2.1), türetilmiş bir kural değil. Dalsız
+    bırakılsaydı, ad alanları bir gün ayrıştığında hata `else` dalında —
+    yani e-Fatura'nın da bulunduğu yerde — aranırdı.
+    """
     if operation in IZIBIZ_ARCHIVE_OPERATIONS:
         return IZIBIZ_SOAP_NAMESPACE_ARCHIVE
+    if operation in IZIBIZ_EDESPATCH_OPERATIONS:
+        return IZIBIZ_SOAP_NAMESPACE_EDESPATCH
     return IZIBIZ_SOAP_NAMESPACE
