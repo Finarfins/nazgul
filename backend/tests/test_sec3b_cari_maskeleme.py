@@ -919,6 +919,12 @@ def test_depo_tedarikciyi_duzenleyince_ham_vergi_no_KORUNUR(
     assert varlik["email"] == HAM_EPOSTA, "GERÇEK e-posta maskeyle EZİLDİ"
     assert varlik["address"] == HAM_ADRES, "GERÇEK adres maskeyle EZİLDİ"
 
+    # Adı GERİ AL: tohum kaydı testten çıktığı gibi kalsın, koşum sırası
+    # (ileri/ters/karışık) başka testin ad iddiasını etkilemesin.
+    govde["name"] = TEDARIKCI_GOVDE["name"]
+    assert istemci.put(f"/api/suppliers/{sid}", headers=h_depo, json=govde).status_code == 200
+    assert istemci.get(f"/api/suppliers/{sid}", headers=admin_basliklari).json()["supplier"]["name"] == TEDARIKCI_GOVDE["name"]
+
 
 @pytest.mark.parametrize(
     "alan,gelen",
@@ -971,6 +977,12 @@ def test_depo_maskeli_alana_HIC_yazamaz(
         ("email", HAM_EPOSTA), ("address", HAM_ADRES),
     ):
         assert varlik[anahtar] == ham, anahtar
+
+    # Adı GERİ AL (koşum sırasından bağımsızlık); maskeli alan yine yazılmaz.
+    govde["name"] = TEDARIKCI_GOVDE["name"]
+    assert istemci.put(f"/api/suppliers/{sid}", headers=h_depo, json=govde).status_code == 200
+    son = istemci.get(f"/api/suppliers/{sid}", headers=admin_basliklari).json()["supplier"]
+    assert son["name"] == TEDARIKCI_GOVDE["name"] and son[alan] == varlik[alan]
 
 
 def test_yonetici_maskeli_alani_yazabilir(istemci, rol_basliklari, admin_basliklari):
