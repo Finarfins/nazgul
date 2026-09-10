@@ -35,11 +35,20 @@ bir UUID uretilseydi ikinci deneme saglayici gozunde YENI BIR BELGE olur
 ve ayni sevk icin IKI e-Irsaliye kesilirdi. Sutun bu yuzden gonderimden
 DEGIL, satirin dogusundan gelir.
 
-UNIQUE KURESELDIR (`company_id` anahtarda YOK) ve bu 0080'in
-`islem_anahtari` kararinin ayni gerekcesidir: deger bir UUID'dir,
-carpismasi pratikte imkansizdir ve kiraci sutunu eklemek tekilligi
-ZAYIFLATIR (ayni ETTN iki firmada yasayabilirdi). ETTN GIB nezdinde de
-kureseldir; sutunun tekilligi o gercegi taklit eder.
+UNIQUE KIRACI KAPSAMLIDIR: `(company_id, despatch_uuid)`. Ilk yazimda
+kuresel'di (0080'in `islem_anahtari` gerekcesiyle) ve 5.1c'nin kiraci
+geri yuklemesi (#115) bunu OLCUMLE curuttu: "yeni firma" kipi kaynak
+firmanin satirlari dururken (yumusak imha veriyi SILMEZ) ayni ETTN'i
+ikinci firmaya yazar ve kuresel kisit onu reddederdi — geri yukleme
+ya mali belgeyi ATLAYACAK (`KURESEL_TEKIL_ATLANIR`, tek kullanimlik
+SIRLAR icin yazilmis bir kapi) ya da ETTN'i YENIDEN URETECEKTI (GIB'in
+hic gormedigi bir kimlik). Ikisi de yanlis; e-Fatura emsali de ayni
+yonde: `invoices.einvoice_uuid` kuresel tekil DEGILDIR ve 5.1c onu
+oldugu gibi kopyalar. Organik satirlarda `uuid4` carpismasi zaten
+pratikte imkansizdir; kiraci sutunu tekilligi GERCEKTE zayiflatmaz,
+yalniz bilincli bir kopyaya (geri yukleme) izin verir. Ayni firmada
+ayni ETTN yine REDDEDILIR (PG ikizi iki yonu de olcer). Karar: Sef,
+2026-09-10, #116 rebase turu.
 
 36 KARAKTER: kanonik tireli UUID metni (`str(uuid.uuid4())`). Ham 32
 haneli bicim DEGIL, cunku UBL `cbc:UUID` ve SOAP `@UUID` tireli bicimi
@@ -257,7 +266,7 @@ def upgrade() -> None:
         # E4a'nin "bir fatura bir irsaliye" kurali. E4b bunu TEK bir
         # `drop_constraint` ile kaldirir.
         sa.UniqueConstraint("company_id", "invoice_id", name=FATURA_TEKIL),
-        sa.UniqueConstraint("despatch_uuid", name=ETTN_TEKIL),
+        sa.UniqueConstraint("company_id", "despatch_uuid", name=ETTN_TEKIL),
         # 0062'nin kurali, TERSTEN: gelecekteki bir `despatch_lines` bu
         # tabloya bilesik anahtarla baglanabilsin.
         sa.UniqueConstraint("company_id", "id", name=FIRMA_KIMLIK),

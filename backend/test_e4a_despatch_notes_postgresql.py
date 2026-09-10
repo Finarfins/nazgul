@@ -155,8 +155,8 @@ def motor():
 _SAYAC = {"n": 0}
 
 
-def _firma_ve_fatura(motor, ad: str) -> tuple[int, int]:
-    """Bir firma + bir kullanıcı + bir fatura.
+def _firma_ve_fatura(motor, ad: str, firma: int | None = None) -> tuple[int, int]:
+    """Bir firma + bir kullanıcı + bir fatura (``firma`` verilirse VAR OLAN firma).
 
     `invoices.created_by` NOT NULL — ölçüldü. Satırı EKSİK kurup
     `IntegrityError` almak, uzunluk/CHECK testlerini YANLIŞ SEBEPTEN yeşil
@@ -167,13 +167,14 @@ def _firma_ve_fatura(motor, ad: str) -> tuple[int, int]:
     sira = _SAYAC["n"]
     an = datetime.now(timezone.utc)
     with motor.begin() as baglanti:
-        firma = baglanti.execute(
-            text(
-                "INSERT INTO companies(name,is_active,created_at)"
-                " VALUES(:a,true,:t) RETURNING id"
-            ),
-            {"a": ad, "t": an},
-        ).scalar_one()
+        if firma is None:
+            firma = baglanti.execute(
+                text(
+                    "INSERT INTO companies(name,is_active,created_at)"
+                    " VALUES(:a,true,:t) RETURNING id"
+                ),
+                {"a": ad, "t": an},
+            ).scalar_one()
         kullanici = baglanti.execute(
             text(
                 "INSERT INTO app_users(username,email,email_verified,display_name,"
@@ -438,12 +439,14 @@ def test_BIR_FATURA_BIR_IRSALIYE_veritabaninda(motor) -> None:
             baglanti.execute(_EKLE, _irsaliye_degerleri(firma, fatura))
 
 
-def test_ETTN_KURESEL_TEKIL(motor) -> None:
-    """`despatch_uuid` UNIQUE'i KİRACI KAPSAMLI DEĞİL, KÜRESELDİR.
+def test_ETTN_KIRACI_KAPSAMLI_TEKIL(motor) -> None:
+    """`despatch_uuid` UNIQUE'i `(company_id, despatch_uuid)` — İKİ YÖN ÖLÇÜLÜR.
 
-    Gerekçe göçün başlığında: ETTN GİB nezdinde de küreseldir ve
-    `company_id`yi anahtara eklemek tekilliği ZAYIFLATIR (aynı ETTN iki
-    firmada yaşayabilirdi).
+    Aynı firmada aynı ETTN REDDEDİLİR (çift belge panzehiri yerinde);
+    BAŞKA firmada aynı ETTN KABUL EDİLİR. İkinci dal 5.1c'nin "yeni firma"
+    geri yüklemesinin ta kendisidir: kaynak satır dururken kopya ikinci
+    firmaya yazılır. Gerekçe göçün başlığında (Şef kararı, 2026-09-10).
+    MUTASYON: kısıtı tek sütuna geri çevirmek ikinci dalı kırar.
     """
     firma_a, fatura_a = _firma_ve_fatura(motor, f"{KOSU} ETTN A")
     firma_b, fatura_b = _firma_ve_fatura(motor, f"{KOSU} ETTN B")
@@ -452,10 +455,17 @@ def test_ETTN_KURESEL_TEKIL(motor) -> None:
         baglanti.execute(
             _EKLE, _irsaliye_degerleri(firma_a, fatura_a, despatch_uuid=ortak)
         )
+    # Başka firma, aynı ETTN: geçer (geri yükleme kopyası).
+    with motor.begin() as baglanti:
+        baglanti.execute(
+            _EKLE, _irsaliye_degerleri(firma_b, fatura_b, despatch_uuid=ortak)
+        )
+    # Aynı firma, aynı ETTN, başka fatura: düşer.
+    _, fatura_a2 = _firma_ve_fatura(motor, f"{KOSU} ETTN A2", firma=firma_a)
     with pytest.raises(IntegrityError):
         with motor.begin() as baglanti:
             baglanti.execute(
-                _EKLE, _irsaliye_degerleri(firma_b, fatura_b, despatch_uuid=ortak)
+                _EKLE, _irsaliye_degerleri(firma_a, fatura_a2, despatch_uuid=ortak)
             )
 
 

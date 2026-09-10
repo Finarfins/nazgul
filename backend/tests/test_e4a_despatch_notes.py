@@ -1051,7 +1051,7 @@ def test_TEKIL_IHLALI_DISINDAKI_kisit_409_SAYILMIYOR() -> None:
     # BAŞKA bir ihlal EŞLEŞMEMELİ — yoksa 409 yine her şeyi yutar.
     for yabanci in (
         "NOT NULL constraint failed: despatch_notes.delivery_postal_code",
-        "UNIQUE constraint failed: despatch_notes.despatch_uuid",
+        "UNIQUE constraint failed: despatch_notes.company_id, despatch_notes.despatch_uuid",
         'violates check constraint "ck_despatch_notes_tasima"',
     ):
         assert not any(imza in yabanci for imza in FATURA_TEKIL_IMZALARI), yabanci
