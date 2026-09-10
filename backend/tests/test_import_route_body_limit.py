@@ -249,6 +249,11 @@ def test_app_registers_import_override_for_the_import_router() -> None:
         SUPPLIER_PRICE_IMPORT_PATH: settings.max_import_request_body_bytes,
         SUPPLIER_PRICE_BRIDGE_IMPORT_PATH: settings.max_supplier_price_import_request_body_bytes,
         ATTACHMENT_PREFIX: settings.max_attachment_upload_bytes + 1024 * 1024,
+        # 5.1c kiraci geri yukleme: 5.1a zip'i gecici dosyaya akar, uc kendi
+        # 413'unu verir (`MAX_TENANT_RESTORE_UPLOAD_BYTES`, 512 MiB); +1 MiB
+        # multipart cercevesi. TAM YOL: platform onekinin geri kalani (yedek,
+        # denetim) kuresel sinirda kalir.
+        "/api/platform/tenant-restore": settings.max_tenant_restore_upload_bytes + 1024 * 1024,
     }
     # The override must clear the import endpoints' own 10 MiB streaming limit
     # (plus multipart framing) so their specific error messages stay reachable.

@@ -192,6 +192,22 @@ ROUTE_REASON_GROUPS = (
         },
     ),
     (
+        # KIRACI GERI YUKLEME (5.1c, GOC YOK). Yedek grubuna GIREMEZ: o metin
+        # "backup operation" der ve kumenin TAMAMINI kastediyor; bu uc TEK
+        # firmanin 5.1a zip'ini YENI bir firma olarak (ya da kapali kimligin
+        # yerine) canli veritabanina yazar. Izin `__admin_only__` — yedeklerin
+        # `read`i DEGIL ve bu OLCULDU (`required_permission`); gerekcesi
+        # `app/auth.py`deki kuralda. Gercek kapi yonlendiricideki
+        # `require_platform_operator`dir; ara katman kiraci cozumunu YINE ister
+        # (operatorun varsayilan firmasi) ve denetim satiri oraya yazilir.
+        "Tenant restore from a 5.1a export zip into a NEW company (or an erased "
+        "company id in place); router applies the platform-operator allow-list, "
+        "middleware permission is __admin_only__.",
+        {
+            ("POST", "/api/platform/tenant-restore"),
+        },
+    ),
+    (
         "Untenanted security audit read; rows belong to no company, so the router "
         "applies the platform-operator allow-list instead of tenant scoping.",
         {
@@ -577,8 +593,16 @@ DYNAMIC_PERMISSION_CASES = {
 # e-belge kapisidir, yeni bir yol ya da yeni bir izin degil.
 # SEC-10 (verify-email split): POST /api/auth/verify-email eklendi.
 # Sayim 391/301 -> 392/301. Yol sayisi (301) degismedi.
-EXPECTED_OPERATION_COUNT = 392
-EXPECTED_PATH_COUNT = 301
+# 20260910 5.1c KIRACI GERI YUKLEME (GOC YOK): POST /api/platform/tenant-restore
+# eklendi — TEK uc, YENI yol. SIRA izlendi ve parmak izi EN SON alindi: (1) uc
+# yazildi, (2) `auth.py`ye ACIK kural eklendi, (3) izin `required_permission`
+# ile OLCULDU -> `__admin_only__` (kural yazilmadan onceki olcum de
+# `__admin_only__`du: deny-by-default nobetcisi; kural, yedek onekinin bir gun
+# genislemesine karsi civi), (4) `ROUTE_REASONS`a KENDI gerekce grubuyla girdi
+# (platform onekli her yol gerekce ister), (5) sayim 392/301 -> 393/302 olarak
+# yeniden olculdu, (6) EN SON parmak izi turetildi (TABAN develop `72cfa09`).
+EXPECTED_OPERATION_COUNT = 393
+EXPECTED_PATH_COUNT = 302
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -769,7 +793,9 @@ EXPECTED_SECURITY_FINGERPRINT = (
     #     (purchases: read -> purchases; orders KOLU `read`te KALDI).
     # SEC-10 (verify-email split): POST /api/auth/verify-email eklendi;
     # public kumesine girdi. Parmak izi d4ad9f24 -> 618b656d.
-    "618b656d47a1eba689a0f600d9bd9c9896ce9293e0f11aa71cd46436f8f40dc1"
+    # 5.1c (KIRACI GERI YUKLEME, GOC YOK): POST /api/platform/tenant-restore,
+    # `__admin_only__`, platform gerekce grubu. 618b656d -> f131e483.
+    "f131e4839242370a8437791f2a2d4092530dbc1c5584353dc269bd92dfe57ce7"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

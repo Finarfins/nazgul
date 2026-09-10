@@ -33,6 +33,7 @@ from .db import SessionLocal, engine
 from .backup_errors import MaintenanceActiveError
 from .bootstrap_data import seed_bootstrap_data
 from .disa_aktarim_errors import DisaAktarimError
+from .kiraci_geri_yukleme import GeriYuklemeHatasi
 from . import idempotency
 from .request_limits import RequestBodyLimitMiddleware
 from .runtime_migrations import (
@@ -72,6 +73,7 @@ from .routers import (
     part_supersessions,
     platform_audit,
     kiraci_disa_aktarim,
+    kiraci_geri_yukleme,
     kiraci_imha,
     platform_backups,
     pos,
@@ -309,6 +311,10 @@ app.add_middleware(
         # framing. Scoped to the attachment router's own prefix so no other
         # work-order route leaves the strict global limit.
         "/api/work-order-attachments/": settings.max_attachment_upload_bytes + 1024 * 1024,
+        # 5.1c kiracı geri yükleme: 5.1a zip'i geçici dosyaya AKAR ve uç kendi
+        # 413'ünü verir; +1 MiB multipart çerçevesi. TAM YOL: platform önekinin
+        # geri kalanı (yedekler, denetim) küresel sınırda kalır.
+        "/api/platform/tenant-restore": settings.max_tenant_restore_upload_bytes + 1024 * 1024,
     },
 )
 app.add_middleware(
@@ -741,6 +747,7 @@ app.include_router(part_supersessions.router, prefix="/api")
 app.include_router(platform_backups.router, prefix="/api")
 app.include_router(kiraci_disa_aktarim.router, prefix="/api")
 app.include_router(kiraci_imha.router, prefix="/api")
+app.include_router(kiraci_geri_yukleme.router, prefix="/api")
 # WA1 GİRİŞİ. İki ucu da yukarıdaki `PUBLIC_API` kümesinde TAM YOL ile
 # muaftır çünkü Meta'nın sunucuları oturum açamaz; kimliğin yerini GET'te
 # sabit zamanlı `hub.verify_token`, POST'ta HAM GÖVDE üzerindeki HMAC alır.
@@ -775,6 +782,22 @@ async def _disa_aktarim_hatasi(_request: Request, exc: DisaAktarimError) -> JSON
     return JSONResponse(
         status_code=500, content={"detail": str(exc), "code": exc.kod}
     )
+
+
+@app.exception_handler(GeriYuklemeHatasi)
+async def _geri_yukleme_hatasi(_request: Request, exc: GeriYuklemeHatasi) -> JSONResponse:
+    """Adı konmuş geri yükleme hatasını KARARLI kodlu yanıta çevirir (5.1c).
+
+    HTTP durumu hatanın KENDİSİNDE durur (422 doğrulama, 409 çakışma, 404
+    kaynak yok): işleyici sınıflandırmaz, taşır. Hiçbiri kısmi yazma bırakmaz —
+    işlem `app/kiraci_geri_yukleme.py`de tek ve bütündür.
+    """
+    govde: dict = {"detail": str(exc), "code": exc.kod}
+    if exc.ayrinti is not None:
+        govde["details"] = exc.ayrinti
+    return JSONResponse(status_code=exc.durum, content=govde)
+
+
 app.include_router(transactions.router, prefix="/api")
 
 

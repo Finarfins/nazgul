@@ -905,6 +905,15 @@ def required_permission(method: str, path: str) -> str:
     # `/api/company-settings`i de yakalar ve ayarlar ucunu sessizce en
     # yüksek role kilitlerdi.
     if path == "/api/company/erase": return "__admin_only__"
+    # KİRACI GERİ YÜKLEME (5.1c). Kapı yönlendiricideki `require_platform_operator`
+    # (yedeklerle AYNI); ara katman izni yine de `__admin_only__`, `read` DEĞİL.
+    # Yedek kuralı `read` verir ve bir POST'u `read` ailesine sokar; burada aynı
+    # şeyi yapmak `EXPECTED_READ` sayacını (80) oynatırdı. Operatör tanım
+    # gereği `admin`dir (`is_platform_operator` rolü de denetler), yani bu satır
+    # hiçbir operatörü dışarıda bırakmaz. KURAL YAZILMASAYDI sonuç yine
+    # `__admin_only__` olurdu (deny-by-default nöbetçisi); açık satır, yedek
+    # önekinin bir gün `/api/platform/` olarak genişletilmesine karşı çivi.
+    if path.startswith("/api/platform/tenant-restore"): return "__admin_only__"
     if path.startswith("/api/platform/backups"):
         # The router applies the stronger admin + environment allow-list check.
         # Middleware still requires authentication and CSRF.

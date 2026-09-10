@@ -59,6 +59,7 @@ test_invoice_freeze_race_postgresql.py
 test_invoice_rollback_failure_injection_postgresql.py
 test_istanbul_business_date_postgresql.py
 test_kantar_fisi_postgresql.py
+test_kiraci_geri_yukleme_postgresql.py
 test_late_fee_charge_postgresql.py
 test_late_fee_preview_postgresql.py
 test_machine_lock_race_postgresql.py

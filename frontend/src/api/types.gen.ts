@@ -3667,6 +3667,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/platform/tenant-restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Kiraciyi Geri Yukle
+         * @description 5.1a zip'ini yeni bir firma olarak (ya da kapalı kimliğin yerine) yükler.
+         *
+         *     ``dry_run=true`` doğrulama + haritalama planını sonuna kadar yürütür,
+         *     işlemi geri alır ve raporu döndürür — hiçbir satır, hiçbir dosya kalmaz.
+         *     Kuru koşu denetim satırı YAZMAZ: kataloğun "geri yüklendi" etiketi
+         *     yazılmamış bir firma için yalan olurdu.
+         */
+        post: operations["kiraciyi_geri_yukle_api_platform_tenant_restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/policy-overrides": {
         parameters: {
             query?: never;
@@ -6434,6 +6459,21 @@ export interface components {
         Body_import_suppliers_api_imports_suppliers_excel_post: {
             /** File */
             file: string;
+        };
+        /** Body_kiraciyi_geri_yukle_api_platform_tenant_restore_post */
+        Body_kiraciyi_geri_yukle_api_platform_tenant_restore_post: {
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
+            /** File */
+            file: string;
+            /**
+             * Mode
+             * @default yeni
+             */
+            mode: string;
         };
         /** Body_upload_attachment_api_work_order_attachments__work_order_id__post */
         Body_upload_attachment_api_work_order_attachments__work_order_id__post: {
@@ -17977,6 +18017,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    kiraciyi_geri_yukle_api_platform_tenant_restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_kiraciyi_geri_yukle_api_platform_tenant_restore_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

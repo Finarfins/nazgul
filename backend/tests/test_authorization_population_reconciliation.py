@@ -339,7 +339,15 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 # Ikisi de CIPLAK read'deydi, yani hem `EXPECTED_READ`i hem `naked`i hem de
 # `EXPECTED_UNDENIABLE`i BIRER azaltiyorlar: 82-2 = 80 ve 99-2 = 97. Baska
 # hicbir sapma YOK; `guarded` icin tahmin (24) ile olcum (24) AYNI.
-EXPECTED_AUTHENTICATED = 379
+# 20260910 — 5.1c KIRACI GERI YUKLEME (GOC YOK): TEK yeni uc,
+# `POST /api/platform/tenant-restore`. 379 -> 380.
+#   * `EXPECTED_READ` KIMILDAMADI ve bu BILINCLI: uc `/api/platform/` altinda
+#     ama izni OLCULDU -> `__admin_only__` (`app/auth.py`de ACIK kural; yedek
+#     uclarinin `read`i taklit edilmedi). `read` verilseydi bu sayac 80 -> 81
+#     olur ve bir POST `read` ailesine girerdi.
+#   * `EXPECTED_UNDENIABLE` KIMILDAMADI: `__admin_only__` yalniz `admin`
+#     tasir, yani uc bir ROL DEGERIYLE reddedilebiliyor.
+EXPECTED_AUTHENTICATED = 380
 EXPECTED_READ = 80
 EXPECTED_UNDENIABLE = 97
 
