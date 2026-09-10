@@ -14,6 +14,7 @@ from ..tenancy import company_id, istek_rolu
 from ..document_engine import PAYMENT_METHODS
 from ..finance_engine import finance_accounts, finance_transactions, financial_instruments, ACCOUNT_TYPES, sync_payment_finance, remove_payment_finance, validate_payment_account, utcnow
 from ..crm import add_contact, add_note, add_task, delete_contact, delete_note, delete_task, set_task_status
+from ..alan_maskeleme import maskeyi_geri_al
 from ..entity_detail import cari_liste_satirlari, entity_detail, entity_documents
 from ..config import settings
 from ..payment_allocation_engine import (
@@ -488,7 +489,10 @@ def supplier_statement(supplier_id:int,request:Request,date_from:date|None=None,
 @router.put('/suppliers/{supplier_id}')
 def update_supplier(supplier_id:int,payload:CustomerCreate,request:Request,db:Session=Depends(get_db)):
     cid=company_id(request);before=db.execute(text('SELECT * FROM suppliers WHERE id=:id AND company_id=:cid'),{'id':supplier_id,'cid':cid}).mappings().first()
-    values=_entity_values(payload);values.update({'id':supplier_id,'cid':cid})
+    # SEC-3b — MASKELI rolun formu maskeli degeri geri gonderirse GERCEK
+    # deger KORUNUR; ayrinti `alan_maskeleme.maskeyi_geri_al` docstring'inde.
+    values=maskeyi_geri_al(_entity_values(payload),before,istek_rolu(request))
+    values.update({'id':supplier_id,'cid':cid})
     result=db.execute(text('''UPDATE suppliers SET name=:name,owner_name=:owner_name,phone=:phone,email=:email,address=:address,
       tax_number=:tax_number,opening_balance=:opening_balance,risk_limit=:risk_limit,payment_term_days=:payment_term_days,
       notes=:notes,is_active=:is_active WHERE id=:id AND company_id=:cid'''),values)

@@ -7,6 +7,7 @@ from ..change_history import record_change
 from ..crm import add_contact, add_note, add_task, delete_contact, delete_note, delete_task, set_task_status
 from ..business_time import business_today
 from ..db import get_db
+from ..alan_maskeleme import maskeyi_geri_al
 from ..entity_detail import cari_liste_satirlari, entity_detail, entity_documents
 from ..document_engine import SALES_IMPORT_NOTE, accounting_document_status_sql
 from ..receivables_engine import charge_due_date_sql
@@ -157,7 +158,10 @@ def customer_statement(customer_id:int,request:Request,date_from:date|None=None,
 def update_customer(customer_id:int,payload:CustomerCreate,request:Request,db:Session=Depends(get_db)):
     cid=company_id(request)
     before=db.execute(text('SELECT * FROM customers WHERE id=:id AND company_id=:cid'),{'id':customer_id,'cid':cid}).mappings().first()
-    values=_values(payload);values.update({'id':customer_id,'cid':cid})
+    # SEC-3b — MASKELI rolun formu maskeli degeri geri gonderirse GERCEK
+    # deger KORUNUR; ayrinti `alan_maskeleme.maskeyi_geri_al` docstring'inde.
+    values=maskeyi_geri_al(_values(payload),before,istek_rolu(request))
+    values.update({'id':customer_id,'cid':cid})
     result=db.execute(text('''UPDATE customers SET name=:name,owner_name=:owner_name,phone=:phone,email=:email,address=:address,
       tax_number=:tax_number,opening_balance=:opening_balance,risk_limit=:risk_limit,payment_term_days=:payment_term_days,
       notes=:notes,is_active=:is_active WHERE id=:id AND company_id=:cid'''),values)

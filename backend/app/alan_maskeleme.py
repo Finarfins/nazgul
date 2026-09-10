@@ -227,6 +227,60 @@ def maskele_cari_listesi(rows: Any, role: Any) -> list[dict]:
     return [maskele_cari(row, role) for row in rows]
 
 
+def maskeyi_geri_al(gelen: Any, mevcut: Any, role: Any) -> dict:
+    """Yazmada MASKELI degerin gercek degerin USTUNE yazilmasini onler.
+
+    --- BU FONKSIYON NEDEN VAR: OKUMA MASKESININ YARATTIGI YAZMA TUZAGI ---
+
+    Maskeleme tek basina eklendiginde SESSIZ BIR VERI KAYBI kapisi acilir ve
+    bu OLCULDU, varsayilmadi:
+
+    * `depo` rolu `purchases` iznini TASIR, yani tedarikci PUT'una GIREBILIR
+      (`required_permission("PUT", "/api/suppliers/1")` -> `purchases`).
+    * `frontend/src/components/EntityDialog.tsx` formu `GET /suppliers/{id}`
+      ile DOLDURUYOR ve kaydederken gordugu nesnenin TAMAMINI geri PUT
+      ediyor.
+
+    Ikisi birlestiginde: `depo` yalnizca cari ADINI degistirse bile, forma
+    MASKELI gelen `tax_number` alani sunucuya `"*******890"` olarak geri
+    doner ve GERCEK vergi numarasinin USTUNE YAZILIR. Kayip sessizdir (hata
+    yok, 200 doner) ve GERI DONULMEZDIR -- ham deger artik hicbir yerde
+    yoktur. Bu tuzagi OKUMA MASKESI YARATIR, yani bu PR'in kendi yan
+    etkisidir ve burada kapatilmasi gerekir.
+
+    --- KURAL: "MASKESININ AYNISI" = "DEGISMEDI" ---------------------------
+
+    Gelen deger, MEVCUT degerin maskesine BIREBIR esitse kullanici o alana
+    DOKUNMAMIS demektir; mevcut ham deger KORUNUR. Esit degilse kullanici
+    GERCEKTEN yeni bir deger yazmistir ve o yazilir -- yani mesru duzenleme
+    ENGELLENMEZ.
+
+    Karsilastirma MEVCUT degerin maskesiyle yapilir, "maskeye benziyor mu"
+    gibi bir SEZGIYLE degil. Fark onemlidir: `"*******890"` metnini GERCEKTEN
+    vergi numarasi olarak yazmak isteyen (ve mevcut degeri farkli olan) bir
+    cagriyi sezgisel bir kontrol yanlislikla yutardi.
+
+    Maskesiz roller icin fonksiyon HICBIR SEY yapmaz: onlarin formu zaten ham
+    deger tasiyor ve her alani serbestce degistirebilirler.
+    """
+    veri = dict(gelen)
+    if not maskelenecek_mi(role) or not mevcut:
+        return veri
+    onceki = dict(mevcut)
+    for anahtar, deger in veri.items():
+        if anahtar not in onceki:
+            continue
+        maske = _alan_maskesi(anahtar)
+        if maske is None:
+            continue
+        eski = onceki[anahtar]
+        if eski is None:
+            continue
+        if deger == maske(eski):
+            veri[anahtar] = eski
+    return veri
+
+
 def _metin(deger: Any) -> str | None:
     """Maskelenebilir metni dondurur; maskelenemeyecekse ``None``.
 

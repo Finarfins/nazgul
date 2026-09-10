@@ -690,3 +690,125 @@ def test_capraz_kiraci_hala_404(istemci, admin_basliklari, rol_basliklari, tohum
             "komşu kiracının carisi MASKELİ 200 döndü; kiracı yüklemi "
             "maskelemenin arkasına düşmüş olabilir",
         )
+
+
+# ===========================================================================
+# 6) YAZMA TUZAĞI — okuma maskesinin yarattığı SESSİZ VERİ KAYBI kapısı.
+# ===========================================================================
+
+def test_yazma_izinleri_olculdu_varsayilmadi():
+    """Brief'in "maskeli roller zaten yazamaz" varsayımı ÖLÇÜLDÜ ve YANLIŞ.
+
+    `depo` rolü `purchases` iznini TAŞIR, yani tedarikçi POST/PUT/DELETE'ine
+    GİREBİLİR. Yani "maskeleme yalnız okuma yolundadır, yazma zaten kapalı"
+    cümlesi MÜŞTERİ için doğru, TEDARİKÇİ için YANLIŞTIR. Bu test o ölçümü
+    donduruyor; izin haritası değişirse yazma korumasının gerekçesi de
+    yeniden okunmalıdır.
+    """
+    from app.auth import ROLE_PERMISSIONS, required_permission
+
+    # Müşteri yazma: maskeli rollerin ikisi de DIŞARIDA.
+    musteri_izni = required_permission("PUT", "/api/customers/1")
+    assert musteri_izni == "sales"
+    for rol in MASKELI_ROLLER:
+        assert musteri_izni not in ROLE_PERMISSIONS[rol], rol
+
+    # Tedarikçi yazma: `depo` İÇERİDE. Varsayımın kırıldığı yer burası.
+    tedarikci_izni = required_permission("PUT", "/api/suppliers/1")
+    assert tedarikci_izni == "purchases"
+    assert tedarikci_izni in ROLE_PERMISSIONS["depo"], (
+        "`depo` artık `purchases` taşımıyor: yazma tuzağı ortadan kalkmış "
+        "olabilir, `maskeyi_geri_al`ın gerekçesi yeniden okunmalı."
+    )
+    assert tedarikci_izni not in ROLE_PERMISSIONS["rapor"]
+
+
+def test_depo_tedarikciyi_duzenleyince_ham_vergi_no_KORUNUR(
+    istemci, rol_basliklari, admin_basliklari, tohum
+):
+    """Maskeli değeri geri gönderen form GERÇEK veriyi EZMEZ.
+
+    ÖLÇÜLEN SENARYO (uydurma değil, arayüzün bugünkü davranışı):
+    `frontend/src/components/EntityDialog.tsx` formu `GET /suppliers/{id}`
+    ile dolduruyor ve kaydederken gördüğü nesnenin TAMAMINI geri PUT ediyor.
+    `depo` rolü tedarikçi PUT'una girebildiği için, yalnızca ADI değiştiren
+    bir `depo` kullanıcısı maskeli `tax_number`ı sunucuya geri gönderir.
+
+    Koruma olmasaydı gerçek VKN `"*******890"` ile EZİLİRDİ: hata yok, 200
+    döner, ham değer hiçbir yerde kalmaz. Test tam bu turu koşuyor -- kartı
+    `depo` gözüyle OKUYOR, dönen gövdeyi olduğu gibi geri YAZIYOR, sonra
+    `admin` gözüyle ham değerin YERİNDE olduğunu doğruluyor.
+    """
+    h_depo = rol_basliklari["depo"]
+    sid = tohum["tedarikci_id"]
+
+    kart = istemci.get(f"/api/suppliers/{sid}", headers=h_depo)
+    assert kart.status_code == 200, kart.text
+    govde = dict(kart.json()["supplier"])
+    assert govde["tax_number"] == MASKE_VKN, "önkoşul: kart maskeli gelmeli"
+
+    govde["name"] = "SEC3B Tedarikçi (depo düzenledi)"
+    yazma = istemci.put(f"/api/suppliers/{sid}", headers=h_depo, json=govde)
+    assert yazma.status_code == 200, yazma.text
+
+    sonra = istemci.get(f"/api/suppliers/{sid}", headers=admin_basliklari)
+    assert sonra.status_code == 200, sonra.text
+    varlik = sonra.json()["supplier"]
+    assert varlik["name"] == "SEC3B Tedarikçi (depo düzenledi)"  # düzenleme GEÇTİ
+    assert varlik["tax_number"] == HAM_VKN, "GERÇEK VKN maskeyle EZİLDİ"
+    assert varlik["phone"] == HAM_TELEFON, "GERÇEK telefon maskeyle EZİLDİ"
+    assert varlik["email"] == HAM_EPOSTA, "GERÇEK e-posta maskeyle EZİLDİ"
+    assert varlik["address"] == HAM_ADRES, "GERÇEK adres maskeyle EZİLDİ"
+
+
+def test_depo_gercekten_yeni_deger_yazabilir(
+    istemci, rol_basliklari, admin_basliklari, tohum
+):
+    """Koruma MEŞRU düzenlemeyi ENGELLEMEZ.
+
+    Karşı hücre: `depo` alana GERÇEKTEN yeni bir numara yazarsa o yazılır.
+    Bu test olmasaydı `maskeyi_geri_al` "maskeli rol bu alanları hiç
+    değiştiremez" gibi çok daha geniş bir davranışa kayabilir ve kimse
+    fark etmezdi.
+    """
+    h_depo = rol_basliklari["depo"]
+    sid = tohum["tedarikci_id"]
+
+    kart = istemci.get(f"/api/suppliers/{sid}", headers=h_depo)
+    govde = dict(kart.json()["supplier"])
+    govde["phone"] = "05329998877"
+    yazma = istemci.put(f"/api/suppliers/{sid}", headers=h_depo, json=govde)
+    assert yazma.status_code == 200, yazma.text
+
+    sonra = istemci.get(f"/api/suppliers/{sid}", headers=admin_basliklari)
+    assert sonra.json()["supplier"]["phone"] == "05329998877"
+    # Dokunulmayan alan hâlâ ham.
+    assert sonra.json()["supplier"]["tax_number"] == HAM_VKN
+
+
+def test_maskeyi_geri_al_birim():
+    """`maskeyi_geri_al`ın kuralı: "maskesinin aynısı" = "değişmedi"."""
+    from app.alan_maskeleme import maskeyi_geri_al
+
+    mevcut = {"phone": HAM_TELEFON, "tax_number": HAM_VKN, "name": "Eski"}
+
+    # (a) Maskeli değer geri geldi -> ham korunur.
+    gelen = {"phone": MASKE_TELEFON, "tax_number": MASKE_VKN, "name": "Yeni"}
+    sonuc = maskeyi_geri_al(gelen, mevcut, "depo")
+    assert sonuc["phone"] == HAM_TELEFON
+    assert sonuc["tax_number"] == HAM_VKN
+    assert sonuc["name"] == "Yeni"          # maskelenmeyen alan serbest
+
+    # (b) GERÇEKTEN yeni değer -> yazılır.
+    gelen = {"phone": "05329998877", "tax_number": HAM_VKN}
+    sonuc = maskeyi_geri_al(gelen, mevcut, "depo")
+    assert sonuc["phone"] == "05329998877"
+
+    # (c) Maskesiz rol -> fonksiyon hiçbir şey yapmaz.
+    gelen = {"phone": MASKE_TELEFON}
+    assert maskeyi_geri_al(gelen, mevcut, "yonetici")["phone"] == MASKE_TELEFON
+
+    # (d) Mevcut satır yoksa (yeni kayıt) -> dokunulmaz.
+    assert maskeyi_geri_al({"phone": MASKE_TELEFON}, None, "depo") == {
+        "phone": MASKE_TELEFON
+    }
