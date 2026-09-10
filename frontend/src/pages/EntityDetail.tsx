@@ -40,6 +40,16 @@ const paymentLabel:Record<string,string>={cash:'Nakit',card:'Kart / POS',bank_tr
 const accountTypeForMethod:Record<string,string>={cash:'cash',card:'pos',bank_transfer:'bank'};
 const priorityColor:Record<string,'default'|'warning'|'error'>={low:'default',normal:'warning',high:'error'};
 const metadataSx={fontSize:14,lineHeight:1.55,color:'text.secondary'} as const;
+// SEC-3b — cari iletişim alanları rolü maskeli kullanıcılarda YILDIZLI gelir
+// (`backend/app/alan_maskeleme.py`). Aşağıdaki üç kısayol ham değeri bir
+// PROTOKOL BAĞLANTISINA çeviriyor ve maskeli değerle SESSİZCE YANLIŞ çalışır:
+// `tel:05** *** ** 12` geçersizdir, `wa.me/...` rakam dışını atınca
+// `05** *** ** 12` -> `0512` gibi BAŞKA BİR NUMARAYA gider, `mailto:` ise
+// var olmayan bir adrese açar. Buton görünüşte çalışır, sonucu yanlıştır.
+// Rol tablosunu istemciye KOPYALAMIYORUZ: maskenin kendisi veriden okunuyor,
+// böylece maskesiz roller için hiçbir şey değişmez ve matris değişirse burası
+// kendiliğinden uyar.
+const maskeli=(deger:unknown)=>typeof deger==='string'&&deger.includes('*');
 const interactiveRowSx={
   minHeight:54,
   px:1,
@@ -150,9 +160,9 @@ export default function EntityDetail({type}:{type:EntityType}){
             {canPayments&&<Button variant="contained" startIcon={<PaymentsIcon/>} onClick={openPayment} sx={{bgcolor:'rgba(255,255,255,.15)',color:'#fff','&:hover':{bgcolor:'rgba(255,255,255,.22)'}}}>{type==='customer'?'Tahsilat Al':'Ödeme Yap'}</Button>}
             <Button variant={headerDarkActionVariant} startIcon={<ReceiptLongIcon/>} onClick={()=>setStatementOpen(true)}>Ekstre</Button>
             <Button variant={headerDarkActionVariant} startIcon={<EditIcon/>} onClick={()=>setEditOpen(true)}>Düzenle</Button>
-            {e.phone&&<Tooltip title="Ara"><IconButton component="a" href={`tel:${e.phone}`} aria-label="Telefonla ara" sx={{color:'#fff',bgcolor:'rgba(255,255,255,.1)'}}><PhoneIcon/></IconButton></Tooltip>}
-            {e.phone&&<Tooltip title="WhatsApp"><IconButton component="a" target="_blank" rel="noreferrer" href={`https://wa.me/${String(e.phone).replace(/\D/g,'')}`} aria-label="WhatsApp ile iletişim kur" sx={{color:'#fff',bgcolor:'rgba(255,255,255,.1)'}}><WhatsAppIcon/></IconButton></Tooltip>}
-            {e.email&&<Tooltip title="E-posta"><IconButton component="a" href={`mailto:${e.email}`} aria-label="E-posta gönder" sx={{color:'#fff',bgcolor:'rgba(255,255,255,.1)'}}><EmailIcon/></IconButton></Tooltip>}
+            {e.phone&&!maskeli(e.phone)&&<Tooltip title="Ara"><IconButton component="a" href={`tel:${e.phone}`} aria-label="Telefonla ara" sx={{color:'#fff',bgcolor:'rgba(255,255,255,.1)'}}><PhoneIcon/></IconButton></Tooltip>}
+            {e.phone&&!maskeli(e.phone)&&<Tooltip title="WhatsApp"><IconButton component="a" target="_blank" rel="noreferrer" href={`https://wa.me/${String(e.phone).replace(/\D/g,'')}`} aria-label="WhatsApp ile iletişim kur" sx={{color:'#fff',bgcolor:'rgba(255,255,255,.1)'}}><WhatsAppIcon/></IconButton></Tooltip>}
+            {e.email&&!maskeli(e.email)&&<Tooltip title="E-posta"><IconButton component="a" href={`mailto:${e.email}`} aria-label="E-posta gönder" sx={{color:'#fff',bgcolor:'rgba(255,255,255,.1)'}}><EmailIcon/></IconButton></Tooltip>}
           </Stack>
         </Stack>
       </CardContent>
