@@ -34,7 +34,7 @@
 - **Tavsiye:** **Seçenek A**. Çek alındığında `payments` satırı açılarak cari bakiye düşürülmeli, durum `'portfoyde'` olarak takip edilmeli; karşılıksız durumunda otomatik borç dekontu üretilmelidir.
 
 ### 2.2. Veri Modeli (`cek_senetler`)
-Kiracı tablosudur (`company_id` taşır). Bileşik yabancı anahtar kuralı (`0062`) gereği tüm ilişkiler kiracı kapsamındadır.
+Kiracı tablosudur (`company_id` taşır). Aynı firma bileşik yabancı anahtar sözleşmesi (göç 0044: `20260807_0044_farm_management_v1.py`) gereği tüm ilişkiler kiracı kapsamındadır.
 
 | Sütun | Tip | Kısıt / Nullable | Açıklama |
 | :--- | :--- | :--- | :--- |
@@ -104,8 +104,8 @@ Kiracı tablosudur (`company_id` taşır). Bileşik yabancı anahtar kuralı (`0
 - **Göç Sürümü:** **`20260914_0085_cek_senet_portfoyu.py`** (Geliştirme dalı: `0082`, bekleyen PR 116 E4a: `0083`, SEC-9: `0084`).
 - **Hedef Tablo:** `cek_senetler` (yukarıdaki tablo yapısıyla tek seferde kurulur).
 - **Mevcut `financial_instruments` Tablosunun Durumu:**
-  - `financial_instruments` tablosunda veri olup olmadığı doğrulanmalıdır (temiz kurulumlarda boştur).
-  - `0085` göçü `cek_senetler` tablosunu açmalı; eski `financial_instruments` tablosu geriye dönük uyumluluk için korunmalı veya tek satırlık bir veri aktarımıyla `cek_senetler`e taşınıp kullanımdan kaldırılmalıdır.
+  - `0085` göçü yalnızca yeni `cek_senetler` tablosunu oluşturur (yalnızca oluşturma — creation only); mevcut `financial_instruments` tablosuna KESİNLİKLE dokunmaz.
+  - Eski `financial_instruments` tablosunun emekliye ayrılması (retirement), veri aktarımı veya kod tasfiyesi bu PR ve göçün kapsamı dışındadır; bağımsız bir sonraki hijyen maddesidir.
 - **DDL İkizleri:** SQLite `PRAGMA foreign_keys=ON` ve PostgreSQL `ALTER TABLE ... VALIDATE CONSTRAINT` sözleşmelerine tam uyumlu olmalıdır.
 
 ---
@@ -117,13 +117,14 @@ Kiracı tablosudur (`company_id` taşır). Bileşik yabancı anahtar kuralı (`0
   - `alembic/versions/20260914_0085_cek_senet_portfoyu.py` göçü.
   - `backend/app/cek_senet_engine.py` (durum makinesi: portföyde -> tahsilde -> tahsil edildi / ciro / karşılıksız / iade).
   - `backend/app/routers/cek_senetler.py` (uç noktalar: `GET/POST /api/cek-senetler`, `GET /api/cek-senetler/{id}`, `POST /api/cek-senetler/{id}/durum-degistir`, `POST /api/cek-senetler/bordro`).
-- **Öngörülen Pin Deltaları:**
-  - `TENANT_TABLES`: 121 -> 122 (E4a sonrası).
-  - Rota Sayısı: Toplam operasyon 393 -> 398 (+5 uç).
-  - GET İzin Envanteri (`test_route_get_permission_inventory.py`): 186 -> 188 (+2 GET ucu). Devralınan yetki: `"finance"` (önek kuralı).
-  - `ROUTE_REASON_GROUPS` (`test_route_security_contracts.py`): Operational read grubuna 2 uç eklenir.
-  - PG İkizi: `backend/tests/pins/pg_twins.txt` içine `test_cs1_cek_senet_postgresql.py` eklenir (+1).
-  - `numeric_manifest.py`: `cek_senetler: ("tutar",)` eklenir.
+  - `backend/app/auth.py`: `/api/cek-senetler` için açık önek kuralı eklenmesi (`if path.startswith("/api/cek-senetler"): return "payments"`). Bu kural zorunludur; aksi hâlde `required_permission` ölçümünde GET uçları varsayılan `read`e (auth.py:1242), POST uçları ise `__admin_only__`a (auth.py:1318) düşer. Şef kararı: `POST /api/payments` ile aynı `payments` yetkisi tanımlanmalıdır (`muhasebe` + `yonetici` yazma; `satis`ın okuma/yazma durumu Açık Karar 4'te listelenen karara bağlıdır).
+- **Pin Tabanı ve CS1 Deltaları (#116 E4a Sonrası develop Taban Alınarak):**
+  - **Rota Sayısı & Yol Sayısı:** 400/308 → 405/312 (+5 operasyon, +4 yol / path count pini).
+  - **GET İzin Envanteri (`test_route_get_permission_inventory.py`):** 190 → 192 (+2 GET ucu, yetki: `"payments"` — `auth.py` açık önek kuralı ile).
+  - **`TENANT_TABLES`:** 121 → 122 (`cek_senetler`).
+  - **PG İkizleri (`backend/tests/pins/pg_twins.txt`):** 125 → 126 (`test_cs1_cek_senet_postgresql.py` eklenir).
+  - **`ROUTE_REASON_GROUPS` (`test_route_security_contracts.py`):** Operational read grubuna 2 GET ucu eklenir.
+  - **`numeric_manifest.py`:** `cek_senetler: ("tutar",)` eklenir.
 
 ### PR 2: CS2 — Cari, Ekstre, Tahsis ve Gecikme Zammı Entegrasyonu (Backend)
 - **Kapsam:**
@@ -140,7 +141,7 @@ Kiracı tablosudur (`company_id` taşır). Bileşik yabancı anahtar kuralı (`0
   - `frontend/src/pages/CekSenetPortfoyu.tsx`: Çek/senet portföy tablosu, filtreler (vade, durum, cari, banka).
   - Vade takvimi bileşeni (yaklaşan çekler, bugün vadeli olanlar uyarısı).
   - İşlem pencereleri: Tahsile verme, bankadan tahsil kaydı (hesap seçimiyle), ciro etme (tedarikçi seçimiyle), karşılıksız işaretleme modalları (`prompt()` kaldırılır).
-  - `frontend/src/navigation.tsx`: `/cek-senet-portfoyu` menü girdisi (`NAV_LABELS.cheques`, yetki: `finance`).
+  - `frontend/src/navigation.tsx`: `/cek-senet-portfoyu` menü girdisi (`NAV_LABELS.cheques`, yetki: `payments`).
 - **Öngörülen Pin Deltaları:**
   - `navigation.consistency.test.ts`: Rota listesi pini +1 (`/cek-senet-portfoyu`).
 
@@ -152,11 +153,11 @@ Kiracı tablosudur (`company_id` taşır). Bileşik yabancı anahtar kuralı (`0
    - *Seçenek A (Önerilen):* Alındığında cari düşer (`payments` yazılır); karşılıksız çıkarsa otomatik borç dekontu açılarak cariye borç iade edilir. (Türkiye piyasa standardı).
    - *Seçenek B:* Yalnızca tahsil edildiğinde cari düşer. Portföydeyken bakiye değişmez.
 2. **Eski `financial_instruments` Tablosu:**
-   - *Karar:* Eski tablo `cek_senetler` adına taşınıp genişletilsin mi (0 göç artığı), yoksa eski tablo korunup sıfırdan temiz `cek_senetler` mi açılsın? (Tavsiye: Sıfırdan temiz `cek_senetler` açılıp eski ilkel tablo sonraki bir temizlikte emekliye ayrılmalıdır).
+   - *Karar:* `0085` göçü yalnızca yeni `cek_senetler` tablosunu kurar ve eski tabloya dokunmaz (creation only). Eski ilkel tablonun emekliye ayrılması (retirement) sonraki bağımsız bir hijyen maddesi olarak yürütülecektir.
 3. **Ciro İşleminin Tedarikçi Bakiyesine Etkisi:**
    - Bir müşteri çeki tedarikçiye ciro edildiğinde (`ciro_edildi`), tedarikçiye otomatik bir `payment` (`direction='out'`, `payment_method='check'`) açılarak tedarikçi borcu anında düşmeli midir?
 4. **Saha Satış Yetkisi (`satis` Rolü):**
-   - Satış temsilcisi sahada çek teslim aldığında çek kaydı açabilmeli mi (`payments` yetkisiyle evrak girişi), yoksa çek işlemleri yalnızca vezne/muhasebe (`finance` yetkisi) ile mi sınırlandırılmalıdır?
+   - Şef kararıyla `/api/cek-senetler` için `payments` yetkisi tanımlanmıştır (`muhasebe` + `yonetici` yazma yetkisine sahiptir). Satış temsilcisi sahada çek teslim aldığında çek kaydı açabilmeli mi (`satis` rolü yazma yetkisi alacak mı), yoksa `satis` rolü yalnızca okuma (`read`) ile mi sınırlandırılmalıdır?
 5. **Karşılıksız Çek Masraf ve Ceza Politikası:**
    - Karşılıksız çıkan çekte banka masrafı veya yasal tazminat (%10 çek tazminatı) otomatik olarak borç dekontuna eklenmeli midir?
 
