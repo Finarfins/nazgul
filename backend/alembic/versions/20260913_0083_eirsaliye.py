@@ -220,6 +220,17 @@ def upgrade() -> None:
         sa.Column("trailer_plate", sa.String(length=20), nullable=True),
         # --- teslimat ---
         sa.Column("delivery_address", sa.Text(), nullable=False),
+        # POSTA KODU ZORUNLU ve bu SANDBOX'TA OLCULDU, sematik bir tercih
+        # DEGIL: GIB sematronu `DespatchAdvice`in BOS DEGER ICERMEYEN bir
+        # `cac:Shipment/cac:Delivery/cac:DeliveryAddress/PostalZone`
+        # elemani tasimasini ISTIYOR (`ERROR_CODE=10003`, "Hatali Posta
+        # Kodu :''"). OASIS onu OPSIYONEL birakir; GIB birakmaz.
+        # NOT NULL cunku bu tablo YENIDIR (geri doldurulacak eski satir
+        # YOK) ve posta kodsuz bir irsaliye GONDERILEMEZ — nullable
+        # birakmak, gonderim aninda patlayan bir satirin yazilmasina izin
+        # vermek olurdu. 10 hane: TR posta kodu 5 hanedir, 10 rahat bir
+        # tavan ve bir hata GOVDESININ buraya sigmasini da engeller.
+        sa.Column("delivery_postal_code", sa.String(length=10), nullable=False),
         # NULL = faturanin musterisi. Kesif §3.2: teslim adresi/tarafi
         # faturadan FARKLI olabilir; ayni oldugunda ikinci bir satir
         # yazmak yerine sutun BOS birakilir ve okuma faturaya duser.

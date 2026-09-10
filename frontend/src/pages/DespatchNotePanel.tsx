@@ -60,11 +60,12 @@ type FormState={
  vehicle_plate:string;
  trailer_plate:string;
  delivery_address:string;
+ delivery_postal_code:string;
 };
 
 const BOS_FORM:FormState={
  actual_shipment_at:'',driver_name:'',driver_national_id:'',
- vehicle_plate:'',trailer_plate:'',delivery_address:'',
+ vehicle_plate:'',trailer_plate:'',delivery_address:'',delivery_postal_code:'',
 };
 
 export function DespatchNotePanel({invoiceId}:{invoiceId:number}){
@@ -106,6 +107,7 @@ export function DespatchNotePanel({invoiceId}:{invoiceId:number}){
     // Boş dorse GÖNDERİLMEZ: sunucu `null` bekliyor, boş dize değil.
     trailer_plate:form.trailer_plate.trim()||null,
     delivery_address:form.delivery_address.trim(),
+    delivery_postal_code:form.delivery_postal_code.trim(),
    });
    setNote(response.data as DespatchNote);
    setDialogOpen(false);setForm(BOS_FORM);
@@ -141,7 +143,7 @@ export function DespatchNotePanel({invoiceId}:{invoiceId:number}){
  const zorunlular=Boolean(
   form.actual_shipment_at&&form.driver_name.trim()&&
   form.driver_national_id.trim().length===11&&form.vehicle_plate.trim()&&
-  form.delivery_address.trim(),
+  form.delivery_address.trim()&&form.delivery_postal_code.trim().length>=4,
  );
 
  return <Paper variant="outlined" sx={{p:2}}>
@@ -218,6 +220,14 @@ export function DespatchNotePanel({invoiceId}:{invoiceId:number}){
        inputProps={{maxLength:20}} helperText="İsteğe bağlı"/>
      <TextField label="Teslim Adresi" required multiline minRows={2}
        value={form.delivery_address} onChange={alan('delivery_address')}/>
+     {/* POSTA KODU ZORUNLU ve bu bir form kaprisi DEĞİL: GİB şematronu
+         DeliveryAddress/PostalZone istiyor ve boş gönderilen belge
+         REDDEDİLİYOR (sandbox'ta ölçüldü). Alan burada zorunlu olmasaydı
+         kullanıcı hatayı ancak GÖNDERİMDE — geri alınamaz bir denemeden
+         sonra — görürdü. */}
+     <TextField label="Teslim Posta Kodu" required
+       value={form.delivery_postal_code} onChange={alan('delivery_postal_code')}
+       inputProps={{maxLength:10}} helperText="GİB zorunlu tutuyor (örn. 34710)"/>
     </Stack>
    </DialogContent>
    <DialogActions>

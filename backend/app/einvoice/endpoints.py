@@ -430,6 +430,27 @@ IZIBIZ_EARCHIVE_CANCEL_NEEDS_ETTN = (
     "e-Arşiv iptali ETTN (UUID) gerektirir; sağlayıcı belge kimliği yeterli değil"
 )
 
+#: e-İRSALİYE GÖNDERİMİ SANDBOX'TA DOĞRULANDI (uçtan uca, gerçek çağrı).
+#: `IZIBIZ_EFATURA_SUBMIT_VERIFIED` gibi bir KAPI GEREKMEDİ ve bu bir ihmal
+#: değil bir ÖLÇÜM SONUCU: e-Fatura tarafı hiç denenmemişken, bu kanal
+#: denendi ve belge KABUL EDİLDİ (`SendDespatchAdvice` -> `DESPATCH_ID`
+#: döndü, `ERROR_TYPE` YOK).
+#:
+#: Yol üç turda açıldı ve ÜÇÜ DE ŞEMADAN DEĞİL SAĞLAYICIDAN öğrenildi —
+#: üçü de artık kodda bir kapıdır:
+#:
+#:   1. `10003` "Geçersiz ID elemanı değeri. ID elemanı 'ABC2009123456789'
+#:      formatında olmalıdır."  -> `edespatch.GIB_BELGE_NO_DESENI`
+#:   2. `10003` "Hatalı Posta Kodu :'' ... DeliveryAddress/PostalZone
+#:      elemanı içermelidir."   -> `despatch_notes.delivery_postal_code`
+#:   3. `10013` `XSLT_NOT_FOUND_IN_DOCUMENT`
+#:                              -> `edespatch.DEFAULT_DESPATCH_XSLT`
+#:
+#: DÖRDÜNCÜ TUR YOK: üçüncü düzeltmeden sonra gönderim `ERROR_TYPE`
+#: TAŞIMADAN döndü ve durum sorgusu ham `100` verdi ("durum
+#: güncellenmedi") — yani belge sağlayıcıda VAR. Kayıt: `docs/durum/`
+#: #116 girdisi.
+
 IZIBIZ_EFATURA_SUBMIT_ERROR = (
     "e-Fatura gönderimi (SendInvoice) sandbox'ta doğrulanmadı; şimdilik yalnız e-Arşiv açık"
 )

@@ -69,6 +69,8 @@ geç gelen bir cevap ilerlemiş bir belgeyi geri çekemez.
 
 from __future__ import annotations
 
+import base64
+import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -254,9 +256,92 @@ VKN_LENGTH = 10
 PLAKA_SCHEME = "PLAKA"
 DORSE_SCHEME = "DORSEPLAKA"
 
+#: GİB BELGE NUMARASI BİÇİMİ: 3 harf + 4 haneli yıl + 9 hane = 16 karakter.
+#: `ubl_xml.py` bu kuralı 0081'den beri YAZIYORDU (`INVOICE_ID_LENGTH = 16`)
+#: ama hiçbir yerde UYGULAMIYORDU — ve e-İrsaliye sandbox'ı bunu ÖLÇTÜ:
+#: `IRS-FTR2026000000001` biçimindeki türetilmiş numara sağlayıcı tarafından
+#: REDDEDİLDİ (`ERROR_CODE=10003`, `ERROR_LONG_DES="Geçersiz ID elemanı
+#: değeri. ID elemanı 'ABC2009123456789' formatında olmalıdır."`).
+#: Kural artık DESENDİR, düz yazı değil.
+GIB_BELGE_NO_DESENI = re.compile(r"^[A-Z]{3}[0-9]{13}$")
+#: e-İrsaliye seri öneki. ÜÇ HARF ve büyük — desen başka bir şey kabul etmez.
+BELGE_SERI_ONEKI = "IRS"
+BELGE_NO_UZUNLUGU = 16
+
+
+def belge_numarasi_uret(yil: int, sira: int, *, seri: str = BELGE_SERI_ONEKI) -> str:
+    """GİB biçiminde bir belge numarası: ``IRS`` + yıl + 9 hane.
+
+    TEK TANIM: hem uç (`app/routers/despatch_notes.py`) hem testler bunu
+    çağırır. İki yerde iki biçimlendirme olsaydı, biri düzeltilip öteki
+    unutulduğunda sağlayıcı YALNIZ birini reddederdi ve kusur ancak canlı
+    gönderimde görünürdü — nitekim bu fonksiyon tam da öyle bir ölçümden
+    doğdu.
+
+    ``sira`` 9 haneye SIĞMAK ZORUNDA: sığmazsa numara 16 karakteri aşar ve
+    belge şematron kontrolünden geçemez. Kırpmak YANLIŞ olurdu (iki farklı
+    sevk aynı numarayı alabilirdi), o yüzden gürültülü hata.
+    """
+    if not (1 <= sira <= 999_999_999):
+        raise UblBuildError(f"Belge sırası 9 haneye sığmıyor: {sira}")
+    numara = f"{seri.upper()}{int(yil):04d}{int(sira):09d}"
+    if not GIB_BELGE_NO_DESENI.match(numara):
+        raise UblBuildError(f"Belge numarası GİB biçimine uymuyor: {numara}")
+    return numara
+
+
 #: Miktar birim kodu varsayılanı. Keşif §3.2: örnekte C62; GÜNCEL KOD
 #: LİSTESİ DOĞRULANMADI, o yüzden çağıran kendi kodunu verebilir.
 DEFAULT_UNIT_CODE = "C62"
+
+#: Asgari ama GEÇERLİ görselleştirme şablonu. `ubl_xml.DEFAULT_XSLT`in
+#: DespatchAdvice karşılığı — kopya DEĞİL, çünkü kök eleman, ad alanı ve
+#: gösterilecek alanlar farklı (fatura tutar basar, irsaliye MİKTAR ve
+#: TAŞIMA basar).
+#:
+#: NEDEN VAR: sağlayıcı şablonsuz belgeyi REDDEDİYOR ve bu SANDBOX'TA
+#: ÖLÇÜLDÜ — `ERROR_CODE=10013`, `ERROR_LONG_DES=XSLT_NOT_FOUND_IN_DOCUMENT`.
+#: Kural `ubl_xml.py` başlığında e-Arşiv için ZATEN yazılıydı (kural 2);
+#: e-İrsaliye'ye taşınmamıştı ve eksikliği ancak gerçek bir gönderimle
+#: görüldü.
+DEFAULT_DESPATCH_XSLT = """<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet version="1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
+    xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+    xmlns:n1="urn:oasis:names:specification:ubl:schema:xsd:DespatchAdvice-2"
+    exclude-result-prefixes="n1 cbc cac">
+  <xsl:output method="html" encoding="UTF-8" indent="yes"/>
+  <xsl:template match="/">
+    <html><head><title>e-Irsaliye</title></head><body>
+      <h2>e-Irsaliye</h2>
+      <p>Irsaliye No: <xsl:value-of select="/n1:DespatchAdvice/cbc:ID"/></p>
+      <p>ETTN: <xsl:value-of select="/n1:DespatchAdvice/cbc:UUID"/></p>
+      <p>Duzenleme Tarihi: <xsl:value-of select="/n1:DespatchAdvice/cbc:IssueDate"/></p>
+      <p>Fiili Sevk:
+        <xsl:value-of
+          select="/n1:DespatchAdvice/cac:Shipment/cac:Delivery/cac:Despatch/cbc:ActualDespatchDate"/>
+        <xsl:text> </xsl:text>
+        <xsl:value-of
+          select="/n1:DespatchAdvice/cac:Shipment/cac:Delivery/cac:Despatch/cbc:ActualDespatchTime"/>
+      </p>
+      <p>Plaka:
+        <xsl:value-of
+          select="/n1:DespatchAdvice/cac:Shipment/cac:ShipmentStage/cac:TransportMeans/cac:RoadTransport/cbc:LicensePlateID"/>
+      </p>
+      <table border="1" cellspacing="0" cellpadding="3">
+        <tr><th>Mal/Hizmet</th><th>Miktar</th></tr>
+        <xsl:for-each select="/n1:DespatchAdvice/cac:DespatchLine">
+          <tr>
+            <td><xsl:value-of select="cac:Item/cbc:Name"/></td>
+            <td><xsl:value-of select="cbc:DeliveredQuantity"/></td>
+          </tr>
+        </xsl:for-each>
+      </table>
+    </body></html>
+  </xsl:template>
+</xsl:stylesheet>
+"""
 
 _NS = (
     'xmlns="urn:oasis:names:specification:ubl:schema:xsd:DespatchAdvice-2" '
@@ -467,11 +552,25 @@ def _sevkiyat(payload: dict[str, Any]) -> str:
     teslim = ["<cac:Delivery>"]
     adres = str(sevk.get("delivery_address") or "").strip()
     if adres:
+        # `PostalZone` ZORUNLU ve bu SANDBOX'TA ÖLÇÜLDÜ, şemadan
+        # çıkarılmadı: `ERROR_CODE=10003` "Hatalı Posta Kodu :''
+        # DespatchAdvice boş değer içermeyen geçerli bir
+        # cac:Shipment/cac:Delivery/cac:DeliveryAddress/PostalZone elemanı
+        # içermelidir." OASIS onu OPSİYONEL bırakır; GİB şematronu İSTER.
+        # Değer UYDURULMAZ — yoksa belge ÜRETİLMEZ, çünkü mali bir belgeye
+        # sahte posta kodu yazmak beyanı bozar.
+        posta = str(sevk.get("delivery_postal_code") or "").strip()
+        if not posta:
+            raise UblBuildError(
+                "Teslim adresi posta kodu zorunlu (GİB şematronu "
+                "DeliveryAddress/PostalZone istiyor)"
+            )
         teslim.append(
             "<cac:DeliveryAddress>"
             f"<cbc:StreetName>{_m(adres)}</cbc:StreetName>"
             "<cbc:CitySubdivisionName>-</cbc:CitySubdivisionName>"
             "<cbc:CityName>-</cbc:CityName>"
+            f"<cbc:PostalZone>{_m(posta)}</cbc:PostalZone>"
             "<cac:Country><cbc:Name>Türkiye</cbc:Name></cac:Country>"
             "</cac:DeliveryAddress>"
         )
@@ -501,17 +600,35 @@ def _sevkiyat(payload: dict[str, Any]) -> str:
     return "".join(parcalar)
 
 
-def _miktar(deger: Any) -> str:
-    """Miktarı METİN olarak taşı; ``float``a HİÇ uğratma.
+#: Miktar için KABUL EDİLEN türler. İkili kayan nokta bu kümede YOKTUR ve
+#: bulunmayacaktır — 3 ondalıklı bir miktar ikili kayan noktada 2.9999999
+#: olabilir ve sevk edilen miktar FATURADAKİNDEN farklı görünürdü; E4a'nın
+#: TEK eşitlik iddiası tam olarak odur.
+#:
+#: İZİN LİSTESİ, YASAK LİSTESİ DEĞİL — ve bu ilk yazımdan bir DÜZELTMEDİR.
+#: Önce `isinstance(deger, <ikili tür>)` ile REDDEDİLİYORDU; o yazım hem
+#: `test_v2_9_decimal_contract`i kırıyordu (depo kuralı: o adın `app/**`
+#: içinde GEÇMESİ bile yasak, savunma amaçlı olsa dahi) hem de DAHA
+#: ZAYIFTI: `numpy.float64` gibi türler yasak listesine takılmaz ama izin
+#: listesine de GİREMEZ. Tanımadığımız her tür artık reddediliyor.
+_MIKTAR_TURLERI: tuple[type, ...] = (Decimal, str, int)
 
-    Depodan ``Decimal`` geliyor. ``float``a çevirmek 3 ondalıklı bir
-    miktarı 2.9999999'a döndürebilir ve sevk edilen miktar FATURADAKİNDEN
-    farklı görünürdü — E4a'nın tek eşitlik iddiası tam olarak budur.
+
+def _miktar(deger: Any) -> str:
+    """Miktarı METİN olarak taşı; ikili kayan noktaya HİÇ uğratma.
+
+    Depodan ``Decimal`` geliyor. Gerekçe ve izin listesi
+    :data:`_MIKTAR_TURLERI`nin üstünde.
     """
     if deger is None:
         raise UblBuildError("İrsaliye satırında miktar zorunlu")
-    if isinstance(deger, float):
-        raise UblBuildError("Miktar float olarak verilemez; Decimal ya da metin")
+    # `bool` bir `int` alt sınıfıdır ve izin listesinden SIZAR; bir miktar
+    # olarak da anlamsızdır (`True` -> "1"), o yüzden ayrıca eleniyor.
+    if isinstance(deger, bool) or not isinstance(deger, _MIKTAR_TURLERI):
+        raise UblBuildError(
+            "Miktar yalnız Decimal, metin ya da tamsayı olabilir: "
+            f"{type(deger).__name__}"
+        )
     metin = str(deger).strip()
     try:
         Decimal(metin)
@@ -520,7 +637,7 @@ def _miktar(deger: Any) -> str:
     return metin
 
 
-def build_despatch_xml(payload: dict[str, Any]) -> bytes:
+def build_despatch_xml(payload: dict[str, Any], *, xslt: str | None = None) -> bytes:
     """``despatch_notes`` + fatura sözlüğünü UBL-TR DespatchAdvice'a çevir.
 
     Eksik zorunlu alanda :class:`UblBuildError` fırlatır; yarım bir belge
@@ -537,6 +654,15 @@ def build_despatch_xml(payload: dict[str, Any]) -> bytes:
     ettn = str(payload.get("uuid") or "").strip()
     if not belge_no or not ettn:
         raise UblBuildError("İrsaliye için belge numarası ve ETTN zorunlu")
+    # BİÇİM AĞA ÇIKMADAN DENETLENİYOR. Sağlayıcı bunu zaten reddediyor
+    # (ÖLÇÜLDÜ: `ERROR_CODE=10003`) ama reddi ORADA öğrenmek, geri
+    # alınamayan bir gönderim denemesi harcamak demek — e-İrsaliye'de iptal
+    # operasyonu YOK, yani her deneme geri alınamaz bir denemedir.
+    if not GIB_BELGE_NO_DESENI.match(belge_no):
+        raise UblBuildError(
+            "Belge numarası GİB biçimine uymuyor (3 harf + yıl + 9 hane, "
+            f"{BELGE_NO_UZUNLUGU} karakter): {belge_no}"
+        )
     duzenleme = _gun_coz(payload.get("issue_date"))
     an = _an_coz((payload.get("shipment") or {}).get("actual_shipment_at"))
 
@@ -578,6 +704,26 @@ def build_despatch_xml(payload: dict[str, Any]) -> bytes:
             f"<cbc:IssueDate>{_m(str(payload.get('invoice_issue_date') or duzenleme)[:10])}</cbc:IssueDate>"
             "</cac:OrderReference>"
         )
+    # GÖMÜLÜ ŞABLON — sağlayıcı şablonsuz belgeyi REDDEDİYOR (ÖLÇÜLDÜ:
+    # `ERROR_CODE=10013 XSLT_NOT_FOUND_IN_DOCUMENT`). Yeri ŞEMAYA BAĞLI:
+    # `AdditionalDocumentReference`, `OrderReference`tan SONRA ve
+    # `Signature`dan ÖNCE gelir.
+    xslt_b64 = base64.b64encode(
+        (xslt or DEFAULT_DESPATCH_XSLT).encode("utf-8")
+    ).decode("ascii")
+    govde.append(
+        "<cac:AdditionalDocumentReference>"
+        f"<cbc:ID>{_m(belge_no)}</cbc:ID>"
+        f"<cbc:IssueDate>{_m(duzenleme)}</cbc:IssueDate>"
+        "<cbc:DocumentType>XSLT</cbc:DocumentType>"
+        "<cac:Attachment>"
+        '<cbc:EmbeddedDocumentBinaryObject mimeCode="application/xml" '
+        'encodingCode="Base64" characterSetCode="UTF-8" '
+        f"filename={quoteattr(f'{belge_no}.xslt')}>{xslt_b64}"
+        "</cbc:EmbeddedDocumentBinaryObject>"
+        "</cac:Attachment>"
+        "</cac:AdditionalDocumentReference>"
+    )
     # İmza bloğu: mührü sağlayıcı atar, ama UBL-TR yapıyı yine de ister
     # (`ubl_xml.build_invoice_xml` ile aynı gerekçe).
     gonderen_vkn = _rakamlar(supplier.get("vkn"))
@@ -636,7 +782,7 @@ def build_despatch_xml(payload: dict[str, Any]) -> bytes:
     return "".join(govde).encode("utf-8")
 
 
-def package_despatch(payload: dict[str, Any]) -> bytes:
+def package_despatch(payload: dict[str, Any], *, xslt: str | None = None) -> bytes:
     """Gönderilecek içerik = tek dosyalık ZIP'in HAM baytları.
 
     e-Arşiv'de ölçülen kural (``ubl_xml`` başlığı, kural 1: ``ERROR_CODE=
@@ -656,5 +802,5 @@ def package_despatch(payload: dict[str, Any]) -> bytes:
     """
     from .ubl_xml import zip_single
 
-    xml = build_despatch_xml(payload)
+    xml = build_despatch_xml(payload, xslt=xslt)
     return zip_single(f"{payload.get('despatch_number')}.xml", xml)

@@ -342,7 +342,7 @@ def test_GONDERIM_KAPALI_kumesi() -> None:
 
 def _ornek_payload(**degisiklikler):
     temel = {
-        "despatch_number": "IRS-FTR2026000000001",
+        "despatch_number": "IRS2026000000001",
         "uuid": "11111111-2222-3333-4444-555555555555",
         "issue_date": "2026-09-13",
         "invoice_number": "FTR2026000000001",
@@ -362,6 +362,7 @@ def _ornek_payload(**degisiklikler):
             "driver_name": "Ahmet Yilmaz",
             "driver_national_id": SOFOR_TCKN,
             "delivery_address": "Depo Yolu 7",
+            "delivery_postal_code": "34000",
         },
         "lines": [
             {"id": 1, "name": "Bugday", "quantity": Decimal("2.5000")},
@@ -384,7 +385,7 @@ def test_UBL_kok_ve_zorunlu_alanlar() -> None:
     assert kok.findtext(f"{_CBC}CustomizationID") == "TR1.2.1"
     assert kok.findtext(f"{_CBC}ProfileID") == "TEMELIRSALIYE"
     assert kok.findtext(f"{_CBC}DespatchAdviceTypeCode") == "SEVK"
-    assert kok.findtext(f"{_CBC}ID") == "IRS-FTR2026000000001"
+    assert kok.findtext(f"{_CBC}ID") == "IRS2026000000001"
     assert kok.findtext(f"{_CBC}UUID") == "11111111-2222-3333-4444-555555555555"
     assert kok.findtext(f"{_CBC}IssueDate") == "2026-09-13"
     assert kok.findtext(f"{_CBC}LineCountNumeric") == "2"
@@ -524,6 +525,7 @@ def test_UBL_TASIYICI_dali_plakasiz_da_calisir() -> None:
     p["shipment"] = {
         "actual_shipment_at": p["shipment"]["actual_shipment_at"],
         "delivery_address": "Depo Yolu 7",
+        "delivery_postal_code": "34000",
         "carrier_name": "Hizli Kargo A.S.",
         "carrier_tax_number": "5555555550",
     }
@@ -928,6 +930,7 @@ def _irsaliye_govdesi(fatura_id: int, **degisiklikler) -> dict:
         "vehicle_plate": PLAKA,
         "trailer_plate": DORSE,
         "delivery_address": "Depo Yolu 7, Kadikoy",
+        "delivery_postal_code": "34710",
     }
     govde.update(degisiklikler)
     return govde
@@ -959,7 +962,15 @@ def test_OLUSTURMA_ETTN_uretir_ve_durum_NONE(irsaliye) -> None:
     assert irsaliye["edespatch_provider_uuid"] is None
     assert irsaliye["driver_national_id"] == SOFOR_TCKN
     assert irsaliye["vehicle_plate"] == PLAKA
-    assert irsaliye["despatch_number"].startswith("IRS-")
+    # GİB BİÇİMİ: 3 harf + yıl + 9 hane = 16 karakter. SANDBOX'ta ölçüldü
+    # (`ERROR_CODE=10003` "ID elemanı 'ABC2009123456789' formatında
+    # olmalıdır"); okunabilir bir numara bu kuralın yerine geçmiyor.
+    from app.einvoice.edespatch import GIB_BELGE_NO_DESENI
+
+    assert GIB_BELGE_NO_DESENI.match(irsaliye["despatch_number"]), (
+        irsaliye["despatch_number"]
+    )
+    assert len(irsaliye["despatch_number"]) == 16
 
 
 def test_IKINCI_irsaliye_409(istemci, admin_basliklari, tohum, irsaliye) -> None:
@@ -976,6 +987,42 @@ def test_IKINCI_irsaliye_409(istemci, admin_basliklari, tohum, irsaliye) -> None
     )
     assert ikinci.status_code == 409, ikinci.text
     assert "zaten var" in ikinci.json()["detail"]
+
+
+def test_TEKIL_IHLALI_DISINDAKI_kisit_409_SAYILMIYOR() -> None:
+    """409 YALNIZ "bir fatura bir irsaliye" ihlaline verilir.
+
+    ÖLÇÜLMÜŞ KUSUR: önce HER `IntegrityError` 409 "zaten var" oluyordu.
+    `delivery_postal_code` NOT NULL eklenip INSERT'in sütun listesine
+    yazılmayı unutulunca kullanıcı, HİÇBİR irsaliyesi olmayan taze bir
+    veritabanında "Bu faturanın e-İrsaliyesi zaten var" gördü — yanlış
+    cevap, doğru cevabın yokluğundan daha kötüydü: operatörü olmayan bir
+    kaydı aramaya gönderirdi.
+
+    İKİ DİYALEKTİN İMZASI DA ÇİVİLİ. MUTASYON: `FATURA_TEKIL_IMZALARI`den
+    SQLite satırını silmek bu kapıyı KIRMIZI yapar — ve davranışta gerçek
+    bir çakışma SQLite'ta 500 olurdu.
+    """
+    from app.routers.despatch_notes import FATURA_TEKIL_IMZALARI
+
+    pg_metni = (
+        'duplicate key value violates unique constraint '
+        '"uq_despatch_notes_company_invoice"'
+    )
+    sqlite_metni = (
+        "UNIQUE constraint failed: despatch_notes.company_id, "
+        "despatch_notes.invoice_id"
+    )
+    for metin in (pg_metni, sqlite_metni):
+        assert any(imza in metin for imza in FATURA_TEKIL_IMZALARI), metin
+
+    # BAŞKA bir ihlal EŞLEŞMEMELİ — yoksa 409 yine her şeyi yutar.
+    for yabanci in (
+        "NOT NULL constraint failed: despatch_notes.delivery_postal_code",
+        "UNIQUE constraint failed: despatch_notes.despatch_uuid",
+        'violates check constraint "ck_despatch_notes_tasima"',
+    ):
+        assert not any(imza in yabanci for imza in FATURA_TEKIL_IMZALARI), yabanci
 
 
 def test_CAPRAZ_KIRACI_faturasi_404(istemci, admin_basliklari, tohum) -> None:

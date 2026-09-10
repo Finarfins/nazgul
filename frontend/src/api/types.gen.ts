@@ -8078,6 +8078,8 @@ export interface components {
             delivery_address: string;
             /** Delivery Customer Id */
             delivery_customer_id?: number | null;
+            /** Delivery Postal Code */
+            delivery_postal_code: string;
             /** Despatch Number */
             despatch_number?: string | null;
             /** Driver Name */

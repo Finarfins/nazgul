@@ -105,6 +105,7 @@ GORUNEN_ALANLAR = (
     "vehicle_plate",
     "trailer_plate",
     "delivery_address",
+    "delivery_postal_code",
     "delivery_customer_id",
     "edespatch_status",
     "edespatch_gib_status_code",
@@ -123,6 +124,22 @@ FATURA_YOK = "Fatura bulunamadı"
 #: GEÇERLİDİR, çakışan şey KAYNAĞIN MEVCUT DURUMUDUR.
 IRSALIYE_ZATEN_VAR = "Bu faturanın e-İrsaliyesi zaten var"
 INDIRME_FORMATLARI = ("xml", "pdf")
+#: "Bir fatura bir irsaliye" ihlalinin İMZALARI. 409'u YALNIZ bu ihlal
+#: için veriyoruz; gerekçe `irsaliye_olustur`un `except` dalında.
+#:
+#: İKİ İMZA, ÇÜNKÜ İKİ DİYALEKT İKİ FARKLI ŞEY SÖYLÜYOR — ölçüldü:
+#:   PostgreSQL: `... violates unique constraint
+#:               "uq_despatch_notes_company_invoice"`   (KISIT ADI)
+#:   SQLite:     `UNIQUE constraint failed:
+#:               despatch_notes.company_id, despatch_notes.invoice_id`
+#:                                                       (SÜTUN ADLARI)
+#: Yalnız kısıt adına bakan bir kontrol SQLite'ta HİÇ eşleşmez ve gerçek
+#: bir çakışma 500 olarak kaçardı; yalnız sütunlara bakan bir kontrol de
+#: PG'de eşleşmezdi.
+FATURA_TEKIL_IMZALARI = (
+    "uq_despatch_notes_company_invoice",
+    "despatch_notes.company_id, despatch_notes.invoice_id",
+)
 
 #: `UNKNOWN` durumundaki bir belge yeniden GÖNDERİLMEZ; önce sorulur.
 #: Cümle uca özeldir çünkü operatörün yapacağı iş burada BELLİDİR.
@@ -156,6 +173,8 @@ class IrsaliyeOlustur(BaseModel):
     carrier_name: str | None = Field(default=None, max_length=200)
     carrier_tax_number: str | None = Field(default=None, max_length=60)
     delivery_address: str = Field(min_length=1)
+    #: GIB sematronu zorunlu tutuyor (goc 0083 basliginda olcum).
+    delivery_postal_code: str = Field(min_length=4, max_length=10)
     delivery_customer_id: int | None = None
     despatch_number: str | None = Field(default=None, max_length=40)
 
@@ -203,20 +222,36 @@ def _fatura(db: Session, cid: int, fatura_id: int) -> dict:
     return dict(satir)
 
 
-def _belge_numarasi(fatura: dict, verilen: str | None) -> str:
-    """İrsaliye belge numarası: operatör verdiyse onunki, yoksa faturadan.
+def _belge_numarasi(fatura: dict, yil: int, verilen: str | None) -> str:
+    """İrsaliye belge numarası — GİB BİÇİMİNDE (3 harf + yıl + 9 hane).
 
-    UYDURULMUYOR: türetilen değer faturanın KENDİ numarasının önüne bir
-    ayraç koyar (`IRS-<fatura no>`), yani iki belge birbirine bakarak
-    izlenebilir. Ayrı bir sayaç açmak (`document_sequences`) E4b'nin işi:
-    kısmi sevkte bir faturanın BİRDEN ÇOK irsaliyesi olacak ve o zaman
-    türetme yetmeyecek. Bugün türetme yeter ve tekilliği göçteki
-    `UNIQUE(company_id, invoice_id)` zaten garanti ediyor.
+    BİÇİM SANDBOX'TA ÖLÇÜLDÜ, VARSAYILMADI. İlk yazımda değer faturanın
+    numarasından türetiliyordu (`IRS-<fatura no>`) ve okunabilir olduğu
+    için doğru görünüyordu; İzibiz test ortamına yapılan GERÇEK gönderim
+    onu REDDETTİ: `ERROR_CODE=10003`, `"Geçersiz ID elemanı değeri. ID
+    elemanı 'ABC2009123456789' formatında olmalıdır."` Yani okunabilirlik
+    bir biçim kuralının yerine geçmiyor.
+
+    SIRA FATURA KİMLİĞİNDEN geliyor ve bu tekilliği BEDAVA veriyor:
+    `invoices.id` kürsel bir birincil anahtardır ve göçteki
+    `UNIQUE(company_id, invoice_id)` bir faturaya ikinci irsaliye
+    açılmasını zaten engeller — yani (yıl, sıra) çifti tekrar edemez.
+    Ayrı bir sayaç (`document_sequences`) E4b'nin işi: kısmi sevkte bir
+    faturanın BİRDEN ÇOK irsaliyesi olacak ve o gün türetme yetmeyecek.
+
+    Operatörün verdiği değer de AYNI desenden geçer — geçmezse 400. Kendi
+    numarasını veren biri onu geçerli bir belge sanmamalı.
     """
-    elle = (verilen or "").strip()
+    elle = (verilen or "").strip().upper()
     if elle:
-        return elle[:40]
-    return f"IRS-{fatura.get('invoice_number')}"[:40]
+        if not edespatch.GIB_BELGE_NO_DESENI.match(elle):
+            raise HTTPException(
+                400,
+                "Belge numarası GİB biçimine uymalı: 3 harf + 4 haneli yıl + "
+                "9 hane (örn. IRS2026000000001)",
+            )
+        return elle
+    return edespatch.belge_numarasi_uret(yil, int(fatura["id"]))
 
 
 def _satirlar(db: Session, cid: int, fatura_id: int) -> list[dict]:
@@ -286,6 +321,7 @@ def _ubl_payload(db: Session, cid: int, irsaliye: dict) -> dict:
             "carrier_name": irsaliye.get("carrier_name"),
             "carrier_tax_number": irsaliye.get("carrier_tax_number"),
             "delivery_address": irsaliye.get("delivery_address"),
+            "delivery_postal_code": irsaliye.get("delivery_postal_code"),
         },
         "lines": [
             {
@@ -358,7 +394,9 @@ def irsaliye_olustur(payload: IrsaliyeOlustur, request: Request, db: Session = D
         # SABİT ETTN — göç 0083'ün başlığında gerekçe. Gönderim denemeleri
         # boyunca DEĞİŞMEZ; çift belgeye karşı ilk savunma.
         "despatch_uuid": str(uuid_modulu.uuid4()),
-        "despatch_number": _belge_numarasi(fatura, payload.despatch_number),
+        "despatch_number": _belge_numarasi(
+            fatura, (payload.issue_date or simdi.date()).year, payload.despatch_number
+        ),
         "issue_date": payload.issue_date or simdi.date(),
         "actual_shipment_at": sevk_ani,
         "carrier_name": (payload.carrier_name or "").strip() or None,
@@ -368,6 +406,7 @@ def irsaliye_olustur(payload: IrsaliyeOlustur, request: Request, db: Session = D
         "vehicle_plate": payload.vehicle_plate.strip(),
         "trailer_plate": (payload.trailer_plate or "").strip() or None,
         "delivery_address": payload.delivery_address.strip(),
+        "delivery_postal_code": payload.delivery_postal_code.strip(),
         "delivery_customer_id": payload.delivery_customer_id,
         "status": edespatch.NONE,
         "now": simdi,
@@ -378,21 +417,35 @@ def irsaliye_olustur(payload: IrsaliyeOlustur, request: Request, db: Session = D
                 "INSERT INTO despatch_notes(company_id,invoice_id,despatch_uuid,despatch_number,"
                 "issue_date,actual_shipment_at,carrier_name,carrier_tax_number,driver_name,"
                 "driver_national_id,vehicle_plate,trailer_plate,delivery_address,"
+                "delivery_postal_code,"
                 "delivery_customer_id,edespatch_status,created_at,updated_at) "
                 "VALUES(:cid,:invoice_id,:despatch_uuid,:despatch_number,:issue_date,"
                 ":actual_shipment_at,:carrier_name,:carrier_tax_number,:driver_name,"
                 ":driver_national_id,:vehicle_plate,:trailer_plate,:delivery_address,"
+                ":delivery_postal_code,"
                 ":delivery_customer_id,:status,:now,:now) RETURNING id"
             ),
             parametreler,
         ).scalar_one()
-    except IntegrityError:
+    except IntegrityError as exc:
         # HAKEM VERİTABANIDIR, ÖN SORGU DEĞİL. İki eşzamanlı POST'ta bir
         # `SELECT ... WHERE invoice_id=?` kontrolü İKİSİNİ DE geçirir ve
         # aynı faturaya iki irsaliye açılırdı. `UNIQUE(company_id,
         # invoice_id)` ikinciyi reddeder ve burada 409'a çevrilir.
+        #
+        # KISIT ADIYLA AYIRT EDİLİYOR — ve bu bir titizlik değil, ÖLÇÜLMÜŞ
+        # bir kusurun düzeltmesi: önce HER `IntegrityError` 409 "zaten var"
+        # oluyordu ve `delivery_postal_code` NOT NULL eklendiğinde INSERT'in
+        # sütun listesine yazılmayı unutunca kullanıcı "Bu faturanın
+        # e-İrsaliyesi zaten var" gördü — VAR OLMAYAN bir kayıt için,
+        # HİÇBİR faturası olmayan taze bir veritabanında. Yanlış cevap
+        # doğru cevaptan daha kötüydü: operatörü olmayan bir kaydı silmeye
+        # gönderirdi. Tanımadığımız bir ihlal artık YUTULMUYOR.
         db.rollback()
-        raise HTTPException(409, IRSALIYE_ZATEN_VAR) from None
+        gerekce = str(getattr(exc, "orig", exc))
+        if any(imza in gerekce for imza in FATURA_TEKIL_IMZALARI):
+            raise HTTPException(409, IRSALIYE_ZATEN_VAR) from None
+        raise
     log_invoice_action(
         db, request, cid, payload.invoice_id, "EDESPATCH_CREATE",
         metadata={"despatch_id": yeni_id},

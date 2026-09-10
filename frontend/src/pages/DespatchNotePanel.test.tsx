@@ -107,6 +107,7 @@ describe('InvoiceDetail e-İrsaliye paneli',()=>{
   yaz(/Şoför T\.C\. Kimlik No/,'1111111111');
   yaz(/Araç Plakası/,'34ABC123');
   yaz(/Teslim Adresi/,'Depo Yolu 7');
+  yaz(/Teslim Posta Kodu/,'34710');
   expect(screen.getByRole('button',{name:'Oluştur'})).toBeDisabled();
 
   yaz(/Şoför T\.C\. Kimlik No/,'11111111110');
@@ -126,6 +127,7 @@ describe('InvoiceDetail e-İrsaliye paneli',()=>{
   yaz(/Şoför T\.C\. Kimlik No/,'11111111110');
   yaz(/Araç Plakası/,'34ABC123');
   yaz(/Teslim Adresi/,'Depo Yolu 7');
+  yaz(/Teslim Posta Kodu/,'34710');
   fireEvent.click(screen.getByRole('button',{name:'Oluştur'}));
 
   await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/despatch-notes',{
@@ -138,6 +140,8 @@ describe('InvoiceDetail e-İrsaliye paneli',()=>{
    // bos bir `DORSEPLAKA` elemani dogardi.
    trailer_plate:null,
    delivery_address:'Depo Yolu 7',
+   // GİB şematronu zorunlu tutuyor (sandbox'ta ölçüldü).
+   delivery_postal_code:'34710',
   }));
   expect(await screen.findByText(/kaydı oluşturuldu/)).toBeInTheDocument();
  });

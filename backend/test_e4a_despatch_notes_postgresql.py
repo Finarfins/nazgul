@@ -83,6 +83,7 @@ EKLEME_UZUNLUKLARI = {
     "driver_national_id": 11,
     "vehicle_plate": 20,
     "trailer_plate": 20,
+    "delivery_postal_code": 10,
 }
 
 #: SAĞLAYICI SÜTUNLARI — bunlar INSERT'te YOK, yalnız UPDATE ile yazılıyor
@@ -206,7 +207,7 @@ def _irsaliye_degerleri(firma: int, fatura: int, **degisiklikler) -> dict:
         "cid": firma,
         "invoice_id": fatura,
         "despatch_uuid": str(uuid4()),
-        "despatch_number": f"IRS-{KOSU}",
+        "despatch_number": f"IRS{2026}{_SAYAC['n']:09d}",
         "issue_date": date(2026, 9, 13),
         "actual_shipment_at": datetime(2026, 9, 13, 8, 30, tzinfo=timezone.utc),
         "carrier_name": None,
@@ -216,6 +217,7 @@ def _irsaliye_degerleri(firma: int, fatura: int, **degisiklikler) -> dict:
         "vehicle_plate": PLAKA,
         "trailer_plate": None,
         "delivery_address": "Depo Yolu 7",
+        "delivery_postal_code": "34000",
         "status": "NONE",
         "now": datetime.now(timezone.utc),
     }
@@ -227,11 +229,11 @@ _EKLE = text(
     f"INSERT INTO {IRSALIYE}(company_id,invoice_id,despatch_uuid,despatch_number,"
     "issue_date,actual_shipment_at,carrier_name,carrier_tax_number,driver_name,"
     "driver_national_id,vehicle_plate,trailer_plate,delivery_address,"
-    "edespatch_status,created_at,updated_at) "
+    "delivery_postal_code,edespatch_status,created_at,updated_at) "
     "VALUES(:cid,:invoice_id,:despatch_uuid,:despatch_number,:issue_date,"
     ":actual_shipment_at,:carrier_name,:carrier_tax_number,:driver_name,"
     ":driver_national_id,:vehicle_plate,:trailer_plate,:delivery_address,"
-    ":status,:now,:now) RETURNING id"
+    ":delivery_postal_code,:status,:now,:now) RETURNING id"
 )
 
 
@@ -248,11 +250,11 @@ def test_SEMA_BASI_gercekten_0083(motor) -> None:
 
 
 def test_TABLO_ve_KISITLAR_PGde_var(motor) -> None:
-    """23 sütun, 3 UNIQUE, 2 CHECK, biri BİLEŞİK 3 FK, 1 indeks."""
+    """24 sütun, 3 UNIQUE, 2 CHECK, biri BİLEŞİK 3 FK, 1 indeks."""
     d = inspect(motor)
     assert d.has_table(IRSALIYE)
     sutunlar = {c["name"] for c in d.get_columns(IRSALIYE)}
-    assert len(sutunlar) == 23, sorted(sutunlar)
+    assert len(sutunlar) == 24, sorted(sutunlar)
 
     assert {u["name"] for u in d.get_unique_constraints(IRSALIYE)} == {
         "uq_despatch_notes_company_id",
@@ -504,6 +506,7 @@ def test_GIDIS_DONUS_PGden_okunan_satir_UBL_uretiyor(motor) -> None:
                 "driver_name": satir["driver_name"],
                 "driver_national_id": satir["driver_national_id"],
                 "delivery_address": satir["delivery_address"],
+                "delivery_postal_code": satir["delivery_postal_code"],
             },
             "lines": [{"id": 1, "name": "Bugday", "quantity": "2.5000"}],
         }
