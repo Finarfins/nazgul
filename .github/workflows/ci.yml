@@ -275,6 +275,15 @@ jobs:
       # Sira-bagimli test, tanim sirasinda yesil oldugu icin normal kosuda
       # gorunmez; ucuz karsi-kanit tek bir ters kosudur.
       #
+      # `-p pytest_asyncio.plugin` ZORUNLU ve bu adimin `PYTEST_DISABLE_PLUGIN_AUTOLOAD`
+      # ayarinin dogrudan sonucudur: autoload kapaliyken pytest-asyncio yuklenmez,
+      # `asyncio_mode = auto` (pytest.ini) hicbir sey yapmaz ve her `async def` test
+      # "async def functions are not natively supported" ile DUSER -- sirayla ilgisi
+      # YOK, ileri sirada da duser (olculdu 2026-09-10: ileri 7F/6P, ters 7F/6P,
+      # bayrakla iki sirada da 13P). `run_isolated_tests.py` ayni bayragi ayni
+      # nedenle veriyor; bu adim onu atlamisti ve kusur ancak async testi olan bir
+      # dosya DEGISTIGINDE gorunur oluyordu.
+      #
       # SINIR: bu iste PostgreSQL servisi YOKTUR, bu yuzden *postgresql*.py
       # ikizleri bilerek DISARIDA birakilir. Onlarin ters-sira korumasi bu
       # adimda DEGIL, backend-postgresql isinde aranmalidir.
@@ -308,14 +317,14 @@ jobs:
               continue
             fi
             echo "== ters sıra: $dosya =="
-            mapfile -t dugum < <(python -m pytest --collect-only -q "$dosya"               | grep '::' | tac)
+            mapfile -t dugum < <(python -m pytest -p pytest_asyncio.plugin --collect-only -q "$dosya"               | grep '::' | tac)
             if [ "${#dugum[@]}" -eq 0 ]; then
               echo "  düğüm toplanamadı, atlanıyor"
               continue
             fi
             # Tek dosyada durmuyoruz: butun degisen dosyalar kosuluyor,
             # kapi sonda kapaniyor. Ayni maliyet, tam teshis.
-            if ! DATABASE_URL="sqlite:///$RUNNER_TEMP/ters-$(basename "$dosya").db" python -m pytest -q --no-header "${dugum[@]}"; then
+            if ! DATABASE_URL="sqlite:///$RUNNER_TEMP/ters-$(basename "$dosya").db" python -m pytest -p pytest_asyncio.plugin -q --no-header "${dugum[@]}"; then
               basarisiz="$basarisiz $dosya"
             fi
           done
