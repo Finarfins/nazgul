@@ -386,3 +386,190 @@ def test_k5_call_site_gate_fails_on_workflow_root_env(tmp_path: Path) -> None:
 
 
 
+
+
+# --- H25: autoload kapalı adımlarda pytest-asyncio ZORUNLU ---------------------
+#
+# Ölçülen kusur (PR #115, 2026-09-10): "Değişen SQLite testlerini ters sırada
+# koştur" adımı PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 kurup `-p pytest_asyncio.plugin`
+# vermiyordu; tests/test_import_route_body_limit.py içindeki 7 async test HER
+# sırada düştü (ileri 7F/6P, ters 7F/6P). Kusur yalnız async testi olan bir dosya
+# DEĞİŞTİĞİNDE görünür oluyordu. Aşağıdaki kapı, autoload'ı kapatan her adımın
+# her pytest çağrısında bayrağı arar; run_isolated_tests.py'nin iki çağrı yerini
+# de aynı hizada tutar.
+
+H25_AUTOLOAD_ANAHTARI = "PYTEST_DISABLE_PLUGIN_AUTOLOAD"
+H25_BAYRAK = re.compile(r"(?<!\S)-p\s+pytest_asyncio\.plugin(?!\S)")
+# Komut KONUMUNDAKİ pytest: satır başı ya da `;`, `&`, `|`, `(`, `!` sonrası,
+# önünde isteğe bağlı VAR=deger önekleri. `pip install pytest` içindeki çıplak
+# `pytest` argüman konumunda olduğundan eşleşmez.
+H25_PYTEST_CAGRISI = re.compile(
+    r"(?:^|(?<=[;&|(!]))[ \t]*"
+    # VAR=deger öneki; tırnaklı değer içinde boşluk olabilir
+    # (DATABASE_URL="sqlite:///$RUNNER_TEMP/ters-$(basename "$dosya").db").
+    r"(?:[A-Za-z_][A-Za-z0-9_]*=(?:\"[^\"\n]*\"|'[^'\n]*'|[^\s\"'])*[ \t]+)*"
+    r"(?P<komut>(?:python(?:3(?:\.\d+)?)?[ \t]+-m[ \t]+pytest|pytest))(?=\s|$)"
+    r"(?P<argumanlar>[^\n;&|)]*)",
+    re.MULTILINE,
+)
+
+
+def _h25_autoload_kapali_cagrilar(wf: dict) -> list[tuple[str, str, str]]:
+    """Every pytest invocation whose effective env sets the autoload-off key.
+
+    Returns (job_id, step_name, invocation_text). Env is merged workflow →
+    job → step; a key set at any level counts, because pytest reads the
+    process environment and does not care where GitHub put it.
+    """
+    kok_env = wf.get("env") or {}
+    cagrilar: list[tuple[str, str, str]] = []
+    for is_id, is_tanimi in (wf.get("jobs") or {}).items():
+        is_env = {**kok_env, **(is_tanimi.get("env") or {})}
+        for sira, adim in enumerate(is_tanimi.get("steps") or [], 1):
+            adim_env = {**is_env, **(adim.get("env") or {})}
+            if H25_AUTOLOAD_ANAHTARI not in adim_env:
+                continue
+            betik = adim.get("run")
+            if not isinstance(betik, str):
+                continue
+            adim_adi = adim.get("name") or f"<adsız adım #{sira}>"
+            for eslesme in H25_PYTEST_CAGRISI.finditer(betik):
+                cagri = (eslesme.group("komut") + eslesme.group("argumanlar")).strip()
+                cagrilar.append((is_id, adim_adi, cagri))
+    return cagrilar
+
+
+def _h25_ihlaller(wf: dict) -> list[str]:
+    return [
+        f"{is_id} / {adim} :: {cagri}"
+        for is_id, adim, cagri in _h25_autoload_kapali_cagrilar(wf)
+        if not H25_BAYRAK.search(cagri)
+    ]
+
+
+H25_TERS_SIRA_ADIMI = "Değişen SQLite testlerini ters sırada koştur"
+
+
+def test_h25_ci_autoload_kapali_her_pytest_cagrisi_asyncio_yukler() -> None:
+    """Autoload kapalıyken bayraksız pytest = her async test düşer; kapı adı verir."""
+    wf = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    cagrilar = _h25_autoload_kapali_cagrilar(wf)
+    olculen = len(cagrilar)
+    # Boş eşleşme yeşil yanmasın: ters-sıra adımının iki çağrısı (collect + run)
+    # görülmek ZORUNDA; regex bozulursa burada düşer, aşağıda değil.
+    ters_sira = [c for c in cagrilar if c[1] == H25_TERS_SIRA_ADIMI]
+    assert len(ters_sira) == 2, (
+        f"ters-sıra adımında 2 pytest çağrısı bekleniyordu, ölçülen {len(ters_sira)}; "
+        f"toplam autoload-kapalı çağrı {olculen}: {cagrilar}"
+    )
+    ihlaller = _h25_ihlaller(wf)
+    assert not ihlaller, (
+        f"autoload kapalı {olculen} pytest çağrısından {len(ihlaller)} tanesi "
+        "`-p pytest_asyncio.plugin` vermiyor (async testler HER sırada düşer):\n  "
+        + "\n  ".join(ihlaller)
+    )
+
+
+@pytest.mark.parametrize("cagri_indeksi", [0, 1], ids=["collect-only", "run"])
+def test_h25_ci_bayragi_sokulen_kopya_adimi_ve_cagriyi_adiyla_duser(
+    tmp_path: Path, cagri_indeksi: int
+) -> None:
+    """ci.yml kopyasında TEK çağrının bayrağı sökülür; kapı o adımı ve çağrıyı adlar."""
+    wf = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    once = _h25_ihlaller(wf)
+    hedef = None
+    for adim in wf["jobs"]["backend-quality-canonical"]["steps"]:
+        if adim.get("name") == H25_TERS_SIRA_ADIMI:
+            hedef = adim
+    assert hedef is not None, "ters-sıra adımı ci.yml'de bulunamadı"
+    eslesmeler = list(H25_BAYRAK.finditer(hedef["run"]))
+    assert len(eslesmeler) == 2, f"ters-sıra adımında 2 bayrak bekleniyordu: {len(eslesmeler)}"
+    e = eslesmeler[cagri_indeksi]
+    hedef["run"] = hedef["run"][: e.start()] + hedef["run"][e.end() :]
+    kopya = tmp_path / "ci.yml"
+    kopya.write_text(yaml.dump(wf, allow_unicode=True), encoding="utf-8")
+
+    sonra = _h25_ihlaller(yaml.safe_load(kopya.read_text(encoding="utf-8")))
+    yeni = sorted(set(sonra) - set(once))
+    assert len(yeni) == 1, f"tam 1 yeni ihlal bekleniyordu, ölçülen {len(yeni)}: {yeni}"
+    (ihlal,) = yeni
+    assert ihlal.startswith(f"backend-quality-canonical / {H25_TERS_SIRA_ADIMI} :: "), ihlal
+    beklenen_parca = "--collect-only" if cagri_indeksi == 0 else "--no-header"
+    assert beklenen_parca in ihlal, ihlal
+    assert "pytest_asyncio" not in ihlal, ihlal
+
+
+def test_h25_pytest_cagri_regexi_pip_install_ve_argumani_saymaz() -> None:
+    """`pip install pytest` çağrı DEĞİLDİR; sayaç yalnız komut konumunu sayar."""
+    betik = (
+        "python -m pip install pytest pytest-asyncio\n"
+        "pip install pytest\n"
+        "python run_isolated_tests.py --timeout 180\n"
+        "X=1 python -m pytest -q a.py; pytest -p pytest_asyncio.plugin b.py && python3 -m pytest c.py\n"
+        "mapfile -t d < <(python -m pytest --collect-only -q e.py | grep '::' | tac)\n"
+        'if ! DATABASE_URL="sqlite:///$T/ters-$(basename "$dosya").db" python -m pytest -q f.py; then\n'
+    )
+    cagrilar = [
+        (m.group("komut") + m.group("argumanlar")).strip()
+        for m in H25_PYTEST_CAGRISI.finditer(betik)
+    ]
+    assert cagrilar == [
+        "python -m pytest -q a.py",
+        "pytest -p pytest_asyncio.plugin b.py",
+        "python3 -m pytest c.py",
+        "python -m pytest --collect-only -q e.py",
+        "python -m pytest -q f.py",
+    ], cagrilar
+
+
+RUNNER = BACKEND / "run_isolated_tests.py"
+
+
+def _h25_runner_pytest_komut_listeleri(kaynak: str) -> list[list[str]]:
+    """AST: `[..., "-m", "pytest", ...]` biçimindeki her liste; grep değil."""
+    import ast
+
+    listeler: list[list[str]] = []
+    for dugum in ast.walk(ast.parse(kaynak)):
+        if not isinstance(dugum, ast.List):
+            continue
+        sabitler = [
+            e.value for e in dugum.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)
+        ]
+        for i in range(len(sabitler) - 1):
+            if sabitler[i] == "-m" and sabitler[i + 1] == "pytest":
+                listeler.append(sabitler)
+                break
+    return listeler
+
+
+def _h25_runner_bayraksiz(listeler: list[list[str]]) -> list[list[str]]:
+    return [
+        liste
+        for liste in listeler
+        if not any(
+            liste[i] == "-p" and liste[i + 1] == "pytest_asyncio.plugin"
+            for i in range(len(liste) - 1)
+        )
+    ]
+
+
+def test_h25_isolated_runner_iki_cagri_yeri_de_asyncio_yukler() -> None:
+    """Runner autoload'ı kapatır (env) ve HER iki pytest komut listesi bayrağı taşır."""
+    kaynak = RUNNER.read_text(encoding="utf-8")
+    assert f'env["{H25_AUTOLOAD_ANAHTARI}"] = "1"' in kaynak, "runner autoload'ı kapatmıyor mu?"
+    listeler = _h25_runner_pytest_komut_listeleri(kaynak)
+    assert len(listeler) == 2, (
+        f"runner'da 2 pytest komut listesi bekleniyordu, ölçülen {len(listeler)}"
+    )
+    bayraksiz = _h25_runner_bayraksiz(listeler)
+    assert not bayraksiz, f"{len(bayraksiz)}/{len(listeler)} komut listesi bayraksız: {bayraksiz}"
+
+
+def test_h25_isolated_runner_bayragi_sokulen_kopya_duser() -> None:
+    kaynak = RUNNER.read_text(encoding="utf-8")
+    sokuk, adet = re.subn(r'"-p",\s*"pytest_asyncio\.plugin",\s*', "", kaynak, count=1)
+    assert adet == 1
+    listeler = _h25_runner_pytest_komut_listeleri(sokuk)
+    assert len(listeler) == 2
+    assert len(_h25_runner_bayraksiz(listeler)) == 1
