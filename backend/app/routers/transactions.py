@@ -337,7 +337,20 @@ def _totals(db: Session, payload: TransactionCreate, cid: int):
     )
 
 
-def _sync_payment(kind: str, transaction_id: int, payload: TransactionCreate, db: Session, cid: int):
+def _sync_payment(
+    kind: str,
+    transaction_id: int,
+    payload: TransactionCreate,
+    db: Session,
+    cid: int,
+    *,
+    created_by: int | None = None,
+):
+    """``created_by`` SEC-9 (göç 0084) ile eklendi: belgeden doğan otomatik
+    ödemenin tahsisi de ``payment_idempotency`` defterine yazıyor ve o defter
+    artık KULLANICI kapsamlı. Kimlik ``request.state.user["id"]``den gelir,
+    GÖVDEDEN OKUNMAZ; ``request`` yoksa motor sistem nöbetçisine düşer."""
+
     reference_type = "order" if kind == "sale" else "purchase"
     entity_type = "customer" if kind == "sale" else "supplier"
     validate_payment_reference(
@@ -439,6 +452,7 @@ def _sync_payment(kind: str, transaction_id: int, payload: TransactionCreate, db
                 cid,
                 payment_id,
                 f"sale:{transaction_id}:payment:{payment_id}",
+                created_by=created_by,
                 commit=False,
             )
         sync_payment_finance(
@@ -1108,7 +1122,19 @@ def _save(
                     {"price": item.unit_price, "id": product["id"], "cid": cid},
                 )
 
-        _sync_payment(kind, int(transaction_id), payload, db, cid)
+        _sync_payment(
+            kind,
+            int(transaction_id),
+            payload,
+            db,
+            cid,
+            # SEC-9: satış yolunda `request` HER ZAMAN geçiliyor
+            # (`create_order`/`update_order`); alış yolunda tahsis motoru zaten
+            # çağrılmıyor (`kind == "sale"` koşulu).
+            created_by=(
+                int(request.state.user["id"]) if request is not None else None
+            ),
+        )
         record_policy_overrides(
             db,
             company_id=cid,

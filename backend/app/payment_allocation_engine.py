@@ -21,6 +21,13 @@ from .money import ZERO_MONEY, money
 from .receivables_engine import normalized_date_sql, parse_receivable_date
 from .finance_engine import remove_payment_finance, sync_payment_finance
 
+#: SEC-9 (göç 0084): `payment_idempotency.user_id` NOT NULL'dur ve göç
+#: öncesi satırlar 0 nöbetçisiyle dolduruldu. Aktörü OLMAYAN sistem yolları
+#: (`created_by=None`) AYNI nöbetçiyi yazar: `app_users.id` 1'den başladığı
+#: için 0 hiçbir gerçek kullanıcıyla ÇAKIŞMAZ, yani bu satırlar bir
+#: kullanıcının anahtar uzayına sızamaz.
+SISTEM_KULLANICISI = 0
+
 MAX_TRANSACTION_ATTEMPTS = 3
 RETRYABLE_SQLSTATES = {"40P01", "40001"}
 
@@ -151,6 +158,17 @@ class AllocationMutationResult:
         return cls(**payload)
 
 
+def _kullanici_kapsami(created_by: int | None) -> int:
+    """Aktörün kimliği — yoksa sistem nöbetçisi (SEC-9, göç 0084).
+
+    `created_by` uçtan `request.state.user["id"]` ile geliyor; GÖVDEDEN
+    OKUNMUYOR. Bir aktörü olmayan tek yol, belgeden doğan otomatik ödeme
+    tahsisidir ve o da nöbetçiye yazılır.
+    """
+
+    return SISTEM_KULLANICISI if created_by is None else int(created_by)
+
+
 def _decimal_text(value: Decimal) -> str:
     return format(money(value), ".2f")
 
@@ -198,12 +216,14 @@ def _canonical_fingerprint(
 def _claim_idempotency(
     db: Session,
     company_id: int,
+    user_id: int,
     payment_id: int,
     idempotency_key: str,
     fingerprint: str,
 ) -> tuple[int, AllocationResult | None]:
     params = {
         "cid": company_id,
+        "uid": user_id,
         "operation": "allocate_payment",
         "resource_type": "payment",
         "resource_id": str(payment_id),
@@ -217,11 +237,11 @@ def _claim_idempotency(
                 db.execute(
                     text(
                         """INSERT INTO payment_idempotency(
-                            company_id,operation_type,resource_type,resource_id,
-                            idempotency_key,status,request_fingerprint
+                            company_id,user_id,operation_type,resource_type,
+                            resource_id,idempotency_key,status,request_fingerprint
                         ) VALUES(
-                            :cid,:operation,:resource_type,:resource_id,
-                            :key,'processing',:fingerprint
+                            :cid,:uid,:operation,:resource_type,
+                            :resource_id,:key,'processing',:fingerprint
                         ) RETURNING id"""
                     ),
                     params,
@@ -236,7 +256,7 @@ def _claim_idempotency(
         text(
             """SELECT id,status,request_fingerprint,result_snapshot
             FROM payment_idempotency
-            WHERE company_id=:cid AND operation_type=:operation
+            WHERE company_id=:cid AND user_id=:uid AND operation_type=:operation
               AND resource_type=:resource_type AND resource_id=:resource_id
               AND idempotency_key=:key"""
             + _lock_suffix(db)
@@ -245,7 +265,7 @@ def _claim_idempotency(
     ).mappings().first()
     if not row:
         return _claim_idempotency(
-            db, company_id, payment_id, idempotency_key, fingerprint
+            db, company_id, user_id, payment_id, idempotency_key, fingerprint
         )
     if row["request_fingerprint"] != fingerprint:
         raise HTTPException(409, "Idempotency anahtarı farklı bir istek için kullanılmış")
@@ -256,9 +276,9 @@ def _claim_idempotency(
             text(
                 """UPDATE payment_idempotency
                 SET status='processing',result_snapshot=NULL,completed_at=NULL
-                WHERE id=:id AND company_id=:cid"""
+                WHERE id=:id AND company_id=:cid AND user_id=:uid"""
             ),
-            {"id": int(row["id"]), "cid": company_id},
+            {"id": int(row["id"]), "cid": company_id, "uid": user_id},
         )
         return int(row["id"]), None
     raise HTTPException(409, "Tahsis işlemi halen devam ediyor")
@@ -267,11 +287,13 @@ def _claim_idempotency(
 def _claim_payment_create(
     db: Session,
     company_id: int,
+    user_id: int,
     idempotency_key: str,
     fingerprint: str,
 ) -> tuple[int, dict[str, object] | None]:
     params = {
         "cid": company_id,
+        "uid": user_id,
         "operation": "create_payment",
         "resource_type": "payment",
         "resource_id": "create",
@@ -285,11 +307,11 @@ def _claim_payment_create(
                 db.execute(
                     text(
                         """INSERT INTO payment_idempotency(
-                            company_id,operation_type,resource_type,resource_id,
-                            idempotency_key,status,request_fingerprint
+                            company_id,user_id,operation_type,resource_type,
+                            resource_id,idempotency_key,status,request_fingerprint
                         ) VALUES(
-                            :cid,:operation,:resource_type,:resource_id,
-                            :key,'processing',:fingerprint
+                            :cid,:uid,:operation,:resource_type,
+                            :resource_id,:key,'processing',:fingerprint
                         ) RETURNING id"""
                     ),
                     params,
@@ -303,7 +325,7 @@ def _claim_payment_create(
         text(
             """SELECT id,status,request_fingerprint,result_snapshot
             FROM payment_idempotency
-            WHERE company_id=:cid AND operation_type=:operation
+            WHERE company_id=:cid AND user_id=:uid AND operation_type=:operation
               AND resource_type=:resource_type AND resource_id=:resource_id
               AND idempotency_key=:key"""
             + _lock_suffix(db)
@@ -314,6 +336,7 @@ def _claim_payment_create(
         return _claim_payment_create(
             db,
             company_id,
+            user_id,
             idempotency_key,
             fingerprint,
         )
@@ -356,6 +379,7 @@ def _operation_fingerprint(
 def _claim_operation_idempotency(
     db: Session,
     company_id: int,
+    user_id: int,
     operation_type: str,
     resource_type: str,
     resource_id: str,
@@ -369,6 +393,7 @@ def _claim_operation_idempotency(
         raise HTTPException(400, "Idempotency-Key en fazla 255 karakter olabilir")
     params = {
         "cid": company_id,
+        "uid": user_id,
         "operation": operation_type,
         "resource_type": resource_type,
         "resource_id": resource_id,
@@ -381,11 +406,11 @@ def _claim_operation_idempotency(
             db.execute(
                 text(
                     """INSERT INTO payment_idempotency(
-                        company_id,operation_type,resource_type,resource_id,
-                        idempotency_key,status,request_fingerprint
+                        company_id,user_id,operation_type,resource_type,
+                        resource_id,idempotency_key,status,request_fingerprint
                     ) VALUES(
-                        :cid,:operation,:resource_type,:resource_id,
-                        :key,'processing',:fingerprint
+                        :cid,:uid,:operation,:resource_type,
+                        :resource_id,:key,'processing',:fingerprint
                     ) RETURNING id"""
                 ),
                 params,
@@ -403,7 +428,7 @@ def _claim_operation_idempotency(
         text(
             """SELECT id,status,request_fingerprint,result_snapshot
             FROM payment_idempotency
-            WHERE company_id=:cid AND operation_type=:operation
+            WHERE company_id=:cid AND user_id=:uid AND operation_type=:operation
               AND resource_type=:resource_type AND resource_id=:resource_id
               AND idempotency_key=:key"""
             + _lock_suffix(db)
@@ -414,6 +439,7 @@ def _claim_operation_idempotency(
         return _claim_operation_idempotency(
             db,
             company_id,
+            user_id,
             operation_type,
             resource_type,
             resource_id,
@@ -431,9 +457,9 @@ def _claim_operation_idempotency(
             text(
                 """UPDATE payment_idempotency
                 SET status='processing',result_snapshot=NULL,completed_at=NULL
-                WHERE id=:id AND company_id=:cid"""
+                WHERE id=:id AND company_id=:cid AND user_id=:uid"""
             ),
-            {"id": int(row["id"]), "cid": company_id},
+            {"id": int(row["id"]), "cid": company_id, "uid": user_id},
         )
         return int(row["id"]), None
     raise HTTPException(409, "Tahsis işlemi halen devam ediyor")
@@ -442,6 +468,7 @@ def _claim_operation_idempotency(
 def _complete_operation_idempotency(
     db: Session,
     company_id: int,
+    user_id: int,
     claim_id: int,
     result: AllocationMutationResult,
 ) -> None:
@@ -449,13 +476,14 @@ def _complete_operation_idempotency(
         text(
             """UPDATE payment_idempotency
             SET status='completed',result_snapshot=:snapshot,completed_at=:completed_at
-            WHERE id=:id AND company_id=:cid"""
+            WHERE id=:id AND company_id=:cid AND user_id=:uid"""
         ),
         {
             "snapshot": result.snapshot(),
             "completed_at": datetime.now(timezone.utc),
             "id": claim_id,
             "cid": company_id,
+            "uid": user_id,
         },
     )
 
@@ -948,7 +976,12 @@ def allocate_payment(
         raise HTTPException(404, "Ödeme bulunamadı")
     fingerprint = _canonical_fingerprint(company_id, dict(payment_snapshot))
     claim_id, replay = _claim_idempotency(
-        db, company_id, payment_id, idempotency_key, fingerprint
+        db,
+        company_id,
+        _kullanici_kapsami(created_by),
+        payment_id,
+        idempotency_key,
+        fingerprint,
     )
     if replay is not None:
         if commit:
@@ -1101,13 +1134,14 @@ def allocate_payment(
         text(
             """UPDATE payment_idempotency
             SET status='completed',result_snapshot=:snapshot,completed_at=:completed_at
-            WHERE id=:id AND company_id=:cid"""
+            WHERE id=:id AND company_id=:cid AND user_id=:uid"""
         ),
         {
             "snapshot": snapshot,
             "completed_at": datetime.now(timezone.utc),
             "id": claim_id,
             "cid": company_id,
+            "uid": _kullanici_kapsami(created_by),
         },
     )
     if commit:
@@ -1136,6 +1170,7 @@ def create_payment_with_allocation(
     claim_id, replay = _claim_payment_create(
         db,
         company_id,
+        _kullanici_kapsami(created_by),
         key,
         fingerprint,
     )
@@ -1189,13 +1224,14 @@ def create_payment_with_allocation(
         text(
             """UPDATE payment_idempotency
             SET status='completed',result_snapshot=:snapshot,completed_at=:completed_at
-            WHERE id=:id AND company_id=:cid"""
+            WHERE id=:id AND company_id=:cid AND user_id=:uid"""
         ),
         {
             "snapshot": snapshot,
             "completed_at": datetime.now(timezone.utc),
             "id": claim_id,
             "cid": company_id,
+            "uid": _kullanici_kapsami(created_by),
         },
     )
     if on_created is not None:
@@ -1559,6 +1595,7 @@ def _manual_allocate_payment(
     claim_id, replay = _claim_operation_idempotency(
         db,
         company_id,
+        _kullanici_kapsami(created_by),
         "manual_allocation",
         "payment_order",
         resource_id,
@@ -1652,7 +1689,9 @@ def _manual_allocate_payment(
         result.snapshot(),
         action="manual_allocate",
     )
-    _complete_operation_idempotency(db, company_id, claim_id, result)
+    _complete_operation_idempotency(
+        db, company_id, _kullanici_kapsami(created_by), claim_id, result
+    )
     if activity_hook is not None:
         activity_hook(db, result)
     db.commit()
@@ -1693,6 +1732,7 @@ def _reverse_allocation(
     claim_id, replay = _claim_operation_idempotency(
         db,
         company_id,
+        _kullanici_kapsami(created_by),
         "reverse_allocation",
         "allocation",
         str(allocation_id),
@@ -1787,7 +1827,9 @@ def _reverse_allocation(
         result.snapshot(),
         action="reverse",
     )
-    _complete_operation_idempotency(db, company_id, claim_id, result)
+    _complete_operation_idempotency(
+        db, company_id, _kullanici_kapsami(created_by), claim_id, result
+    )
     if activity_hook is not None:
         activity_hook(db, result)
     db.commit()
@@ -1839,6 +1881,7 @@ def _reallocate_allocation(
     claim_id, replay = _claim_operation_idempotency(
         db,
         company_id,
+        _kullanici_kapsami(created_by),
         "reallocate_allocation",
         "allocation",
         str(allocation_id),
@@ -2006,7 +2049,9 @@ def _reallocate_allocation(
         result.snapshot(),
         action="reallocate",
     )
-    _complete_operation_idempotency(db, company_id, claim_id, result)
+    _complete_operation_idempotency(
+        db, company_id, _kullanici_kapsami(created_by), claim_id, result
+    )
     if activity_hook is not None:
         activity_hook(db, result)
     db.commit()
