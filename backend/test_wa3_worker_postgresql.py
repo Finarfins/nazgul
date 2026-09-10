@@ -468,4 +468,4 @@ def test_GOC_TURU_up_down_up_GERCEK_PostgreSQLde(motor) -> None:
         surumler = b.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalars().all()
-    assert surumler == ["20260913_0083"], surumler
+    assert surumler == ["20260914_0084"], surumler

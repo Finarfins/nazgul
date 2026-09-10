@@ -137,6 +137,13 @@ KULLANICI_SUTUNLARI: frozenset[tuple[str, str]] = frozenset(
         ("invoice_audit", "actor_user_id"),
         ("invoice_history", "actor_user_id"),
         ("notification_consent_events", "user_id"),
+        # SEC-9 (göç 0084): idempotens defterinin KULLANICI kapsamı. Kimlik
+        # `app_users.id`dir (ya da göç öncesi satırlar için 0 nöbetçisi) —
+        # KİRACI tablosuna referans DEĞİL, bu yüzden yeni firmada yeniden
+        # eşlenmez, OLDUĞU GİBİ korunur. Yanında duran
+        # `("payment_idempotency", "resource_id")` girdisi AYRI bir sınıftır
+        # (metin kimlik) ve o da olduğu gibi kalır.
+        ("payment_idempotency", "user_id"),
         ("policy_override_logs", "user_id"),
         ("security_audit_logs", "user_id"),
         ("warehouses", "technician_user_id"),

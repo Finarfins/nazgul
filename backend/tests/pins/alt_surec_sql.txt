@@ -27,6 +27,7 @@ test_payment_allocation_live_paths.py	1
 test_pos_credit_sale_aging.py	1
 test_product_active_and_import_warehouse.py	2
 test_receivables_aging.py	1
+test_sec9_payment_idempotency_user.py	2
 test_self_service_registration.py	1
 test_self_service_registration_migration.py	1
 test_servis_v2_faz1.py	2
