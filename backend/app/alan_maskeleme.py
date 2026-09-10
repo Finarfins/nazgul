@@ -228,7 +228,7 @@ def maskele_cari_listesi(rows: Any, role: Any) -> list[dict]:
 
 
 def maskeyi_geri_al(gelen: Any, mevcut: Any, role: Any) -> dict:
-    """Yazmada MASKELI degerin gercek degerin USTUNE yazilmasini onler.
+    """Yazmada MASKELI rol icin maskelenen alanlarda SAKLANAN deger KAZANIR.
 
     --- BU FONKSIYON NEDEN VAR: OKUMA MASKESININ YARATTIGI YAZMA TUZAGI ---
 
@@ -248,36 +248,46 @@ def maskeyi_geri_al(gelen: Any, mevcut: Any, role: Any) -> dict:
     yoktur. Bu tuzagi OKUMA MASKESI YARATIR, yani bu PR'in kendi yan
     etkisidir ve burada kapatilmasi gerekir.
 
-    --- KURAL: "MASKESININ AYNISI" = "DEGISMEDI" ---------------------------
+    --- KURAL: "SAKLANAN KAZANIR" (stored wins) -----------------------------
 
-    Gelen deger, MEVCUT degerin maskesine BIREBIR esitse kullanici o alana
-    DOKUNMAMIS demektir; mevcut ham deger KORUNUR. Esit degilse kullanici
-    GERCEKTEN yeni bir deger yazmistir ve o yazilir -- yani mesru duzenleme
-    ENGELLENMEZ.
+    Rol maskeliyse, `MASKELENEN_ALANLAR` icindeki HER anahtar (ve
+    `customer_`/`supplier_` onekli esleri) gelen deger NE OLURSA OLSUN
+    mevcut satirdaki degerle degistirilir. Gelen deger maskenin aynisi da
+    olabilir, bambaska bir sey de -- fark etmez: MASKELI ROL BU ALANLARI
+    YAZAMAZ. Maskelenmeyen alanlar (`name`, `owner_name`, `notes`, ...)
+    dokunulmadan gecer, yani mesru duzenleme calisir.
 
-    Karsilastirma MEVCUT degerin maskesiyle yapilir, "maskeye benziyor mu"
-    gibi bir SEZGIYLE degil. Fark onemlidir: `"*******890"` metnini GERCEKTEN
-    vergi numarasi olarak yazmak isteyen (ve mevcut degeri farkli olan) bir
-    cagriyi sezgisel bir kontrol yanlislikla yutardi.
+    4xx DONULMEZ ve bu bilinclidir: arayuz nesnenin TAMAMINI geri gonderiyor,
+    yani maskeli alanlar HER kayitta gelir. Onlari reddetmek, maskeli rolun
+    cari ADINI bile duzenleyemedigi anlamina gelirdi.
 
-    Maskesiz roller icin fonksiyon HICBIR SEY yapmaz: onlarin formu zaten ham
-    deger tasiyor ve her alani serbestce degistirebilirler.
+    Saklanan deger `None` ise gelen deger de `None` olur: maskeli rol bos bir
+    telefonu DOLDURAMAZ da. "Yazamaz" kurali dolu/bos ayrimi yapmaz.
+
+    --- TARIHCE: ILK SURUM NEDEN YETMEDI ------------------------------------
+
+    d7b8930'daki ilk surum yalniz `gelen == maske(mevcut)` oldugunda saklanan
+    degeri koruyordu; niyet "kullanici dokunmadiysa ezme" idi. Sozlesme
+    merceginin OLCUMU (PR #114, 2026-09-10): `depo` ile
+    `PUT /api/suppliers/{id}` `tax_number="*******891"` -> 200 ve saklanan
+    deger `"*******891"`. Yani maskeli rol, gordugu maskeden TEK HARF sapan
+    her degerle gercek VKN'yi ezebiliyordu: esitlik kurali "dokunmadi"yi
+    yakaliyor ama "yazamaz"i SAGLAMIYORDU. Sef karari: maskeli rol maskeli
+    alana HIC yazamaz; kural buna gore "saklanan kazanir"a cevrildi.
+
+    Mevcut satir yoksa (`mevcut` bos) fonksiyon dokunmaz: geri konacak
+    saklanan deger yoktur ve cagiran zaten 404 uretir. Mevcut satirda
+    bulunmayan bir anahtar da oldugu gibi gecer -- saklanan degeri yoktur.
+    Maskesiz roller icin fonksiyon HICBIR SEY yapmaz: onlarin formu zaten
+    ham deger tasiyor ve her alani serbestce degistirebilirler.
     """
     veri = dict(gelen)
     if not maskelenecek_mi(role) or not mevcut:
         return veri
     onceki = dict(mevcut)
-    for anahtar, deger in veri.items():
-        if anahtar not in onceki:
-            continue
-        maske = _alan_maskesi(anahtar)
-        if maske is None:
-            continue
-        eski = onceki[anahtar]
-        if eski is None:
-            continue
-        if deger == maske(eski):
-            veri[anahtar] = eski
+    for anahtar in list(veri):
+        if anahtar in onceki and _alan_maskesi(anahtar) is not None:
+            veri[anahtar] = onceki[anahtar]
     return veri
 
 

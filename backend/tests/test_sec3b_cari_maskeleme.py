@@ -37,10 +37,25 @@ yani maskeli bir rol tedarikçi kartına ve TEDARİKÇİ EKSTRESİNE gerçekten
 girebiliyor. Ekstre başlığı VKN + adres + telefon + e-posta taşır. Maskeleme
 oraya bağlanmasaydı `depo` için hiçbir şey değişmezdi.
 
---- ARAMA ORAKÜLÜ: BİLİNÇLİ, ÖLÇÜLEN VE RAPORLANAN SINIR --------------------
+--- ARAMA ORAKÜLÜ: ÖLÇÜLDÜ VE KAPATILDI --------------------------------------
 
-`test_maskeli_rol_arama_ile_ham_deger_alamaz` bir SINIR çiziyor ve o sınırın
-neresi olduğunu açıkça yazıyor. Ayrıntı testin kendi docstring'indedir.
+d7b8930'da `q` maskeli rol için de telefon/e-posta/VKN üzerinde eşleşiyordu ve
+bu "doğrulama, elde etmek değildir" diye kabul edilmişti. Çalışma zamanı
+merceği o cümleyi YANLIŞLADI: `depo` maskeli `*******596`yı görüp `q=1596`,
+`q=31596`, ... diye soneki büyüterek 80 gerçek istekte TAM VKN'yi geri çıkardı
+(her adımda tek eşleşme). Şef kararı: maskeli rol için `q` yalnız `name` ve
+`owner_name` üzerinde eşleşir -- `/api/customers`, `/api/suppliers` ve
+`/api/search` üçünde de. Bölüm 4 hem daraltmayı hem de yürütmenin İLK ADIMDA
+sıfır eşleşme verdiğini ölçüyor; maskesiz roller tam süzgeci korur ve karşı
+hücreleri aynı bölümdedir.
+
+--- YAZMA: MASKELİ ROL MASKELİ ALANA HİÇ YAZAMAZ ---------------------------
+
+d7b8930'daki `maskeyi_geri_al` yalnız "gelen == maske(saklanan)" iken saklanan
+değeri koruyordu; sözleşme merceği `depo` ile `tax_number="*******891"`
+gönderip 200 aldı ve saklanan değer `"*******891"` oldu. Şef kararı: maskeli
+rol için `MASKELENEN_ALANLAR`daki HER anahtarda SAKLANAN KAZANIR, gelen ne
+olursa olsun; 4xx yok çünkü form nesnenin tamamını geri gönderiyor. Bölüm 6.
 """
 from __future__ import annotations
 
@@ -84,6 +99,9 @@ HAM_DEGERLER = (HAM_TELEFON, HAM_EPOSTA, HAM_VKN, "Atatürk Caddesi No 5 Daire 3
 
 CARI_GOVDE = {
     "name": "SEC3B Müşteri",
+    # `owner_name` MASKELENMEZ (ürün kararı) ve daraltılmış `q` süzgecinin
+    # ikinci sütunudur; dolu olması o sütunun gerçekten arandığını ölçtürür.
+    "owner_name": "Ahmet Yetkili",
     "phone": HAM_TELEFON,
     "email": HAM_EPOSTA,
     "address": HAM_ADRES,
@@ -574,48 +592,189 @@ def test_matris_izinleri_auth_ile_ayni():
 
 
 # ===========================================================================
-# 4) ARAMA ORAKÜLÜ — bilinçli sınır, açıkça ölçülüyor.
+# 4) ARAMA ORAKÜLÜ — ölçüldü ve KAPATILDI: maskeli rol için `q` yalnız ad.
 # ===========================================================================
+
+#: Maskeli değerden HERKESİN okuyabildiği VKN soneki (`*******890` -> `890`).
+#: Sonek yürütmesi bu üç rakamdan başlar ve her adımda bir rakam ekler.
+VKN_SONEKI = HAM_VKN[-3:]
+#: Maskeli telefondan okunabilen sonek (`05** *** ** 12` -> `12`).
+TELEFON_SONEKI = HAM_TELEFON[-2:]
+RAKAMLAR = "0123456789"
+
+
+def _eslesen_kimlikler(istemci, basliklar, yol, q) -> set[int]:
+    """`yol?q=<q>` yanıtındaki cari kimlikleri; liste ucu ve `/api/search` için."""
+    yanit = istemci.get(yol, params={"q": q}, headers=basliklar)
+    assert yanit.status_code == 200, (yol, q, yanit.text)
+    govde = yanit.json()
+    if isinstance(govde, dict):  # /api/search -> {"items": [...]}
+        return {s["id"] for s in govde["items"] if s["type"] == "customer"}
+    return {s["id"] for s in govde}
+
+
+def _sonek_ilk_adimi(istemci, basliklar, yol, sonek, kimlik) -> list[str]:
+    """Yürütmenin İLK adımı: on rakamın her birini sonekin önüne koy, sor.
+
+    Merceğin ölçtüğü saldırı tam bu döngüdür (`q=<rakam>596`): bir adayda
+    tek eşleşme gelirse rakam kesinleşir ve bir sonraki adıma geçilir. Dönen
+    liste, seçilen cariyi DÖNDÜREN adayların listesidir; boş liste yürütmenin
+    daha ilk adımda tıkandığı anlamına gelir. On istek atılır, sonuç ölçülür.
+    """
+    return [
+        rakam + sonek
+        for rakam in RAKAMLAR
+        if kimlik in _eslesen_kimlikler(istemci, basliklar, yol, rakam + sonek)
+    ]
+
 
 @pytest.mark.parametrize("rol", MASKELI_ROLLER)
 def test_maskeli_rol_arama_ile_ham_deger_alamaz(istemci, rol_basliklari, tohum, rol):
-    """Arama ÇALIŞMAYA DEVAM EDER, YANIT MASKELİ KALIR -- ve sınır budur.
+    """Maskeli rol için `q` YALNIZ ad ve yetkili adında arar; hassas alanda ARAMAZ.
 
-    SEÇİLEN DAVRANIŞ (iki seçenek vardı, biri seçildi ve yazıldı):
+    ÖNCEKİ DAVRANIŞ VE NEDEN YANLIŞTI: d7b8930'da `q` maskeli rol için de
+    `phone`/`email`/`tax_number` üzerinde eşleşiyordu ve bu docstring
+    "doğrulama, elde etmek değildir" diyordu. Çalışma zamanı merceği bu
+    cümleyi ÖLÇEREK yanlışladı: `q` bir İÇERİR süzgecidir (`LIKE %q%`), yani
+    maskede görünen üç sonek rakamından başlayıp her adımda bir rakam ekleyen
+    `depo`, 80 gerçek istekte TAM VKN'yi geri çıkardı -- her adımda tek
+    eşleşme. "Doğrulama" değil, TAM ÇIKARMA orakülüydü.
 
-    `q` parametresi bugün `name`, `phone`, `email` ve `tax_number` üzerinde
-    eşleşiyor. Maskeli roller için bu eşleşme DARALTILMADI. Gerekçe:
+    YENİ DAVRANIŞ (şef kararı): maskeli roller için süzgeç `name` ve
+    `owner_name` ile sınırlı. Telefonla müşteri bulmak isteyen `depo` bunu
+    artık ada göre yapar; bu, SEC-3b'nin koruduğu verinin fiyatıdır ve
+    bilinçli ödenmiştir. Maskesiz roller tam süzgeci korur
+    (`test_maskesiz_rol_vkn_ve_telefonla_arayabilir`).
 
-    1. Depo görevlisinin telefonla müşteri araması GÜNLÜK İŞTİR; aramayı ada
-       indirmek SEC-3'ün korumayı hedeflediği iş yüzeyini keserdi.
-    2. Daraltma, `musteri_satirlari`nin SQL'ini role göre değiştirmeyi
-       gerektirirdi. O fonksiyonu WhatsApp kanalı da çağırıyor ve gövdesi
-       `test_tenant_scoping_guard` içinde parmak iziyle sabitlenmiş durumda;
-       yani daraltma iki yüzeyi ve bir pini birden hareket ettirirdi.
-
-    ÖLÇÜLEN VE KABUL EDİLEN KALAN SINIR: `q` bir ORAKÜL'dür. Ham VKN'yi
-    ZATEN BİLEN bir `depo` kullanıcısı `?q=1234567890` yazıp dönen satırdan
-    o VKN'nin BU müşteriye ait olduğunu DOĞRULAYABİLİR. Doğrulama, elde
-    etmek değildir -- kullanıcının değeri başka bir yerden bilmesi gerekir --
-    ama sıfır da değildir. Bu, mekanizmanın değil MATRİSİN kararıdır:
-    daraltma istenirse `musteri_satirlari`na tek bir `maskeli` bayrağı
-    eklemek yeterlidir.
-
-    Test HER İKİ yarıyı da ölçüyor: arama gerçekten çalışıyor VE yanıt
-    gerçekten maskeli. Biri bozulursa hangisinin bozulduğu adıyla görünür.
+    Test iki yarıyı da ölçüyor: hassas alanlarla arama cariyi GETİRMEZ, ad ve
+    yetkili adıyla arama GETİRİR ve getirdiği satır MASKELİDİR.
     """
-    yanit = istemci.get(
-        f"/api/customers?q={HAM_VKN}", headers=rol_basliklari[rol]
+    h = rol_basliklari[rol]
+    mid = tohum["musteri_id"]
+
+    # (a) Hassas alanların HİÇBİRİ süzgeçte değil: tam değerle bile bulunmaz.
+    for hassas in (HAM_VKN, HAM_TELEFON, HAM_EPOSTA, "Atatürk Caddesi"):
+        assert mid not in _eslesen_kimlikler(istemci, h, "/api/customers", hassas), (
+            f"maskeli rol hassas alanla aradı ve buldu: {hassas!r}"
+        )
+
+    # (b) Ad ve yetkili adıyla arama ÇALIŞIR ve yanıt MASKELİDİR.
+    for ad in ("SEC3B", "sec3b müşteri", "Yetkili"):
+        yanit = istemci.get("/api/customers", params={"q": ad}, headers=h)
+        assert yanit.status_code == 200, yanit.text
+        satir = [s for s in yanit.json() if s["id"] == mid]
+        assert satir, f"ad/yetkili aramasi daraltmadan etkilendi: {ad!r}"
+        assert satir[0]["tax_number"] == MASKE_VKN
+        assert satir[0]["phone"] == MASKE_TELEFON
+        for ham in HAM_DEGERLER:
+            assert ham not in yanit.text, f"arama yanıtında ham değer: {ham}"
+
+
+@pytest.mark.parametrize("rol", MASKESIZ_TEST_ROLLERI)
+def test_maskesiz_rol_vkn_ve_telefonla_arayabilir(istemci, rol_basliklari, tohum, rol):
+    """Karşı hücre: maskesiz rol tam süzgeci korur ve ham satırı alır."""
+    h = rol_basliklari[rol]
+    mid = tohum["musteri_id"]
+    for hassas in (HAM_VKN, HAM_TELEFON, HAM_EPOSTA):
+        yanit = istemci.get("/api/customers", params={"q": hassas}, headers=h)
+        assert yanit.status_code == 200, yanit.text
+        satir = [s for s in yanit.json() if s["id"] == mid]
+        assert satir, f"maskesiz rol icin suzgec daraldi: {hassas!r}"
+        assert satir[0]["tax_number"] == HAM_VKN
+        assert satir[0]["phone"] == HAM_TELEFON
+
+
+@pytest.mark.parametrize("rol", MASKELI_ROLLER)
+def test_sonek_yurutmesi_ilk_adimda_sifir_eslesme(istemci, rol_basliklari, tohum, rol):
+    """Merceğin saldırısı, düzeltmeden sonra: İLK ADIMDA SIFIR eşleşme.
+
+    Mercek d7b8930'da `q=1596 -> q=31596 -> ... -> q=4820731596` ile 80
+    istekte tam VKN'yi çıkardı. Aynı yürütme burada `*******890` maskesine
+    karşı koşturuluyor: on aday (`0890`..`9890`), on istek. Beklenen: hiçbir
+    aday seçilen cariyi döndürmez, yani ikinci adıma geçilecek rakam yoktur
+    ve yürütme başlayamaz.
+
+    KONTROL HÜCRESİ aynı testte: `yonetici` için aynı adım TAM OLARAK bir
+    adayı (`7890`) döndürür. Bu, adımın gerçek bir orakül olduğunu ve
+    sıfırın "test yanlış soruyu soruyor"dan değil daraltmadan geldiğini
+    kanıtlar.
+    """
+    mid = tohum["musteri_id"]
+    maskeli = _sonek_ilk_adimi(
+        istemci, rol_basliklari[rol], "/api/customers", VKN_SONEKI, mid
     )
-    assert yanit.status_code == 200, yanit.text
-    satirlar = yanit.json()
-    # (a) Arama ÇALIŞIYOR: tam VKN ile aranan müşteri bulunuyor.
-    assert [s for s in satirlar if s["id"] == tohum["musteri_id"]], (
-        "arama daraltılmadı deniyor ama satır gelmedi; davranış değişmiş"
+    assert maskeli == [], f"sonek yürütmesi ilk adımda ilerledi: {maskeli}"
+
+    kontrol = _sonek_ilk_adimi(
+        istemci, rol_basliklari["yonetici"], "/api/customers", VKN_SONEKI, mid
     )
-    # (b) YANIT MASKELİ: eşleşmeyi doğrulayan gövde ham değeri TAŞIMIYOR.
-    for ham in HAM_DEGERLER:
-        assert ham not in yanit.text, f"arama yanıtında ham değer: {ham}"
+    assert kontrol == [HAM_VKN[-4:]], kontrol
+
+
+def test_depo_tedarikci_aramasi_daraltildi(istemci, rol_basliklari, tohum):
+    """`/api/suppliers?q=` de aynı orakülü taşıyordu; `depo` için aynı daraltma.
+
+    `depo` `purchases` taşır ve tedarikçi listesine GİRER (`rapor` 403 alır,
+    o yüzden yalnız `depo` ölçülüyor). Sorgu `finance.suppliers` içinde ayrı
+    bir metin olduğu için ayrı ölçülmesi şarttır: `customers.py` düzeltilip
+    `finance.py` unutulsa VKN ikinci uçtan aynı yürütmeyle çıkardı.
+    """
+    h_depo = rol_basliklari["depo"]
+    h_yon = rol_basliklari["yonetici"]
+    sid = tohum["tedarikci_id"]
+
+    for hassas in (HAM_VKN, HAM_TELEFON, HAM_EPOSTA):
+        assert sid not in _eslesen_kimlikler(istemci, h_depo, "/api/suppliers", hassas), hassas
+
+    yanit = istemci.get("/api/suppliers", params={"q": "SEC3B"}, headers=h_depo)
+    satir = [s for s in yanit.json() if s["id"] == sid]
+    assert satir and satir[0]["tax_number"] == MASKE_VKN
+    assert sid in _eslesen_kimlikler(istemci, h_depo, "/api/suppliers", "Yetkili")
+
+    # Sonek yürütmesi: `depo` ilk adımda sıfır; `yonetici` kontrolü tek aday.
+    assert _sonek_ilk_adimi(istemci, h_depo, "/api/suppliers", VKN_SONEKI, sid) == []
+    assert _sonek_ilk_adimi(istemci, h_yon, "/api/suppliers", VKN_SONEKI, sid) == [
+        HAM_VKN[-4:]
+    ]
+    yanit = istemci.get("/api/suppliers", params={"q": HAM_VKN}, headers=h_yon)
+    satir = [s for s in yanit.json() if s["id"] == sid]
+    assert satir and satir[0]["tax_number"] == HAM_VKN
+
+
+@pytest.mark.parametrize("rol", MASKELI_ROLLER)
+def test_global_arama_maskeli_rolde_telefon_ve_eposta_eslesmez(
+    istemci, rol_basliklari, tohum, rol
+):
+    """`/api/search` de daraltıldı: maskeli rol için yalnız ad/yetkili adı.
+
+    Mercek `/api/search`ün VKN'de eşleşmediğini ölçmüştü, ama telefon ve
+    e-posta üzerinde `_like` İÇERİR kalıbıyla eşleşiyordu -- yani maskeli
+    `05** *** ** 12`den `q=012`, `q=4512`, ... diye telefon geri çıkarılırdı.
+    Aynı orakül, aynı çare. `subtitle` hâlâ maskeli değerden kurulur.
+    """
+    h = rol_basliklari[rol]
+    mid = tohum["musteri_id"]
+    for hassas in (HAM_TELEFON, HAM_EPOSTA, HAM_TELEFON[-6:]):
+        assert mid not in _eslesen_kimlikler(istemci, h, "/api/search", hassas), hassas
+
+    yanit = istemci.get("/api/search", params={"q": "SEC3B"}, headers=h)
+    oge = [o for o in yanit.json()["items"] if o["type"] == "customer" and o["id"] == mid]
+    assert oge and oge[0]["subtitle"] == MASKE_TELEFON
+    assert mid in _eslesen_kimlikler(istemci, h, "/api/search", "Yetkili")
+
+    # Telefon soneki yürütmesi ilk adımda sıfır; `yonetici` kontrolü eşleşir.
+    assert _sonek_ilk_adimi(istemci, h, "/api/search", TELEFON_SONEKI, mid) == []
+    assert mid in _eslesen_kimlikler(
+        istemci, rol_basliklari["yonetici"], "/api/search", HAM_TELEFON
+    )
+
+
+@pytest.mark.parametrize("rol", ROLLER)
+def test_global_arama_vkn_ile_hic_eslesmez(istemci, rol_basliklari, tohum, rol):
+    """Merceğin ölçümü dondurulıyor: `/api/search` VKN'de HİÇBİR rol için eşleşmez."""
+    assert tohum["musteri_id"] not in _eslesen_kimlikler(
+        istemci, rol_basliklari[rol], "/api/search", HAM_VKN
+    )
 
 
 @pytest.mark.parametrize("rol", MASKELI_ROLLER)
@@ -761,54 +920,131 @@ def test_depo_tedarikciyi_duzenleyince_ham_vergi_no_KORUNUR(
     assert varlik["address"] == HAM_ADRES, "GERÇEK adres maskeyle EZİLDİ"
 
 
-def test_depo_gercekten_yeni_deger_yazabilir(
-    istemci, rol_basliklari, admin_basliklari, tohum
+@pytest.mark.parametrize(
+    "alan,gelen",
+    [
+        # Merceğin ölçtüğü değer: maskeden TEK HARF sapma, d7b8930'da YAZILIYORDU.
+        ("tax_number", "*******891"),
+        ("tax_number", "9999999999"),
+        ("phone", "05329998877"),
+        ("email", "baska@ornek.com"),
+        ("address", "Yeni Mahalle No 1"),
+    ],
+)
+def test_depo_maskeli_alana_HIC_yazamaz(
+    istemci, rol_basliklari, admin_basliklari, tohum, alan, gelen
 ):
-    """Koruma MEŞRU düzenlemeyi ENGELLEMEZ.
+    """Maskeli rol maskeli alana HİÇ yazamaz: gelen ne olursa olsun SAKLANAN KAZANIR.
 
-    Karşı hücre: `depo` alana GERÇEKTEN yeni bir numara yazarsa o yazılır.
-    Bu test olmasaydı `maskeyi_geri_al` "maskeli rol bu alanları hiç
-    değiştiremez" gibi çok daha geniş bir davranışa kayabilir ve kimse
-    fark etmezdi.
+    d7b8930'daki kural "gelen == maske(saklanan) ise koru" idi ve sözleşme
+    merceği bunu `tax_number="*******891"` ile deldi: 200 döndü, saklanan
+    değer `"*******891"` oldu. Bu test o ölçümü ve dört hassas alanın
+    tamamını koşuyor: `depo` alanı değiştirip nesnenin tamamını geri
+    yazıyor, yanıt 200 (4xx DEĞİL -- form nesnenin tamamını gönderdiği için
+    reddetmek adı bile düzenletmezdi), AMA `admin` gözüyle okunan saklanan
+    değer DEĞİŞMEMİŞ; aynı PUT'taki ad değişikliği ise YAZILMIŞ, yani 200
+    gerçek bir yazmadır, yutulmuş bir istek değil.
     """
     h_depo = rol_basliklari["depo"]
     sid = tohum["tedarikci_id"]
 
     kart = istemci.get(f"/api/suppliers/{sid}", headers=h_depo)
+    assert kart.status_code == 200, kart.text
     govde = dict(kart.json()["supplier"])
-    govde["phone"] = "05329998877"
+    govde[alan] = gelen
+    yeni_ad = f"SEC3B Tedarikçi ({alan} denemesi)"
+    govde["name"] = yeni_ad
+
     yazma = istemci.put(f"/api/suppliers/{sid}", headers=h_depo, json=govde)
     assert yazma.status_code == 200, yazma.text
 
     sonra = istemci.get(f"/api/suppliers/{sid}", headers=admin_basliklari)
-    assert sonra.json()["supplier"]["phone"] == "05329998877"
-    # Dokunulmayan alan hâlâ ham.
-    assert sonra.json()["supplier"]["tax_number"] == HAM_VKN
+    assert sonra.status_code == 200, sonra.text
+    varlik = sonra.json()["supplier"]
+    assert varlik["name"] == yeni_ad, "maskelenmeyen alan yazılmadı; 200 sahte"
+    assert varlik[alan] == {
+        "tax_number": HAM_VKN, "phone": HAM_TELEFON,
+        "email": HAM_EPOSTA, "address": HAM_ADRES,
+    }[alan], f"maskeli rol {alan} alanını YAZDI: {varlik[alan]!r}"
+    for anahtar, ham in (
+        ("tax_number", HAM_VKN), ("phone", HAM_TELEFON),
+        ("email", HAM_EPOSTA), ("address", HAM_ADRES),
+    ):
+        assert varlik[anahtar] == ham, anahtar
+
+
+def test_yonetici_maskeli_alani_yazabilir(istemci, rol_basliklari, admin_basliklari):
+    """Karşı hücre: maskesiz rol için `maskeyi_geri_al` hiçbir şey yapmaz.
+
+    Kendi tedarikçisini açıyor ki tohum kaydının ham değerleri değişmesin ve
+    diğer testler koşum sırasından bağımsız kalsın.
+    """
+    h = rol_basliklari["yonetici"]
+    olustur = istemci.post(
+        "/api/suppliers", headers=admin_basliklari,
+        json=dict(TEDARIKCI_GOVDE, name="SEC3B Yönetici Yazma Tedarikçisi"),
+    )
+    assert olustur.status_code in (200, 201), olustur.text
+    sid = olustur.json()["id"]
+
+    kart = istemci.get(f"/api/suppliers/{sid}", headers=h)
+    govde = dict(kart.json()["supplier"])
+    assert govde["tax_number"] == HAM_VKN, "önkoşul: yonetici ham görür"
+    govde["tax_number"] = "9876543210"
+    govde["phone"] = "05329998877"
+    yazma = istemci.put(f"/api/suppliers/{sid}", headers=h, json=govde)
+    assert yazma.status_code == 200, yazma.text
+
+    sonra = istemci.get(f"/api/suppliers/{sid}", headers=admin_basliklari).json()["supplier"]
+    assert sonra["tax_number"] == "9876543210"
+    assert sonra["phone"] == "05329998877"
 
 
 def test_maskeyi_geri_al_birim():
-    """`maskeyi_geri_al`ın kuralı: "maskesinin aynısı" = "değişmedi"."""
-    from app.alan_maskeleme import maskeyi_geri_al
+    """`maskeyi_geri_al` kuralı: maskeli rol için SAKLANAN KAZANIR."""
+    from app.alan_maskeleme import MASKELENEN_ALANLAR, maskeyi_geri_al
 
-    mevcut = {"phone": HAM_TELEFON, "tax_number": HAM_VKN, "name": "Eski"}
+    mevcut = {"phone": HAM_TELEFON, "tax_number": HAM_VKN, "email": None, "name": "Eski"}
 
-    # (a) Maskeli değer geri geldi -> ham korunur.
+    # (a) Maskeli değer geri geldi -> saklanan korunur.
     gelen = {"phone": MASKE_TELEFON, "tax_number": MASKE_VKN, "name": "Yeni"}
     sonuc = maskeyi_geri_al(gelen, mevcut, "depo")
     assert sonuc["phone"] == HAM_TELEFON
     assert sonuc["tax_number"] == HAM_VKN
     assert sonuc["name"] == "Yeni"          # maskelenmeyen alan serbest
 
-    # (b) GERÇEKTEN yeni değer -> yazılır.
-    gelen = {"phone": "05329998877", "tax_number": HAM_VKN}
+    # (b) BAMBAŞKA değer geldi -> YİNE saklanan. d7b8930'daki eşitlik
+    #     kuralından fark tam burasıdır: "*******891" de, yeni bir numara da
+    #     yazılmaz.
+    gelen = {"phone": "05329998877", "tax_number": "*******891"}
     sonuc = maskeyi_geri_al(gelen, mevcut, "depo")
-    assert sonuc["phone"] == "05329998877"
+    assert sonuc["phone"] == HAM_TELEFON
+    assert sonuc["tax_number"] == HAM_VKN
 
-    # (c) Maskesiz rol -> fonksiyon hiçbir şey yapmaz.
-    gelen = {"phone": MASKE_TELEFON}
-    assert maskeyi_geri_al(gelen, mevcut, "yonetici")["phone"] == MASKE_TELEFON
+    # (c) Saklanan None ise gelen de None olur: maskeli rol boş alanı DOLDURAMAZ.
+    assert maskeyi_geri_al({"email": "x@ornek.com"}, mevcut, "depo")["email"] is None
 
-    # (d) Mevcut satır yoksa (yeni kayıt) -> dokunulmaz.
+    # (d) Önekli anahtar (`customer_phone`) da tablodan çözülür.
+    assert maskeyi_geri_al(
+        {"customer_phone": "0"}, {"customer_phone": "1"}, "rapor"
+    )["customer_phone"] == "1"
+
+    # (e) Tablonun TAMAMI: MASKELENEN_ALANLAR'daki her anahtarda saklanan kazanır.
+    for anahtar in MASKELENEN_ALANLAR:
+        assert maskeyi_geri_al({anahtar: "gelen"}, {anahtar: "saklanan"}, "depo") == {
+            anahtar: "saklanan"
+        }, anahtar
+
+    # (f) Maskesiz rol -> fonksiyon hiçbir şey yapmaz.
+    gelen = {"phone": "05329998877"}
+    assert maskeyi_geri_al(gelen, mevcut, "yonetici")["phone"] == "05329998877"
+
+    # (g) Mevcut satır yoksa (yeni kayıt / 404 yolu) -> dokunulmaz.
     assert maskeyi_geri_al({"phone": MASKE_TELEFON}, None, "depo") == {
         "phone": MASKE_TELEFON
     }
+
+    # (h) Girdi yerinde DEĞİŞMEZ.
+    gelen = {"phone": "05329998877"}
+    maskeyi_geri_al(gelen, mevcut, "depo")
+    assert gelen == {"phone": "05329998877"}

@@ -14,7 +14,7 @@ from ..tenancy import company_id, istek_rolu
 from ..document_engine import PAYMENT_METHODS
 from ..finance_engine import finance_accounts, finance_transactions, financial_instruments, ACCOUNT_TYPES, sync_payment_finance, remove_payment_finance, validate_payment_account, utcnow
 from ..crm import add_contact, add_note, add_task, delete_contact, delete_note, delete_task, set_task_status
-from ..alan_maskeleme import maskeyi_geri_al
+from ..alan_maskeleme import maskelenecek_mi, maskeyi_geri_al
 from ..entity_detail import cari_liste_satirlari, entity_detail, entity_documents
 from ..config import settings
 from ..payment_allocation_engine import (
@@ -133,6 +133,16 @@ def suppliers(request: Request, q: str = '', sort: str = 'name_asc', active: str
     sorts={'name_asc':'LOWER(s.name) ASC','name_desc':'LOWER(s.name) DESC','balance_asc':'current_balance ASC','balance_desc':'current_balance DESC','activity_desc':'last_activity DESC','overdue_desc':'overdue_amount DESC'}
     order=sorts.get(sort,sorts['name_asc'])
     active_sql='' if active=='all' else (' AND COALESCE(s.is_active, TRUE)=FALSE' if active=='inactive' else ' AND COALESCE(s.is_active, TRUE)=TRUE')
+    # SEC-3b — maskeli rol (`depo`) icin `q` yalniz ad/yetkili adinda arar;
+    # telefon/e-posta/VKN suzgecten CIKAR. Ayni orakul, ayni care: gerekce ve
+    # olcum `customers.musteri_satirlari` docstring'inde. Maskesiz dalin
+    # metni onceki surumle karakteri karakterine aynidir.
+    arama_sql=(
+        "(LOWER(s.name) LIKE LOWER(:q) OR LOWER(COALESCE(s.owner_name,'')) LIKE LOWER(:q))"
+        if maskelenecek_mi(istek_rolu(request)) else
+        """(LOWER(s.name) LIKE LOWER(:q) OR COALESCE(s.phone,'') LIKE :q
+       OR LOWER(COALESCE(s.email,'')) LIKE LOWER(:q) OR COALESCE(s.tax_number,'') LIKE :q)"""
+    )
     rows = db.execute(text(f'''SELECT s.id,s.name,s.owner_name,s.phone,s.email,s.address,s.tax_number,s.opening_balance,
       COALESCE(s.risk_limit,0) risk_limit,COALESCE(s.payment_term_days,0) payment_term_days,CASE WHEN COALESCE(s.is_active, TRUE) THEN 1 ELSE 0 END is_active,
       COALESCE(s.opening_balance,0)+COALESCE(SUM(CASE WHEN COALESCE(pu.status,'completed') NOT IN ('draft','cancelled') THEN pu.final_total ELSE 0 END),0)+
@@ -157,8 +167,7 @@ def suppliers(request: Request, q: str = '', sort: str = 'name_asc', active: str
         SELECT supplier_id,SUM(net_payable) total_receipts FROM producer_receipts
         WHERE company_id=:cid AND status='issued' GROUP BY supplier_id
       ) mm ON mm.supplier_id=s.id
-      WHERE s.company_id=:cid {active_sql} AND (LOWER(s.name) LIKE LOWER(:q) OR COALESCE(s.phone,'') LIKE :q
-       OR LOWER(COALESCE(s.email,'')) LIKE LOWER(:q) OR COALESCE(s.tax_number,'') LIKE :q)
+      WHERE s.company_id=:cid {active_sql} AND {arama_sql}
       GROUP BY s.id,pay.total_paid,mm.total_receipts ORDER BY {order} LIMIT 1000'''), {'cid': cid, 'q': f'%{q}%', 'today':today}).mappings().all()
     # Risk hesabi + SEC-3b maskelemesi musteri listesiyle ORTAK dikistedir;
     # gerekce `entity_detail.cari_liste_satirlari` docstring'inde. Bu uc

@@ -7,7 +7,7 @@ from ..change_history import record_change
 from ..crm import add_contact, add_note, add_task, delete_contact, delete_note, delete_task, set_task_status
 from ..business_time import business_today
 from ..db import get_db
-from ..alan_maskeleme import maskeyi_geri_al
+from ..alan_maskeleme import maskelenecek_mi, maskeyi_geri_al
 from ..entity_detail import cari_liste_satirlari, entity_detail, entity_documents
 from ..document_engine import SALES_IMPORT_NOTE, accounting_document_status_sql
 from ..receivables_engine import charge_due_date_sql
@@ -52,7 +52,7 @@ def _values(payload: CustomerCreate) -> dict:
     return values
 
 def musteri_satirlari(db: Session, cid: int, *, q: str = '', sort: str = 'name_asc',
-                      active: str = 'active', limit: int = 500):
+                      active: str = 'active', limit: int = 500, maskeli: bool = False):
     """`GET /api/customers`in SORGUSU — `Request` YOK, `cid` AÇIK.
 
     DIŞARI ALINDI ki uç ile WhatsApp kanalı (`app/whatsapp/yurutucu.py`
@@ -60,6 +60,19 @@ def musteri_satirlari(db: Session, cid: int, *, q: str = '', sort: str = 'name_a
     yerdedir: ikinci bir kopya, iki yüzeyin aynı müşteri için farklı
     bakiye söylediği güne kadar sessiz kalırdı. Gövde taşınırken TEK
     harfi değişmedi.
+
+    `maskeli` (SEC-3b, PR #114 düzeltme turu): True ise `q` YALNIZ `name` ve
+    `owner_name` üzerinde eşleşir; telefon/e-posta/VKN süzgeçten ÇIKAR.
+    Gerekçe ÖLÇÜMDÜR, varsayım değil: çalışma zamanı merceği `depo` rolüyle
+    maskeli `*******596` değerini görüp `q=1596`, `q=31596`, ... diye soneki
+    büyüterek 80 gerçek istekte TAM VKN'yi geri çıkardı -- her adımda tek
+    eşleşme, yani `q` bir DOĞRULAMA değil TAM ÇIKARMA orakülüydü. Maskeli
+    rol için süzgeç ada indirildiğinde ilk adım (`q=<rakam>596`) sıfır
+    eşleşme verir ve yürütme başlayamaz. Bakiye formülü ve kiracı yüklemi
+    (`c.company_id=:cid`) iki dalda BİREBİR aynıdır; maskesiz dalın süzgeç
+    metni önceki sürümle karakteri karakterine aynı kaldı. Öntanımlı False:
+    rol bilgisi olmayan çağıran (WhatsApp) eski davranışı alır ve o kararın
+    gerekçesi `yurutucu.cari_durum` içinde yazılıdır.
     """
     order=SORTS.get(sort,SORTS['name_asc']);today_date=business_today();today=today_date.isoformat()
     active_sql = '' if active == 'all' else (' AND COALESCE(c.is_active, TRUE)=FALSE' if active == 'inactive' else ' AND COALESCE(c.is_active, TRUE)=TRUE')
@@ -73,6 +86,12 @@ def musteri_satirlari(db: Session, cid: int, *, q: str = '', sort: str = 'name_a
     # allocations to effective_date<=as_of. Kept identical to entity_detail so
     # the list agrees with the cari detail card. The period_end<=:as_of filter
     # below is document scope, not vade, and is left alone.
+    arama_sql = (
+        "(LOWER(c.name) LIKE LOWER(:q) OR LOWER(COALESCE(c.owner_name,'')) LIKE LOWER(:q))"
+        if maskeli else
+        """(LOWER(c.name) LIKE LOWER(:q) OR COALESCE(c.phone,'') LIKE :q
+       OR LOWER(COALESCE(c.email,'')) LIKE LOWER(:q) OR COALESCE(c.tax_number,'') LIKE :q)"""
+    )
     rows=db.execute(
       text(f"""SELECT c.id,c.name,c.owner_name,c.phone,c.email,c.address,c.tax_number,c.opening_balance,
       COALESCE(c.risk_limit,0) risk_limit,COALESCE(c.payment_term_days,0) payment_term_days,CASE WHEN COALESCE(c.is_active, TRUE) THEN 1 ELSE 0 END is_active,
@@ -109,8 +128,7 @@ def musteri_satirlari(db: Session, cid: int, *, q: str = '', sort: str = 'name_a
           AND d.period_end<=:as_of
         GROUP BY d.customer_id
       ) chg ON chg.customer_id=c.id
-      WHERE c.company_id=:cid {active_sql} AND (LOWER(c.name) LIKE LOWER(:q) OR COALESCE(c.phone,'') LIKE :q
-       OR LOWER(COALESCE(c.email,'')) LIKE LOWER(:q) OR COALESCE(c.tax_number,'') LIKE :q)
+      WHERE c.company_id=:cid {active_sql} AND {arama_sql}
        GROUP BY c.id,pay.total_paid,chg.charge_total,chg.charge_overdue ORDER BY {order} LIMIT :limit"""),
         {'cid': cid, 'q': f'%{q}%', 'limit': limit, 'today': today, 'as_of': today_date, 'sales_import_note': SALES_IMPORT_NOTE}
     ).mappings().all()
@@ -120,12 +138,12 @@ def musteri_satirlari(db: Session, cid: int, *, q: str = '', sort: str = 'name_a
 @router.get('')
 def list_customers(request: Request, q: str = '', sort: str = 'name_asc', active: str = 'active',
                    limit: int = Query(500, ge=1, le=2000), db: Session = Depends(get_db)):
-    rows=musteri_satirlari(db, company_id(request), q=q, sort=sort, active=active, limit=limit)
-    # Risk hesabı + SEC-3b maskelemesi tedarikçi listesiyle ORTAK dikiştedir
-    # (`entity_detail.cari_liste_satirlari`). `musteri_satirlari`nin GÖVDESİ
-    # bilerek ELLENMEDİ: onu WhatsApp kanalı da çağırıyor ve o yüzey cari
-    # iletişim alanı DÖNDÜRMÜYOR (`whatsapp/yurutucu.py::cari_durum` yalnız ad,
-    # bakiye ve son hareket okuyor), yani maskeleme sorgunun değil UCUN işidir.
+    # SEC-3b — maskeli rol için `q` yalnız ad/yetkili adında arar (arama
+    # orakülü kapatıldı; gerekçe ve ölçüm `musteri_satirlari` docstring'inde).
+    # Yanıt maskesi ise tedarikçi listesiyle ORTAK dikiştedir
+    # (`entity_detail.cari_liste_satirlari`).
+    rows=musteri_satirlari(db, company_id(request), q=q, sort=sort, active=active, limit=limit,
+                           maskeli=maskelenecek_mi(istek_rolu(request)))
     return cari_liste_satirlari(rows, request)
 
 @router.post('',status_code=201)
