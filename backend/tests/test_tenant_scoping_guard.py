@@ -41,6 +41,20 @@ APP_DIR = Path(__file__).resolve().parents[1] / "app"
 TENANT_TABLES = frozenset({
     "activity_logs", "branches", "company_exchange_rate_overrides", "customers",
     "delivery_notes", "document_sequences",
+    # e-IRSALIYE DEFTERI (E4a, goc 20260913_0083). `company_id` TASIR, yani
+    # bu kapiya GORUNUR ve `app/routers/despatch_notes.py`deki HER sorgudan
+    # `company_id=:cid` yuklemi istenir; karsiligi vardir, dosyadaki her
+    # `text()` sabit metindir ve koku o yuklemi ACIKCA tasir.
+    #
+    # BILESIK YABANCI ANAHTAR: `(company_id, delivery_customer_id) ->
+    # customers(company_id, id)` — 0062'nin kurali. `invoice_id` ise CIPLAK
+    # ve gerekcesi gocun basliginda OLCULU: `invoices` uzerinde
+    # `uq_invoices_company_id` YOKTUR ve onu eklemek SQLite'ta o tablonun
+    # yeniden insasini gerektirirdi. Kaybedilen koruma yerine kondu:
+    # `UNIQUE(company_id, invoice_id)` + ucun ACIK kiraci yuklemi.
+    #
+    # Sayim 120 -> 121.
+    "despatch_notes",
     "cost_rates",
     "crop_seasons",
     "entity_change_logs", "entity_contacts", "entity_notes", "entity_tasks",

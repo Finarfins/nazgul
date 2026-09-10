@@ -228,6 +228,21 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/customers/{customer_id}/statement.pdf"): "sales",
     ("GET", "/api/dashboard"): "read",
     ("GET", "/api/demo/summary"): "read",
+    # --- e-IRSALIYE (E4a, goc 20260913_0083) -------------------------------
+    # DORDU DE "sales" ve HICBIRI "read" DEGIL. Gerekce `app/auth.py`deki
+    # kuralin ustunde: bu satirlar musteri VKN/TCKN'sini, teslim adresini ve
+    # SOFOR TCKN'SINI tasiyor. `/api/invoices`in SEC-3'te `read`ten `sales`a
+    # cekilmesiyle ayni gerekce; burada gerekce daha da keskin cunku sofor
+    # TCKN'si bir GERCEK KISI verisidir.
+    #
+    # `.../edespatch/download` de "sales" ve bu `/api/invoices/.../einvoice/
+    # download`dan FARKLI bir yoldan geliyor: orada AYRI bir onek+sonek
+    # kurali yazilmak zorundaydi cunku `/api/invoices` ailesinde `read`te
+    # kalmasi gereken uclar vardi. Burada tek onek yetiyor.
+    ("GET", "/api/despatch-notes"): "sales",
+    ("GET", "/api/despatch-notes/{despatch_id}"): "sales",
+    ("GET", "/api/despatch-notes/{despatch_id}/edespatch/download"): "sales",
+    ("GET", "/api/despatch-notes/{despatch_id}/edespatch/status"): "sales",
     ("GET", "/api/documents/{kind}/{document_id}/pdf"): "read",
     ("GET", "/api/documents/{kind}/{document_id}/xlsx"): "read",
     ("GET", "/api/exchange-rates"): "read",
@@ -535,7 +550,13 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # icin sablon `read`te KALIR ve bu SATIR KIMILDAMAZ. Daralmanin kaniti bu
 # dosyada DEGIL, `test_route_security_contracts.py`nin `DYNAMIC_PERMISSION_CASES`
 # girdisinde ve `test_sec3_read_daraltma.py`nin GERCEK HTTP istegindedir.
-GET_INVENTORY_COUNT = 186
+# E4a (e-IRSALIYE DUZ SEVK, goc 20260913_0083): sayim 186 -> 190. DORT yeni
+# GET ve DORDU DE "sales"; hicbir mevcut ucun izni DEGISMEDI. Drift raporu
+# OLCULDU: `missing`/`stale`/`changed` UCU DE BOS — artis YALNIZ eklemedir.
+# Ailenin UC YAZMA ikizi (POST create/submit/sync) bu envantere GIRMEZ (bu
+# dosya YALNIZ GET sayar); onlar `test_route_security_contracts.py`nin
+# sozlesme envanterindedir ve orada sayim 392/301 -> 399/307.
+GET_INVENTORY_COUNT = 190
 GET_INVENTORY_FINGERPRINT = (
     # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
     # sonra `auth.py`ye `/api/push/` önek kuralı eklendi, sonra izin
@@ -572,7 +593,11 @@ GET_INVENTORY_FINGERPRINT = (
     # olculdu, (5) EN SON parmak izi turetildi. Parmak izinin degismesi bir
     # KAYMA DEGIL, kapinin ISLEVIDIR: yuk `permission` alanini tasiyor ve o
     # alan 19 satirda bilerek degisti. 445ebb4f -> 0e8ce4f3.
-    "0e8ce4f353cbd07d0503026115ee9de9127ffc404fc258124da52e4b6e403345"
+    # E4a (goc 20260913_0083): parmak izi EN SON alindi — once uc yazildi,
+    # sonra `auth.py`ye `/api/despatch-notes` onek kurali eklendi, sonra izin
+    # `required_permission` ile OLCULDU ("sales", dordu de), sonra envantere
+    # girdi. 0e8ce4f3 -> 0f87b6bd.
+    "0f87b6bd0483c246d6cbb041bac9002cc8f1c09fe97297e16719569cc6a5f2d9"
 )
 
 

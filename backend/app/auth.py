@@ -1132,6 +1132,40 @@ def required_permission(method: str, path: str) -> str:
     # rolleri fatura listesinden düşürürdü.
     if path.startswith("/api/invoices/") and path.endswith("/einvoice/download"):
         return "sales"
+    # --- e-İRSALİYE (E4a, göç 20260913_0083): TEK ÖNEK, HER METOT --------
+    # YERLEŞİM ZORUNLU: bu satır, hemen altındaki SEC-3 bloğunun ve onun da
+    # altındaki genel güvenli-metot kuralının (`GET -> "read"`) ÜSTÜNDEDİR.
+    # Altında kalsaydı GET'ler `read`e düşerdi.
+    #
+    # İKİ YÖNDE DE ÖLÇÜLDÜ, VARSAYILMADI. Kural yazılmadan ÖNCE
+    # `required_permission` şunu veriyordu:
+    #   GET  /api/despatch-notes                      -> "read"
+    #   GET  /api/despatch-notes/1                    -> "read"
+    #   GET  /api/despatch-notes/1/edespatch/status   -> "read"
+    #   GET  /api/despatch-notes/1/edespatch/download -> "read"
+    #   POST /api/despatch-notes                      -> "__admin_only__"
+    #   POST /api/despatch-notes/1/edespatch/submit   -> "__admin_only__"
+    #   POST /api/despatch-notes/1/edespatch/sync     -> "__admin_only__"
+    # yani AYNI UÇ AİLESİ metoda göre İKİ FARKLI kapıdan geçiyordu ve
+    # İKİSİ DE YANLIŞTI:
+    #
+    # * `read` FAZLA GENİŞ. Bu satırlar müşterinin VKN/TCKN'sini ve teslim
+    #   adresini (`_ubl_payload` faturanın donmuş görüntüsünden çözüyor),
+    #   ŞOFÖRÜN TCKN'SİNİ ve plakayı taşıyor. `depo` ve `rapor` rolleri
+    #   bunları görmemeli — `/api/invoices`ın SEC-3'te `read`ten `sales`a
+    #   çekilmesiyle BİREBİR aynı gerekçe, hatta daha keskin: fatura bir
+    #   TÜZEL KİŞİ verisidir, şoför TCKN'si bir GERÇEK KİŞİ verisidir.
+    # * `__admin_only__` FAZLA DAR. İrsaliye kesmek günlük bir SATIŞ işidir;
+    #   `satis` rolü faturayı kesip malı sevk edemezdi.
+    #
+    # ÖNEK YETİYOR, SONEK GEREKMİYOR — ve bu `/api/invoices`tan AYRILAN
+    # nokta. Orada `.../einvoice/download` AYRI yazılmak zorundaydı çünkü
+    # `/api/invoices` ailesinde `read`te KALMASI gereken uçlar da vardı
+    # (liste, iç PDF). Burada BÖYLE BİR UÇ YOK: ailenin YEDİ ucunun YEDİSİ
+    # de aynı ticari veriyi taşıyor, dolayısıyla tek önek doğru cevabı
+    # veriyor ve ikinci bir kural yazmak ÖLÜ KOD olurdu.
+    if path.startswith("/api/despatch-notes"):
+        return "sales"
     # =====================================================================
     # SEC-3 — `read`e DÜŞEN TİCARİ OKUMALARIN DARALTILMASI
     # =====================================================================

@@ -51,6 +51,7 @@ from .routers import (
     customers,
     dashboard,
     demo,
+    despatch_notes,
     entegrasyon_olaylari,
     finance,
     farm,
@@ -729,6 +730,11 @@ app.include_router(pos.router, prefix="/api")
 app.include_router(quick_pick.router, prefix="/api")
 app.include_router(imports.router, prefix="/api")
 app.include_router(invoices.router, prefix="/api")
+# e-İRSALİYE (E4a, göç 20260913_0083). Faturanın HEMEN ARDINDAN ve bu
+# bilinçli: bir irsaliye bir faturaya asılıdır ve uçları `invoices`ın
+# e-belge dörtlüsünün BİREBİR ikizidir — okuyan kişi ikisini yan yana
+# görmeli (push'un notifications'ın yanına konmasıyla aynı gerekçe).
+app.include_router(despatch_notes.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 # PUSH CİHAZ DEFTERİ (5.4c). Bildirim uçlarının HEMEN YANINDA:
 # cihaz kaydı bir bildirim KANALININ hedef defteridir, ayrı bir modül

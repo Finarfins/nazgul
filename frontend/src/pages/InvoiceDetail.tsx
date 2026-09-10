@@ -8,6 +8,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SendIcon from '@mui/icons-material/Send';
 import {api,errorDetail,money} from '../api';
 import ResponsiveTable from '../components/ResponsiveTable';
+import {DespatchNotePanel} from './DespatchNotePanel';
 
 // Fatura kalemleri: 4 sütun. 390px'te ResponsiveTable kart düzenine geçer.
 const itemColumns:GridColDef[]=[
@@ -103,6 +104,9 @@ export default function InvoiceDetail(){
    <Grid size={{xs:12,sm:6,md:3}}><Typography variant="caption" color="text.secondary">Oluşturulma</Typography><Typography fontWeight={700}>{invoice.created_at?String(invoice.created_at).slice(0,10):'-'}</Typography></Grid>
   </Grid></Paper>
   <EInvoiceStatusPanel invoiceId={invoiceId}/>
+  {/* e-İRSALİYE (E4a): faturanın HEMEN ARDINDAN. Fatura mali belge, irsaliye
+      onun SEVK yüzü; ikisi aynı ekranda yan yana durmalı. */}
+  <DespatchNotePanel invoiceId={invoiceId}/>
   <Paper sx={{p:2}}><Typography variant="h6" fontWeight={800} mb={1}>Kalemler</Typography>
    <Box data-testid="invoice-detail-data-surface">
     <ResponsiveTable

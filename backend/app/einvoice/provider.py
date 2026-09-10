@@ -70,6 +70,7 @@ from xml.sax.saxutils import escape as xml_escape
 from defusedxml.ElementTree import fromstring as defused_fromstring
 from defusedxml.common import DefusedXmlException
 
+from . import edespatch
 from . import endpoints as wire
 from . import ubl_xml
 from .errors import (
@@ -110,6 +111,10 @@ from .ubl import CHANNEL_EARSIV, CHANNEL_EFATURA, missing_required_fields
 logger = logging.getLogger(__name__)
 
 _NOT_CONFIGURED = "e-Fatura sağlayıcısı yapılandırılmamış"
+#: e-İrsaliye BUGÜN yalnız İzibiz adaptöründe var. NoOp ve Nes bu cümleyle
+#: reddeder; "sağlayıcı yok" ile "sağlayıcı var ama bu belgeyi bilmiyor"
+#: FARKLI iki durumdur ve operatörün yapacağı iş de farklıdır.
+_EDESPATCH_UNSUPPORTED = "Bu e-belge sağlayıcısında e-İrsaliye desteklenmiyor"
 
 #: ZIP bombasına karşı sınırlar. Gövde SAĞLAYICIDAN gelir; PDF taşıyan bir
 #: e-Arşiv paketi pratikte tek üyelidir ve birkaç MB'dir, o yüzden bu tavanlar
@@ -210,6 +215,48 @@ class EInvoiceProvider(ABC):
     def check_taxpayer(self, vkn: str) -> dict[str, bool]:
         """Decide EFATURA vs EARSIV: ``{"is_efatura_user": bool}``."""
         ...
+
+    # --- e-İrsaliye (E4a) --------------------------------------------------
+    # SOYUT DEĞİL, ve bu bilinçli. Soyut yapılsaydı `NoOpEInvoiceProvider` ile
+    # `NesEInvoiceProvider` bugün İNSTANTİYE EDİLEMEZDİ (`TypeError`), yani
+    # e-Fatura tarafı çalışan bir kurulum sırf e-İrsaliye eklendi diye
+    # AÇILAMAZDI. Varsayılan cevap "bu sağlayıcı e-İrsaliye bilmiyor"dur ve
+    # fail-closed'dır: sessiz bir başarı değil, adı konmuş bir ret.
+
+    #: Bu sağlayıcı e-İrsaliye konuşabiliyor mu? Varsayılan HAYIR — yeni bir
+    #: adaptör bunu yazmayı unutursa sonuç kapalı kanaldır, sahte başarı değil
+    #: (`is_configured`in varsayılanının HAYIR olmasıyla aynı gerekçe).
+    supports_despatch: bool = False
+
+    def submit_despatch(self, payload: dict[str, Any]) -> EInvoiceResult:
+        """Bir e-İrsaliye gönder.
+
+        ``status`` alanı bu üç metotta :mod:`app.einvoice.edespatch`in
+        sözlüğünden gelir (``QUEUED``/``PROCESSING``/…), ``status.py``nin
+        e-Fatura sözlüğünden DEĞİL. İki sözlük aynı ``EInvoiceResult``
+        taşıyıcısını paylaşıyor ama aynı DEĞERLERİ paylaşmıyor; hangisinin
+        okunacağını çağıran uç belirler ve o uçlar ayrıdır
+        (``/api/despatch-notes/...`` vs ``/api/invoices/...``).
+        """
+        return EInvoiceResult(status=edespatch.FAILED, error=_EDESPATCH_UNSUPPORTED)
+
+    def despatch_status(self, uuid: str) -> EInvoiceResult:
+        """Bir e-İrsaliyenin durumunu ETTN ile sor.
+
+        İmza ``query_status``tan FARKLI ve bilerek: e-İrsaliye durum sorgusu
+        şemada YALNIZ ``UUID`` kabul eder (keşif §2.2), yani sağlayıcı belge
+        kimliğiyle sorulamaz. Kabul etmediği bir parametreyi imzaya koymak,
+        çağırana olmayan bir seçenek sunmak olurdu.
+        """
+        return EInvoiceResult(status=edespatch.UNKNOWN, error=_EDESPATCH_UNSUPPORTED)
+
+    def fetch_despatch_xml(self, uuid: str) -> bytes:
+        """Gönderilen e-İrsaliyenin sağlayıcıdaki XML sureti.
+
+        ``fetch_pdf`` ile aynı sözleşme: boş ``bytes`` DÖNMEZ, fırlatır —
+        boş bir gövde çağıran tarafta boş bir belgeden ayırt edilemezdi.
+        """
+        raise EInvoiceError(UNKNOWN, _EDESPATCH_UNSUPPORTED)
 
     # --- yapılandırma sinyali ---------------------------------------------
     # Soyut DEĞİL: bir sağlayıcının "çağrı yapabilir miyim" sorusuna cevabı
@@ -651,7 +698,19 @@ class _HttpEInvoiceProvider(EInvoiceProvider):
     #: Oturum düştüğünde çağrı tekrarlanabilir mi? ``submit`` için HAYIR:
     #: yeniden göndermek çift belge riski taşır (spec §7). Sadece idempotent
     #: yollar tekrarlanır; ``submit`` yalnız önbelleği temizler ve hatayı bildirir.
-    _RELOGIN_REPEATABLE: frozenset[str] = frozenset({"query_status", "fetch_pdf", "check_taxpayer"})
+    #: `submit_despatch` BURADA YOK ve gerekçesi `submit` ile AYNI, hatta
+    #: daha keskin: bir irsaliyenin ikinci kez inmesi ikinci bir SEVK BELGESİ
+    #: demektir. Sabit `despatch_uuid` sağlayıcı tarafında bunu yakalasa bile
+    #: adaptör kendi tarafında da tekrar etmez — iki koruma aynı şeyi ölçmez.
+    _RELOGIN_REPEATABLE: frozenset[str] = frozenset(
+        {
+            "query_status",
+            "fetch_pdf",
+            "check_taxpayer",
+            "despatch_status",
+            "fetch_despatch_xml",
+        }
+    )
 
     def _call_with_session(
         self, operation: str, *, retryable: bool, **kwargs: Any
@@ -1080,10 +1139,15 @@ def _is_hatasi(code: str, message: str, raw: dict[str, Any] | None = None) -> EI
     return EInvoiceError(code, message, raw=raw)
 
 
-def _zip_reddet(sebep: str, olculen: int, sinir: int) -> bytes:
-    """ZIP sınırı aşıldı: TEK bir uyarı bas ve BOŞ dön (fail-closed).
+def _zip_reddet(sebep: str, olculen: int, sinir: int) -> list[bytes]:
+    """ZIP sınırı aşıldı: TEK bir uyarı bas ve BOŞ ÜYE LİSTESİ dön (fail-closed).
 
     Gövdenin kendisi ASLA loglanmaz — sağlayıcı belgesi müşteri verisidir.
+
+    Dönüş türü E4a'da ``bytes``tan ``list[bytes]``a döndü çünkü tek
+    çağıranı artık :func:`_zip_uyeleri`. Anlamı DEĞİŞMEDİ: "hiçbir şey
+    çıkmadı". Boş liste, üstündeki döngüyü hiç çalıştırmaz ve çağıran yine
+    ``b""`` görür.
     """
     logger.warning(
         "e-belge ZIP'i reddedildi: %s sınırı aşıldı (ölçülen=%s, sınır=%s)",
@@ -1091,21 +1155,32 @@ def _zip_reddet(sebep: str, olculen: int, sinir: int) -> bytes:
         olculen,
         sinir,
     )
-    return b""
+    return []
 
 
-def _pdf_from_zip(raw: bytes) -> bytes:
-    """ZIP ise İÇİNDEKİ PDF'i çıkar; PDF ise olduğu gibi ver; değilse boş.
+def _zip_uyeleri(raw: bytes) -> list[bytes]:
+    """ZIP üyelerini SINIRLARI UYGULAYARAK aç; ihlalde BOŞ liste (fail-closed).
 
-    ADI ÜSTÜNDE SIKI: yalnız `%PDF-` ile başlayan bir girdi PDF sayılır. ZIP
-    içindeki XML (`GetEArchiveInvoice`in döndürdüğü şey) buradan BOŞ çıkar ve
-    çağıran `PDF_YOK` der — sessizce XML'i PDF diye sunmaktansa gürültülü
-    hata, `_decode_pdf`in en baştaki kuralıyla AYNI.
+    E4a'da ÇIKARILDI ve gerekçesi tek cümle: e-İrsaliye XML'i de aynı
+    kanaldan, aynı base64-ZIP sarmalıyla gelebiliyor
+    (:func:`_xml_from_zip`), ve ZIP BOMBA TAVANLARININ İKİ KOPYASI OLAMAZ.
+    İki kopya olsaydı, birinde sıkılaştırılan bir sınırın ötekinde
+    unutulması SESSİZ bir güvenlik farkı üretirdi — ve bomba, unutulan
+    kapıdan girerdi.
+
+    Gövde `_pdf_from_zip`ten OLDUĞU GİBİ taşındı: üye sayısı, bildirilen
+    üye/toplam boyut, sıkıştırma oranı ve — parça parça okurken —
+    BİLDİRİLEN BOYUTUN AŞILMASI. Sonuncusu ayrı bir denetimdir çünkü
+    başlıktaki ``file_size`` bombalarda YALAN SÖYLER; gerçekten okunan bayt
+    sayılır. Kapılar: ``tests/test_sec7_xml_zip_sertlestirme.py``.
+
+    Üyeler LİSTE olarak dönüyor, tembel bir üreteç olarak değil: bir üreteç
+    sınır ihlalini "üretim bitti"den ayırt ettiremezdi ve çağıran ihlali
+    "PDF bulunamadı" sanardı. Bellek açısından bedava: açılmış toplam zaten
+    :data:`_ZIP_MAX_BAYT` ile sınırlı.
     """
-    if raw[:5] == b"%PDF-":
-        return raw
     if raw[:2] != b"PK":
-        return b""
+        return []
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as arsiv:
             uyeler = arsiv.infolist()
@@ -1121,6 +1196,7 @@ def _pdf_from_zip(raw: bytes) -> bytes:
                 if oran > _ZIP_MAX_ORAN:
                     return _zip_reddet("sıkıştırma oranı", int(oran), _ZIP_MAX_ORAN)
             toplam = 0
+            cikan: list[bytes] = []
             for bilgi in uyeler:
                 parcalar: list[bytes] = []
                 okunan = 0
@@ -1136,11 +1212,31 @@ def _pdf_from_zip(raw: bytes) -> bytes:
                         if toplam > _ZIP_MAX_BAYT:
                             return _zip_reddet("açılmış toplam boyut", toplam, _ZIP_MAX_BAYT)
                         parcalar.append(parca)
-                icerik = b"".join(parcalar)
-                if icerik[:5] == b"%PDF-":
-                    return icerik
+                cikan.append(b"".join(parcalar))
+            return cikan
     except (zipfile.BadZipFile, OSError, RuntimeError, EOFError):
-        return b""
+        return []
+
+
+def _pdf_from_zip(raw: bytes) -> bytes:
+    """ZIP ise İÇİNDEKİ PDF'i çıkar; PDF ise olduğu gibi ver; değilse boş.
+
+    ADI ÜSTÜNDE SIKI: yalnız `%PDF-` ile başlayan bir girdi PDF sayılır. ZIP
+    içindeki XML (`GetEArchiveInvoice`in döndürdüğü şey) buradan BOŞ çıkar ve
+    çağıran `PDF_YOK` der — sessizce XML'i PDF diye sunmaktansa gürültülü
+    hata, `_decode_pdf`in en baştaki kuralıyla AYNI.
+
+    E4a'da ZIP AÇMA GÖVDESİ :func:`_zip_uyeleri`ye taşındı; bu fonksiyonun
+    DAVRANIŞI DEĞİŞMEDİ ve bu iddia ölçülüyor
+    (``tests/test_sec7_xml_zip_sertlestirme.py``, dokunulmadı). Değişen tek
+    şey: sınır ihlalinde artık boş bir ÜYE LİSTESİ dönüyor ve bu döngü hiç
+    çalışmıyor — yine ``b""``.
+    """
+    if raw[:5] == b"%PDF-":
+        return raw
+    for icerik in _zip_uyeleri(raw):
+        if icerik[:5] == b"%PDF-":
+            return icerik
     return b""
 
 
@@ -1153,6 +1249,48 @@ def _decode_pdf(raw: bytes) -> bytes:
     except (binascii.Error, ValueError):
         return b""
     return _pdf_from_zip(decoded)
+
+
+def _xml_from_zip(raw: bytes) -> bytes:
+    """ZIP ise İÇİNDEKİ XML'i çıkar; XML ise olduğu gibi ver; değilse boş.
+
+    :func:`_pdf_from_zip`in İKİZİ ve AYNI tavanları uygular — ZIP bombası
+    riski içeriğin türüne göre değişmez. Kopya değil ÇAĞRI: gövde
+    `_pdf_from_zip`e delege edilemez çünkü o fonksiyon üyeyi `%PDF-`
+    imzasıyla SEÇİYOR ve burada aranan imza farklı (`<`). Ortak olan
+    sınır denetimleri :func:`_zip_uyeleri` içinde TEK yerde durur.
+    """
+    if raw[:1] == b"<":
+        return raw
+    if raw[:2] != b"PK":
+        return b""
+    for icerik in _zip_uyeleri(raw):
+        # BOM ve baştaki boşluk gerçek dosyalarda görülüyor; imza aranmadan
+        # önce temizleniyor. `<` DIŞINDA bir şeyle başlayan bir üye XML
+        # DEĞİLDİR ve sessizce "XML" diye sunulmaz.
+        temiz = icerik.lstrip(b"\xef\xbb\xbf").lstrip()
+        if temiz[:1] == b"<":
+            return temiz
+    return b""
+
+
+def _decode_despatch_xml(raw: bytes) -> bytes:
+    """Ham XML, base64 XML ya da XML taşıyan base64 ZIP — üçünü de kabul et.
+
+    :func:`_decode_pdf` ile aynı üç dal; aranan imza farklı. Hangisinin
+    geleceği ÖLÇÜLMEDİ: keşif §2.3 `DESPATCHADVICE/CONTENT`in xmlmime
+    base64 olduğunu söylüyor ama içeriğin ZIP'lenip zıplanmadığını canlı
+    bir yanıtla doğrulamadı. Üç dalın üçü de yazıldı çünkü hangisinin
+    koşacağını bilmiyoruz; bilmediğimizi TAHMİNLE kapatmak yerine üç
+    olasılığı da güvenli biçimde karşılıyoruz.
+    """
+    if raw[:1] == b"<":
+        return raw
+    try:
+        decoded = base64.b64decode(raw, validate=True)
+    except (binascii.Error, ValueError):
+        return b""
+    return _xml_from_zip(decoded)
 
 
 # --------------------------------------------------------------------------
@@ -1181,6 +1319,8 @@ class IzibizEInvoiceProvider(_HttpEInvoiceProvider):
     name = "izibiz"
     _wire_verified = wire.IZIBIZ_ENDPOINTS_VERIFIED
     _status_aliases = wire.IZIBIZ_STATUS_ALIASES
+    #: E4a. Üç e-İrsaliye metodu bu sınıfta GERÇEKTEN uygulanıyor.
+    supports_despatch = True
 
     _FIELDS = {
         "session": wire.IZIBIZ_FIELD_SESSION,
@@ -1191,6 +1331,24 @@ class IzibizEInvoiceProvider(_HttpEInvoiceProvider):
         "pdf": wire.IZIBIZ_FIELD_PDF,
         "web_key": wire.IZIBIZ_FIELD_WEB_KEY,
         "gib_status_code": wire.IZIBIZ_FIELD_GIB_STATUS_CODE,
+        # --- e-İrsaliye ---
+        # `DESPATCH_ID` XSD'den OKUNDU (keşif §2.2: `SendDespatchAdvice`
+        # yanıtının çocukları `DESPATCH_ID?`, `REQUEST_RETURN?`,
+        # `ERROR_TYPE?`). Sağlayıcının KENDİ belge kimliğidir; bizim
+        # ETTN'imiz DEĞİL — e-Fatura'daki `INVOICE_ID` ile aynı ayrım.
+        "despatch_id": ("DESPATCH_ID",),
+        # DURUM ALANININ İÇ ADI DOĞRULANMADI. Keşif §2.2 yalnız SARMALAYICIYI
+        # okudu (`DESPATCHADVICE_STATUS` 1+); o elemanın ÇOCUKLARININ adları
+        # canlı bir yanıtla ölçülmedi. Bu yüzden burada bir TAHMİN değil bir
+        # ARAMA LİSTESİ var ve sırası önemli: önce e-Fatura/e-Arşiv'de
+        # ölçülmüş adlar, sonra sarmalayıcının kendisi (bazı İzibiz
+        # yanıtlarında durum, çocuk eleman yerine sarmalayıcının METNİDİR).
+        # Hiçbiri bulunmazsa `edespatch.kodu_coz(None)` -> `UNKNOWN`, yani
+        # okuyamamak "sorun yok" demek DEĞİL.
+        "despatch_status": ("STATUS_CODE", "STATUS", "DESPATCHADVICE_STATUS"),
+        # `GetDespatchAdvice` yanıtındaki belge içeriği
+        # (`DESPATCHADVICE/CONTENT`, xmlmime base64 — keşif §2.3).
+        "despatch_content": ("CONTENT",),
     }
 
     # --- gönderim yanıtından yakalanan ek alanlar --------------------------
@@ -1476,6 +1634,95 @@ class IzibizEInvoiceProvider(_HttpEInvoiceProvider):
                 ),
             )
 
+        # --- e-İrsaliye (E4a) ---------------------------------------------
+        if operation == "submit_despatch":
+            payload = kwargs["payload"]
+            try:
+                package = edespatch.package_despatch(payload)
+            except ubl_xml.UblBuildError as exc:
+                # Eksik/uyumsuz alan: ağa çıkmadan, gürültülü biçimde dur —
+                # `submit`in UBL kapısıyla AYNI. `submit_despatch` bunu
+                # `EInvoiceError` olarak yakalar ve `FAILED` der (`UNKNOWN`
+                # DEĞİL: belge hiç gönderilmedi ve bu BİLİNİYOR).
+                raise self._raise(
+                    "submit_despatch", VALIDATION, provider_code="UBL_URETILEMEDI"
+                ) from exc
+            content = base64.b64encode(package).decode("ascii")
+            # ŞEMADAN (keşif §2.2/§2.3): `SendDespatchAdviceRequest` =
+            # REQUEST_HEADER + `DESPATCHADVICE` 1+. `ID`/`UUID` ELEMAN
+            # DEĞİL ÖZNİTELİKTİR ve `CONTENT` xmlmime base64'tür.
+            #
+            # `RECEIVER`/`SENDER` GÖNDERİLMİYOR ve bu ölçülmüş bir karar:
+            # keşif §2.3 sağlayıcının yeni gönderim için `RECEIVER/@vkn` ve
+            # `@alias` istediğini söylüyor ama XSD ikisini de OPSİYONEL
+            # bırakıyor, ve alias'ın HANGİ DEĞERİ alacağı e-İrsaliye için
+            # **DOĞRULANMADI** (e-Fatura'nın `einvoice_pk_alias`ı 0081'de
+            # açıldı, e-İrsaliye posta kutusu etiketi ölçülmedi). Ölçülmemiş
+            # bir alanı "zararsızdır" diye doldurmak, adaptörün var oluş
+            # sebebinin tersi (`cancel`in opsiyonel alanlarıyla AYNI gerekçe).
+            # Alıcı kimliği zaten belgenin İÇİNDE: `DeliveryCustomerParty`.
+            return self._post(
+                wire.IZIBIZ_OP_SUBMIT_DESPATCH,
+                _soap_envelope(
+                    wire.IZIBIZ_OP_SUBMIT_DESPATCH,
+                    _request_header(session)
+                    + f'<DESPATCHADVICE ID="{xml_escape(str(payload.get("despatch_number") or ""))}"'
+                    f' UUID="{xml_escape(str(payload.get("uuid") or ""))}">'
+                    f"<CONTENT>{content}</CONTENT></DESPATCHADVICE>",
+                ),
+            )
+
+        if operation == "despatch_status":
+            ettn = str(kwargs.get("uuid") or "").strip()
+            if not ettn:
+                raise self._raise("despatch_status", VALIDATION, provider_code="ETTN_GEREKLI")
+            # ŞEMADAN (keşif §2.2): `GetDespatchAdviceStatusRequest` =
+            # REQUEST_HEADER + `UUID` 1+ (`xs:token`). ESKİ DOKÜMANDAKİ
+            # `DESPATCHADVICEINFO` DEĞİL — keşif §2.3 bu farkı açıkça ölçtü
+            # ve eski biçimi kopyalamamayı söyledi.
+            return self._post(
+                wire.IZIBIZ_OP_STATUS_DESPATCH,
+                _soap_envelope(
+                    wire.IZIBIZ_OP_STATUS_DESPATCH,
+                    _request_header(session) + f"<UUID>{xml_escape(ettn)}</UUID>",
+                ),
+            )
+
+        if operation == "fetch_despatch_xml":
+            ettn = str(kwargs.get("uuid") or "").strip()
+            if not ettn:
+                raise self._raise("fetch_despatch_xml", VALIDATION, provider_code="ETTN_GEREKLI")
+            # Keşif §2.4'ün ÖNERDİĞİ tekil sorgu, birebir: `SEARCH_KEY/UUID`,
+            # `DIRECTION=OUT`, `READ_INCLUDED=true`, `HEADER_ONLY=N`.
+            #
+            # `READ_INCLUDED` **boolean**tır, `Y`/`N` DEĞİL — keşif §2.3 bunu
+            # ayrıca uyardı ("eski dokümanın Y/N anlatımını kopyalamayın").
+            # `HEADER_ONLY` ise AYNI istekte `N`dir ve bu bir tutarsızlık
+            # değil: XSD'de o alan `FLAG_VALUE`, bu alan `xs:boolean`.
+            # `HEADER_ONLY` olmadan yanıt yalnız başlık taşır ve `CONTENT`
+            # düğümü HİÇ gelmez (e-Arşiv PDF yolunda ÖLÇÜLEN davranışın
+            # aynısı).
+            #
+            # `CONTENT_TYPE` GÖNDERİLMİYOR: keşif §2.4 değer kümesinin
+            # tanımsız olduğunu ölçtü. Varsayılanı istemek, tahmin edilmiş
+            # bir değer göndermekten iyidir — dönen şey XML'dir ve zaten
+            # istediğimiz odur.
+            return self._post(
+                wire.IZIBIZ_OP_GET_DESPATCH,
+                _soap_envelope(
+                    wire.IZIBIZ_OP_GET_DESPATCH,
+                    _request_header(session)
+                    + "<SEARCH_KEY>"
+                    + "<LIMIT>1</LIMIT>"
+                    + f"<UUID>{xml_escape(ettn)}</UUID>"
+                    + "<DIRECTION>OUT</DIRECTION>"
+                    + "<READ_INCLUDED>true</READ_INCLUDED>"
+                    + "</SEARCH_KEY>"
+                    + "<HEADER_ONLY>N</HEADER_ONLY>",
+                ),
+                max_bytes=wire.MAX_BINARY_RESPONSE_BYTES,
+            )
+
         # check_taxpayer
         return self._post(
             wire.IZIBIZ_OP_TAXPAYER,
@@ -1496,6 +1743,214 @@ class IzibizEInvoiceProvider(_HttpEInvoiceProvider):
             return response.body
         encoded = _first_xml_field(response.body[: wire.MAX_BINARY_RESPONSE_BYTES], self._FIELDS["pdf"])
         return _decode_pdf(encoded.encode("utf-8")) if encoded else b""
+
+    # --- e-İrsaliye (E4a) --------------------------------------------------
+
+    def submit_despatch(self, payload: dict[str, Any]) -> EInvoiceResult:
+        """Bir e-İrsaliye gönder. ASLA otomatik tekrarlanmaz.
+
+        ``submit``tan AYRILAN TEK NOKTA, ve E4a'nın en önemli davranışı:
+        **TIMEOUT ``FAILED`` DEĞİL ``UNKNOWN`` üretir.**
+
+        ``submit`` bir taşıma hatasında ``FAILED`` döner ve bu orada
+        doğrudur — e-Fatura akışında yeniden gönderim istemci ETTN'iyle
+        (``build_client_ettn``) idempotenttir. Burada iddia farklı: ``FAILED``
+        "gönderim İNMEDİ, sağlayıcıda belge YOK" DEMEKTİR ve bir zaman
+        aşımından sonra bu bilinemez. Yanlış olursa bedeli somut: ilk istek
+        aslında inmişse, ``FAILED``in açtığı ikinci gönderim AYNI SEVK İÇİN
+        İKİNCİ BİR İRSALİYE keser.
+
+        ``UNKNOWN`` o iddiayı YAPMAZ ve
+        :data:`~app.einvoice.edespatch.GONDERIM_KAPALI` sayesinde uç yeniden
+        gönderimi kapatır: önce durum sorgusu, sonra karar. Sabit
+        ``despatch_uuid`` ikinci bir savunma katmanıdır (aynı ETTN ikinci
+        kez gönderilse bile sağlayıcı onu AYNI belge olarak görür), ama
+        savunma tek başına bırakılmadı — sağlayıcının çift ETTN'i gerçekten
+        reddettiği ÖLÇÜLMEDİ (keşif §5: uuid5/tekillik **DOĞRULANMADI**).
+        """
+        payload = payload or {}
+        ettn = str(payload.get("uuid") or "").strip()
+        if not ettn:
+            return self._fail("submit_despatch", VALIDATION, field_name="ETTN")
+        if not self._configured():
+            return EInvoiceResult(
+                status=edespatch.FAILED,
+                uuid=ettn,
+                error=scrub(self._unconfigured_message(), self._secrets),
+            )
+        try:
+            response = self._call_with_session(
+                "submit_despatch", retryable=False, payload=payload
+            )
+        except EInvoiceError as exc:
+            # Ağa HİÇ çıkılmadı (ortam kilidi, UBL üretilemedi, oturum
+            # açılamadı). Belge sağlayıcıya inmedi ve bu BİLİNİYOR, yani
+            # `FAILED` burada doğru cevaptır — `UNKNOWN` yalnız gerçekten
+            # bilinmeyen için saklanır.
+            return EInvoiceResult(
+                status=edespatch.FAILED, uuid=ettn, error=scrub(exc.message, self._secrets)
+            )
+        except TransportError:
+            logger.warning(
+                "e-İrsaliye gönderimi taşıma katmanında düştü; durum UNKNOWN (ETTN sabit)"
+            )
+            return EInvoiceResult(
+                status=edespatch.UNKNOWN,
+                uuid=ettn,
+                error=message_for(NETWORK),
+            )
+
+        raw = self._summary(response)
+        if not response.ok:
+            code = classify_http(response.status_code, self._body_text(response))
+            if code == NETWORK:
+                # 5xx: istek sunucuya ULAŞTI ama sonucu belirsiz. Aynı
+                # gerekçe, aynı cevap.
+                return EInvoiceResult(
+                    status=edespatch.UNKNOWN, uuid=ettn, error=message_for(code), raw=raw
+                )
+            return EInvoiceResult(
+                status=edespatch.FAILED,
+                uuid=ettn,
+                error=scrub(message_for(code, provider_code=response.status_code), self._secrets),
+                raw=raw,
+            )
+        business = self._business_failure(response)
+        if business is not None:
+            # 2xx ama belge REDDEDİLDİ. Bu bir belirsizlik DEĞİL, sağlayıcının
+            # pozitif cevabıdır: belge kabul edilmedi, yani ortada bir sevk
+            # belgesi yok ve yeniden gönderim meşrudur.
+            code, message = business
+            return EInvoiceResult(
+                status=edespatch.FAILED,
+                uuid=ettn,
+                error=scrub(message, self._secrets),
+                raw=raw,
+            )
+        external = (self._extract(response, self._FIELDS["despatch_id"]) or "").strip() or None
+        return EInvoiceResult(
+            # 101 = KUYRUĞA EKLENDİ. Kabul edilmiş bir gönderimin durumu
+            # yanıtta gelmeyebilir; gelmezse `kodu_coz(None)` -> `UNKNOWN`
+            # ve uç yine bir durum sorgusu ister. Varsayılan olarak `QUEUED`
+            # YAZILMIYOR: kuyruğa alındığını sağlayıcı söylemeli, biz
+            # varsaymamalıyız.
+            status=edespatch.kodu_coz(self._extract(response, self._FIELDS["despatch_status"])),
+            uuid=ettn,
+            external_id=external,
+            gib_status_code=(
+                self._extract(response, self._FIELDS["despatch_status"]) or ""
+            ).strip()
+            or None,
+            raw=raw,
+        )
+
+    def despatch_status(self, uuid: str) -> EInvoiceResult:
+        """Bir e-İrsaliyenin durumunu ETTN ile sor. Idempotent, tekrarlanabilir.
+
+        Cevaplanamayan her sorgu ``UNKNOWN`` döner ve
+        :func:`~app.einvoice.edespatch.durumu_ilerlet` bunu canlı bir belge
+        için GEÇİŞ SAYMAZ — belge olduğu yerde kalır. ``query_status``ın
+        ``UNRESOLVED`` kararıyla aynı ilke, ayrı kelime hazinesi.
+
+        ``EInvoiceNotFoundError`` AYRI YAKALANIYOR ve bu E4a'nın
+        ``UNKNOWN``dan çıkış yoludur: sağlayıcı "böyle bir kayıt yok" derse
+        bu bir belirsizlik değil POZİTİF bir cevaptır. Sonuç yine
+        ``UNKNOWN`` statüsüyle döner ama ``raw["belge_yok"]`` bayrağıyla —
+        kararı uç verir (:func:`~app.einvoice.edespatch.bilinmeyeni_yok_say`),
+        çünkü ``FAILED``e düşürmek YEREL bir durum değişikliğidir ve
+        adaptörün işi değildir.
+        """
+        ettn = str(uuid or "").strip()
+        if not ettn:
+            return EInvoiceResult(
+                status=edespatch.UNKNOWN, error=wire.IZIBIZ_EDESPATCH_STATUS_NEEDS_ETTN
+            )
+        if not self._configured():
+            return EInvoiceResult(
+                status=edespatch.UNKNOWN,
+                uuid=ettn,
+                error=scrub(self._unconfigured_message(), self._secrets),
+            )
+        try:
+            response = self._call_with_session("despatch_status", retryable=True, uuid=ettn)
+        except EInvoiceNotFoundError as exc:
+            return EInvoiceResult(
+                status=edespatch.UNKNOWN,
+                uuid=ettn,
+                error=scrub(exc.message, self._secrets),
+                raw={"belge_yok": True},
+            )
+        except EInvoiceError as exc:
+            return EInvoiceResult(
+                status=edespatch.UNKNOWN, uuid=ettn, error=scrub(exc.message, self._secrets)
+            )
+        except TransportError:
+            return EInvoiceResult(
+                status=edespatch.UNKNOWN, uuid=ettn, error=message_for(NETWORK)
+            )
+
+        raw = self._summary(response)
+        if not response.ok:
+            code = classify_http(response.status_code, self._body_text(response))
+            return EInvoiceResult(
+                status=edespatch.UNKNOWN,
+                uuid=ettn,
+                error=scrub(message_for(code, provider_code=response.status_code), self._secrets),
+                raw=raw,
+            )
+        business = self._business_failure(response)
+        if business is not None:
+            code, message = business
+            return EInvoiceResult(
+                status=edespatch.UNKNOWN,
+                uuid=ettn,
+                error=scrub(message, self._secrets),
+                # `10008` = "belirtilen kritere uygun kayıt bulunamamıştır"
+                # (endpoints.py `IZIBIZ_ERROR_CODE_CLASSES`). Belge YOK
+                # cevabı, HTTP 200 gövdesinde de gelebilir.
+                raw={**raw, "belge_yok": code == NOT_FOUND},
+            )
+        ham_kod = (self._extract(response, self._FIELDS["despatch_status"]) or "").strip()
+        return EInvoiceResult(
+            status=edespatch.kodu_coz(ham_kod),
+            uuid=ettn,
+            gib_status_code=ham_kod or None,
+            raw=raw,
+        )
+
+    def fetch_despatch_xml(self, uuid: str) -> bytes:
+        """Gönderilen e-İrsaliyenin sağlayıcıdaki XML sureti. Boş dönmez, fırlatır."""
+        ettn = str(uuid or "").strip()
+        if not ettn:
+            raise self._raise("fetch_despatch_xml", VALIDATION, provider_code="ETTN_YOK")
+        if not self._configured():
+            raise EInvoiceError(UNKNOWN, self._unconfigured_message())
+        try:
+            response = self._call_with_session("fetch_despatch_xml", retryable=True, uuid=ettn)
+        except TransportError as exc:
+            raise self._raise("fetch_despatch_xml", NETWORK) from exc
+        if not response.ok:
+            code = classify_http(response.status_code, self._body_text(response))
+            raise self._raise(
+                "fetch_despatch_xml",
+                code,
+                provider_code=response.status_code,
+                raw=self._summary(response),
+            )
+        business = self._business_failure(response)
+        if business is not None:
+            code, message = business
+            raise _is_hatasi(code, scrub(message, self._secrets), self._summary(response))
+        icerik = self._extract(
+            response, self._FIELDS["despatch_content"]
+        )
+        if not icerik:
+            raise self._raise("fetch_despatch_xml", UNKNOWN, provider_code="XML_YOK")
+        # `CONTENT` xmlmime base64'tür (keşif §2.3) ve e-Arşiv'de ölçüldüğü
+        # gibi içinden bir ZIP çıkabilir. `_pdf_from_zip` ZIP bomba
+        # tavanlarını uygular ve tek üyeyi verir; ZIP değilse ham baytlar
+        # olduğu gibi döner.
+        return _decode_despatch_xml(icerik.encode("utf-8"))
 
 
     def _business_failure(self, response: HttpResponse) -> tuple[str, str] | None:

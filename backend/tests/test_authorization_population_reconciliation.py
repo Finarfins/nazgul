@@ -347,7 +347,24 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 #     olur ve bir POST `read` ailesine girerdi.
 #   * `EXPECTED_UNDENIABLE` KIMILDAMADI: `__admin_only__` yalniz `admin`
 #     tasir, yani uc bir ROL DEGERIYLE reddedilebiliyor.
-EXPECTED_AUTHENTICATED = 380
+# E4a (e-IRSALIYE DUZ SEVK, goc 20260913_0083): YEDI yeni uc, YEDISI DE
+# kimlik dogrulamali ve YEDISI DE "sales".
+#
+#   * `EXPECTED_AUTHENTICATED` 380 -> 387 (+7). Bire bir: eklenen uc sayisi.
+#     `test_route_security_contracts.py`nin 393 -> 400 artisiyla AYNI YEDI
+#     uctur; iki sayacin BIRLIKTE kaymasi beklenendir ve ayri kalmalari bir
+#     kusur olurdu.
+#   * `EXPECTED_READ` 80'de SABIT ve bu, DORT GET icin ANLAMLIDIR: izinleri
+#     `required_permission` ile OLCULDU -> "sales", yani ciplak `read`e
+#     HIC dusmuyorlar. Onek kurali `auth.py`de genel guvenli-metot
+#     kuralinin USTUNE yazildi; yazilmasaydi bu sayac 80 -> 84 kayardi ve
+#     depo/rapor rolleri sofor TCKN'sini gorurdu.
+#   * `EXPECTED_UNDENIABLE` 97'de SABIT: "sales" ciplak `read` DEGILDIR ve
+#     `farm`/`herd` ailesinden de degildir, yani reddedilemez okuma yuzeyi
+#     BUYUMEDI.
+# (REBASE 20260910, TABAN c66e232: 5.1c'nin +1'i ile E4a'nin +7'si
+#  BIRLIKTE olculdu -> 387. Ikisi ayri ailelerde; toplam bire bir.)
+EXPECTED_AUTHENTICATED = 387
 EXPECTED_READ = 80
 EXPECTED_UNDENIABLE = 97
 

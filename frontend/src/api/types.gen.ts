@@ -1130,6 +1130,173 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/despatch-notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Irsaliye Listesi
+         * @description Firmanın irsaliyeleri. SABİT METİN — dinamik SQL yok.
+         *
+         *     `invoice_id` süzgeci bir f-string parçasıyla DEĞİL, her zaman bağlı
+         *     olan bir parametreyle kuruluyor: `(:invoice_id IS NULL OR
+         *     invoice_id=:invoice_id)`. Böylece bu dosya
+         *     `DYNAMIC_SQL_FILE_ALLOWLIST`e HİÇ girmiyor — girmeyen bir dosyanın
+         *     parmak izi de kaymaz.
+         */
+        get: operations["irsaliye_listesi_api_despatch_notes_get"];
+        put?: never;
+        /**
+         * Irsaliye Olustur
+         * @description Faturadan bir e-İrsaliye kaydı aç. HENÜZ GÖNDERMEZ.
+         *
+         *     Oluşturma ile gönderim AYRI iki adımdır ve bu bir kolaylık değil bir
+         *     güvenlik kararı: sabit ``despatch_uuid`` satırın DOĞUŞUNDA üretilir,
+         *     yani gönderim denemesinden ÖNCE var olur. Tek adımlı bir uçta bir
+         *     TIMEOUT, kaydı hiç yazamadan dönerdi ve elimizde sağlayıcıya gitmiş
+         *     olabilecek bir belgenin ETTN'i KALMAZDI — sorgulanamaz, tekrarlanamaz,
+         *     yalnız tahmin edilebilir bir belge.
+         *
+         *     İPTAL EDİLMİŞ FATURAYA İRSALİYE KESİLMEZ: iptal edilmiş bir faturanın
+         *     malını sevk etmek beyanla çelişir.
+         */
+        post: operations["irsaliye_olustur_api_despatch_notes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/despatch-notes/{despatch_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Irsaliye Detay */
+        get: operations["irsaliye_detay_api_despatch_notes__despatch_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/despatch-notes/{despatch_id}/edespatch/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Edespatch Download
+         * @description Gönderilen e-İrsaliyenin sureti.
+         *
+         *     VARSAYILAN ``xml``, ``pdf`` DEĞİL — ve bu `invoices.py`den bilinçli
+         *     olarak AYRILIYOR (orada varsayılan `pdf`). Gerekçe: burada `pdf`
+         *     çalışmıyor (501, modül başlığında ölçüm), yani onu varsayılan yapmak
+         *     parametresiz her çağrıyı bir hataya sürüklerdi.
+         *
+         *     ``xml`` AĞA ÇIKMAZ: belge saklanan satırdan ve faturanın donmuş anlık
+         *     görüntüsünden YENİDEN ÜRETİLİR (`build_despatch_xml` saf bir
+         *     dönüşümdür). Sağlayıcıdan XML istemek, elimizde ZATEN olan veriyi
+         *     ikinci bir kaynaktan sormak olurdu.
+         */
+        get: operations["edespatch_download_api_despatch_notes__despatch_id__edespatch_download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/despatch-notes/{despatch_id}/edespatch/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Edespatch Status
+         * @description YEREL durumu oku. Sağlayıcıya HİÇ gitmez (`einvoice/status` ile aynı).
+         */
+        get: operations["edespatch_status_api_despatch_notes__despatch_id__edespatch_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/despatch-notes/{despatch_id}/edespatch/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Edespatch Submit
+         * @description İrsaliyeyi sağlayıcıya gönder. DURUMLA KAPILI, otomatik tekrar YOK.
+         *
+         *     İki kapı ve ikisi de farklı bir şeyi ölçüyor:
+         *
+         *     1. :data:`~app.einvoice.edespatch.GONDERIM_KAPALI` — canlı ya da
+         *        BİLİNMEYEN bir belge yeniden gönderilmez. ``UNKNOWN`` bu kümede
+         *        ve gerekçesi ``edespatch`` başlığında: bilmediğimiz bir belgeyi
+         *        tekrar göndermek, ilki inmişse ikinci bir irsaliye keser.
+         *     2. Sağlayıcı yapılandırması — yoksa 503 ve DB'ye HİÇ yazılmaz.
+         *
+         *     ETTN BURADA ÜRETİLMEZ; satır oluşturulurken üretildi ve DEĞİŞMEZ. Bu
+         *     uç onu yalnız OKUR — çift belgeye karşı korumanın tamamı bu tek
+         *     cümleye dayanıyor.
+         */
+        post: operations["edespatch_submit_api_despatch_notes__despatch_id__edespatch_submit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/despatch-notes/{despatch_id}/edespatch/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Edespatch Sync
+         * @description Sağlayıcıya SOR ve yerel durumu tazele. Göndermez.
+         *
+         *     ``UNKNOWN``DAN ÇIKIŞIN TEK YOLU BURASI. Sağlayıcı belgenin
+         *     VARLIĞINI olumsuzlarsa (``raw["belge_yok"]``)
+         *     :func:`~app.einvoice.edespatch.bilinmeyeni_yok_say` durumu ``FAILED``e
+         *     çevirir ve gönderim yeniden açılır. Bu karar ADAPTÖRDE DEĞİL BURADA
+         *     veriliyor: yerel durumu değiştirmek uç katmanının işidir, ve
+         *     adaptörün "bulamadım"ı ile ucun "gönderim inmemiş" sonucu AYNI ŞEY
+         *     DEĞİLDİR — ikincisi birincisinden ÇIKARILIR.
+         */
+        post: operations["edespatch_sync_api_despatch_notes__despatch_id__edespatch_sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{kind}/{document_id}/pdf": {
         parameters: {
             query?: never;
@@ -7887,6 +8054,46 @@ export interface components {
             work_order_no: string;
         };
         /**
+         * IrsaliyeOlustur
+         * @description `POST /api/despatch-notes` gövdesi.
+         *
+         *     ŞOFÖR VE PLAKA ZORUNLU, taşıyıcı opsiyonel — ve bu göçteki CHECK'ten
+         *     DAHA DAR bir kural. Göç iki dala da (plaka+şoför **veya** kargo
+         *     firması) izin verir çünkü GİB kılavuzu öyle diyor; E4a'nın KAPSAMI
+         *     ise "tek şoför, tek araç"tır. Daha dar kuralın şemada değil BURADA
+         *     olmasının sebebi tam olarak budur: kargo dalı E4b'de açıldığında göçe
+         *     dokunulmayacak.
+         */
+        IrsaliyeOlustur: {
+            /**
+             * Actual Shipment At
+             * Format: date-time
+             */
+            actual_shipment_at: string;
+            /** Carrier Name */
+            carrier_name?: string | null;
+            /** Carrier Tax Number */
+            carrier_tax_number?: string | null;
+            /** Delivery Address */
+            delivery_address: string;
+            /** Delivery Customer Id */
+            delivery_customer_id?: number | null;
+            /** Despatch Number */
+            despatch_number?: string | null;
+            /** Driver Name */
+            driver_name: string;
+            /** Driver National Id */
+            driver_national_id: string;
+            /** Invoice Id */
+            invoice_id: number;
+            /** Issue Date */
+            issue_date?: string | null;
+            /** Trailer Plate */
+            trailer_plate?: string | null;
+            /** Vehicle Plate */
+            vehicle_plate: string;
+        };
+        /**
          * KodGirdisi
          * @description Kod üretme gövdesi. `extra="forbid"`: sessizce yok sayılan alan YOK.
          */
@@ -12950,6 +13157,229 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    irsaliye_listesi_api_despatch_notes_get: {
+        parameters: {
+            query?: {
+                invoice_id?: number | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    irsaliye_olustur_api_despatch_notes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IrsaliyeOlustur"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    irsaliye_detay_api_despatch_notes__despatch_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                despatch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edespatch_download_api_despatch_notes__despatch_id__edespatch_download_get: {
+        parameters: {
+            query?: {
+                format?: string;
+            };
+            header?: never;
+            path: {
+                despatch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edespatch_status_api_despatch_notes__despatch_id__edespatch_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                despatch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edespatch_submit_api_despatch_notes__despatch_id__edespatch_submit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                despatch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edespatch_sync_api_despatch_notes__despatch_id__edespatch_sync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                despatch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
