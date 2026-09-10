@@ -100,8 +100,8 @@ jobs:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest
-          python -m pytest tests/test_alembic_chain_integrity.py tests/test_goc_zinciri.py -q
+          python -m pip install "pytest>=8.2,<9" "pytest-asyncio>=0.23,<1"
+          python -m pytest -p pytest_asyncio.plugin tests/test_alembic_chain_integrity.py tests/test_goc_zinciri.py -q
 
   # BAYAT SIRA kapısı. `alembic-chain` ile AYNI sebeple açık birleşme kurar:
   # kusur yalnız base ile head'in BİRLEŞİMİNDE vardır. Girdi dosyasının sırası
@@ -236,8 +236,8 @@ jobs:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest
-          python -m pytest tests/test_durum_kaydi.py -q
+          python -m pip install "pytest>=8.2,<9" "pytest-asyncio>=0.23,<1"
+          python -m pytest -p pytest_asyncio.plugin tests/test_durum_kaydi.py -q
 
   backend-quality-canonical:
     runs-on: ubuntu-latest
@@ -574,7 +574,7 @@ jobs:
             canonical_manifest="$RUNNER_TEMP/postgresql-canonical-manifest.json"
             reset_schema
             ISOLATED_TEST_REPORT="$canonical_raw" \
-              python -m pytest --collect-only -q -p isolated_test_reporter "${all_files[@]}"
+              python -m pytest --collect-only -q -p pytest_asyncio.plugin -p isolated_test_reporter "${all_files[@]}"
             python - "$canonical_raw" "$canonical_manifest" "${all_files[@]}" <<'PY'
           import json
           import sys
@@ -619,7 +619,7 @@ jobs:
             echo "::group::$f"
             reset_schema
             if ! ISOLATED_TEST_REPORT="$report_dir/${f%.py}.json" \
-              python -m pytest -q -p isolated_test_reporter "$f"; then
+              python -m pytest -q -p pytest_asyncio.plugin -p isolated_test_reporter "$f"; then
               echo "FAILED: $f" >&2
               fail=1
             fi

@@ -107,7 +107,10 @@ def main() -> int:
     for label, pattern in required_patterns.items():
         if re.search(pattern, run_script, flags=re.MULTILINE) is None:
             return fail(f"{label} calisan kodda yok")
-    if 'python -m pytest --collect-only -q -p isolated_test_reporter "${all_files[@]}"' not in run_script:
+    if (
+        'python -m pytest --collect-only -q -p pytest_asyncio.plugin -p isolated_test_reporter "${all_files[@]}"'
+        not in run_script
+    ):
         return fail("bagimsiz PostgreSQL canonical node manifesti uretilmiyor")
     if 'python merge_postgresql_test_reports.py "$report_dir"' not in run_script:
         return fail("mevcut PostgreSQL report merger shard raporunu uretmiyor")
@@ -123,7 +126,9 @@ def main() -> int:
         return fail("dosya basina PostgreSQL calisma dongusu yok")
     loop_body = loop_match.group("body")
     reset_at = loop_body.find("reset_schema")
-    pytest_at = loop_body.find('python -m pytest -q -p isolated_test_reporter "$f"')
+    pytest_at = loop_body.find(
+        'python -m pytest -q -p pytest_asyncio.plugin -p isolated_test_reporter "$f"'
+    )
     if reset_at < 0 or pytest_at < 0 or reset_at >= pytest_at:
         return fail("her dosyada reset_schema, ayri pytest surecinden once degil")
 
