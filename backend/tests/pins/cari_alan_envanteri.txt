@@ -3,6 +3,22 @@ GET /api/customers	read	address,email,phone,tax_number	F,F,F,M,M
 GET /api/customers/{customer_id}	read	address,email,phone,tax_number	F,F,F,M,M
 GET /api/customers/{customer_id}/statement	sales	address,email,phone,tax_number	F,F,F,D,D
 GET /api/customers/{customer_id}/statement.pdf	sales	address,email,phone,tax_number	F,F,F,D,D
+# E4a e-IRSALIYE SURETI (goc 20260913_0083, PR #116). MASKELENMEZ ve bu
+# gerekce OLCULDU, varsayilmadi: uc `edespatch.build_despatch_xml` ile bir
+# UBL-TR e-Irsaliye BELGESI uretiyor ve `_taraf` alicinin VKN/TCKN'sini
+# `cac:PartyIdentification/cbc:ID[@schemeID]`, adresini
+# `cac:PostalAddress/cbc:StreetName` olarak YAPISAL eleman yaziyor
+# (`app/einvoice/edespatch.py:378-394`) -- yani ikisi de mali belgenin
+# ZORUNLU parcasidir, gosterim suslemesi degil. Maskelemek gecersiz bir
+# belge uretirdi; dahasi CALISMAZDI: maskeli `tax_number` `"*******890"`
+# olur (`alan_maskeleme.py:245`) ve `_kimlik_semasi` TAM 10/11 HANE ister,
+# yildizli deger VKN de TCKN de sayilmaz ve uc hata verir.
+# YENI BIR ACIKLIK SINIFI DEGIL: satir, ZATEN pinli IKI e-Fatura kardesinin
+# BIRLESIMIDIR -- `einvoice/download` (sales, address, F,F,F,D,D) ve
+# `invoices/{id}/pdf` (sales, tax_number, F,F,F,D,D). Izin de gorunurluk
+# vektoru de onlarla BIREBIR AYNI: `depo` ve `rapor` `sales` TASIMADIGI icin
+# rotayi HIC goremez (D), kalan uc rol zaten `MASKESIZ_ROLLER`dedir.
+GET /api/despatch-notes/{despatch_id}/edespatch/download	sales	address,tax_number	F,F,F,D,D
 GET /api/finance/accounts	finance	iban	H,H,H,H,H
 GET /api/finance/summary	finance	iban	H,H,H,H,H
 GET /api/invoices/{invoice_id}/einvoice/download	sales	address	F,F,F,D,D
