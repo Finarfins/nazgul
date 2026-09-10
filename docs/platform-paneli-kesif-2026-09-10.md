@@ -12,17 +12,17 @@
 - `backend/app/platform_access.py:11-16`: `platform_operator_entries` ortam değişkeni `settings.sungur_platform_operators` değerini virgülle ayrılmış dizgi olarak çözer (`frozenset`).
 - `backend/app/platform_access.py:19-26`: `is_platform_operator(user)`: Kullanıcının rolü `"admin"` OLMAK ZORUNDA (`role != 'admin'` ise `False`), kullanıcı kimliği sayısal olmalı ve `hmac.compare_digest` ile ortam değişkenindeki sayısal kimliklerle sabit zamanlı karşılaştırılmalıdır.
 - `backend/app/platform_access.py:29-32`: `require_platform_operator(request)`: `request.state.user` üzerinden operatörlük doğrulanır, yoksa HTTP 403 (`"Platform operatörü yetkisi gerekli"`) fırlatır.
-- `backend/app/routers/auth.py:539`: `_session_payload` içinde `"is_platform_operator": is_platform_operator(user)` alanı üretilir; `/auth/login` (satır 613), `/auth/refresh` (satır 1048), `/auth/switch-company` (satır 1117) ve `/auth/me` (satır 1214) oturum yanıtlarında yer alır.
+- `backend/app/routers/auth.py:539`: `_session_payload` içinde `"is_platform_operator": is_platform_operator(user)` alanı üretilir; `/auth/login` (satır 613), `/auth/refresh` (gövde satır 1048, çerez satır 1117, dekoratör `routers/auth.py:1052`) ve `/auth/me` (satır 1214) oturum yanıtlarında yer alır. Şirket değişimi için ayrı bir uç yoktur, başlık bazlıdır (`X-Company-Id`).
 
 ### 1.2. Yetki Kuralları ve Yönlendiriciler
 - `backend/app/auth.py:908-911`: `required_permission` fonksiyonunda `/api/platform/backups` öneki `"read"` döner (gerekçe: yönlendirici daha sert olan admin + allow-list kontrolünü uygular, ara katman oturum ve CSRF denetler).
 - `backend/app/auth.py:1233`: `GET /api/platform/audit` için açık bir kural tanımlı DEĞİLDİR; genel güvenli metot kuralına düşerek `"read"` alır.
 - `backend/app/routers/platform_backups.py:35`: `APIRouter(prefix="/platform/backups")`. Uçlar:
-  - `GET ""` (`:95`): Yedek listesi ve aktif işlem durumu (`list_platform_backups`).
-  - `POST ""` (`:110`): Anlık tam veritabanı yedeği oluşturma (`create_platform_backup`).
-  - `GET "/{name}/download"` (`:123`): Yedek dump dosyasını indirme (`FileResponse`).
-  - `POST "/{name}/verify"` (`:140`): Yedek bütünlük ve şema sürümü doğrulama.
-  - `POST "/{name}/restore"` (`:152`): Geri yükleme (HTTP üzerinden yalnız bakım kipinde; SQLite'ta HTTP kapalıdır `:180-190`, 5.1c ertelenmiştir).
+  - `GET ""` (`:95`, dekoratör `:94`): Yedek listesi ve aktif işlem durumu (`list_platform_backups`).
+  - `POST ""` (`:106`, dekoratör `:105`): Anlık tam veritabanı yedeği oluşturma (`create_platform_backup`).
+  - `GET "/{name}/download"` (`:125`, dekoratör `:124`): Yedek dump dosyasını indirme (`FileResponse`).
+  - `POST "/{name}/verify"` (`:142`, dekoratör `:141`): Yedek bütünlük ve şema sürümü doğrulama.
+  - `POST "/{name}/restore"` (`:152`, dekoratör `:151`): Geri yükleme (HTTP üzerinden yalnız bakım kipinde; SQLite'ta HTTP kapalıdır `:156-160`, 5.1c ertelenmiştir).
   - *Mimari Kusur* (`:48-52`): `_log` fonksiyonu `log_activity(db, int(request.state.company_id), ...)` çağrısıyla platform olayını çağıranın kiracısına yazar.
 - `backend/app/routers/platform_audit.py:32`: `APIRouter(prefix="/platform/audit")`.
   - `GET ""` (`:35-51`): `audit_logs.c.company_id.is_(None)` olan firmasız güvenlik kayıtlarını listeler. Yalnızca `limit` parametresi (1-1000) vardır, başka süzgeç yoktur.
@@ -35,7 +35,7 @@
   - `POST "/companies"` (`:86`): Yeni firma açar (yalnız `admin`).
   - `GET "/company-settings"` (`:125`) & `PUT "/company-settings"` (`:157`): Aktif firma ayarları.
 - `backend/app/routers/auth.py`:
-  - `POST "/auth/register"` (`:689`): Yeni kullanıcı kaydı.
+  - `POST "/auth/register"` (`:643`): Yeni kullanıcı kaydı.
   - `GET "/auth/verify-email"` (`:763`) & `POST "/auth/verify-email"` (`:792`): E-posta doğrulama token tüketimi.
   - `POST "/auth/resend-verification"` (`:831`): IP limitli e-posta doğrulama yeniden gönderimi.
   - `GET "/users"` (`:1282`), `POST "/users"` (`:1303`), `PATCH "/users/{user_id}/status"` (`:1357`): Yalnızca aktif firma kapsamındaki kullanıcılar.
@@ -47,7 +47,7 @@
 - `frontend/src/` dizininde `/platform` önekli hiçbir sayfa veya rota YOKTUR (`frontend/src/App.tsx`).
 - Mevcut tek platform sayfası `frontend/src/pages/Backups.tsx` bileşenidir ve rotası `/yedekler`dir (`frontend/src/navigation.tsx:214`).
 - `frontend/src/AuthContext.tsx:24,56`: Ön yüz `/auth/me`den gelen `is_platform_operator` alanını `useState`te tutar ve `can('platform')` kontrolünü buna bağlar.
-- `frontend/e2e/rota-envanteri.ts:71` rota arasında `/yedekler` tek platform rotasıdır ve e2e ortamında ortam değişkeni verilmediği için `muaf` olarak işaretlidir.
+- `frontend/e2e/rota-envanteri.ts:643-644`: 71 rota arasında `/yedekler` tek platform rotasıdır ve e2e ortamında ortam değişkeni verilmediği için `muaf` olarak işaretlidir.
 
 ---
 
@@ -116,19 +116,19 @@ Veritabanı şeması doğrudan incelendiğinde toplam **135 tablo** bulunmaktad�
 | | Yeniden kuyruklama / retry | **EKSİK** | `notifications.py:808` (yalnız tek firma) | `require_platform_operator` | Yok |
 | **e. Hız Sınırları** | `auth_rate_limits` bloklanan IP'ler | **EKSİK** | `auth.py:406-435` (tüketim var, okuma yok) | `require_platform_operator` | Yok |
 | | IP blokajı temizleme (unblock) | **EKSİK** | Yok | `require_platform_operator` | Yok |
-| **f. Yedekler** | Liste, oluşturma, hash doğrulama, indirme | **VAR** | `platform_backups.py:95,110,123,140` | `require_platform_operator` | Yok |
+| **f. Yedekler** | Liste, oluşturma, hash doğrulama, indirme | **VAR** | `platform_backups.py:95,106,125,142` (dekoratörler `:94,105,124,141`) | `require_platform_operator` | Yok |
 | | Geri yükleme (Restore) | **KAPSAM DIŞI** | `platform_backups.py:152` (Faz 5.1c) | - | - |
 | **g. Denetim** | Firmasız olay listesi (`company_id IS NULL`) | **VAR (Kısmi)** | `platform_audit.py:35` (filtresiz, limit var) | `require_platform_operator` | Yok |
 | | Olay tipi, IP, tarih, kullanıcı süzgeçleri | **EKSİK** | Yok | `require_platform_operator` | Yok |
 | **h. e-Belge Sağlığı** | Firma bazında `einvoice_status` sayaçları | **EKSİK** | `invoices.py:279` (fatura tekil durum sorgusu) | `require_platform_operator` | Yok |
-| | Sandbox/Prod ortam bilgisi gösterimi | **EKSİK** | `config.py:141` (`izibiz_env`) | `require_platform_operator` | Yok |
+| | test/live ortam bilgisi gösterimi | **EKSİK** | `config.py:141` (`izibiz_env`, `einvoice/endpoints.py:64-66`) | `require_platform_operator` | Yok |
 
 ### S4. Güvenlik İncelemesi: Operatör Yetki Sınırları (SEC-3b Uyumu)
 - **Asla Yapılamayacaklar:**
   1. Operatörler hiçbir kiracının ticari veri satırlarını (müşteri adları, VKN/TCKN, cari bakiye, fatura kalemleri, fiyatlar, stok hareketleri, hayvan ve tarla kayıtları) toplu veya tekil olarak **GÖREMEMELİDİR**.
   2. Panel ekranlarında müşteri/tedarikçi PII (kişisel veri) bulunmamalı; yalnızca sayısal sayaçlar, hacim metrikleri ve durum dağılımları sunulmalıdır.
   3. Outbox veya entegrasyon hata mesajlarında alıcı telefon/e-posta ve ham SQL/istisna metinleri temizlenmeli (`notifications.py:197` `_mask_recipient` ve `entegrasyon_olaylari.py` `_gerekceyi_arindir` deseni uygulanmalıdır).
-  4. E-belge ekranında entegratör kullanıcı adı ve şifreleri (`settings.izibiz_password` vb.) asla JSON yanıtına sızdırılmamalı; yalnızca ortam bayrağı (`"test" | "prod"`) ve uç nokta erişilebilirliği gösterilmelidir.
+  4. E-belge ekranında entegratör kimlik bilgileri asla JSON yanıtına sızdırılmamalı; yalnızca ortam bayrağı (`"test" | "live"`, `config.py:141` `izibiz_env`, `einvoice/endpoints.py:64-66`) ve uç nokta erişilebilirliği gösterilmelidir.
   5. Kiracısız denetim izi (`GET /api/platform/audit`) yalnız oturum öncesi/hatalı denetimleri göstermeli, kiracıya ait `/api/audit` satırlarını içermemelidir.
 
 ### S5. Ön Yüz Planı: `/platform` Rota Ağacı
@@ -188,6 +188,7 @@ Veritabanı şeması doğrudan incelendiğinde toplam **135 tablo** bulunmaktad�
   - `EXPECTED_PATH_COUNT`: **301 → 308** (+7 yol)
   - `EXPECTED_AUTHENTICATED`: **379 → 386** (+7)
   - `EXPECTED_READ`: **80** (Değişmez; 7 uç `GUARDED_READ`e eklendiği için çıplak `read` sabit kalır)
+  - `GUARDED_READ_OPERATIONS`: **24 → 31** (`test_authorization_population_reconciliation.py:658` doğrular, 7 uç korumalı okuma kümesine girer)
   - `EXPECTED_UNDENIABLE`: **97** (Değişmez)
   - `EXPECTED_GET_PERMISSIONS`: **186 → 193** (+7)
   - `EXPECTED_SECURITY_FINGERPRINT`: Güncellenir.
@@ -228,7 +229,7 @@ Veritabanı şeması doğrudan incelendiğinde toplam **135 tablo** bulunmaktad�
      - `PlatformUsers.tsx` (Kullanıcı listesi, kilit aç/kapa, parola sıfırlama, doğrulama gönderme)
      - `PlatformOutbox.tsx` (Kanal kuyrukları, en eski yaş, yeniden deneme)
      - `PlatformSecurity.tsx` (Hız sınırı blokajları, IP açma, denetim günlüğü)
-     - `PlatformEDocuments.tsx` (Firma fatura durumları, sandbox bayrağı)
+     - `PlatformEDocuments.tsx` (Firma fatura durumları, test/live ortam bayrağı)
   4. Eski `/yedekler` rotasının `/platform/yedekler` altına taşınması (eski rotaya yönlendirme bırakılarak).
   5. `frontend/e2e/rota-envanteri.ts`: 6 yeni rotanın eklenmesi (**71 → 77 rota**; e2e ortamı gereği `muaf` olarak gerekçelendirilir).
 - **Etkilenen Dosyalar:** `App.tsx`, `navigation.tsx`, `AppShell.tsx`, 6 yeni sayfa dosyası, `rota-envanteri.ts`, `rota-kapsam-sozlesmesi.test.ts`.
