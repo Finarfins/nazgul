@@ -7,14 +7,14 @@ from sqlalchemy import text, insert, select
 from sqlalchemy.orm import Session
 from ..business_time import business_today
 from ..db import get_db
-from ..money import HUNDRED, ZERO_MONEY, money
+from ..money import ZERO_MONEY, money
 from ..schemas import PaymentCreate, CustomerCreate, FinancialAccountCreate, FinancialTransactionCreate, FinancialTransferCreate, FinancialInstrumentCreate, FinancialInstrumentStatusUpdate
 from ..statement import Statement, build_statement
-from ..tenancy import company_id
+from ..tenancy import company_id, istek_rolu
 from ..document_engine import PAYMENT_METHODS
 from ..finance_engine import finance_accounts, finance_transactions, financial_instruments, ACCOUNT_TYPES, sync_payment_finance, remove_payment_finance, validate_payment_account, utcnow
 from ..crm import add_contact, add_note, add_task, delete_contact, delete_note, delete_task, set_task_status
-from ..entity_detail import entity_detail, entity_documents
+from ..entity_detail import cari_liste_satirlari, entity_detail, entity_documents
 from ..config import settings
 from ..payment_allocation_engine import (
     create_payment_with_allocation,
@@ -159,11 +159,11 @@ def suppliers(request: Request, q: str = '', sort: str = 'name_asc', active: str
       WHERE s.company_id=:cid {active_sql} AND (LOWER(s.name) LIKE LOWER(:q) OR COALESCE(s.phone,'') LIKE :q
        OR LOWER(COALESCE(s.email,'')) LIKE LOWER(:q) OR COALESCE(s.tax_number,'') LIKE :q)
       GROUP BY s.id,pay.total_paid,mm.total_receipts ORDER BY {order} LIMIT 1000'''), {'cid': cid, 'q': f'%{q}%', 'today':today}).mappings().all()
-    result=[]
-    for item in rows:
-        row=dict(item);risk=money(row.get('risk_limit'));balance=money(row.get('current_balance'))
-        row['risk_exceeded']=risk>0 and balance>risk;row['risk_usage_percent']=round((balance/risk)*HUNDRED,1) if risk>0 else 0;result.append(row)
-    return result
+    # Risk hesabi + SEC-3b maskelemesi musteri listesiyle ORTAK dikistedir;
+    # gerekce `entity_detail.cari_liste_satirlari` docstring'inde. Bu uc
+    # `purchases` iznine baglidir (SEC-3), yani `satis` ve `rapor` buraya HIC
+    # giremez; giren maskeli rol `depo`dur ve maskeyi o aliyor.
+    return cari_liste_satirlari(rows, request)
 
 
 @router.get('/payments')
@@ -482,7 +482,7 @@ def supplier_documents(supplier_id:int,request:Request,offset:int=Query(0,ge=0),
 @router.get('/suppliers/{supplier_id}/statement',response_model=Statement)
 def supplier_statement(supplier_id:int,request:Request,date_from:date|None=None,date_to:date|None=None,db:Session=Depends(get_db)):
     """Yazdırılabilir cari hesap ekstresi: devir + dönem hareketleri + yürüyen bakiye."""
-    return build_statement(db,company_id(request),'supplier',supplier_id,date_from,date_to)
+    return build_statement(db,company_id(request),'supplier',supplier_id,date_from,date_to,rol=istek_rolu(request))
 
 
 @router.put('/suppliers/{supplier_id}')

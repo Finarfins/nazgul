@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from ..alan_maskeleme import maskele_cari_listesi
 from ..db import get_db
 from ..money import money
 from ..part_search import normalize_part_identifier, parse_part_search_query
-from ..tenancy import company_id
+from ..tenancy import company_id, istek_rolu
 from .products import list_products
 
 router = APIRouter(prefix='/search', tags=['search'])
@@ -74,11 +75,22 @@ def global_search(
         )
         ORDER BY name LIMIT :limit
     """), params).mappings().all()
-    results.extend({
-        'type': 'customer', 'id': row['id'], 'title': row['name'],
-        'subtitle': row['phone'] or row['email'] or 'Müşteri',
-        'path': f"/musteriler/{row['id']}",
-    } for row in customers)
+    # SEC-3b — `subtitle` cari TELEFONUNU ya da E-POSTASINI ham veriyor ve bu uc
+    # `read` iznindedir, yani `depo`/`rapor` da cagirabiliyor. Satir once
+    # maskeden gecirilir, `subtitle` SONRA maskeli degerden kurulur; ters sira
+    # ham numarayi altyaziya kopyalar ve maskelemeyi anlamsiz kilardi.
+    #
+    # ARAMA DAVRANISI (bilincli karar, SEC-3b): sorgu telefon/e-posta uzerinde
+    # ESLESMEYE DEVAM EDER, yalnizca YANIT maskelenir. Ayrintili gerekce ve
+    # kalan `q` orakulu `tests/test_sec3b_cari_maskeleme.py` icindeki
+    # `test_maskeli_rol_arama_ile_ham_deger_alamaz` docstring'indedir.
+    rol = istek_rolu(request)
+    for row in maskele_cari_listesi(customers, rol):
+        results.append({
+            'type': 'customer', 'id': row['id'], 'title': row['name'],
+            'subtitle': row['phone'] or row['email'] or 'Müşteri',
+            'path': f"/musteriler/{row['id']}",
+        })
 
     products = db.execute(text("""
         SELECT id, name, product_code, barcode, stock, unit

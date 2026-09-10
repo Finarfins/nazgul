@@ -90,6 +90,7 @@ test_receivables_aging_postgresql.py
 test_registration_hardening_postgresql.py
 test_season_cost_with_labour_postgresql.py
 test_seasonal_plan_postgresql.py
+test_sec3b_cari_maskeleme_postgresql.py
 test_sec4_acilis_migrasyon_postgresql.py
 test_security_audit_untenanted_check_postgresql.py
 test_servis_v2_faz1_postgresql.py

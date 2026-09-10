@@ -20,12 +20,13 @@ from fastapi import HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from .alan_maskeleme import maskele_cari, maskele_cari_listesi
 from .business_time import business_today
 from .crm import list_contacts, list_notes, list_tasks
 from .document_engine import SALES_IMPORT_NOTE, accounting_document_status_sql
 from .money import HUNDRED, ZERO_MONEY, money
 from .receivables_engine import charge_due_date_sql
-from .tenancy import company_id
+from .tenancy import company_id, istek_rolu
 
 _PREVIEW_LIMIT = 8
 _PRODUCT_LIMIT = 50
@@ -54,6 +55,35 @@ _ENTITY_CONFIG: dict[str, dict[str, str]] = {
         "not_found": "Tedarikçi bulunamadı",
     },
 }
+
+
+def cari_liste_satirlari(rows: Any, request: Request) -> list[dict]:
+    """Cari LİSTE satırlarının TEK serileştirme dikişi (SEC-3b).
+
+    `GET /api/customers` (`routers/customers.py`) ve `GET /api/suppliers`
+    (`routers/finance.py`) bu PR'den önce risk hesabını HARFİ HARFİNE aynı
+    döngüyle iki ayrı yerde yapıyordu. İki kopya, maskeleme eklerken tam
+    olarak tehlikeli olan şeydi: biri maskelenip diğeri unutulursa aynı
+    müşterinin VKN'si ikinci uçtan sızardı ve hiçbir test bunu söylemezdi.
+    Gövde buraya taşınırken risk hesabında TEK karakter değişmedi; eklenen tek
+    şey `maskele_cari_listesi` çağrısıdır.
+
+    Maskeleme risk alanları YAZILDIKTAN sonra uygulanır. Sıra önemlidir ama
+    zararsızdır: `risk_limit`/`current_balance` maskelenen alanlar değildir,
+    yani hesap maskeli veriyle koşmaz.
+    """
+    rol = istek_rolu(request)
+    sonuc: list[dict] = []
+    for item in rows:
+        row = dict(item)
+        risk = money(row.get("risk_limit"))
+        balance = money(row.get("current_balance"))
+        row["risk_exceeded"] = risk > 0 and balance > risk
+        row["risk_usage_percent"] = (
+            round((balance / risk) * HUNDRED, 1) if risk > 0 else 0
+        )
+        sonuc.append(row)
+    return maskele_cari_listesi(sonuc, rol)
 
 
 def entity_detail(
@@ -263,15 +293,32 @@ def entity_detail(
         "document_preview_limit": _PREVIEW_LIMIT,
     }
 
+    # SEC-3b — kart gövdesinin cari alanları role göre maskelenir. Cari satırı
+    # yanıtta İKİ anahtar altında dönüyor (`entity_type` ve `"entity"`); ikisi
+    # de AYNI maskeden geçmek zorundadır, yoksa `depo` maskeli `customer`
+    # nesnesini görüp ham `entity` nesnesinden VKN'yi okurdu.
+    #
+    # `contacts` de maskelenir: `entity_contacts` cari YETKİLİSİNİN telefon ve
+    # e-postasını taşır (`crm.list_contacts`), yani cari kartındaki ikinci
+    # iletişim yüzeyidir. Maskeleme tablosu alan ADIYLA çalıştığı için aynı
+    # `phone`/`email` kuralları hiç uyarlanmadan geçerlidir.
+    #
+    # `notes`/`tasks` maskelenmez: serbest metin alanlarıdır, yapılandırılmış
+    # iletişim verisi değil. Bir notun içine elle yazılmış telefon numarası bu
+    # mekanizmanın kapsamı DIŞINDADIR ve öyle olduğu bilinçlidir.
+    rol = istek_rolu(request)
+    cari = maskele_cari(entity, rol)
     result: dict[str, Any] = {
-        entity_type: dict(entity),
-        "entity": dict(entity),
+        entity_type: cari,
+        "entity": dict(cari),
         "entity_type": entity_type,
         "documents": [dict(row) for row in documents],
         "payments": [dict(row) for row in payments],
         "products": [dict(row) for row in products],
         "notes": list_notes(db, cid, entity_type, entity_id),
-        "contacts": list_contacts(db, cid, entity_type, entity_id),
+        "contacts": maskele_cari_listesi(
+            list_contacts(db, cid, entity_type, entity_id), rol
+        ),
         "tasks": list_tasks(db, cid, entity_type, entity_id),
         "summary": summary,
     }

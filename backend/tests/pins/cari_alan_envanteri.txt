@@ -1,0 +1,16 @@
+GET /api/auth/verify-email	read	email	H,H,H,H,H
+GET /api/customers	read	address,email,phone,tax_number	F,F,F,M,M
+GET /api/customers/{customer_id}	read	address,email,phone,tax_number	F,F,F,M,M
+GET /api/customers/{customer_id}/statement	sales	address,email,phone,tax_number	F,F,F,D,D
+GET /api/customers/{customer_id}/statement.pdf	sales	address,email,phone,tax_number	F,F,F,D,D
+GET /api/finance/accounts	finance	iban	H,H,H,H,H
+GET /api/finance/summary	finance	iban	H,H,H,H,H
+GET /api/invoices/{invoice_id}/einvoice/download	sales	address	F,F,F,D,D
+GET /api/invoices/{invoice_id}/pdf	sales	tax_number	F,F,F,D,D
+GET /api/search	read	email,phone	F,F,F,M,M
+GET /api/suppliers	purchases	address,email,phone,tax_number	F,F,D,M,D
+GET /api/suppliers/{supplier_id}	purchases	address,email,phone,tax_number	F,F,D,M,D
+GET /api/suppliers/{supplier_id}/statement	purchases	address,email,phone,tax_number	F,F,D,M,D
+GET /api/suppliers/{supplier_id}/statement.pdf	purchases	address,email,phone,tax_number	F,F,D,M,D
+GET /api/whatsapp/links	users	phone	H,H,H,H,H
+GET /api/work-orders/{work_order_id}/invoice	read	address,tax_number	S,S,S,S,S

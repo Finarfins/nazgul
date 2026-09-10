@@ -30,6 +30,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from .alan_maskeleme import maskele_cari
 from .business_time import business_today
 from .document_engine import SALES_IMPORT_NOTE, accounting_document_status_sql
 from .money import ZERO_MONEY, money
@@ -266,6 +267,29 @@ def _makbuz_borcu(
     return money(toplam or 0)
 
 
+
+def _baslik_alanlari(row, rol: str) -> dict:
+    """Ekstre başlığının cari alanları, role göre maskelenmiş.
+
+    Maskeleme ``StatementEntity`` KURULMADAN ÖNCE uygulanır. Sıra önemlidir:
+    model kurulduktan sonra maskelemek, PDF üreticisinin (``outputs.py``)
+    modeli okuyup ham değeri belgeye basmasına açık kapı bırakırdı -- JSON ve
+    PDF aynı ``build_statement`` çıktısını paylaşıyor.
+    """
+    return maskele_cari(
+        {
+            "id": int(row["id"]),
+            "name": row["name"],
+            "owner_name": row["owner_name"],
+            "tax_number": row["tax_number"],
+            "address": row["address"],
+            "phone": row["phone"],
+            "email": row["email"],
+        },
+        rol,
+    )
+
+
 def build_statement(
     db: Session,
     cid: int,
@@ -273,8 +297,24 @@ def build_statement(
     entity_id: int,
     date_from: date | None = None,
     date_to: date | None = None,
+    *,
+    rol: str = "",
 ) -> Statement:
-    """Ekstreyi kur: devir + pencere hareketleri + yürüyen bakiye."""
+    """Ekstreyi kur: devir + pencere hareketleri + yürüyen bakiye.
+
+    ``rol`` SEC-3b alan maskelemesi içindir ve VARSAYILANI MASKELİDİR (boş
+    dize hiçbir rol adına eşit değildir). Yön bilinçlidir: ekstre başlığı
+    carinin VKN'sini, adresini, telefonunu ve e-postasını taşır; yarın
+    eklenen bir çağıran ``rol`` geçirmeyi unutursa sonuç GİZLİ olur, sızıntı
+    DEĞİL.
+
+    Bu ucun maskelenmesi teoride değil ÖLÇÜMDE gereklidir:
+    ``GET /api/suppliers/{id}/statement`` SEC-3 ile ``purchases`` iznine
+    bağlıdır ve ``depo`` rolü ``purchases`` TAŞIR -- yani maskeli bir rol bu
+    ekstreye GERÇEKTEN girebiliyor. (Müşteri ekstresi ``sales`` istediği için
+    ``depo``/``rapor``a zaten 403'tür; oradaki maskeleme ikinci savunma
+    hattıdır, tek hat değil.)
+    """
     settings = config(entity_type)
     document_status_sql = "COALESCE(d.status,'completed') NOT IN ('draft','cancelled')"
     if entity_type == "customer":
@@ -369,15 +409,7 @@ def build_statement(
 
     return Statement(
         entity_type=entity_type,
-        entity=StatementEntity(
-            id=int(row["id"]),
-            name=row["name"],
-            owner_name=row["owner_name"],
-            tax_number=row["tax_number"],
-            address=row["address"],
-            phone=row["phone"],
-            email=row["email"],
-        ),
+        entity=StatementEntity(**_baslik_alanlari(row, rol)),
         date_from=start,
         date_to=end,
         opening_balance=opening,

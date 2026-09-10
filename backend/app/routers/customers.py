@@ -7,13 +7,12 @@ from ..change_history import record_change
 from ..crm import add_contact, add_note, add_task, delete_contact, delete_note, delete_task, set_task_status
 from ..business_time import business_today
 from ..db import get_db
-from ..entity_detail import entity_detail, entity_documents
+from ..entity_detail import cari_liste_satirlari, entity_detail, entity_documents
 from ..document_engine import SALES_IMPORT_NOTE, accounting_document_status_sql
-from ..money import HUNDRED, money
 from ..receivables_engine import charge_due_date_sql
 from ..schemas import CustomerCreate
 from ..statement import Statement, build_statement
-from ..tenancy import company_id
+from ..tenancy import company_id, istek_rolu
 
 router = APIRouter(prefix='/customers', tags=['customers'])
 SORTS = {
@@ -121,13 +120,12 @@ def musteri_satirlari(db: Session, cid: int, *, q: str = '', sort: str = 'name_a
 def list_customers(request: Request, q: str = '', sort: str = 'name_asc', active: str = 'active',
                    limit: int = Query(500, ge=1, le=2000), db: Session = Depends(get_db)):
     rows=musteri_satirlari(db, company_id(request), q=q, sort=sort, active=active, limit=limit)
-    result=[]
-    for item in rows:
-        row=dict(item);risk=money(row.get('risk_limit'));balance=money(row.get('current_balance'))
-        row['risk_exceeded']=risk>0 and balance>risk
-        row['risk_usage_percent']=round((balance/risk)*HUNDRED,1) if risk>0 else 0
-        result.append(row)
-    return result
+    # Risk hesabı + SEC-3b maskelemesi tedarikçi listesiyle ORTAK dikiştedir
+    # (`entity_detail.cari_liste_satirlari`). `musteri_satirlari`nin GÖVDESİ
+    # bilerek ELLENMEDİ: onu WhatsApp kanalı da çağırıyor ve o yüzey cari
+    # iletişim alanı DÖNDÜRMÜYOR (`whatsapp/yurutucu.py::cari_durum` yalnız ad,
+    # bakiye ve son hareket okuyor), yani maskeleme sorgunun değil UCUN işidir.
+    return cari_liste_satirlari(rows, request)
 
 @router.post('',status_code=201)
 def create_customer(payload:CustomerCreate,request:Request,db:Session=Depends(get_db)):
@@ -153,7 +151,7 @@ def customer_documents(customer_id:int,request:Request,offset:int=Query(0,ge=0),
 @router.get('/{customer_id}/statement',response_model=Statement)
 def customer_statement(customer_id:int,request:Request,date_from:date|None=None,date_to:date|None=None,db:Session=Depends(get_db)):
     """Yazdırılabilir cari hesap ekstresi: devir + dönem hareketleri + yürüyen bakiye."""
-    return build_statement(db,company_id(request),'customer',customer_id,date_from,date_to)
+    return build_statement(db,company_id(request),'customer',customer_id,date_from,date_to,rol=istek_rolu(request))
 
 @router.put('/{customer_id}')
 def update_customer(customer_id:int,payload:CustomerCreate,request:Request,db:Session=Depends(get_db)):
