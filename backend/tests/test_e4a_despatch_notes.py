@@ -936,6 +936,38 @@ def _irsaliye_govdesi(fatura_id: int, **degisiklikler) -> dict:
     return govde
 
 
+def _durum_ayarla(despatch_id: int, durum: str) -> None:
+    """İrsaliyenin sağlayıcı durumunu DOĞRUDAN yaz — test ön koşulu olarak.
+
+    SIRA BAĞIMLILIĞINI KIRAN ŞEY BUDUR ve bir kolaylık değil bir DÜZELTME:
+    ilk yazımda `test_TIMEOUT_sonrasi_BELGE_YOK_gonderimi_ACIYOR` bir
+    ÖNCEKİ testin bıraktığı `UNKNOWN` durumuna dayanıyordu ve
+    `test_YAPILANDIRMA_YOKSA_gonderim_503` de satırın hâlâ `NONE`
+    olmasına. İkisi de TANIM SIRASINDA yeşildi; CI'ın
+    `backend-quality-canonical` işi testleri BAŞKA SIRADA koşuyor ve
+    ikisi de KIRMIZI oldu (`assert 'NONE' == 'UNKNOWN'` ve
+    `assert 409 == 503`).
+
+    Paylaşılan `irsaliye` fixture'ı MODÜL KAPSAMLIDIR ve bu doğrudur —
+    yanlış olan, testlerin o paylaşılan satırın DURUMUNU birbirlerinden
+    devralmasıydı. Artık her test durumu KENDİ yazıyor: ön koşul
+    görünür, testler tek tek koşulabilir ve sıra ÖNEMSİZ.
+    """
+    from sqlalchemy import text as _text
+
+    from app.db import SessionLocal
+
+    with SessionLocal() as db:
+        db.execute(
+            _text(
+                "UPDATE despatch_notes SET edespatch_status=:s,"
+                "edespatch_last_error=NULL WHERE id=:id"
+            ),
+            {"s": durum, "id": despatch_id},
+        )
+        db.commit()
+
+
 @pytest.fixture(scope="module")
 def irsaliye(istemci, admin_basliklari, tohum):
     yanit = istemci.post(
@@ -1194,6 +1226,8 @@ def test_YAPILANDIRMA_YOKSA_gonderim_503(istemci, admin_basliklari, irsaliye) ->
     """
     from app.einvoice import edespatch
 
+    # ÖN KOŞUL AÇIKÇA KURULUYOR — komşu bir testten DEVRALINMIYOR.
+    _durum_ayarla(irsaliye["id"], edespatch.NONE)
     yanit = istemci.post(
         f"/api/despatch-notes/{irsaliye['id']}/edespatch/submit", headers=admin_basliklari
     )
@@ -1241,6 +1275,9 @@ def test_ETTN_denemeler_boyunca_SABIT(
     monkeypatch.setattr(
         uc_modulu, "get_einvoice_provider", lambda *a, **k: _SahteSaglayici()
     )
+    # ÖN KOŞUL: gönderilebilir bir satır. Komşu testler bu satırı
+    # `UNKNOWN`/`FAILED`e taşımış olabilir ve sıra GARANTİ DEĞİLDİR.
+    _durum_ayarla(irsaliye["id"], edespatch.NONE)
 
     ilk = istemci.post(
         f"/api/despatch-notes/{irsaliye['id']}/edespatch/submit", headers=admin_basliklari
@@ -1267,7 +1304,6 @@ def test_TIMEOUT_sonrasi_BELGE_YOK_gonderimi_ACIYOR(
 ) -> None:
     """`UNKNOWN` bir çıkmaz sokak DEĞİL: sync "belge yok" derse `FAILED`.
 
-    ÖNCEKİ TESTİN DEVAMI ve ona BAĞIMLI (satır `UNKNOWN` durumunda).
     MUTASYON: `bilinmeyeni_yok_say` çağrısını `sync`ten kaldırmak bunu
     KIRMIZI yapar ve zaman aşımına uğramış bir irsaliye SONSUZA DEK
     gönderilemez kalırdı.
@@ -1290,12 +1326,14 @@ def test_TIMEOUT_sonrasi_BELGE_YOK_gonderimi_ACIYOR(
     monkeypatch.setattr(
         uc_modulu, "get_einvoice_provider", lambda *a, **k: _SahteSaglayici()
     )
+    # ÖN KOŞUL KENDİ KURULUYOR. İlk yazımda bu satır bir ÖNCEKİ testin
+    # bıraktığı `UNKNOWN`a dayanıyordu ve CI'ın karışık sıralı işi onu
+    # `assert 'NONE' == 'UNKNOWN'` ile düşürdü.
+    _durum_ayarla(irsaliye["id"], edespatch.UNKNOWN)
     onceki = istemci.get(
         f"/api/despatch-notes/{irsaliye['id']}/edespatch/status", headers=admin_basliklari
     ).json()
-    assert onceki["edespatch_status"] == edespatch.UNKNOWN, (
-        "bu test bir önceki testin bıraktığı UNKNOWN durumuna dayanıyor"
-    )
+    assert onceki["edespatch_status"] == edespatch.UNKNOWN
     yanit = istemci.post(
         f"/api/despatch-notes/{irsaliye['id']}/edespatch/sync", headers=admin_basliklari
     )
