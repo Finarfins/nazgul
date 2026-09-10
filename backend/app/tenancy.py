@@ -148,6 +148,26 @@ def company_id(request:Request)->int:
  return int(cid)
 
 
+def istek_rolu(request: Request) -> str:
+    """İsteği yapanın rol adı; çözülemezse boş dize.
+
+    SEC-3b alan maskelemesinin TEK rol kaynağı budur (`app/alan_maskeleme.py`).
+    `company_id`in yanında duruyor çünkü aynı soruyu soruyor: "bu isteği KİM
+    yapıyor". Ayrı bir yardımcı olmasının nedeni, dört ayrı serileştirme
+    yüzeyinin `request.state.user` sözlüğünü kendi başına açmasını önlemek --
+    biri `.get("role")` yerine `.get("rol")` yazsaydı maskeleme o uçta SESSİZCE
+    kapanmaz, tam tersine AÇIK kalırdı; ama yine de tek yazım tek yerde durur.
+
+    `company_id`in aksine 400 ATMAZ: rolsüz istek burada bir hata değil, EN
+    KISITLI durumdur. Boş dize `MASKESIZ_ROLLER` içinde olmadığından
+    `maskelenecek_mi` True döner -- deny-by-default.
+    """
+    kullanici = getattr(request.state, 'user', None)
+    if not isinstance(kullanici, dict):
+        return ''
+    return str(kullanici.get('role') or '')
+
+
 def tenant_text(statement: str, company_id: int) -> tuple[TextClause, dict[str, int]]:
  """Build raw SQL only when it carries the canonical tenant bind predicate.
 

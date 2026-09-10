@@ -7,14 +7,15 @@ from sqlalchemy import text, insert, select
 from sqlalchemy.orm import Session
 from ..business_time import business_today
 from ..db import get_db
-from ..money import HUNDRED, ZERO_MONEY, money
+from ..money import ZERO_MONEY, money
 from ..schemas import PaymentCreate, CustomerCreate, FinancialAccountCreate, FinancialTransactionCreate, FinancialTransferCreate, FinancialInstrumentCreate, FinancialInstrumentStatusUpdate
 from ..statement import Statement, build_statement
-from ..tenancy import company_id
+from ..tenancy import company_id, istek_rolu
 from ..document_engine import PAYMENT_METHODS
 from ..finance_engine import finance_accounts, finance_transactions, financial_instruments, ACCOUNT_TYPES, sync_payment_finance, remove_payment_finance, validate_payment_account, utcnow
 from ..crm import add_contact, add_note, add_task, delete_contact, delete_note, delete_task, set_task_status
-from ..entity_detail import entity_detail, entity_documents
+from ..alan_maskeleme import maskelenecek_mi, maskeyi_geri_al
+from ..entity_detail import cari_liste_satirlari, entity_detail, entity_documents
 from ..config import settings
 from ..payment_allocation_engine import (
     create_payment_with_allocation,
@@ -132,6 +133,16 @@ def suppliers(request: Request, q: str = '', sort: str = 'name_asc', active: str
     sorts={'name_asc':'LOWER(s.name) ASC','name_desc':'LOWER(s.name) DESC','balance_asc':'current_balance ASC','balance_desc':'current_balance DESC','activity_desc':'last_activity DESC','overdue_desc':'overdue_amount DESC'}
     order=sorts.get(sort,sorts['name_asc'])
     active_sql='' if active=='all' else (' AND COALESCE(s.is_active, TRUE)=FALSE' if active=='inactive' else ' AND COALESCE(s.is_active, TRUE)=TRUE')
+    # SEC-3b — maskeli rol (`depo`) icin `q` yalniz ad/yetkili adinda arar;
+    # telefon/e-posta/VKN suzgecten CIKAR. Ayni orakul, ayni care: gerekce ve
+    # olcum `customers.musteri_satirlari` docstring'inde. Maskesiz dalin
+    # metni onceki surumle karakteri karakterine aynidir.
+    arama_sql=(
+        "(LOWER(s.name) LIKE LOWER(:q) OR LOWER(COALESCE(s.owner_name,'')) LIKE LOWER(:q))"
+        if maskelenecek_mi(istek_rolu(request)) else
+        """(LOWER(s.name) LIKE LOWER(:q) OR COALESCE(s.phone,'') LIKE :q
+       OR LOWER(COALESCE(s.email,'')) LIKE LOWER(:q) OR COALESCE(s.tax_number,'') LIKE :q)"""
+    )
     rows = db.execute(text(f'''SELECT s.id,s.name,s.owner_name,s.phone,s.email,s.address,s.tax_number,s.opening_balance,
       COALESCE(s.risk_limit,0) risk_limit,COALESCE(s.payment_term_days,0) payment_term_days,CASE WHEN COALESCE(s.is_active, TRUE) THEN 1 ELSE 0 END is_active,
       COALESCE(s.opening_balance,0)+COALESCE(SUM(CASE WHEN COALESCE(pu.status,'completed') NOT IN ('draft','cancelled') THEN pu.final_total ELSE 0 END),0)+
@@ -156,14 +167,13 @@ def suppliers(request: Request, q: str = '', sort: str = 'name_asc', active: str
         SELECT supplier_id,SUM(net_payable) total_receipts FROM producer_receipts
         WHERE company_id=:cid AND status='issued' GROUP BY supplier_id
       ) mm ON mm.supplier_id=s.id
-      WHERE s.company_id=:cid {active_sql} AND (LOWER(s.name) LIKE LOWER(:q) OR COALESCE(s.phone,'') LIKE :q
-       OR LOWER(COALESCE(s.email,'')) LIKE LOWER(:q) OR COALESCE(s.tax_number,'') LIKE :q)
+      WHERE s.company_id=:cid {active_sql} AND {arama_sql}
       GROUP BY s.id,pay.total_paid,mm.total_receipts ORDER BY {order} LIMIT 1000'''), {'cid': cid, 'q': f'%{q}%', 'today':today}).mappings().all()
-    result=[]
-    for item in rows:
-        row=dict(item);risk=money(row.get('risk_limit'));balance=money(row.get('current_balance'))
-        row['risk_exceeded']=risk>0 and balance>risk;row['risk_usage_percent']=round((balance/risk)*HUNDRED,1) if risk>0 else 0;result.append(row)
-    return result
+    # Risk hesabi + SEC-3b maskelemesi musteri listesiyle ORTAK dikistedir;
+    # gerekce `entity_detail.cari_liste_satirlari` docstring'inde. Bu uc
+    # `purchases` iznine baglidir (SEC-3), yani `satis` ve `rapor` buraya HIC
+    # giremez; giren maskeli rol `depo`dur ve maskeyi o aliyor.
+    return cari_liste_satirlari(rows, request)
 
 
 @router.get('/payments')
@@ -482,13 +492,16 @@ def supplier_documents(supplier_id:int,request:Request,offset:int=Query(0,ge=0),
 @router.get('/suppliers/{supplier_id}/statement',response_model=Statement)
 def supplier_statement(supplier_id:int,request:Request,date_from:date|None=None,date_to:date|None=None,db:Session=Depends(get_db)):
     """Yazdırılabilir cari hesap ekstresi: devir + dönem hareketleri + yürüyen bakiye."""
-    return build_statement(db,company_id(request),'supplier',supplier_id,date_from,date_to)
+    return build_statement(db,company_id(request),'supplier',supplier_id,date_from,date_to,rol=istek_rolu(request))
 
 
 @router.put('/suppliers/{supplier_id}')
 def update_supplier(supplier_id:int,payload:CustomerCreate,request:Request,db:Session=Depends(get_db)):
     cid=company_id(request);before=db.execute(text('SELECT * FROM suppliers WHERE id=:id AND company_id=:cid'),{'id':supplier_id,'cid':cid}).mappings().first()
-    values=_entity_values(payload);values.update({'id':supplier_id,'cid':cid})
+    # SEC-3b — MASKELI rolun formu maskeli degeri geri gonderirse GERCEK
+    # deger KORUNUR; ayrinti `alan_maskeleme.maskeyi_geri_al` docstring'inde.
+    values=maskeyi_geri_al(_entity_values(payload),before,istek_rolu(request))
+    values.update({'id':supplier_id,'cid':cid})
     result=db.execute(text('''UPDATE suppliers SET name=:name,owner_name=:owner_name,phone=:phone,email=:email,address=:address,
       tax_number=:tax_number,opening_balance=:opening_balance,risk_limit=:risk_limit,payment_term_days=:payment_term_days,
       notes=:notes,is_active=:is_active WHERE id=:id AND company_id=:cid'''),values)

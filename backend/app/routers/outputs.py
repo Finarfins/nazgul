@@ -38,7 +38,7 @@ from ..labels import (
 )
 from ..money import money
 from ..statement import build_statement, config as statement_config
-from ..tenancy import company_id
+from ..tenancy import company_id, istek_rolu
 from ..uretici_kayit_defteri import DefterHatasi, defter_verisi
 from ..pdf_fonts import PDF_FONT, PDF_FONT_BOLD, register_pdf_fonts
 
@@ -875,7 +875,10 @@ def _statement_pdf(
     settings = statement_config(entity_type)
     _require_permission(request, settings["permission"])
     cid = company_id(request)
-    statement = build_statement(db, cid, entity_type, entity_id, date_from, date_to)
+    statement = build_statement(
+        db, cid, entity_type, entity_id, date_from, date_to,
+        rol=istek_rolu(request),
+    )
     company = db.execute(
         text("SELECT id,name,tax_number FROM companies WHERE id=:cid"),
         {"cid": cid},

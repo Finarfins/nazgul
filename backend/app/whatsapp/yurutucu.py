@@ -174,8 +174,13 @@ def cari_durum(db: Session, kimlik: Kimlik, argumanlar: dict[str, Any]) -> dict[
     from ..routers.customers import musteri_satirlari
 
     aranan = _metin(argumanlar.get("musteri")).strip()
+    # SEC-3b (PR #114): `maskeli=False` AÇIKÇA. Bu çağrı ROL GÜDÜMLÜ DEĞİL ve
+    # bu ÖLÇÜLDÜ: `Kimlik` yalnız (company_id, user_id) taşır, rol alanı YOK
+    # (`eslestirme.Kimlik`); kanalın cevabı da yalnız ad/bakiye/son hareket
+    # döndürür, cari iletişim alanı DÖNDÜRMEZ. Rol bilinmediğinden `q` burada
+    # eski (tam) süzgeciyle kalır; daraltma HTTP uçlarında role göre yapılır.
     satirlar = musteri_satirlari(
-        db, kimlik.company_id, q=aranan, limit=CARI_ADAY_SINIRI
+        db, kimlik.company_id, q=aranan, limit=CARI_ADAY_SINIRI, maskeli=False
     )
     if not satirlar:
         return {"bulunan": 0, "aranan": aranan}

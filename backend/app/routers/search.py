@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from ..alan_maskeleme import maskele_cari_listesi, maskelenecek_mi
 from ..db import get_db
 from ..money import money
 from ..part_search import normalize_part_identifier, parse_part_search_query
-from ..tenancy import company_id
+from ..tenancy import company_id, istek_rolu
 from .products import list_products
 
 router = APIRouter(prefix='/search', tags=['search'])
@@ -66,19 +67,48 @@ def global_search(
     params = {'cid': cid, 'q': _like(q), 'limit': limit}
     results: list[dict] = []
 
-    customers = db.execute(text("""
-        SELECT id, name, phone, email
-        FROM customers
-        WHERE company_id=:cid AND (
-          name LIKE :q ESCAPE '\\' OR COALESCE(phone,'') LIKE :q ESCAPE '\\' OR COALESCE(email,'') LIKE :q ESCAPE '\\'
-        )
-        ORDER BY name LIMIT :limit
-    """), params).mappings().all()
-    results.extend({
-        'type': 'customer', 'id': row['id'], 'title': row['name'],
-        'subtitle': row['phone'] or row['email'] or 'Müşteri',
-        'path': f"/musteriler/{row['id']}",
-    } for row in customers)
+    # SEC-3b — iki karar, ikisi de bu blokta:
+    #
+    # (1) YANIT: `subtitle` cari TELEFONUNU ya da E-POSTASINI ham veriyor ve
+    #     bu uc `read` iznindedir, yani `depo`/`rapor` da cagirabiliyor. Satir
+    #     once maskeden gecirilir, `subtitle` SONRA maskeli degerden kurulur;
+    #     ters sira ham numarayi altyaziya kopyalar ve maskelemeyi anlamsiz
+    #     kilardi.
+    #
+    # (2) ARAMA (PR #114 duzeltme turu): maskeli rol icin `q` yalniz `name`/
+    #     `owner_name` uzerinde eslesir. Onceki surum telefon/e-posta uzerinde
+    #     eslesmeye devam ediyordu ve `_like` bir ICERIR kalibi kurdugu icin
+    #     bu uc `/api/customers?q=` ile AYNI sonek orakuluydu: maskeli
+    #     `05** *** ** 12`den `q=012`, `q=4512`, ... diye ham numara geri
+    #     cikarilabilirdi. Iki sorgu iki AYRI SABIT metindir (f-string DEGIL):
+    #     `test_tenant_scoping_guard` sabit metinleri tek tek denetler ve
+    #     dosyadaki dinamik text() sayisi 2'de sabit kalir. VKN bu ucta HIC
+    #     eslesmiyordu (mercek olctu) ve hala eslesmiyor.
+    rol = istek_rolu(request)
+    if maskelenecek_mi(rol):
+        customers = db.execute(text("""
+            SELECT id, name, phone, email
+            FROM customers
+            WHERE company_id=:cid AND (
+              name LIKE :q ESCAPE '\\' OR COALESCE(owner_name,'') LIKE :q ESCAPE '\\'
+            )
+            ORDER BY name LIMIT :limit
+        """), params).mappings().all()
+    else:
+        customers = db.execute(text("""
+            SELECT id, name, phone, email
+            FROM customers
+            WHERE company_id=:cid AND (
+              name LIKE :q ESCAPE '\\' OR COALESCE(phone,'') LIKE :q ESCAPE '\\' OR COALESCE(email,'') LIKE :q ESCAPE '\\'
+            )
+            ORDER BY name LIMIT :limit
+        """), params).mappings().all()
+    for row in maskele_cari_listesi(customers, rol):
+        results.append({
+            'type': 'customer', 'id': row['id'], 'title': row['name'],
+            'subtitle': row['phone'] or row['email'] or 'Müşteri',
+            'path': f"/musteriler/{row['id']}",
+        })
 
     products = db.execute(text("""
         SELECT id, name, product_code, barcode, stock, unit
