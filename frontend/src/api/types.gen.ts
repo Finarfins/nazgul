@@ -3834,6 +3834,109 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/platform/companies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Platform Sirketleri
+         * @description Firmalar: durum, üye sayısı, son hareket zamanı.
+         */
+        get: operations["platform_sirketleri_api_platform_companies_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/edocuments/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Platform Ebelge Sagligi
+         * @description Firma başına e-belge durum sayıları ve entegratör ORTAMI.
+         *
+         *     Yalnız ``izibiz_env`` (``test``/``live``) döner; entegratör kimlik
+         *     bilgilerinin hiçbiri bu yanıta girmez.
+         */
+        get: operations["platform_ebelge_sagligi_api_platform_edocuments_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/outbox/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Platform Kuyruk Sagligi
+         * @description Bildirim kuyruğu kanal başına + saha stok zamanlayıcısının canlılığı.
+         */
+        get: operations["platform_kuyruk_sagligi_api_platform_outbox_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Platform Ozeti
+         * @description Platformun tek ekranlık özeti: yalnız SAYILAR.
+         */
+        get: operations["platform_ozeti_api_platform_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/rate-limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Platform Hiz Sinirlari
+         * @description ``auth_rate_limits`` eylem + IP başına toplamı. Kiracı verisi yok.
+         */
+        get: operations["platform_hiz_sinirlari_api_platform_rate_limits_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/platform/tenant-restore": {
         parameters: {
             query?: never;
@@ -3853,6 +3956,52 @@ export interface paths {
          *     yazılmamış bir firma için yalan olurdu.
          */
         post: operations["kiraciyi_geri_yukle_api_platform_tenant_restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Platform Kullanicilari
+         * @description Platform kullanıcıları ve firma üyelikleri.
+         *
+         *     Rol hesap düzeyindedir (``app_users.role``); üyelik satırı rol TAŞIMAZ
+         *     (``user_company_memberships``: user_id, company_id, is_default).
+         */
+        get: operations["platform_kullanicilari_api_platform_users_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/verifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Platform Dogrulamalari
+         * @description Kullanılmamış ve süresi dolmamış doğrulama belirteçleri.
+         *
+         *     Belirteç DEĞERİ ve ÖZETİ (``token_hash``) seçilmez: özet, bağlantıyı
+         *     doğrulayan anahtarın ta kendisidir.
+         */
+        get: operations["platform_dogrulamalari_api_platform_verifications_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6546,6 +6695,28 @@ export interface components {
             /** Reason */
             reason: string;
         };
+        /** BekleyenDogrulama */
+        BekleyenDogrulama: {
+            /** Created At */
+            created_at: string | null;
+            /** Expires At */
+            expires_at: string | null;
+            /** User Id */
+            user_id: number;
+            /** Username */
+            username: string;
+        };
+        /** BekleyenDogrulamaListesi */
+        BekleyenDogrulamaListesi: {
+            /** Items */
+            items: components["schemas"]["BekleyenDogrulama"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
         /** BirthWrite */
         BirthWrite: {
             /**
@@ -6951,6 +7122,26 @@ export interface components {
             message?: string | null;
             /** Status */
             status: string;
+        };
+        /** EBelgeSagligi */
+        EBelgeSagligi: {
+            /** Companies */
+            companies: components["schemas"]["EBelgeSirketi"][];
+            /** Izibiz Env */
+            izibiz_env: string;
+        };
+        /** EBelgeSirketi */
+        EBelgeSirketi: {
+            /** By Status */
+            by_status: {
+                [key: string]: number;
+            };
+            /** Company Id */
+            company_id: number;
+            /** Company Name */
+            company_name: string;
+            /** Total */
+            total: number;
         };
         /** EntityContactCreate */
         EntityContactCreate: {
@@ -7794,6 +7985,26 @@ export interface components {
             /** Target Calving Interval Days */
             target_calving_interval_days: number;
         };
+        /** HizSiniriOzeti */
+        HizSiniriOzeti: {
+            /** Items */
+            items: components["schemas"]["HizSiniriSatiri"][];
+            /** Retention Hours */
+            retention_hours: number;
+            /** Window Hours */
+            window_hours: number;
+        };
+        /** HizSiniriSatiri */
+        HizSiniriSatiri: {
+            /** Action */
+            action: string;
+            /** Attempts */
+            attempts: number;
+            /** Ip Address */
+            ip_address: string;
+            /** Last At */
+            last_at: string | null;
+        };
         /**
          * ImhaTalebi
          * @description Onay, firmanın adının BİREBİR yazılmasıdır.
@@ -8104,6 +8315,57 @@ export interface components {
             phone: string;
             /** User Id */
             user_id: number;
+        };
+        /** KullaniciSayilari */
+        KullaniciSayilari: {
+            /** Total */
+            total: number;
+            /** Unverified */
+            unverified: number;
+            /** Verified */
+            verified: number;
+        };
+        /** KullaniciUyeligi */
+        KullaniciUyeligi: {
+            /** Company Id */
+            company_id: number;
+            /** Company Is Active */
+            company_is_active: boolean;
+            /** Company Name */
+            company_name: string;
+            /** Is Default */
+            is_default: boolean;
+        };
+        /** KuyrukKanali */
+        KuyrukKanali: {
+            /** Channel */
+            channel: string;
+            /** Failed */
+            failed: number;
+            /** Oldest Pending Age Seconds */
+            oldest_pending_age_seconds: number | null;
+            /** Pending */
+            pending: number;
+            /** Sent Last 24H */
+            sent_last_24h: number;
+        };
+        /** KuyrukOzeti */
+        KuyrukOzeti: {
+            /** Failed */
+            failed: number;
+            /** Oldest Pending Age Seconds */
+            oldest_pending_age_seconds: number | null;
+            /** Pending */
+            pending: number;
+        };
+        /** KuyrukSagligi */
+        KuyrukSagligi: {
+            /** Channels */
+            channels: components["schemas"]["KuyrukKanali"][];
+            /** Field Stock Scheduler */
+            field_stock_scheduler: {
+                [key: string]: unknown;
+            };
         };
         /**
          * LaborEntry
@@ -8893,6 +9155,84 @@ export interface components {
             reentry_interval_days?: number | null;
             /** Registration No */
             registration_no?: string | null;
+        };
+        /** PlatformKullaniciListesi */
+        PlatformKullaniciListesi: {
+            /** Items */
+            items: components["schemas"]["PlatformKullanicisi"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /** PlatformKullanicisi */
+        PlatformKullanicisi: {
+            /** Created At */
+            created_at: string | null;
+            /** Display Name */
+            display_name: string;
+            /** Email Verified */
+            email_verified: boolean;
+            /** Id */
+            id: number;
+            /** Is Active */
+            is_active: boolean;
+            /** Last Login At */
+            last_login_at: string | null;
+            /** Memberships */
+            memberships: components["schemas"]["KullaniciUyeligi"][];
+            /** Must Change Password */
+            must_change_password: boolean;
+            /** Role */
+            role: string;
+            /** Username */
+            username: string;
+        };
+        /** PlatformOzeti */
+        PlatformOzeti: {
+            companies: components["schemas"]["SirketSayilari"];
+            /** Einvoice Status Histogram */
+            einvoice_status_histogram: {
+                [key: string]: number;
+            };
+            /** Field Stock Scheduler */
+            field_stock_scheduler: {
+                [key: string]: unknown;
+            };
+            outbox: components["schemas"]["KuyrukOzeti"];
+            /** Pending Verifications */
+            pending_verifications: number;
+            /** Rate Limit Blocks Last 24H */
+            rate_limit_blocks_last_24h: number;
+            users: components["schemas"]["KullaniciSayilari"];
+        };
+        /** PlatformSirketListesi */
+        PlatformSirketListesi: {
+            /** Items */
+            items: components["schemas"]["PlatformSirketi"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /** PlatformSirketi */
+        PlatformSirketi: {
+            /** Created At */
+            created_at: string | null;
+            /** Id */
+            id: number;
+            /** Is Active */
+            is_active: boolean;
+            /** Last Activity At */
+            last_activity_at: string | null;
+            /** Member Count */
+            member_count: number;
+            /** Name */
+            name: string;
         };
         /** PosLookupProduct */
         PosLookupProduct: {
@@ -9748,6 +10088,15 @@ export interface components {
             status: string;
             /** Work Order Id */
             work_order_id: number;
+        };
+        /** SirketSayilari */
+        SirketSayilari: {
+            /** Active */
+            active: number;
+            /** Inactive */
+            inactive: number;
+            /** Total */
+            total: number;
         };
         /** Statement */
         Statement: {
@@ -18462,6 +18811,131 @@ export interface operations {
             };
         };
     };
+    platform_sirketleri_api_platform_companies_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                active?: boolean | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformSirketListesi"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    platform_ebelge_sagligi_api_platform_edocuments_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EBelgeSagligi"];
+                };
+            };
+        };
+    };
+    platform_kuyruk_sagligi_api_platform_outbox_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KuyrukSagligi"];
+                };
+            };
+        };
+    };
+    platform_ozeti_api_platform_overview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformOzeti"];
+                };
+            };
+        };
+    };
+    platform_hiz_sinirlari_api_platform_rate_limits_get: {
+        parameters: {
+            query?: {
+                window_hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HizSiniriOzeti"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     kiraciyi_geri_yukle_api_platform_tenant_restore_post: {
         parameters: {
             query?: never;
@@ -18484,6 +18958,72 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    platform_kullanicilari_api_platform_users_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                verified?: boolean | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformKullaniciListesi"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    platform_dogrulamalari_api_platform_verifications_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BekleyenDogrulamaListesi"];
                 };
             };
             /** @description Validation Error */

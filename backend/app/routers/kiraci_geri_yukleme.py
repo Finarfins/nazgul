@@ -6,10 +6,12 @@ Bu uç HİÇBİR kiracının kendi ucu değildir: yazdığı firma istek anında
 YOKTUR (``yeni`` kipi) ya da KAPALIDIR (``yerine`` kipi), yani çağıranın
 üyeliği o firmaya çözülemez. Kapı ``/api/platform/backups`` ile AYNIDIR:
 ``require_platform_operator`` (admin rolü + ``SUNGUR_PLATFORM_OPERATORS``
-listesi). Ara katman yine de kimlik, CSRF ve KİRACI ÇÖZÜMÜNÜ ister — ölçüldü:
-``security_and_audit`` platform önekine muafiyet TANIMAZ, operatörün varsayılan
-firması ``request.state.company_id``ye çözülür ve denetim satırı O firmaya
-yazılır (platform yedeğinin ``_log``uyla aynı yol).
+listesi). Ara katman kimlik ve CSRF ister ama PP1'den beri KİRACI ÇÖZMEZ:
+``/api/platform/`` öneki ``platform_access.platform_yolu`` ile muaftır,
+``X-Company-Id`` okunmaz ve ``request.state.company_id`` ``None`` kalır.
+Denetim satırı firmasız ``security_audit_logs``a yazılır
+(``app/platform_denetim.py``); PP1 öncesi operatörün varsayılan firmasının
+``activity_logs``una düşüyordu.
 
 İZİN ``__admin_only__``, ``read`` DEĞİL — ve bu, yedek ucundan BİLİNÇLİ bir
 sapmadır. Yedek uçları ``read`` alır ve gerçek kapıyı yönlendiriciye bırakır;
@@ -32,11 +34,10 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 
-from ..activity_log import log_activity
 from ..config import settings
-from ..db import SessionLocal
 from ..kiraci_geri_yukleme import KIPLER, geri_yukle
 from ..platform_access import require_platform_operator
+from ..platform_denetim import platform_olayi_yaz
 
 router = APIRouter(prefix="/platform/tenant-restore", tags=["Kiracı Geri Yükleme"])
 
@@ -69,29 +70,25 @@ def _gecici_dosyaya_yaz(dosya: UploadFile) -> Path:
 
 
 def _gunlukle(request: Request, rapor: dict) -> None:
-    """Platform denetim satırı: operatörün KENDİ firmasına, işlem bittikten sonra."""
-    kullanici = getattr(request.state, "user", {}) or {}
-    with SessionLocal.begin() as db:
-        log_activity(
-            db,
-            int(request.state.company_id),
-            int(kullanici["id"]) if kullanici.get("id") is not None else None,
-            "company.restored",
-            "backup",
-            None,
-            f"Kiracı geri yüklendi: kaynak {rapor['source_company_id']} -> firma {rapor['company_id']}",
-            {
-                "mode": rapor["mode"],
-                "source_company_id": rapor["source_company_id"],
-                "company_id": rapor["company_id"],
-                "row_total": rapor["row_total"],
-                "table_count": rapor["table_count"],
-                "schema_revision": rapor["schema_revision"],
-                "memberships_restored": rapor["memberships"]["restored"],
-                "attachments_copied": rapor["attachments"]["copied"],
-            },
-            correlation_id=getattr(request.state, "request_id", None),
-        )
+    """Platform denetim satırı: FİRMASIZ, işlem bittikten sonra (PP1).
+
+    PP1 öncesi satır ``activity_logs``a operatörün ``request.state.company_id``
+    ile çözülen KENDİ firmasına yazılıyordu. ``/api/platform/`` artık kiracı
+    çözümünden muaf (``platform_access.platform_yolu``) ve o değer ``None``dır;
+    eski çağrı ``int(None)`` ile geri yükleme BİTTİKTEN SONRA 500 verirdi.
+    Olay ``security_audit_logs``a firmasız yazılır; kaynak/hedef firma ve satır
+    toplamı özet metninde durur, raporun tamamı yanıttadır.
+    """
+    platform_olayi_yaz(
+        request,
+        "company.restored",
+        (
+            f"Kiracı geri yüklendi: kaynak {rapor['source_company_id']} -> "
+            f"firma {rapor['company_id']} (kip {rapor['mode']}, "
+            f"{rapor['row_total']} satır, {rapor['table_count']} tablo, "
+            f"şema {rapor['schema_revision']})"
+        ),
+    )
 
 
 @router.post("")

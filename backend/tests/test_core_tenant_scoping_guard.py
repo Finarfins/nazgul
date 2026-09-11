@@ -1798,6 +1798,86 @@ CEKIRDEK_KIRACI_ISTISNALARI: dict[tuple[str, str, str], str] = {
         "kendi ömrüdür. Kapı: `test_wa4_bekleyen_postgresql.py::"
         "test_SUPURUCU_KURESEL_kosar_ve_APPLYINGe_DOKUNMAZ`."
     ),
+    # --- PP1 PLATFORM YÖNETİM PANELİ (GÖÇ YOK) — YEDİ kayıt, ÜÇ SINIF ------
+    # (a) PLATFORM SAYACI: soru "platform bir bütün olarak nasıl"dır ve
+    #     kiracı yüklemi cevabı tek firmaya indirgerdi. Beşi bu sınıftan.
+    # (b) SAYFA ANAHTARLI GRUPLAMA: yüklem `company_id IN (sayfa)` /
+    #     `user_id IN (sayfa)`dır — kimlikler AYNI isteğin önceki sorgusundan
+    #     (firma/kullanıcı sayfası) gelir, N+1'i önler. Bağlı `==` yüklemi
+    #     değildir ve kapı onu haklı olarak kapsam saymaz.
+    # (c) FİRMASIZ YAZIM: platform olayının denetim satırı.
+    (
+        "backend/app/notifications/service.py",
+        "platform_kanal_sayaclari",
+        "ca0129f940dbc0d6a131b73ace732ae2823cccf1edbc10ebd365327189e5c20c",
+    ): (
+        "(a) Bildirim kuyruğunun KANAL başına platform sağlığı. Seçilen: kanal "
+        "adı ve durum sınıfı SAYILARI + en eski bekleyen damga; alıcı, yük, "
+        "hata metni SEÇİLMEZ. Durum sınıfları `outbox_counters` ile ortak "
+        "sabitlerden gelir ve eşitliği test ölçer. " "Yetki kiracı kapsamıyla değil `require_platform_operator` ile verilir (uç: `routers/platform_management.py`); `/api/platform/` öneki ara katmanda kiracı çözümünden MUAFTIR (`platform_access.platform_yolu`), yani bağlanacak bir istek kiracısı YOKTUR. Yanıta YALNIZ anahtar + SAYI/DAMGA çıkar, hiçbir kiracının ticari satırı çıkmaz; SEC-3b cari alan envanteri bu ucu LİSTELEMEZ (ölçüldü). Kapı: `tests/test_pp1_platform_paneli.py`."
+    ),
+    (
+        "backend/app/routers/platform_management.py",
+        "_hiz_siniri_bloklari",
+        "75b861d4d2674ae244d7b273b11ddc11eb67fd38e442dae41f5201b0980cd458",
+    ): (
+        "(a) Son 24 saatte 429 alan FİRMASIZ (kimlik öncesi) denetim satırı "
+        "SAYISI. Yüklem `company_id IS NULL`dur — `list_untenanted_audit` "
+        "ile AYNI sınıf; yalnız COUNT döner. " "Yetki kiracı kapsamıyla değil `require_platform_operator` ile verilir (uç: `routers/platform_management.py`); `/api/platform/` öneki ara katmanda kiracı çözümünden MUAFTIR (`platform_access.platform_yolu`), yani bağlanacak bir istek kiracısı YOKTUR. Yanıta YALNIZ anahtar + SAYI/DAMGA çıkar, hiçbir kiracının ticari satırı çıkmaz; SEC-3b cari alan envanteri bu ucu LİSTELEMEZ (ölçüldü). Kapı: `tests/test_pp1_platform_paneli.py`."
+    ),
+    (
+        "backend/app/routers/platform_management.py",
+        "_ebelge_dagilimi",
+        "3e85fa99c4b32ee5cd27d10472ee5682ff1b9eba25cf0f8da279cd32a06ab894",
+    ): (
+        "(a) Firma başına `einvoice_status` SAYILARI (GROUP BY). Fatura "
+        "satırı, tutar, cari SEÇİLMEZ; yalnız firma kimliği/adı, durum ve "
+        "adet. " "Yetki kiracı kapsamıyla değil `require_platform_operator` ile verilir (uç: `routers/platform_management.py`); `/api/platform/` öneki ara katmanda kiracı çözümünden MUAFTIR (`platform_access.platform_yolu`), yani bağlanacak bir istek kiracısı YOKTUR. Yanıta YALNIZ anahtar + SAYI/DAMGA çıkar, hiçbir kiracının ticari satırı çıkmaz; SEC-3b cari alan envanteri bu ucu LİSTELEMEZ (ölçüldü). Kapı: `tests/test_pp1_platform_paneli.py`."
+    ),
+    (
+        "backend/app/routers/platform_management.py",
+        "_uye_sayilari",
+        "6b8ec714d06c51625afb2a698c4d5d1669e4d187bbadd6a554e2dd92d6fb8217",
+    ): (
+        "(b) Sayfadaki firmaların ÜYE SAYISI (`company_id IN (sayfa)`, GROUP "
+        "BY). Kullanıcı kimliği bile seçilmez, yalnız COUNT. " "Yetki kiracı kapsamıyla değil `require_platform_operator` ile verilir (uç: `routers/platform_management.py`); `/api/platform/` öneki ara katmanda kiracı çözümünden MUAFTIR (`platform_access.platform_yolu`), yani bağlanacak bir istek kiracısı YOKTUR. Yanıta YALNIZ anahtar + SAYI/DAMGA çıkar, hiçbir kiracının ticari satırı çıkmaz; SEC-3b cari alan envanteri bu ucu LİSTELEMEZ (ölçüldü). Kapı: `tests/test_pp1_platform_paneli.py`."
+    ),
+    (
+        "backend/app/routers/platform_management.py",
+        "_son_hareketler",
+        "0ce2707a47ced668d34f30319ac1d79412aff2bb66d3679618bf56f7b0256cac",
+    ): (
+        "(b) Sayfadaki firmaların EN SON `activity_logs` damgası "
+        "(`company_id IN (sayfa)`, MAX, GROUP BY). Kaydın özeti, ayrıntısı, "
+        "kaynağı SEÇİLMEZ; yalnız damga. " "Yetki kiracı kapsamıyla değil `require_platform_operator` ile verilir (uç: `routers/platform_management.py`); `/api/platform/` öneki ara katmanda kiracı çözümünden MUAFTIR (`platform_access.platform_yolu`), yani bağlanacak bir istek kiracısı YOKTUR. Yanıta YALNIZ anahtar + SAYI/DAMGA çıkar, hiçbir kiracının ticari satırı çıkmaz; SEC-3b cari alan envanteri bu ucu LİSTELEMEZ (ölçüldü). Kapı: `tests/test_pp1_platform_paneli.py`."
+    ),
+    (
+        "backend/app/routers/platform_management.py",
+        "_kullanici_uyelikleri",
+        "7332cea2c874a93db54ae689eb799b545cffdcdf4fc56dbaaae5bd451f12e4d2",
+    ): (
+        "(b) Sayfadaki kullanıcıların üyelikleri (`user_id IN (sayfa)`): "
+        "firma kimliği/adı/durumu ve varsayılan bayrağı. Üyelik bir PLATFORM "
+        "ilişkisidir (hangi hesap hangi firmada), kiracının iş verisi değil. "
+        "`test_memberships_ifadeleri_KULLANICI_anahtariyla_gecer` bu kaydı ve "
+        "`_uye_sayilari`nı ADIYLA tanır; üçüncü bir lisanslı üyelik ifadesi "
+        "o testi kırar. " "Yetki kiracı kapsamıyla değil `require_platform_operator` ile verilir (uç: `routers/platform_management.py`); `/api/platform/` öneki ara katmanda kiracı çözümünden MUAFTIR (`platform_access.platform_yolu`), yani bağlanacak bir istek kiracısı YOKTUR. Yanıta YALNIZ anahtar + SAYI/DAMGA çıkar, hiçbir kiracının ticari satırı çıkmaz; SEC-3b cari alan envanteri bu ucu LİSTELEMEZ (ölçüldü). Kapı: `tests/test_pp1_platform_paneli.py`."
+    ),
+    (
+        "backend/app/platform_denetim.py",
+        "platform_olayi_yaz",
+        "a8f9f9d889fbe99e222b2e333cb63c7f0f8678fffd85ceb5883a5b98b574bf34",
+    ): (
+        "(c) Platform olayının (yedek, geri yükleme, kiracı geri yükleme) "
+        "denetim satırı `company_id=None` ile AÇIKÇA yazılır — kapının 4. "
+        "kuralı (sabitle kapsam) burada ihlal değil KONUDUR: olay hiçbir "
+        "kiracıya ait değildir ve PP1 öncesi operatörün seçtiği kiracının "
+        "`activity_logs`una düşüyordu (ölçüldü). `user_id`/`username` NULL "
+        "yazılır, yani CHECK ck_security_audit_logs_untenanted_only_preauth "
+        "TUTAR; aktör `failure_reason`da `aktor=<id>` olarak durur (gerekçe "
+        "`app/platform_denetim.py`). Satır `GET /api/platform/audit` ile "
+        "okunur (lisanslı `list_untenanted_audit`)."
+    ),
 }
 
 
@@ -1823,7 +1903,12 @@ def test_istisna_gercekten_kullaniliyor() -> None:
     # OTEKI DOKUZ Core ifadesi istisna ISTEMEDI — kapsam yuklemi onlara
     # ACIKCA yazildi ve `_kapsam` yardimcisi tam olarak bu yuzden
     # KALDIRILDI (nobetci cagrinin ardini goremiyor).
-    assert len(CEKIRDEK_KIRACI_ISTISNALARI) == 4, (
+    # 4 -> 11: PP1 PLATFORM YONETIM PANELI (GOC YOK). YEDI kayit, UC sinif
+    # (platform sayaci / sayfa anahtarli gruplama / firmasiz yazim);
+    # gerekceler kendi girdilerinde. Hicbiri kiracinin ticari satirini
+    # okumuyor ve hicbiri bir istek kiracisina baglanabilir durumda degil:
+    # `/api/platform/` oneki kiraci cozumunden MUAF.
+    assert len(CEKIRDEK_KIRACI_ISTISNALARI) == 11, (
         "Bu kapıdaki istisna sayısı arttı. Her yeni kayıt AYRI bir güvenlik "
         "kararıdır ve kendi gerekçesiyle incelenmelidir: "
         f"{sorted(CEKIRDEK_KIRACI_ISTISNALARI)}"
@@ -1893,9 +1978,23 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # o yuzey `tests/test_kiraci_geri_yukleme.py`de calisma zamaninda olculur:
 # yuvarlak yolculuk sonrasi kaynak firmanin satirlari DOKUNULMAMIS ve yeni
 # firmanin her tablosu manifeste BIREBIR esit.
-BEKLENEN_CORE_IFADE_SAYISI = 152
+# 152 -> 159: PP1 PLATFORM YONETIM PANELI (GOC YOK). YEDI ifade, YEDISI DE
+# `CEKIRDEK_KIRACI_ISTISNALARI`nda ADIYLA ve PARMAK IZIYLE lisansli:
+# `notifications/service.py::platform_kanal_sayaclari` (notifications),
+# `platform_denetim.py::platform_olayi_yaz` (security_audit_logs, firmasiz
+# yazim) ve `routers/platform_management.py`de BES okuma
+# (security_audit_logs, user_company_memberships x2, activity_logs,
+# invoices). IKI tablo kapiya ILK KEZ Core uzerinden gorunuyor:
+# `activity_logs` ve `invoices` — ikisinin de depoda Core `Table` nesnesi
+# yoktu; panel yalniz okudugu sutunlarla ayri bir metadata uzerinde tanimliyor
+# ve Python adini tablo adiyla AYNI tuttu ki bu kapi onlari GORSUN.
+BEKLENEN_CORE_IFADE_SAYISI = 159
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
+    # PP1 platform yonetim paneli: ikisi de YALNIZ lisansli platform
+    # okumalarinda (sayi/damga), baska hicbir Core ifadesinde degil.
+    "activity_logs",
+    "invoices",
     # WA4 bekleyen islem defteri (goc 20260910_0080). `company_id` tasir.
     "whatsapp_pending_actions",
     # WA2 esleştirme defteri (goc 20260910_0079). UCU DE `company_id` tasir,
@@ -2845,13 +2944,31 @@ def test_memberships_takma_adi_COZULUYOR() -> None:
     assert "user_company_memberships" in BEKLENEN_KIRACI_TABLOLARI
 
 
+#: PP1'in LİSANSLI iki üyelik ifadesi. Burada ADIYLA duruyorlar ki
+#: `CEKIRDEK_KIRACI_ISTISNALARI`na üçüncü bir üyelik lisansı eklemek bu testi
+#: kırsın: lisans kaydı tek başına bu kapıyı aşmaya YETMEZ.
+LISANSLI_UYELIK_IFADELERI = frozenset({
+    ("backend/app/routers/platform_management.py", "_uye_sayilari"),
+    ("backend/app/routers/platform_management.py", "_kullanici_uyelikleri"),
+})
+
+
 def test_memberships_ifadeleri_KULLANICI_anahtariyla_gecer() -> None:
-    """Beş ifade de `user_id` bağlıyor; tablo görünür ve DENETLENİYOR."""
+    """Lisanssız her üyelik ifadesi `user_id` bağlıyor; tablo DENETLENİYOR.
+
+    PP1'den beri iki ifade platform yönetim paneli için LİSANSLIDIR
+    (sayfa anahtarlı gruplama; gerekçe `CEKIRDEK_KIRACI_ISTISNALARI`nda).
+    Onlar bu testte ADIYLA ayrılır — yalnız lisanslı olmaları yetmez.
+    """
     ihlaller = [
         i for i in core_ihlallerini_bul()
         if "user_company_memberships" in i.tablolar
     ]
-    assert ihlaller == [], [f"{i.yol}:{i.satir} {i.neden}" for i in ihlaller]
+    lisansli = {(i.kimlik[0], i.kimlik[1]) for i in ihlaller
+                if i.kimlik in CEKIRDEK_KIRACI_ISTISNALARI}
+    assert lisansli == set(LISANSLI_UYELIK_IFADELERI), sorted(lisansli)
+    kalan = [i for i in ihlaller if i.kimlik not in CEKIRDEK_KIRACI_ISTISNALARI]
+    assert kalan == [], [f"{i.yol}:{i.satir} {i.neden}" for i in kalan]
 
 
 def test_memberships_KULLANICI_anahtari_da_yoksa_KIRMIZI() -> None:

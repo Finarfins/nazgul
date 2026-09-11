@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import text
 
-from ..activity_log import log_activity
 from ..backup_errors import BackupError
 from ..config import settings
 from ..database_backup import (
@@ -20,7 +20,7 @@ from ..database_backup import (
     validate_restored_database,
     verify_platform_backup,
 )
-from ..db import SessionLocal, engine
+from ..db import engine
 from ..maintenance import (
     assert_writes_allowed,
     current_operation,
@@ -30,7 +30,10 @@ from ..maintenance import (
     set_maintenance,
 )
 from ..platform_access import require_platform_operator
+from ..platform_denetim import platform_olayi_yaz
 from ..restore_journal import safe_append_restore_journal
+
+logger = logging.getLogger("yerel_hesap.platform_backups")
 
 router = APIRouter(prefix="/platform/backups", tags=["Platform Yedekleri"])
 
@@ -44,32 +47,33 @@ def _authorize(request: Request) -> None:
 
 
 def _log(request: Request, action: str, summary: str, details: dict | None = None) -> None:
-    with SessionLocal.begin() as db:
-        log_activity(
-            db, int(request.state.company_id), int(request.state.user["id"]),
-            action, "backup", None, summary, details,
-            correlation_id=request.state.request_id,
-        )
+    """Platform olayı FİRMASIZ denetim kaydına yazılır (PP1).
+
+    PP1 öncesi bu çağrı ``log_activity(db, request.state.company_id, ...)``
+    idi ve olay operatörün seçtiği KİRACININ ``activity_logs``una düşüyordu
+    (ölçüldü). ``/api/platform/`` artık kiracı çözümünden muaf; olay
+    ``security_audit_logs``a ``company_id=NULL`` ile yazılır — gerekçe ve CHECK
+    kısıtına uyum ``app/platform_denetim.py``de. ``details`` sözlüğünün
+    TAMAMI dış günlükte (``_journal``) ve yanıtta durur; denetim satırı yalnız
+    olayı, aktörü ve özeti taşır.
+    """
+    del details  # dış günlükte ve yanıtta; denetim satırı özet taşır
+    platform_olayi_yaz(request, action, summary)
 
 
 def _safe_log(request: Request, action: str, summary: str, details: dict) -> None:
+    """Geri yükleme SONRASI yazım: hata istek yolunu düşürmez.
+
+    PP1 öncesi burada "geri yüklenen ilk firmaya" düşen bir yedek yol vardı —
+    olay geri yüklenen anlık görüntüde operatörün kiracısı bulunmayabileceği
+    için rastgele BİR kiracıya yazılıyordu. Firmasız yazım kiracıya bağlı
+    olmadığından o yol GEREKSİZ ve kaldırıldı; değişmez kimlik izi yine dış
+    günlüktür (``_journal``).
+    """
     try:
         _log(request, action, summary, details)
     except Exception:
-        # The restored snapshot may not contain the caller's former tenant/user.
-        # Keep the panel event in the first restored company with a null actor;
-        # the external journal remains the immutable cross-restore identity log.
-        try:
-            with SessionLocal.begin() as db:
-                company_id = db.execute(
-                    text("SELECT id FROM companies ORDER BY id LIMIT 1")
-                ).scalar_one()
-                log_activity(
-                    db, int(company_id), None, action, "backup", None,
-                    summary, details, correlation_id=request.state.request_id,
-                )
-        except Exception:
-            pass
+        logger.exception("Platform denetim satırı yazılamadı: %s", action)
 
 
 def _http_error(exc: BackupError) -> HTTPException:

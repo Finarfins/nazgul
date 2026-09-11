@@ -26,7 +26,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import DateTime, and_, bindparam, insert, or_, select, text, update
+from sqlalchemy import DateTime, and_, bindparam, case, func, insert, or_, select, text, update
 from sqlalchemy.orm import Session
 
 from ..auth import utcnow
@@ -1176,6 +1176,77 @@ def outbox_counters(db: Session, *, company_id: int) -> dict[str, int]:
         {"cid": company_id, "armed": True, "disarmed": False},
     ).mappings().one()
     return {key: int(value or 0) for key, value in row.items()}
+
+
+#: ``outbox_counters``ın durum SINIFLARI — platform sayacı (aşağıda) AYNI
+#: sınıfları kullanır. İkisinin aynı kaldığını
+#: ``tests/test_pp1_platform_paneli.py::test_outbox_sayaci_kiraci_sayaciyla_ayni``
+#: tohumlanmış veride firma firma toplayarak ÖLÇER; biri değişip diğeri
+#: değişmezse kırmızı yanar.
+SAYAC_BEKLEYEN: tuple[str, ...] = (PENDING, RETRY_SCHEDULED)
+SAYAC_GONDERILEN: tuple[str, ...] = (SENT, DELIVERED)
+SAYAC_BASARISIZ: tuple[str, ...] = (FAILED, NONE_STATUS)
+
+
+def platform_kanal_sayaclari(db: Session, *, simdi: Any | None = None) -> list[dict[str, Any]]:
+    """Bildirim kuyruğunun PLATFORM geneli, KANAL başına sağlığı (PP1).
+
+    KİRACIYA BAĞLI DEĞİL ve bu, sorgunun KONUSUDUR: soru "kuyruk bir bütün
+    olarak akıyor mu"dur ve cevabı yalnız platform operatörü okur
+    (``routers/platform_management.py``, ``require_platform_operator``).
+    Kiracı kapsam kapısında gerekçesiyle lisanslıdır
+    (``CEKIRDEK_KIRACI_ISTISNALARI``). Satır DÖNMEZ — alıcı, yük, hata metni
+    yok; yalnız kanal adı ve SAYILAR.
+
+    Sınıflar ``outbox_counters``la aynıdır: ``pending`` yalnız
+    ``dispatch_armed = TRUE``; ``sent`` yalnız SENT + DELIVERED (SIMULATED
+    sayılmaz); ``failed`` FAILED + NONE. Ek iki alan: son 24 saatte gönderilen
+    (``last_attempt_at`` penceresi) ve en eski bekleyen satırın damgası — yaşı
+    #58'in canlılık ölçüsüyle (``field_stok_zamanlayici.yas_saniye``) çağıran
+    hesaplar.
+    """
+    moment = simdi or utcnow()
+    pencere = moment - timedelta(hours=24)
+    bekleyen = and_(
+        notifications.c.status.in_(SAYAC_BEKLEYEN),
+        notifications.c.dispatch_armed.is_(True),
+    )
+    rows = db.execute(
+        select(
+            notifications.c.channel,
+            func.sum(case((bekleyen, 1), else_=0)).label("pending"),
+            func.sum(
+                case((notifications.c.status.in_(SAYAC_BASARISIZ), 1), else_=0)
+            ).label("failed"),
+            func.sum(
+                case(
+                    (
+                        and_(
+                            notifications.c.status.in_(SAYAC_GONDERILEN),
+                            notifications.c.last_attempt_at >= pencere,
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ).label("sent_last_24h"),
+            func.min(case((bekleyen, notifications.c.created_at), else_=None)).label(
+                "oldest_pending_created_at"
+            ),
+        )
+        .group_by(notifications.c.channel)
+        .order_by(notifications.c.channel)
+    ).mappings().all()
+    return [
+        {
+            "channel": str(row["channel"]),
+            "pending": int(row["pending"] or 0),
+            "failed": int(row["failed"] or 0),
+            "sent_last_24h": int(row["sent_last_24h"] or 0),
+            "oldest_pending_created_at": row["oldest_pending_created_at"],
+        }
+        for row in rows
+    ]
 
 
 # ---------------------------------------------------------------------------
