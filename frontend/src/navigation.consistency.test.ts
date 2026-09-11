@@ -41,6 +41,10 @@ const menuItems=ALL_NAV_ITEMS.map(item=>[item.path] as const);
  * İMİ KIRILMADI: App.tsx'te /platform/yedekler'e yönlendiren bir rota olarak
  * duruyor (bkz. App.platform.test.tsx). Adres artık menüde olmadığı için bu
  * listeden çıktı; yönlendirme testi onun bekçisidir.
+ *
+ * 2026-09-11 (CS3, çek/senet portföyü): /cek-senet-portfoyu YENİ adres
+ * olarak eklendi (Finans grubu). /nakit-yonetimi YERİNDE duruyor; içindeki
+ * eski "Çek / Senet" sekmesi yeni sayfaya bağlantı oldu, adres değişmedi.
  */
 const BOOKMARKED_MENU_URLS=[
  '/',
@@ -66,6 +70,7 @@ const BOOKMARKED_MENU_URLS=[
  '/alacaklar',
  '/tahsis-defteri',
  '/nakit-yonetimi',
+ '/cek-senet-portfoyu',
  '/raporlar/alacak-yaslandirma',
  '/tanimlar/harman-sezon',
  '/raporlar',
@@ -196,15 +201,17 @@ describe('navigasyon izin tutarlılığı',()=>{
   // 51 → 57 (PP3): Platform Yönetimi grubu yedi madde (/yedekler Yönetim'den
   // /platform/yedekler olarak taşındı, altı yeni ekran) — 51 - 1 + 7.
   // Grup sayısı 9 → 10.
-  expect(ALL_NAV_ITEMS.length).toBe(57);
+  // 57 → 58: Çek / Senet Portföyü (CS3) — Finans grubuna eklendi; grup
+  // sayısı DEĞİŞMEDİ ve hiçbir madde çıkmadı.
+  expect(ALL_NAV_ITEMS.length).toBe(58);
   expect(PINNED_ITEMS.length).toBe(2);
   expect(NAV_GROUPS.length).toBe(10);
  });
 
  it('menü URL sözleşmesi korunur: elle yazılmış adreslerle küme eşitliği',()=>{
   // Bağımsız sözleşme listesiyle karşılaştırma (bkz. BOOKMARKED_MENU_URLS).
-  expect(BOOKMARKED_MENU_URLS).toHaveLength(57);
-  expect(new Set(BOOKMARKED_MENU_URLS).size).toBe(57);
+  expect(BOOKMARKED_MENU_URLS).toHaveLength(58);
+  expect(new Set(BOOKMARKED_MENU_URLS).size).toBe(58);
   const actual=ALL_NAV_ITEMS.map(item=>item.path);
   // Küme eşitliği: sıra önemli değil, içerik birebir olmalı.
   expect([...actual].sort()).toEqual([...BOOKMARKED_MENU_URLS].sort());
@@ -329,6 +336,19 @@ describe('navigasyon izin tutarlılığı',()=>{
   expect(NAV_GROUPS.find(group=>group.id==='admin')!.items.some(i=>i.path==='/yedekler')).toBe(false);
   expect(groupIdForPath('/platform/yedekler')).toBe('platform');
   expect(groupIdForPath('/platform/sirketler')).toBe('platform');
+ });
+
+ it('CS3: /cek-senet-portfoyu payments ister (finance DEĞİL) — depo ve rapor açamaz, satis açar',()=>{
+  // Backend `/api/cek-senetler` bütün metotlarda `payments`. `finance`a
+  // bağlansaydı çek tahsil eden `satis` sayfayı kaybederdi; `read`e
+  // bağlansaydı depo/rapor açılan ama 403 toplayan bir ekrana girerdi.
+  expect(ROUTE_PERMISSIONS['/cek-senet-portfoyu']).toBe('payments');
+  expect(groupIdForPath('/cek-senet-portfoyu')).toBe('finance');
+  for(const role of ['depo','rapor'])expect([role,can(role,permissionForPath('/cek-senet-portfoyu'))]).toEqual([role,false]);
+  for(const role of ['admin','yonetici','muhasebe','satis'])expect([role,can(role,permissionForPath('/cek-senet-portfoyu'))]).toEqual([role,true]);
+  // Nakit Yönetimi `finance`ta KALDI: satis çek portföyünü görür, hazineyi görmez.
+  expect(ROUTE_PERMISSIONS['/nakit-yonetimi']).toBe('finance');
+  expect(can('satis',permissionForPath('/nakit-yonetimi'))).toBe(false);
  });
 
  it('/alacaklar menüde olduğu gibi route tarafında da payments ister',()=>{

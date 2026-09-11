@@ -44,6 +44,10 @@ const VALIDATION_FIELD_LABELS:Record<string,string>={
  due_date:'vade tarihi',
  note:'not',
  items:'satırlar',
+ seri_no:'seri no',
+ tutar:'tutar',
+ vade:'vade',
+ keside_tarihi:'keşide tarihi',
 };
 // Alan adı hassas bir kalıp içeriyorsa değeri hata mesajına koyma — şifre/token/gizli
 // anahtar sızıntısını önler (einvoice_password, api_key gibi tam listede olmayanlar dahil).
@@ -107,10 +111,14 @@ const validationMessage=(item:unknown)=>{
  const issue=item as ValidationIssue;
  const loc=Array.isArray(issue.loc)?issue.loc.filter(part=>!VALIDATION_LOC_ROOTS.has(String(part))):[];
  const rowIndex=loc.find(part=>typeof part==='number');
- const fieldKey=String([...loc].reverse().find(part=>typeof part==='string'&&part!=='items'&&part!=='__root__')||'');
+ // `satirlar`: çek/senet bordrosunun satır listesi (`items` ile aynı rol).
+ const fieldKey=String([...loc].reverse().find(part=>typeof part==='string'&&part!=='items'&&part!=='satirlar'&&part!=='__root__')||'');
  const fieldLabel=validationField(fieldKey||'değer');
  const input=validationInput(issue.input,fieldKey);
  const phrase=validationPhrase(issue,fieldLabel);
+ // Satırın KENDİSİNE ait (alan adı taşımayan) hata, ör. model doğrulayıcısı:
+ // "değer" gibi uydurma bir alan adı eklenmez, sunucunun cümlesi kalır.
+ if(typeof rowIndex==='number'&&!fieldKey)return `${rowIndex+1}. satır: ${phrase}`;
  if(typeof rowIndex==='number')return `${rowIndex+1}. satır${input}: ${fieldLabel} ${phrase}`;
  if(fieldKey)return `${titleCase(fieldLabel)}${input}: ${phrase}`;
  return titleCase(phrase);
@@ -134,6 +142,13 @@ export const errorDetail=(err:unknown,fallback:string):string=>{
  const response=(err as {response?:{status?:number;data?:{detail?:unknown}}})?.response;
  const detail=response?.data?.detail;
  if(typeof detail==='string'&&detail)return detail;
+ // Kodlu hata gövdesi: `{code, message, ...}` (ör. çek/senet 409
+ // CEK_GECIS_GECERSIZ). Sunucunun Türkçe mesajı gösterilir; aksi hâlde
+ // axios'un ham "Request failed with status code 409" metni sızardı.
+ if(detail&&typeof detail==='object'&&!Array.isArray(detail)){
+  const message=(detail as {message?:unknown}).message;
+  if(typeof message==='string'&&message)return message;
+ }
  if(Array.isArray(detail)){
   const messages=detail.map(item=>response?.status===422?validationMessage(item):typeof item==='object'&&item&&'msg' in item?String((item as {msg:unknown}).msg):String(item)).filter(Boolean);
   if(messages.length)return messages.join(' ');

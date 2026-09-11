@@ -22,6 +22,27 @@ describe('errorDetail', () => {
     expect(errorDetail(err, 'fallback')).toBe('Firma negatif stok politikası işlemi engelledi');
   });
 
+  it('returns the message of a coded detail object instead of the raw axios text', () => {
+    const err = axiosError(409, {detail: {code: 'CEK_GECIS_GECERSIZ', message: 'İzin verilmeyen portföy geçişi: iade -> portfoyde', from: 'iade', to: 'portfoyde'}});
+    expect(errorDetail(err, 'fallback')).toBe('İzin verilmeyen portföy geçişi: iade -> portfoyde');
+    unwrapApiError(err);
+    expect(err.message).toBe('İzin verilmeyen portföy geçişi: iade -> portfoyde');
+    expect((err.response?.data as {detail: unknown}).detail).toBe('İzin verilmeyen portföy geçişi: iade -> portfoyde');
+  });
+
+  it('falls back when a detail object carries no message', () => {
+    const err = axiosError(409, {detail: {code: 'X'}});
+    expect(errorDetail(err, 'fallback')).toBe('fallback');
+  });
+
+  it('numbers bordro rows and keeps a row-level validator sentence as sent', () => {
+    const err = axiosError(422, {detail: [
+      {type: 'value_error', loc: ['body', 'satirlar', 2], msg: 'Value error, Alınan evrakta müşteri (customer_id) zorunludur'},
+      {type: 'missing', loc: ['body', 'satirlar', 0, 'seri_no'], msg: 'Field required'},
+    ]});
+    expect(errorDetail(err, 'fallback')).toBe('3. satır: Alınan evrakta müşteri (customer_id) zorunludur 1. satır: seri no zorunlu');
+  });
+
   it('maps 422 validation locations and messages to readable Turkish', () => {
     const err = axiosError(422, {detail: [{type: 'missing', loc: ['body', 'name'], msg: 'Alan zorunlu'}, {msg: 'Geçersiz değer'}]});
     expect(errorDetail(err, 'fallback')).toBe('Ad: zorunlu Geçersiz değer');

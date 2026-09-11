@@ -360,7 +360,8 @@ describe('AppShell mevcut rotaları kırmaz',()=>{
   // 50 → 51: BKÜ Kataloğu (göç 20260901_0063) — Tarla grubunda, menüde
   // GÖRÜNÜR: katalog kayıt başına değil, firma başına yönetilen bir liste.
   // 51 → 57 (PP3): Platform Yönetimi'nin yedi maddesi, /yedekler çıktı.
-  expect(new Set(hrefs).size).toBe(57);
+  // 57 → 58: Çek / Senet Portföyü (CS3) — Finans grubunda, `payments`.
+  expect(new Set(hrefs).size).toBe(58);
   for(const path of ALL_NAV_ITEMS.map(item=>item.path))expect(hrefs).toContain(path);
  });
 });

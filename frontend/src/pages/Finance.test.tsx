@@ -1,9 +1,13 @@
 import React from 'react';
 import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
-import {MemoryRouter} from 'react-router-dom';
+import {MemoryRouter,useLocation} from 'react-router-dom';
 import {ThemeProvider,createTheme} from '@mui/material/styles';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import Finance from './Finance';
+import financeSource from './Finance.tsx?raw';
+
+/** Router'ın o anki yolu — gezinmenin gerçekten gerçekleştiğini ölçer. */
+function Konum(){const {pathname}=useLocation();return <span data-testid="konum">{pathname}</span>}
 
 const get=vi.fn();
 vi.mock('../api',()=>({
@@ -32,7 +36,7 @@ beforeEach(()=>{
 afterEach(()=>cleanup());
 
 function mount(entry:any='/nakit-yonetimi'){
- return render(<ThemeProvider theme={createTheme()}><MemoryRouter initialEntries={[entry]}><Finance/></MemoryRouter></ThemeProvider>);
+ return render(<ThemeProvider theme={createTheme()}><MemoryRouter initialEntries={[entry]}><Finance/><Konum/></MemoryRouter></ThemeProvider>);
 }
 /** Hareketler sekmesindeki tablonun o anki satır kimlikleri. */
 async function rowIds(){
@@ -60,6 +64,33 @@ it('odak rozeti temizlenince tüm hareketler geri gelir',async()=>{
  fireEvent.click(screen.getByTestId('CancelIcon'));
  await waitFor(async()=>expect(await rowIds()).toEqual([79,80,81]));
  expect(screen.queryByText('Odak: Hareket #79')).toBeNull();
+});
+
+it('CS3: Çek / Senet sekmesi yeni portföy sayfasına bağlantıdır; eski liste ve prompt() yok',async()=>{
+ mount();
+ await waitFor(()=>expect(get).toHaveBeenCalledWith('/finance/summary'));
+ fireEvent.click(screen.getByRole('tab',{name:'Çek / Senet'}));
+ expect(await screen.findByTestId('cek-senet-yonlendirme')).toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'Çek / Senet Portföyüne Git'}));
+ expect(await screen.findByTestId('konum')).toHaveTextContent('/cek-senet-portfoyu');
+ // Eski `financial_instruments` listesi artık okunmuyor; müşteri/tedarikçi
+ // listeleri de yalnız o formun seçicisi içindi.
+ expect(get).not.toHaveBeenCalledWith('/finance/instruments');
+ expect(get).not.toHaveBeenCalledWith('/customers');
+ expect(get).not.toHaveBeenCalledWith('/suppliers');
+});
+
+it('CS3: sekmedeki üst düğme de yeni sayfaya gider',async()=>{
+ mount();
+ await waitFor(()=>expect(get).toHaveBeenCalledWith('/finance/summary'));
+ fireEvent.click(screen.getByRole('tab',{name:'Çek / Senet'}));
+ fireEvent.click(screen.getByRole('button',{name:'Çek / Senet Portföyü'}));
+ expect(await screen.findByTestId('konum')).toHaveTextContent('/cek-senet-portfoyu');
+});
+
+it('CS3: kaynakta prompt() çağrısı kalmadı',()=>{
+ expect(financeSource).not.toMatch(/\bprompt\(/);
+ expect(financeSource).not.toContain('/finance/instruments');
 });
 
 it('router state olmadan hesaplar sekmesinde odaksız açılır',async()=>{

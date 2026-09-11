@@ -497,6 +497,16 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
     oturum: 'oturumlu',
   },
   {
+    rota: '/cek-senet-portfoyu',
+    tur: 'kapi',
+    // Muaf DEĞİL: `payments` izni ve kiracı verisi taşıyan bir sayfa. Kapı admin
+    // oturumuyla açar. "Çek / Senet Portföyü" MENÜ ETİKETİdir (kabuğu ölçerdi);
+    // "Vade Takvimi" başlığı yalnız bu sayfanın gövdesinde çizilir ve veriden
+    // BAĞIMSIZDIR (boş portföyde de dört vade kutusuyla birlikte görünür).
+    isaret: 'Vade Takvimi',
+    oturum: 'oturumlu',
+  },
+  {
     rota: '/tanimlar/harman-sezon',
     tur: 'kapi',
     isaret: 'Harman Sezon Takvimi',
