@@ -187,6 +187,10 @@ Index(
     auth_rate_limits.c.ip_address,
     auth_rate_limits.c.attempted_at,
 )
+# H17 (göç 20260915_0088): süpürme (`attempted_at < :cutoff`) ve platform
+# paneli yalnız zamanla süzer; bileşik indeksin öncü sütunu `action` olduğu
+# için onları karşılayamaz. Ölçüm ve gerekçe göçün başlığında.
+Index("ix_auth_rate_limits_attempted_at", auth_rate_limits.c.attempted_at)
 
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "admin": {"*"},
