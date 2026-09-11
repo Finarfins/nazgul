@@ -393,6 +393,43 @@ def test_platform_olay_katalogu_sutuna_sigar() -> None:
     assert len(set(PLATFORM_OLAYLARI.values())) == len(PLATFORM_OLAYLARI)
 
 
+def test_katalog_disi_olay_ValueError_ve_satir_YAZILMAZ(ortam) -> None:
+    """Katalog dışı olay reddedilir ve ``security_audit_logs``a HİÇ satır düşmez.
+
+    NEDEN: katalog KAPALIDIR; eşlemesi olmayan ad ``action`` sütununa (String(20))
+    ya kırpılarak ya da yanlış kodla yazılırdı. Ret yazımdan ÖNCE olmalı —
+    yarım satır bırakan bir ret, platform defterini sessizce kirletir.
+    """
+    from types import SimpleNamespace
+
+    from app.platform_denetim import platform_olayi_yaz
+
+    engine = ortam["engine"]
+    istek = SimpleNamespace(
+        state=SimpleNamespace(user={"id": ortam["op"]}, request_id=None, auth_source=None),
+        client=SimpleNamespace(host="127.0.0.1"),
+        headers={},
+        url=SimpleNamespace(path="/api/platform/backups"),
+    )
+    once = _sql(engine, "SELECT COUNT(*) FROM security_audit_logs")[0][0]
+    with pytest.raises(ValueError, match="Katalog dışı platform olayı: backup.bilinmeyen"):
+        platform_olayi_yaz(istek, "backup.bilinmeyen", "ret denemesi")
+    assert _sql(engine, "SELECT COUNT(*) FROM security_audit_logs")[0][0] == once
+
+
+def test_katalog_kodlari_String20_sinirini_asmaz() -> None:
+    """Her kod ``platform.`` + kısa ad olarak 20 karakteri aşmaz.
+
+    NEDEN: sınır burada SABİT 20 olarak yazılır, ``EYLEM_GENISLIGI``den
+    okunmaz — sabit ile katalog birlikte kayarsa bu pin yine kırmızı yanar.
+    """
+    from app.platform_denetim import PLATFORM_OLAYLARI
+
+    for olay, kod in PLATFORM_OLAYLARI.items():
+        kisa = kod.removeprefix("platform.")
+        assert len("platform." + kisa) <= 20, f"{olay} -> {kod} ({len(kod)} > 20)"
+
+
 # ------------------------------------------------------ yanıt biçimi/sayı ---
 
 @pytest.mark.parametrize("yol", YENI_UCLAR)
