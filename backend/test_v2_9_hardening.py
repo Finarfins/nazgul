@@ -215,20 +215,20 @@ def test_numeric_migration_manifest_covers_all_declared_numeric_columns() -> Non
         assert declared.get(key) == expected, (key, declared.get(key), expected)
 
     # TABLOSU 0001'DEN SONRA DOĞAN ve bu altı modülün metadata'sında
-    # BİLDİRİLMEYEN manifesto girdileri. CS1 (göç 20260914_0085):
-    # `cek_senetler` göçle doğar ve Core tanımı AYRI, hiç `create_all`
-    # edilmeyen bir metadata'dadır (`app/cek_senet_schema.py`) — tablo
-    # buraya bildirilseydi açılış DDL'i onu göçten ÖNCE kurardı (0072
-    # kusuru). Manifesto girdisi 0001'e ZARARSIZDIR (`_convert_columns`
-    # olmayan tabloyu atlar) ve mutabakat anlık görüntüsü onu görür; tipi
-    # AYNI sözleşmeyle burada ölçülür.
+    # BİLDİRİLMEYEN sütunlar. CS1 (göç 20260914_0085): `cek_senetler` göçle
+    # doğar ve Core tanımı AYRI, hiç `create_all` edilmeyen bir metadata'dadır
+    # (`app/cek_senet_schema.py`) — tablo buraya bildirilseydi açılış DDL'i
+    # onu göçten ÖNCE kurardı (0072 kusuru). `post_hardening` gibi manifestoya
+    # GİRMEZ: girseydi `20260712_0000` tabanında olmayan tablo mutabakat
+    # anlık görüntüsünde bir VARLIK FARKI üretir ve PG sayısal göç kapısını
+    # (`test_numeric_migration_postgresql.py`) kırardı. Tipi burada ölçülür.
     from app import cek_senet_schema
 
     sonradan_dogan = {("cek_senetler", "tutar"): (18, 2)}
     for (tablo, sutun), beklenen in sonradan_dogan.items():
         tip = cek_senet_schema.metadata.tables[tablo].c[sutun].type
         assert (int(tip.precision), int(tip.scale)) == beklenen, (tablo, sutun, tip)
-        assert migration_columns.pop((tablo, sutun)) == beklenen
+        assert (tablo, sutun) not in migration_columns, (tablo, sutun)
 
     legacy_declared = {
         key: value for key, value in declared.items() if key not in post_hardening

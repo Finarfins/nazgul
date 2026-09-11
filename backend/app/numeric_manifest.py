@@ -56,10 +56,6 @@ MONEY_COLUMNS: dict[str, tuple[str, ...]] = {
     "finance_accounts": ("opening_balance",),
     "finance_transactions": ("amount",),
     "financial_instruments": ("amount",),
-    # CS1 (göç 20260914_0085). Tablo 0001'den SONRA doğar; 0001'in
-    # `_convert_columns`u olmayan tabloyu ATLAR, sütun zaten Numeric(18,2)
-    # kurulur. Mutabakat anlık görüntüsü (`reconciliation.py`) onu görür.
-    "cek_senetler": ("tutar",),
 }
 
 QUANTITY_COLUMNS: dict[str, tuple[str, ...]] = {
