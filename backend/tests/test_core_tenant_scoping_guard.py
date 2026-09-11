@@ -1725,9 +1725,10 @@ CEKIRDEK_KIRACI_ISTISNALARI: dict[tuple[str, str, str], str] = {
         "backend/app/routers/platform_audit.py",
         "list_untenanted_audit",
         # PP2: satır içi tipli süzgeçler eklendi (action/ip/username/status/
-        # tarih) -> parmak izi a484cea5 -> cf147994. Süzgeçlerin HİÇBİRİ
-        # `company_id IS NULL` yüklemini gevşetmez; hepsi AND ile daraltır.
-        "cf14799459bfbc96d0344b7b04eeda1fb3c26b6b56c57efa8fbc280c0e29f1a0",
+        # tarih) -> parmak izi a484cea5 -> cf147994; Şef kararı 5 `actor_id`
+        # -> 41129ced. Süzgeçlerin HİÇBİRİ `company_id IS NULL` yüklemini
+        # gevşetmez; hepsi AND ile daraltır.
+        "41129cedf0c060e910e2de056fd902c02c8214e1786c91223a2c459d512f5b2e",
     ): (
         "Kasıtlı olarak KİRACISIZ denetim satırlarının ayrıcalıklı platform "
         "okuma yolu. `company_id IS NULL` bir kapsam KAÇAĞI değil sorgunun "
@@ -2051,7 +2052,10 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # degismez). Diger PP2 ifadeleri platform tablolarina (companies,
 # app_users, auth_rate_limits) dokunur ve kapinin kiraci tablosu DEGIL.
 # Yeni kiraci tablosu YOK (`notifications` zaten gorunuyordu).
-BEKLENEN_CORE_IFADE_SAYISI = 170
+# 170 -> 171: PP2 Sef karari 4 — `_son_aktif_yonetici_firmalari`in firma
+# basina diger-aktif-admin sorgusu (`app_users` JOIN `memberships`)
+# `memberships.company_id == firma_id` BAGLI yuklemini tasir; lisans GEREKMEZ.
+BEKLENEN_CORE_IFADE_SAYISI = 171
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
     # CS1 (goc 20260914_0085): portfoy defteri ve iki taraf dogrulamasi.

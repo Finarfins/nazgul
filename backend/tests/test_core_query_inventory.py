@@ -823,7 +823,7 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     # bir yeni, AYNI bağlam). `_aktor_deseni` yalnız platform tablosu
     # `app_users`tan kimlik çözer.
     ("app/routers/platform_audit.py", "list_untenanted_audit", "select",
-     "cf14799459bfbc96d0344b7b04eeda1fb3c26b6b56c57efa8fbc280c0e29f1a0"): (1, "audit_logs", "arg0"),
+     "41129cedf0c060e910e2de056fd902c02c8214e1786c91223a2c459d512f5b2e"): (1, "audit_logs", "arg0"),
     ("app/routers/platform_audit.py", "_aktor_deseni", "select",
      "671b832e643347657b1f571166e7277d925f7c7630571942b5fa0620fa22f82c"): (1, "users", "arg0"),
     # --- app/routers/products.py
@@ -1121,6 +1121,15 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "b7a85b0ff87c02b608dd29ff8e4b721cd0b6c9d42d9345b2a32aa49e94e8cc51"): (1, "notifications", "arg0"),
     ("app/routers/platform_management.py", "platform_parola_sifirlat", "update",
      "0fdd74a973b90c496525461a07190be6af5d318fa75b0b9f725a2cd60963b1ff"): (1, "users", "arg0"),
+    # PP2 Şef kararları 2 + 4: giriş kilidi temizliği (`login_attempts`,
+    # platform tablosu) ve son-aktif-admin notu (rol + firma başına diğer
+    # aktif admin; ikincisi `memberships.company_id == firma_id` taşır).
+    ("app/routers/platform_management.py", "_son_aktif_yonetici_firmalari", "select",
+     "6e4545dea9f0b181bfbed45a984938001a672c4a6e080a93ada24f13dd97fe7d"): (1, "users", "arg0"),
+    ("app/routers/platform_management.py", "_son_aktif_yonetici_firmalari", "select",
+     "db818a9ed2335f08d425a556d5cf338cab7679919590f080552f66b770d26595"): (1, "users", "arg0"),
+    ("app/routers/platform_management.py", "platform_hiz_siniri_temizle", "delete",
+     "c03dc2f99318103762316208dc1fea081c51d9f1c62cb85551da4ac5c3dd502b"): (1, "login_attempts", "arg0"),
     # --- app/routers/cek_senetler.py (CS1, göç 20260914_0085)
     # Yedi sorgu; her biri `company_id == cid` yüklemini AÇIKÇA taşır.
     # İsteğe bağlı liste süzgeçleri SATIR İÇİ tipli bağlı parametredir
@@ -1160,8 +1169,12 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # Drift raporu OLCULDU: YALNIZ `list_untenanted_audit` DEGISTI (suzgecler;
 # bir stale + bir yeni, ayni baglam); kalan on bir sorgu ekleme.
 # `UNRESOLVED_ALLOWLIST` ve `desteksiz` BUYUMEDI.
-TOTAL_CORE_QUERIES = 216
-EXPECTED_OP_COUNTS = {"select": 144, "update": 61, "delete": 11}
+# PP2 SEF KARARLARI (GOC YOK): 216 -> 219, select 144 -> 146, delete 11 -> 12.
+# `_son_aktif_yonetici_firmalari` iki select, `platform_hiz_siniri_temizle`
+# `login_attempts` delete'i; `list_untenanted_audit` `actor_id` suzgeciyle
+# DEGISTI (bir stale + bir yeni, sayim degismez).
+TOTAL_CORE_QUERIES = 219
+EXPECTED_OP_COUNTS = {"select": 146, "update": 61, "delete": 12}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1248,7 +1261,7 @@ EXPECTED_OP_COUNTS = {"select": 144, "update": 61, "delete": 11}
 # app/routers/platform_management.py + `_aktor_deseni`, bir DEGISEN
 # (`list_untenanted_audit` suzgecleri). TABAN develop `697a3be`.
 # c08c5ae1 -> be7f6899.
-INVENTORY_FINGERPRINT = "be7f68997f0f9299ecea3382ab9a3b7d8c81f361a61007f86518d0d853b8ad84"
+INVENTORY_FINGERPRINT = "90d91881b45f092291cd9c4b5e298b98a95e71a6485b84ebc517515f98b9a835"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:

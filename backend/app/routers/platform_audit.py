@@ -50,6 +50,15 @@ def _aktor_deseni(db: Session, username: str | None) -> str | None:
     return None if kimlik is None else f"aktor={int(kimlik)};%"
 
 
+def _aktor_kimligi_deseni(actor_id: int | None) -> str | None:
+    """``actor_id`` süzgeci: YALNIZ platform olayının ``aktor=<id>;`` notu.
+
+    Adı çözmez; hesabı silinmiş ya da adı değişmiş aktörün satırları da
+    kimlikle bulunur. ``;`` ayracı ``_aktor_deseni``ndekiyle aynı gerekçedir.
+    """
+    return None if actor_id is None else f"aktor={int(actor_id)};%"
+
+
 @router.get("")
 def list_untenanted_audit(
     request: Request,
@@ -57,6 +66,7 @@ def list_untenanted_audit(
     action: str | None = Query(None, max_length=20),
     ip_address: str | None = Query(None, max_length=80),
     username: str | None = Query(None, max_length=80),
+    actor_id: int | None = Query(None, ge=1),
     status_code: int | None = Query(None, ge=100, le=599),
     date_from: datetime | None = None,
     date_to: datetime | None = None,
@@ -68,7 +78,7 @@ def list_untenanted_audit(
     TİPLİ bağlı parametredir (``:p IS NULL OR sütun = :p``): koşul listesi
     Core sorgu envanterinde "variable-arg" sayılır. ``date_from`` dahil,
     ``date_to`` hariçtir. ``username`` hem sütunu (eski satırlar) hem platform
-    olayının ``aktor=<id>`` notunu eşler.
+    olayının ``aktor=<id>`` notunu eşler; ``actor_id`` yalnız o notu eşler.
     """
     require_platform_operator(request)
     limit = min(max(limit, 1), 1000)
@@ -76,6 +86,7 @@ def list_untenanted_audit(
     p_ip = bindparam("p_ip", ip_address, type_=String)
     p_kullanici = bindparam("p_kullanici", username, type_=String)
     p_aktor = bindparam("p_aktor", _aktor_deseni(db, username), type_=String)
+    p_aktor_id = bindparam("p_aktor_id", _aktor_kimligi_deseni(actor_id), type_=String)
     p_durum = bindparam("p_durum", status_code, type_=Integer)
     p_bas = bindparam("p_bas", date_from, type_=DateTime(timezone=True))
     p_son = bindparam("p_son", date_to, type_=DateTime(timezone=True))
@@ -90,6 +101,7 @@ def list_untenanted_audit(
                 audit_logs.c.username == p_kullanici,
                 audit_logs.c.failure_reason.like(p_aktor),
             ),
+            or_(p_aktor_id.is_(None), audit_logs.c.failure_reason.like(p_aktor_id)),
             or_(p_durum.is_(None), audit_logs.c.status_code == p_durum),
             or_(p_bas.is_(None), audit_logs.c.created_at >= p_bas),
             or_(p_son.is_(None), audit_logs.c.created_at < p_son),

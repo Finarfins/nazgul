@@ -217,7 +217,7 @@ def test_DENETIM_suzgecleri_PG_tipli_NULL_baglari(ortam) -> None:
         return cevap.json()
 
     assert al(limit=5)
-    satirlar = al(action="platform.co_deact", username=OPERATOR, status_code=200,
+    satirlar = al(action="platform.co_deact", username=OPERATOR, actor_id=ortam["op"], status_code=200,
                   ip_address="testclient", date_from=gecmis, date_to=gelecek, limit=1000)
     assert any(r["request_id"] == "pp2pgf" + KOSU for r in satirlar), satirlar[:3]
     assert all(r["action"] == "platform.co_deact" and r["company_id"] is None for r in satirlar)

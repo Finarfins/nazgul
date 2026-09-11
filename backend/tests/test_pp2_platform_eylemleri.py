@@ -370,6 +370,23 @@ def test_operator_kendini_kilitleyemez_409(ortam) -> None:
     assert _satir_sayisi(e, KODLAR["status"]) == once
 
 
+def test_son_aktif_yoneticiyi_kilitlemek_serbest_notta_gorunur(ortam) -> None:
+    """Şef PP2 kararı 4: platform kiracı kuralını ezer; denetim notu bunu söyler."""
+    client, e = ortam["client"], ortam["engine"]
+    simdi = datetime.now(timezone.utc)
+    fid = _yaz(e, "INSERT INTO companies(name,is_active,created_at) VALUES ('Tek Adminli',1,:t) "
+                  "RETURNING id", t=simdi)
+    uid = _yaz(e, "INSERT INTO app_users(username,email,email_verified,display_name,password_hash,"
+                  "role,is_active,created_at,must_change_password) VALUES "
+                  "('tekadmin','tekadmin@platform.example',1,'Tek','x','admin',1,:t,0) RETURNING id", t=simdi)
+    _yaz(e, "INSERT INTO user_company_memberships(user_id,company_id,is_default,created_at) "
+            "VALUES (:u,:c,1,:t)", u=uid, c=fid, t=simdi)
+
+    cevap = client.post(f"/api/platform/users/{uid}/status", json={"locked": True}, headers=ortam["h_op"])
+    assert cevap.status_code == 200 and cevap.json()["changed"] is True, cevap.text
+    assert f"son aktif yönetici firma={fid}" in str(_son_satir(e, KODLAR["status"])[6])
+
+
 def test_olmayan_kullanici_404(ortam) -> None:
     client, h = ortam["client"], ortam["h_op"]
     assert client.post("/api/platform/users/999999/status", json={"locked": True},
@@ -473,7 +490,9 @@ def test_hiz_siniri_temizle_ip_yeniden_girebilir(ortam) -> None:
     once = _satir_sayisi(e, KODLAR["rl_clear"])
     cevap = client.delete(f"/api/platform/rate-limits?ip={ISTEMCI_IP}", headers=ortam["h_op"])
     assert cevap.status_code == 200, cevap.text
-    assert cevap.json() == {"ip_address": ISTEMCI_IP, "deleted": tavan, "changed": True}
+    govde = cevap.json()
+    assert set(govde) == {"ip_address", "rate_limit_rows", "login_attempt_rows", "changed"}, govde
+    assert govde["ip_address"] == ISTEMCI_IP and govde["rate_limit_rows"] == tavan, govde
     assert _satir_sayisi(e, KODLAR["rl_clear"]) == once + 1
     _denetim_satiri_dogru(ortam, KODLAR["rl_clear"], "/api/platform/rate-limits")
     # Başka IP'nin satırı KALDI.
@@ -483,6 +502,36 @@ def test_hiz_siniri_temizle_ip_yeniden_girebilir(ortam) -> None:
     yok = client.delete(f"/api/platform/rate-limits?ip={ISTEMCI_IP}", headers=ortam["h_op"])
     assert yok.status_code == 404, yok.text
     assert _satir_sayisi(e, KODLAR["rl_clear"]) == once + 1
+
+
+def test_hiz_siniri_temizle_giris_kilidini_de_kaldirir_404_yalniz_ikisi_bossa(ortam) -> None:
+    """Şef PP2 kararı 2: ``login_attempts`` kilidi AYNI çağrıda; sayılar ayrı döner."""
+    from sqlalchemy import text
+
+    client, e = ortam["client"], ortam["engine"]
+    simdi = datetime.now(timezone.utc)
+    with e.begin() as c:
+        c.execute(text("INSERT INTO login_attempts(username,ip_address,fail_count,locked_until,updated_at) "
+                       "VALUES (:u,:i,5,:k,:t)"),
+                  [{"u": "yonetici1", "i": ISTEMCI_IP, "k": simdi + timedelta(minutes=15), "t": simdi},
+                   {"u": "yonetici1", "i": "198.51.100.78", "k": simdi + timedelta(minutes=15), "t": simdi}])
+    assert _giris_ham(client, "yonetici1").status_code != 200            # kilitli
+    _yaz(e, "DELETE FROM auth_rate_limits")   # o giriş denemesi IP sayacına da yazdı
+
+    # ``auth_rate_limits`` BOŞ, yalnız giriş kilidi var: 404 DEĞİL, 200.
+    cevap = client.delete(f"/api/platform/rate-limits?ip={ISTEMCI_IP}", headers=ortam["h_op"])
+    assert cevap.status_code == 200, cevap.text
+    assert cevap.json() == {"ip_address": ISTEMCI_IP, "rate_limit_rows": 0,
+                            "login_attempt_rows": 1, "changed": True}
+    assert "login_attempt_rows=1" in str(_son_satir(e, KODLAR["rl_clear"])[6])
+    # Başka IP'nin kilidi KALDI.
+    assert _sql(e, "SELECT COUNT(*) FROM login_attempts WHERE ip_address='198.51.100.78'")[0][0] == 1
+    assert _giris_ham(client, "yonetici1").status_code == 200
+
+    _yaz(e, "DELETE FROM auth_rate_limits")
+    _yaz(e, "DELETE FROM login_attempts WHERE ip_address=:i", i=ISTEMCI_IP)
+    assert client.delete(f"/api/platform/rate-limits?ip={ISTEMCI_IP}",
+                         headers=ortam["h_op"]).status_code == 404
 
 
 def test_hiz_siniri_temizle_ip_zorunlu(ortam) -> None:
@@ -611,3 +660,22 @@ def test_denetim_suzgecleri(ortam) -> None:
     birlesik = al(action=KODLAR["activate"], username="operator", status_code=200, date_from=gecmis)
     assert birlesik and {r["action"] for r in birlesik} == {KODLAR["activate"]}
     assert al(action=KODLAR["activate"], status_code=429) == []
+
+
+def test_denetim_actor_id_suzgeci(ortam) -> None:
+    """Şef PP2 kararı 5: ``actor_id`` yalnız ``aktor=<id>;`` notunu eşler."""
+    client, h, op = ortam["client"], ortam["h_op"], ortam["op"]
+    assert client.post(f"/api/platform/companies/{ortam['b']}/deactivate", headers=h).status_code == 200
+    assert client.post(f"/api/platform/companies/{ortam['b']}/activate", headers=h).status_code == 200
+
+    def al(**p):
+        return client.get("/api/platform/audit", params={"limit": 1000, **p}, headers=h)
+
+    satirlar = al(actor_id=op).json()
+    assert satirlar and all(str(r["failure_reason"]).startswith(f"aktor={op};") for r in satirlar)
+    beklenen = _sql(ortam["engine"], "SELECT COUNT(*) FROM security_audit_logs WHERE company_id IS NULL "
+                                     "AND failure_reason LIKE :d", d=f"aktor={op};%")[0][0]
+    assert len(satirlar) == beklenen
+    assert al(actor_id=op * 10 + 7).json() == []        # ``aktor=1``, ``aktor=17``yi yakalamaz
+    assert al(actor_id=0).status_code == 422
+    assert {r["id"] for r in al(actor_id=op, action=KODLAR["activate"]).json()} <= {r["id"] for r in satirlar}

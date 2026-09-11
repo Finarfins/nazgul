@@ -61,6 +61,7 @@ from ..auth import (
     audit_logs,
     auth_rate_limits,
     email_verification_tokens,
+    login_attempts,
     revoke_user_access_tokens,
     revoke_user_refresh_tokens,
     users,
@@ -721,7 +722,8 @@ class ParolaSifirlama(EylemSonucu):
 
 class HizSiniriTemizligi(EylemSonucu):
     ip_address: str
-    deleted: int
+    rate_limit_rows: int
+    login_attempt_rows: int
 
 
 #: Toplu yeniden kuyruklamanın tavanı. Bir çağrı en fazla bu kadar satıra
@@ -766,6 +768,35 @@ def _kullanici_satiri(db: Session, kullanici_id: int) -> Any:
     if satir is None:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı")
     return satir
+
+
+def _son_aktif_yonetici_firmalari(db: Session, kullanici_id: int) -> list[int]:
+    """Hedefin SON aktif admini olduğu firmalar — kiracı kuralının ölçtüğü küme.
+
+    Kiracı ucu (``routers/auth.py::update_user_status``) bu durumda 409 döner.
+    Platform kilidi bu kuralı BİLEREK ezer (Şef, PP2 kararı 4); ezildiği
+    denetim notunda görünür olsun diye küme burada hesaplanır.
+    """
+    rol = db.execute(select(users.c.role).where(users.c.id == kullanici_id)).scalar_one()
+    if str(rol) != "admin":
+        return []
+    sonuc: list[int] = []
+    for firma in user_companies(db, kullanici_id):
+        firma_id = int(firma["id"])
+        diger_admin = db.execute(
+            select(users.c.id)
+            .join(memberships, memberships.c.user_id == users.c.id)
+            .where(
+                memberships.c.company_id == firma_id,
+                users.c.id != kullanici_id,
+                users.c.role == "admin",
+                users.c.is_active.is_(True),
+            )
+            .limit(1)
+        ).first()
+        if diger_admin is None:
+            sonuc.append(firma_id)
+    return sorted(sonuc)
 
 
 def _sirket_durumunu_ayarla(
@@ -827,6 +858,10 @@ def platform_kullanici_durumu(
     Kilitlerken access ve refresh jetonları da süpürülür (``logout-all`` ile
     aynı iki yardımcı): kilit açıldığında eski jetonlar DİRİLMEZ. Operatör
     kendini kilitleyemez (409).
+
+    Firmanın SON aktif adminini kilitlemek SERBESTTİR (platform kiracı
+    kuralını ezer — Şef, PP2 kararı 4); denetim notu "son aktif yönetici"
+    ile o firmaları taşır.
     """
     require_platform_operator(request)
     if kullanici_id == _operator_kimligi(request) and payload.locked:
@@ -835,6 +870,7 @@ def platform_kullanici_durumu(
     kilitli = not bool(satir["is_active"])
     if kilitli == payload.locked:
         return {"id": kullanici_id, "locked": kilitli, "changed": False}
+    son_yonetici = _son_aktif_yonetici_firmalari(db, kullanici_id) if payload.locked else []
     db.execute(
         update(users)
         .where(users.c.id == kullanici_id, users.c.is_active.is_(payload.locked))
@@ -847,7 +883,12 @@ def platform_kullanici_durumu(
     platform_olayi_yaz(
         request,
         "user.status_changed",
-        f"kullanici={kullanici_id} locked={str(payload.locked).lower()}",
+        f"kullanici={kullanici_id} locked={str(payload.locked).lower()}"
+        + (
+            f" son aktif yönetici firma={','.join(map(str, son_yonetici))}"
+            if son_yonetici
+            else ""
+        ),
     )
     return {"id": kullanici_id, "locked": payload.locked, "changed": True}
 
@@ -937,26 +978,45 @@ def platform_hiz_siniri_temizle(
     ip: str = Query(..., min_length=1, max_length=80),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Bir IP'nin ``auth_rate_limits`` (SEC-6) satırlarını siler; yoksa 404.
+    """Bir IP'nin iki kilidini TEK çağrıda temizler; ikisi de boşsa 404.
 
-    YALNIZ bu tablo. Kullanıcı adı + IP ikilisine bağlı giriş kilidi
-    (``login_attempts.locked_until``, 15 dakika) AYRI bir mekanizmadır ve
-    burada dokunulmaz.
+    1. ``auth_rate_limits`` (SEC-6): IP başına deneme sayacı.
+    2. ``login_attempts``: kullanıcı adı + IP ikilisine bağlı giriş kilidi
+       (``locked_until``, 15 dakika) — bu IP'nin TÜM kullanıcı adları için
+       (Şef, PP2 kararı 2). Operatör kilidi kaldırırken ikisini ayrı ayrı
+       bilmek zorunda kalmaz; yanıt iki sayıyı AYRI döner.
     """
     require_platform_operator(request)
     ip_adresi = ip.strip()
-    silinen = int(
+    hiz_satirlari = int(
         db.execute(
             delete(auth_rate_limits).where(auth_rate_limits.c.ip_address == ip_adresi)
         ).rowcount
         or 0
     )
-    if not silinen:
+    giris_satirlari = int(
+        db.execute(
+            delete(login_attempts).where(login_attempts.c.ip_address == ip_adresi)
+        ).rowcount
+        or 0
+    )
+    if not hiz_satirlari and not giris_satirlari:
         db.rollback()
-        raise HTTPException(status_code=404, detail="Bu IP için hız sınırı kaydı yok")
+        raise HTTPException(
+            status_code=404, detail="Bu IP için hız sınırı ya da giriş kilidi kaydı yok"
+        )
     db.commit()
-    platform_olayi_yaz(request, "rate_limit.cleared", f"ip={ip_adresi} silinen={silinen}")
-    return {"ip_address": ip_adresi, "deleted": silinen, "changed": True}
+    platform_olayi_yaz(
+        request,
+        "rate_limit.cleared",
+        f"ip={ip_adresi} rate_limit_rows={hiz_satirlari} login_attempt_rows={giris_satirlari}",
+    )
+    return {
+        "ip_address": ip_adresi,
+        "rate_limit_rows": hiz_satirlari,
+        "login_attempt_rows": giris_satirlari,
+        "changed": True,
+    }
 
 
 @router.post("/outbox/retry", response_model=KuyrukYenidenSonucu)

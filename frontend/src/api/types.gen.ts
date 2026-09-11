@@ -3853,7 +3853,7 @@ export interface paths {
          *     TİPLİ bağlı parametredir (``:p IS NULL OR sütun = :p``): koşul listesi
          *     Core sorgu envanterinde "variable-arg" sayılır. ``date_from`` dahil,
          *     ``date_to`` hariçtir. ``username`` hem sütunu (eski satırlar) hem platform
-         *     olayının ``aktor=<id>`` notunu eşler.
+         *     olayının ``aktor=<id>`` notunu eşler; ``actor_id`` yalnız o notu eşler.
          */
         get: operations["list_untenanted_audit_api_platform_audit_get"];
         put?: never;
@@ -4109,11 +4109,13 @@ export interface paths {
         post?: never;
         /**
          * Platform Hiz Siniri Temizle
-         * @description Bir IP'nin ``auth_rate_limits`` (SEC-6) satırlarını siler; yoksa 404.
+         * @description Bir IP'nin iki kilidini TEK çağrıda temizler; ikisi de boşsa 404.
          *
-         *     YALNIZ bu tablo. Kullanıcı adı + IP ikilisine bağlı giriş kilidi
-         *     (``login_attempts.locked_until``, 15 dakika) AYRI bir mekanizmadır ve
-         *     burada dokunulmaz.
+         *     1. ``auth_rate_limits`` (SEC-6): IP başına deneme sayacı.
+         *     2. ``login_attempts``: kullanıcı adı + IP ikilisine bağlı giriş kilidi
+         *        (``locked_until``, 15 dakika) — bu IP'nin TÜM kullanıcı adları için
+         *        (Şef, PP2 kararı 2). Operatör kilidi kaldırırken ikisini ayrı ayrı
+         *        bilmek zorunda kalmaz; yanıt iki sayıyı AYRI döner.
          */
         delete: operations["platform_hiz_siniri_temizle_api_platform_rate_limits_delete"];
         options?: never;
@@ -4248,6 +4250,10 @@ export interface paths {
          *     Kilitlerken access ve refresh jetonları da süpürülür (``logout-all`` ile
          *     aynı iki yardımcı): kilit açıldığında eski jetonlar DİRİLMEZ. Operatör
          *     kendini kilitleyemez (409).
+         *
+         *     Firmanın SON aktif adminini kilitlemek SERBESTTİR (platform kiracı
+         *     kuralını ezer — Şef, PP2 kararı 4); denetim notu "son aktif yönetici"
+         *     ile o firmaları taşır.
          */
         post: operations["platform_kullanici_durumu_api_platform_users__kullanici_id__status_post"];
         delete?: never;
@@ -8429,10 +8435,12 @@ export interface components {
         HizSiniriTemizligi: {
             /** Changed */
             changed: boolean;
-            /** Deleted */
-            deleted: number;
             /** Ip Address */
             ip_address: string;
+            /** Login Attempt Rows */
+            login_attempt_rows: number;
+            /** Rate Limit Rows */
+            rate_limit_rows: number;
         };
         /**
          * ImhaTalebi
@@ -19304,6 +19312,7 @@ export interface operations {
                 action?: string | null;
                 ip_address?: string | null;
                 username?: string | null;
+                actor_id?: number | null;
                 status_code?: number | null;
                 date_from?: string | null;
                 date_to?: string | null;
