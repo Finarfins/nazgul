@@ -198,13 +198,34 @@ ROUTE_REASON_GROUPS = (
         # yerine) canli veritabanina yazar. Izin `__admin_only__` — yedeklerin
         # `read`i DEGIL ve bu OLCULDU (`required_permission`); gerekcesi
         # `app/auth.py`deki kuralda. Gercek kapi yonlendiricideki
-        # `require_platform_operator`dir; ara katman kiraci cozumunu YINE ister
-        # (operatorun varsayilan firmasi) ve denetim satiri oraya yazilir.
+        # `require_platform_operator`dir. PP1'den beri ara katman bu onekte
+        # kiraci COZMEZ (`platform_access.platform_yolu`) ve denetim satiri
+        # firmasiz `security_audit_logs`a yazilir (`app/platform_denetim.py`).
         "Tenant restore from a 5.1a export zip into a NEW company (or an erased "
         "company id in place); router applies the platform-operator allow-list, "
         "middleware permission is __admin_only__.",
         {
             ("POST", "/api/platform/tenant-restore"),
+        },
+    ),
+    (
+        # PP1 PLATFORM YONETIM PANELI (GOC YOK). AYRI GRUP: bu yedi uc ne
+        # yedek islemi ne de firmasiz denetim okumasidir. Ara katman izni
+        # `read` (yalniz GUVENLI metot, `app/auth.py`), gercek kapi her uctaki
+        # `require_platform_operator`. Onek kiraci cozumunden MUAF; yanitlar
+        # yalniz SAYI ve META VERI tasir (cari PII yok — SEC-3b envanteri bu
+        # uclari LISTELEMEZ, olculdu).
+        "Platform management read (PP1): cross-tenant counts and metadata only, "
+        "no tenant business rows; the prefix is exempt from tenant resolution and "
+        "the router applies the platform-operator allow-list.",
+        {
+            ("GET", "/api/platform/overview"),
+            ("GET", "/api/platform/companies"),
+            ("GET", "/api/platform/users"),
+            ("GET", "/api/platform/verifications"),
+            ("GET", "/api/platform/outbox/health"),
+            ("GET", "/api/platform/rate-limits"),
+            ("GET", "/api/platform/edocuments/health"),
         },
     ),
     (
@@ -630,8 +651,16 @@ DYNAMIC_PERMISSION_CASES = {
 # KOMSULAR KIMILDAMADI ve bu OLCULDU: `/api/invoices` (sales),
 # `.../einvoice/status` (sales), `.../invoices/{id}/pdf` (sales) ve
 # `/api/customers` (read) degerlerini KORUDU.
-EXPECTED_OPERATION_COUNT = 400
-EXPECTED_PATH_COUNT = 308
+#
+# 20260911 — PP1 PLATFORM YONETIM PANELI (GOC YOK): YEDI yeni GET, YEDI yeni
+# yol (her uc KENDI yolunda). Sayim 400/308 -> 407/315 (TABAN develop
+# `6442794`). Izin OLCULDU: yedisi de "read" — `app/auth.py`de YALNIZ GUVENLI
+# METOT icin yazilan `/api/platform/` kurali (yedek ve kiraci geri yukleme
+# satirlari USTTE ve DEGISMEDI). `tenant_scope` "platform" (bu dosyadaki
+# `PLATFORM_ROUTE_PREFIXES`), yani her biri gerekce ister ve KENDI grubuyla
+# `ROUTE_REASONS`a girdi. Parmak izi EN SON turetildi.
+EXPECTED_OPERATION_COUNT = 407
+EXPECTED_PATH_COUNT = 315
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -826,7 +855,9 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # `__admin_only__`, platform gerekce grubu. 618b656d -> f131e483.
     # E4a (goc 20260913_0083): YEDI e-Irsaliye ucu eklendi, YEDISI DE
     # "sales". REBASE TABAN c66e232: parmak izi f131e483 -> 3506f532.
-    "3506f5328bda6e1ae32de66deccb5b9151b7f4892cd6055c6f8b3e9bc7338e83"
+    # PP1 (GOC YOK): YEDI platform yonetim GET'i, "read", platform gerekce
+    # grubu. TABAN 6442794: parmak izi 3506f532 -> 62b0e5f8.
+    "62b0e5f8a751f0d0d900a61fd1f444e7abfaaca4f4a94c9a03d61f2d204cc4de"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

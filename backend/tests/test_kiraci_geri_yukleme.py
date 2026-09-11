@@ -631,11 +631,19 @@ with TestClient(app, raise_server_exceptions=False) as client:
     zipteki_urun_kimlikleri = [int(y_uyelik)]
     y_urun = y_uyelik_sonra
     manifest_y_uyelik = manifest_y["row_counts"]["user_company_memberships"]
-    # Aktivite kayıtlarını B'ye taşıdık; C'nin "restored" kayıtları hâlâ B'de.
+    # PP1: geri yükleme olayı artık kiracının `activity_logs`una DEĞİL,
+    # firmasız `security_audit_logs`a yazılır. İki okuma da tutulur: eskinin
+    # BOŞ kaldığı da ölçülür.
     with engine.connect() as conn:
         anlamsal["aktivite"] = [dict(x) for x in conn.execute(
             select(kayit.c.company_id, kayit.c.user_id, kayit.c.resource_type, kayit.c.details)
             .where(kayit.c.action_type == "company.restored")).mappings()]
+        denetim = md.tables["security_audit_logs"]
+        anlamsal["platform_denetim"] = [dict(x) for x in conn.execute(
+            select(denetim.c.company_id, denetim.c.user_id, denetim.c.username,
+                   denetim.c.path, denetim.c.failure_reason)
+            .where(denetim.c.action == "platform.tn_restore")
+            .order_by(denetim.c.id)).mappings()]
 
     yaz("sonuc.json", {
         "a_id": a_id, "b_id": b_id, "c_id": c_id, "y_id": y_id, "admin_id": admin_id,
@@ -863,17 +871,29 @@ def test_ekler_kopyalandi_ve_yol_yeniden_yazildi(hazir) -> None:
 
 
 def test_aktivite_kaydi_operatorun_firmasinda(hazir) -> None:
-    """Denetim satırı operatörün kendi firmasına (B) yazılır; yeni firmanın
-    tabloları manifeste birebir kalır. Kuru koşu ve kurcalama YAZMAZ."""
-    kayitlar = hazir["anlamsal"]["aktivite"]
-    # Gerçek geri yükleme + `yerine` boş kimlik = İKİ kayıt, ikisi de B'de.
+    """Denetim satırı FİRMASIZ platform kaydına yazılır (PP1); kiracının
+    `activity_logs`una HİÇBİR geri yükleme satırı düşmez. Kuru koşu ve
+    kurcalama YAZMAZ.
+
+    PP1 öncesi satır operatörün kendi firmasına (B) `activity_logs` olarak
+    yazılıyordu: `/api/platform/` kiracı çözümünden muaf olunca
+    `request.state.company_id` None'dır ve olay hiçbir kiracıya ait değildir.
+    """
+    assert hazir["anlamsal"]["aktivite"] == [], hazir["anlamsal"]["aktivite"]
+    kayitlar = hazir["anlamsal"]["platform_denetim"]
+    # Gerçek geri yükleme + `yerine` boş kimlik = İKİ kayıt.
     assert len(kayitlar) == 2, kayitlar
     for k in kayitlar:
-        assert k["company_id"] == hazir["b_id"] and k["user_id"] == hazir["admin_id"]
-        assert k["resource_type"] == "backup"
-    detay = kayitlar[0]["details"] if isinstance(kayitlar[0]["details"], dict) else json.loads(kayitlar[0]["details"])
-    assert detay["company_id"] == hazir["c_id"] and detay["source_company_id"] == hazir["a_id"]
-    assert detay["mode"] == "yeni"
+        # CHECK ck_security_audit_logs_untenanted_only_preauth: firmasız
+        # satırda kimlik NULL; aktör not sütununda.
+        assert k["company_id"] is None and k["user_id"] is None and k["username"] is None, k
+        assert k["path"] == "/api/platform/tenant-restore"
+        assert f"aktor={hazir['admin_id']}" in k["failure_reason"], k
+        assert "olay=company.restored" in k["failure_reason"], k
+    ilk = kayitlar[0]["failure_reason"]
+    assert f"kaynak {hazir['a_id']} -> firma {hazir['c_id']}" in ilk, ilk
+    assert "kip yeni" in ilk, ilk
+    assert "kip yerine" in kayitlar[1]["failure_reason"], kayitlar[1]
 
 
 # --------------------------------------------------------------------------
@@ -976,10 +996,12 @@ with TestClient(app) as client:
         hr["Authorization"] = "Bearer " + ch.json()["access_token"]
     r = yukle(client, hr, bos_zip.getvalue(), mode="yeni")
     sonuc["dusuk_rol"] = {"status": r.status_code, "code": r.json().get("code")}
-    # (c) üye olunmayan firma seçicisi -> 403 COMPANY_ACCESS_DENIED (sızma yok).
+    # (c) üye olunmayan firma seçicisi: PP1'den beri platform yolunda
+    # `X-Company-Id` OKUNMAZ; ret yönlendiricinin operatör kapısından gelir.
     h2 = dict(h); h2["X-Company-ID"] = "999999"
     r = yukle(client, h2, bos_zip.getvalue(), mode="yeni")
-    sonuc["yabanci_secici"] = {"status": r.status_code, "code": r.json().get("code")}
+    sonuc["yabanci_secici"] = {"status": r.status_code, "code": r.json().get("code"),
+                               "detail": r.json().get("detail")}
     with engine.connect() as conn:
         sonuc["firma_sayisi"] = int(conn.execute(select(func.count()).select_from(md.tables["companies"])).scalar_one())
     yaz("yetki.json", sonuc)
@@ -996,7 +1018,11 @@ def test_operator_olmayan_ve_yabanci_secici_403(tmp_path: Path) -> None:
     assert s["operator_degil"]["status"] == 403, s
     assert "operatör" in s["operator_degil"]["detail"].lower(), s
     assert s["dusuk_rol"] == {"status": 403, "code": "PERMISSION_DENIED"}, s
-    assert s["yabanci_secici"] == {"status": 403, "code": "COMPANY_ACCESS_DENIED"}, s
+    # PP1: seçici platform yolunda YOK SAYILIR — 403 kiracı çözümünden değil,
+    # operatör kapısından gelir (liste boş). Firma sayısı yine 1: sızma yok.
+    assert s["yabanci_secici"]["status"] == 403, s
+    assert s["yabanci_secici"]["code"] != "COMPANY_ACCESS_DENIED", s
+    assert "operatör" in s["yabanci_secici"]["detail"].lower(), s
     assert s["firma_sayisi"] == 1
 
 

@@ -1056,14 +1056,57 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "75e8eed511794f5b58123fec242b46063f14b4f8a4aee18f9fe6ac0bf2a8de07"): (1, "whatsapp_pending_actions", "arg0"),  # satir [873]
     ("app/whatsapp/bekleyen.py", "taslak_olustur", "select",
      "d23339edbb978405335c326e4d4adb15923d8ffe28800478cba47f4fb3f5ac9b"): (1, "whatsapp_pending_actions", "arg0"),  # satir [419]
+    # PP1 PLATFORM YONETIM PANELI (GOC YOK). ON BES select, IKI dosya. Kiraci
+    # tablolarina dokunan YEDISI Core kiraci kapisinda lisansli
+    # (`CEKIRDEK_KIRACI_ISTISNALARI`); kalan sekizi platform tablolari
+    # (companies, app_users, email_verification_tokens, auth_rate_limits).
+    # --- app/notifications/service.py (PP1 platform yonetim paneli)
+    ("app/notifications/service.py", "platform_kanal_sayaclari", "select",
+     "ca0129f940dbc0d6a131b73ace732ae2823cccf1edbc10ebd365327189e5c20c"): (1, "notifications", "arg0"),  # satır [1215]
+    # --- app/routers/platform_management.py (PP1 platform yonetim paneli)
+    ("app/routers/platform_management.py", "_bekleyen_dogrulama_sayisi", "select",
+     "5d8380250555d05dab964b475221d11a6ff8d224766a0a65f35bdadf1993ad41"): (1, "email_verification_tokens", "select_from"),  # satır [238]
+    ("app/routers/platform_management.py", "_ebelge_dagilimi", "select",
+     "3e85fa99c4b32ee5cd27d10472ee5682ff1b9eba25cf0f8da279cd32a06ab894"): (1, "invoices", "arg0"),  # satır [327]
+    ("app/routers/platform_management.py", "_hiz_siniri_bloklari", "select",
+     "75b861d4d2674ae244d7b273b11ddc11eb67fd38e442dae41f5201b0980cd458"): (1, "audit_logs", "select_from"),  # satır [259]
+    ("app/routers/platform_management.py", "_kullanici_sayilari", "select",
+     "a73ceb0b1903b4cf8bcb814ef162d4838c1657dbcbef09e6eb2227392efaacf7"): (1, "users", "select_from"),  # satır [225]
+    ("app/routers/platform_management.py", "_kullanici_uyelikleri", "select",
+     "7332cea2c874a93db54ae689eb799b545cffdcdf4fc56dbaaae5bd451f12e4d2"): (1, "memberships", "arg0"),  # satır [300]
+    ("app/routers/platform_management.py", "_sirket_sayilari", "select",
+     "8e6b1f36fe34e039a0d48d2a2a95436f7a9409368d3864201366a59d1fde602c"): (1, "companies", "select_from"),  # satır [211]
+    ("app/routers/platform_management.py", "_son_hareketler", "select",
+     "0ce2707a47ced668d34f30319ac1d79412aff2bb66d3679618bf56f7b0256cac"): (1, "activity_logs", "arg0"),  # satır [288]
+    ("app/routers/platform_management.py", "_uye_sayilari", "select",
+     "6b8ec714d06c51625afb2a698c4d5d1669e4d187bbadd6a554e2dd92d6fb8217"): (1, "memberships", "arg0"),  # satır [276]
+    ("app/routers/platform_management.py", "platform_dogrulamalari", "select",
+     "7999ee15c81077cbb865b1c835656fa38d6fe0f4f8f350c3e30abe12c2a1ebd5"): (1, "email_verification_tokens", "arg0"),  # satır [546]
+    ("app/routers/platform_management.py", "platform_hiz_sinirlari", "select",
+     "c07603738c4745b2d32678be018594cc8542e49def672015acf9b2700c3f436d"): (1, "auth_rate_limits", "arg0"),  # satır [601]
+    ("app/routers/platform_management.py", "platform_kullanicilari", "select",
+     "4457e966af540c8090d8be20448fa556d6745c49e2169a8235d9391559812d4f"): (1, "users", "select_from"),  # satır [476]
+    ("app/routers/platform_management.py", "platform_kullanicilari", "select",
+     "b46afa31a3d4d55c0cb79d58f8a3a0edbf3cfc981555f966134a95f2ed6abb83"): (1, "users", "arg0"),  # satır [487]
+    ("app/routers/platform_management.py", "platform_sirketleri", "select",
+     "799ca94126f69995cb27e72acde83bae9c4d24442c75b6f75386b13182e2fef0"): (1, "companies", "select_from"),  # satır [415]
+    ("app/routers/platform_management.py", "platform_sirketleri", "select",
+     "d8bf78c106bc704158a198d41bace12709e9bf122f18f5fae242b5422b6d5bbf"): (1, "companies", "arg0"),  # satır [425]
 }
 
 # 20260910 5.1c KIRACI GERI YUKLEME (GOC YOK): 176 -> 184, +6 select +2 update,
 # HEPSI app/kiraci_geri_yukleme.py. Drift raporu OLCULDU: `changed` ve `stale`
 # BOS — artis YALNIZ ekleme; disa aktarim dosyasinin uc girdisi KIMILDAMADI
 # (yardimcilar tasinmadi, ithal edildi). `UNRESOLVED_ALLOWLIST` 3 -> 8.
-TOTAL_CORE_QUERIES = 184
-EXPECTED_OP_COUNTS = {"select": 118, "update": 56, "delete": 10}
+# PP1 PLATFORM YONETIM PANELI (GOC YOK): 184 -> 199, +15 select, HEPSI ekleme
+# (drift raporu OLCULDU: `changed`/`stale` BOS). 14'u
+# app/routers/platform_management.py, 1'i app/notifications/service.py
+# (`platform_kanal_sayaclari`). `UNRESOLVED_ALLOWLIST` ve `desteksiz`
+# BUYUMEDI: on besinin de hedefi statik cozuldu (arg0 / sole-table) ve
+# istege bagli suzgecler `where(*liste)` yerine satir ici bagli parametreyle
+# yazildi.
+TOTAL_CORE_QUERIES = 199
+EXPECTED_OP_COUNTS = {"select": 133, "update": 56, "delete": 10}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1137,7 +1180,11 @@ EXPECTED_OP_COUNTS = {"select": 118, "update": 56, "delete": 10}
 # sorgularindan birinin WA4 ile CAKISMADIGINI VARSAYMAK olurdu.
 # 5.1c (KIRACI GERI YUKLEME, GOC YOK): 176 -> 184, sekizi de
 # app/kiraci_geri_yukleme.py; TABAN develop `72cfa09`. 5adfd8f5 -> 67be5d1e.
-INVENTORY_FINGERPRINT = "0c53dc66a7d1b4fbf63b18e71bef442483be68dfb7f13a1b01e4d7b8e104c2e7"
+# PP1 (PLATFORM YONETIM PANELI, GOC YOK): 184 -> 199, on besi de ekleme;
+# TABAN develop `6442794`. Sayim/sole-table kapisi icin sayim sorgularina
+# ACIK `.select_from(...)` yazildi (hedef `select_from` yoluyla cozuluyor).
+# 0c53dc66 -> 6f54d98b.
+INVENTORY_FINGERPRINT = "6f54d98bc09c19c44035e1c0238316fa2eff563595da52755c3484657449135b"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:

@@ -918,6 +918,20 @@ def required_permission(method: str, path: str) -> str:
         # The router applies the stronger admin + environment allow-list check.
         # Middleware still requires authentication and CSRF.
         return "read"
+    # PLATFORM YÖNETİM PANELİ OKUMALARI (PP1). Kapı yedek uçlarıyla AYNI
+    # sınıftır: ara katman `read` (kimlik + oturum) ister, gerçek kapı her
+    # uçtaki `require_platform_operator`dır — bu yüzden bu uçlar ÇIPLAK read
+    # değil KORUMALI read'dir (`GUARDED_READ_OPERATIONS`) ve
+    # `EXPECTED_UNDENIABLE` kımıldamaz.
+    #
+    # YALNIZ GÜVENLİ METOT. Kural metotsuz yazılsaydı PP2'nin yazma uçları
+    # (`/api/platform/companies/{id}/deactivate` gibi) sessizce `read`
+    # ailesine girerdi; yazma yolları dosyanın SONUNDAKİ deny-by-default
+    # nöbetçisine (`__admin_only__`) düşmeye devam eder — operatör tanım
+    # gereği `admin`dir, yani bu hiçbir operatörü dışarıda bırakmaz. Yedek ve
+    # kiracı geri yükleme satırları bu kuralın ÜSTÜNDE ve DEĞİŞMEDİ.
+    if path.startswith("/api/platform/") and method in SAFE_METHODS:
+        return "read"
     # Kept for the route inventory only. The middleware exempts these paths from
     # the permission gate, so the value below gates nothing for them.
     if path in SELF_SERVICE_API:

@@ -364,8 +364,24 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 #     BUYUMEDI.
 # (REBASE 20260910, TABAN c66e232: 5.1c'nin +1'i ile E4a'nin +7'si
 #  BIRLIKTE olculdu -> 387. Ikisi ayri ailelerde; toplam bire bir.)
-EXPECTED_AUTHENTICATED = 387
-EXPECTED_READ = 80
+# PP1 PLATFORM YONETIM PANELI (GOC YOK): YEDI yeni GET, yedisi de kimlik
+# dogrulamali ve yedisi de `read` (korumali).
+#
+#   * `EXPECTED_AUTHENTICATED` 387 -> 394 (+7). `test_route_security_contracts`
+#     400 -> 407 ile AYNI yedi uc.
+#   * `GUARDED_READ_OPERATIONS` 24 -> 31 (+7): middleware `read`, handler
+#     `require_platform_operator` — /platform/backups ve /platform/audit ile
+#     AYNI sinif.
+#   * `EXPECTED_READ` 80 -> 87 (+7) ve bu ARITMETIK ZORUNLULUKTUR, bir secim
+#     degil: `guarded` TANIMI GEREGI `read_ops`un alt kumesidir
+#     (`_populations`: `guarded.add` yalniz `permission == "read"` dalinda).
+#     Brif "READ 80 sabit, GUARDED 31" diyordu; ikisi AYNI ANDA dogru OLAMAZ
+#     (olculdu). Sabit kalan sey CIPLAK read'dir: `NAKED_READ_OPERATIONS`
+#     56'da KIMILDAMADI.
+#   * `EXPECTED_UNDENIABLE` 97'de SABIT: ciplak read (56) + farm/herd (41);
+#     korumali read reddedilemez yuzeyi BUYUTMEZ.
+EXPECTED_AUTHENTICATED = 394
+EXPECTED_READ = 87
 EXPECTED_UNDENIABLE = 97
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
@@ -399,6 +415,15 @@ GUARDED_READ_OPERATIONS = {
     ("GET", "/api/platform/audit"),
     ("GET", "/api/platform/backups"),
     ("GET", "/api/platform/backups/{name}/download"),
+    # PP1 (GOC YOK): platform yonetim panelinin YEDI salt-okunur ucu. Ayni
+    # sinif: `read` gorunur, handler `require_platform_operator` uygular.
+    ("GET", "/api/platform/companies"),
+    ("GET", "/api/platform/edocuments/health"),
+    ("GET", "/api/platform/outbox/health"),
+    ("GET", "/api/platform/overview"),
+    ("GET", "/api/platform/rate-limits"),
+    ("GET", "/api/platform/users"),
+    ("GET", "/api/platform/verifications"),
     ("GET", "/api/products/{product_id}"),
     ("GET", "/api/products/{product_id}/barcode-label.pdf"),
     ("GET", "/api/products/{product_id}/label.pdf"),
@@ -693,7 +718,8 @@ def test_guarded_read_membership_not_just_magnitude() -> None:
     # 403 ölçüldü: kapı gerçek ve ateş ediyor, hedefi henüz var olmayan bir rol).
     # 26 -> 24: SEC-3'un iki ekstre PDF'i. Kumeden CIKMALARI bir ZAYIFLAMA
     # DEGIL: kapi handler'dan MIDDLEWARE'e tasindi, yani daha ERKEN duruyor.
-    assert len(guarded) == 24
+    # 24 -> 31: PP1'in yedi platform yonetim GET'i (`require_platform_operator`).
+    assert len(guarded) == 31
 
 
 def test_farm_and_herd_view_membership_not_just_magnitude() -> None:

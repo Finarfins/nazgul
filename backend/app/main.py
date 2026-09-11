@@ -42,6 +42,8 @@ from .runtime_migrations import (
     run_database_migrations,
 )
 from .tenancy import resolve_company
+from .platform_access import platform_yolu
+from .platform_denetim import aktor_notu
 from .routers import (
     absorption,
     activity_logs,
@@ -77,6 +79,7 @@ from .routers import (
     kiraci_geri_yukleme,
     kiraci_imha,
     platform_backups,
+    platform_management,
     pos,
     products,
     push,
@@ -417,7 +420,14 @@ async def security_and_audit(request: Request, call_next):
         # düşer ve CHECK kısıtının izin verdiği biçimdedir. Sıra tersken satır
         # (kimlik VAR + firma yok) oluyordu; bu, kısıtın tam da reddetmesi
         # gereken biçim ve yazımı düşürüp mandalı kaldırırdı.
-        requested_raw = request.headers.get("x-company-id")
+        # PLATFORM YÜZEYİ KİRACI ÇÖZMEZ (PP1). Yüklem TEK yerde:
+        # ``platform_access.platform_yolu``. Muaf yolda ``X-Company-Id``
+        # OKUNMAZ — ne biçimi doğrulanır ne de denetime "istenen firma"
+        # olarak girer: platform uçları tek bir kiracıya ait değildir ve
+        # başlığı dikkate almak, operatörün seçtiği bir kiracıya yan etki
+        # (denetim satırı, idempotensi anahtarı) yazmak olurdu.
+        platform = platform_yolu(path)
+        requested_raw = None if platform else request.headers.get("x-company-id")
         requested_company: int | None = None
         if requested_raw is not None and requested_raw.strip() != "":
             candidate = requested_raw.strip()
@@ -469,15 +479,23 @@ async def security_and_audit(request: Request, call_next):
                 return audited_response(
                     403, "Bu işlem için yetkiniz yok", code="PERMISSION_DENIED"
                 )
-        try:
-            with SessionLocal() as db:
-                request.state.company_id = resolve_company(
-                    db,
-                    int(user["id"]),
-                    requested_company,
-                )
-        except HTTPException as exc:
-            return audited_response(exc.status_code, str(exc.detail), code="COMPANY_ACCESS_DENIED")
+        if platform:
+            # Kimlik, CSRF, zorunlu parola rotasyonu ve izin kapıları YUKARIDA
+            # aynen koştu. Burada yalnız kiracı çözümü atlanır; asıl kapı her
+            # uçtaki ``require_platform_operator``dır. PP1 öncesi ölçüldü:
+            # üyeliği olmayan operatör bu satırda 403 COMPANY_ACCESS_DENIED
+            # alıyor ve yönlendiriciye HİÇ ulaşamıyordu.
+            request.state.company_id = None
+        else:
+            try:
+                with SessionLocal() as db:
+                    request.state.company_id = resolve_company(
+                        db,
+                        int(user["id"]),
+                        requested_company,
+                    )
+            except HTTPException as exc:
+                return audited_response(exc.status_code, str(exc.detail), code="COMPANY_ACCESS_DENIED")
 
         # --- GENEL IDEMPOTENSI (5.4b) -------------------------------------
         # BURADA, cunku anahtarin kapsami `(company_id, user_id, key)` ve
@@ -487,8 +505,13 @@ async def security_and_audit(request: Request, call_next):
         #
         # Gerekce ve kapali listeler `app/idempotency.py`de; burada YALNIZ
         # baglama var.
+        # Platform yolunda idempotensi defteri YOK: anahtarın kapsamı
+        # ``(company_id, user_id, key)``dir ve muaf yolda firma yoktur.
+        # Uydurmak (ör. operatörün varsayılan firması) platform işlemini bir
+        # kiracının defterine yazmak olurdu — PP1'in kapattığı kusurun aynısı.
         if (
-            request.method in idempotency.YAZAN_METOTLAR
+            not platform
+            and request.method in idempotency.YAZAN_METOTLAR
             and not idempotency.kendi_defterini_tutuyor(request.method, path)
         ):
             try:
@@ -585,9 +608,23 @@ def _write_security_audit(
         company_id = getattr(request.state, "company_id", None)
         if company_id is None:
             company_id = getattr(request.state, "requested_company_id", None)
+        # PLATFORM SATIRI FİRMASIZDIR ve CHECK kısıtı
+        # (ck_security_audit_logs_untenanted_only_preauth) firmasız satırda
+        # kimliği NULL ister. Kimlik SİLİNMEZ, yer değiştirir: ``aktor=<id>``
+        # olarak ``failure_reason``a yazılır (gerekçe
+        # ``app/platform_denetim.py``). Bu yapılmasaydı muafiyetten sonra
+        # operatörün HER platform POST'u kısıtı ihlal eder, satır yedek çıkışa
+        # düşer ve ``/api/ready`` 503'e dönerdi — PP1 öncesi sıfır üyelikli
+        # operatörün 403'ünde tam olarak bu ölçüldü.
+        kimlik = user
+        if company_id is None and user and platform_yolu(path):
+            kimlik = None
+            failure_reason = "; ".join(
+                p for p in (aktor_notu(user), failure_reason) if p
+            )
         record = {
-            "user_id": user.get("id") if user else None,
-            "username": user.get("username") if user else None,
+            "user_id": kimlik.get("id") if kimlik else None,
+            "username": kimlik.get("username") if kimlik else None,
             "action": request.method,
             "path": path,
             "status_code": status_code,
@@ -678,6 +715,8 @@ def _apply_response_headers(request: Request, response, request_id: str) -> None
 
 app.include_router(auth.router, prefix="/api")
 app.include_router(platform_audit.router, prefix="/api")
+# PP1: platform yönetim paneli salt-okunur uçları (`/api/platform/...`).
+app.include_router(platform_management.router, prefix="/api")
 app.include_router(companies.router, prefix="/api")
 app.include_router(warehouse_counts.router, prefix="/api")
 app.include_router(warehouses.router, prefix="/api")

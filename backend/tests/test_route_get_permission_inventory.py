@@ -333,6 +333,18 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/platform/audit"): "read",
     ("GET", "/api/platform/backups"): "read",
     ("GET", "/api/platform/backups/{name}/download"): "read",
+    # PP1 PLATFORM YONETIM PANELI (GOC YOK). YEDI salt-okunur uc, yedisi de
+    # `read` ve AYNI sinif: ara katman izni `app/auth.py`deki YALNIZ GUVENLI
+    # METOT `/api/platform/` kuralindan, gercek kapi her uctaki
+    # `require_platform_operator`. KORUMALI read'dir (GUARDED_READ 24 -> 31),
+    # ciplak degil; yanitlar yalniz sayi ve meta veri tasir.
+    ("GET", "/api/platform/companies"): "read",
+    ("GET", "/api/platform/edocuments/health"): "read",
+    ("GET", "/api/platform/outbox/health"): "read",
+    ("GET", "/api/platform/overview"): "read",
+    ("GET", "/api/platform/rate-limits"): "read",
+    ("GET", "/api/platform/users"): "read",
+    ("GET", "/api/platform/verifications"): "read",
     # PUSH CİHAZ DEFTERİ OKUMASI (5.4c, göç 20260909_0077). İzin
     # `/api/push/` önek kuralından geliyor (`app/auth.py`) ve BİLİNÇLİDİR:
     # uç YALNIZ çağıranın KENDİ cihazlarını döndürür — `user_id` istekten
@@ -556,7 +568,9 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # Ailenin UC YAZMA ikizi (POST create/submit/sync) bu envantere GIRMEZ (bu
 # dosya YALNIZ GET sayar); onlar `test_route_security_contracts.py`nin
 # sozlesme envanterindedir ve orada sayim 392/301 -> 399/307.
-GET_INVENTORY_COUNT = 190
+# PP1 (PLATFORM YONETIM PANELI, GOC YOK): sayim 190 -> 197. YEDI yeni GET,
+# yedisi de `read` (korumali: `require_platform_operator`).
+GET_INVENTORY_COUNT = 197
 GET_INVENTORY_FINGERPRINT = (
     # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
     # sonra `auth.py`ye `/api/push/` önek kuralı eklendi, sonra izin
@@ -597,7 +611,10 @@ GET_INVENTORY_FINGERPRINT = (
     # sonra `auth.py`ye `/api/despatch-notes` onek kurali eklendi, sonra izin
     # `required_permission` ile OLCULDU ("sales", dordu de), sonra envantere
     # girdi. 0e8ce4f3 -> 0f87b6bd.
-    "0f87b6bd0483c246d6cbb041bac9002cc8f1c09fe97297e16719569cc6a5f2d9"
+    # PP1 (GOC YOK): YEDI platform yonetim GET'i. Sira ayni: uclar yazildi,
+    # `auth.py`ye YALNIZ GUVENLI METOT `/api/platform/` kurali eklendi, izin
+    # OLCULDU ("read", yedisi de), envantere girdi. 0f87b6bd -> 7bd73197.
+    "7bd7319747148d6820ff46f72605df7255e34a35697dac9bad4430b51333b4fe"
 )
 
 
