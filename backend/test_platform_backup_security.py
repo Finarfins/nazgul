@@ -105,19 +105,29 @@ def test_force_maintenance_clear_audits_identity_and_reason(
     assert force_entry["details"]["reason"] == result["reason"]
     assert force_entry["details"]["caller"] == result["caller"]
 
+    # H32: platform olayı kiracı defterine değil, firmasız denetim satırına.
+    # Tam ayrıntı (caller sözlüğü dahil) journal'da; satır özeti taşır.
     with engine.connect() as connection:
         audit = connection.execute(
             text(
-                """SELECT details FROM activity_logs
-                   WHERE action_type='backup.maintenance_force_cleared'
-                     AND correlation_id=:operation_id
+                """SELECT company_id, user_id, failure_reason FROM security_audit_logs
+                   WHERE action='platform.mt_force'
+                     AND failure_reason LIKE :islem
                    ORDER BY id DESC LIMIT 1"""
             ),
-            {"operation_id": operation_id},
+            {"islem": f"%islem={operation_id};%"},
+        ).one()
+        tenant_rows = connection.execute(
+            text(
+                """SELECT COUNT(*) FROM activity_logs
+                   WHERE action_type='backup.maintenance_force_cleared'"""
+            )
         ).scalar_one()
-    decoded = json.loads(audit)
-    assert decoded["reason"] == result["reason"]
-    assert decoded["caller"] == result["caller"]
+    assert audit.company_id is None and audit.user_id is None
+    assert "olay=backup.maintenance_force_cleared" in audit.failure_reason
+    assert f"gerekce={result['reason']}" in audit.failure_reason
+    assert "operator_id=immutable-user-42" in audit.failure_reason
+    assert tenant_rows == 0
 
 
 @pytest.mark.parametrize(
