@@ -42,6 +42,7 @@ import PetsIcon from '@mui/icons-material/Pets';
 import PointOfSaleIcon from '@mui/icons-material/PointOfSale';
 import PriceCheckIcon from '@mui/icons-material/PriceCheck';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import RequestQuoteIcon from '@mui/icons-material/RequestQuote';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import ScienceIcon from '@mui/icons-material/Science';
 import SecurityIcon from '@mui/icons-material/Security';
@@ -187,6 +188,12 @@ export const ROUTE_PERMISSIONS = {
   '/tahsis-defteri': 'payments',
   '/alacaklar': 'payments',
   '/nakit-yonetimi': 'finance',
+  // CS3: çek/senet portföyü `payments`tır, `finance` DEĞİL. Backend
+  // `/api/cek-senetler`in BÜTÜN metotlarını `payments`a bağlar (auth.py açık
+  // önek kuralı): admin/yönetici/muhasebe/satış açar, depo/rapor açamaz.
+  // `/nakit-yonetimi` (`finance`) kasa/banka hazinesidir; `satis` onu
+  // göremez ama çek tahsil eden roldür, bu yüzden sayfa AYRI bir rotadır.
+  '/cek-senet-portfoyu': 'payments',
   // Harman sezon tanımları finans yönetimidir; backend de tüm
   // /api/harvest-scheduling ucunu ``finance`` iznine bağlar.
   '/tanimlar/harman-sezon': 'finance',
@@ -331,6 +338,7 @@ export const NAV_LABELS = {
   receivables: 'Harman Vadesi / Alacaklar',
   allocations: 'Tahsis Defteri',
   cashManagement: 'Nakit Yönetimi',
+  cheques: 'Çek / Senet Portföyü',
   receivablesAging: 'Alacak Yaşlandırma',
   harvestSeason: 'Harman Sezon Takvimi',
   costRates: 'Maliyet Oranları',
@@ -454,6 +462,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       item('/alacaklar', NAV_LABELS.receivables, <AgricultureIcon />),
       item('/tahsis-defteri', NAV_LABELS.allocations, <AccountBalanceWalletIcon />),
       item('/nakit-yonetimi', NAV_LABELS.cashManagement, <AccountBalanceIcon />),
+      item('/cek-senet-portfoyu', NAV_LABELS.cheques, <RequestQuoteIcon />),
       item('/raporlar/alacak-yaslandirma', NAV_LABELS.receivablesAging, <AssessmentIcon />),
       item('/tanimlar/harman-sezon', NAV_LABELS.harvestSeason, <CalendarMonthIcon />),
       item('/tanimlar/maliyet-oranlari', NAV_LABELS.costRates, <PaymentsIcon />),

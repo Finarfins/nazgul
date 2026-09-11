@@ -60,6 +60,7 @@ const Insights=lazy(()=>import('./pages/Insights'));
 const AbsorptionRate=lazy(()=>import('./pages/AbsorptionRate'));
 const WorkflowDocuments=lazy(()=>import('./pages/WorkflowDocuments'));
 const Finance=lazy(()=>import('./pages/Finance'));
+const CekSenetPortfoyu=lazy(()=>import('./pages/cek-senet/CekSenetPortfoyu'));
 const HarvestSeasonAdmin=lazy(()=>import('./pages/HarvestSeasonAdmin'));
 const PremiumHomepage=lazy(()=>import('./premium-homepage/Homepage'));
 const FieldWorkOrders=lazy(()=>import('./pages/FieldWorkOrders'));
@@ -159,6 +160,7 @@ export default function App(){
       <Route path="tahsis-defteri" element={<PaymentAllocations/>}/>
       <Route path="alacaklar" element={<Receivables/>}/>
       <Route path="nakit-yonetimi" element={<Finance/>}/>
+      <Route path="cek-senet-portfoyu" element={<CekSenetPortfoyu/>}/>
       <Route path="tanimlar/harman-sezon" element={<HarvestSeasonAdmin/>}/>
       <Route path="stok-hareketleri" element={<StockMovements/>}/>
       <Route path="depo-transferleri/:id" element={<TransferDetail/>}/>
