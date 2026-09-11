@@ -1,6 +1,6 @@
 # E4b — e-İrsaliye Kısmi Sevk ve ReceiptAdvice (İrsaliye Yanıtı) Keşif Raporu
 
-Tarih: 2026-09-10 (Düzeltme: 2026-09-11). Taban commit: `6442794` (origin/develop, PR #116 `28c9dd0` / `c9e0a1b` dâhil).
+Tarih: 2026-09-10 (Düzeltme: 2026-09-11). Taban commit: `2e35393` (origin/develop, PR #122 dâhil).
 Kapsam: Salt-okunur keşif ve tasarım dokümanı. Uygulama kodu veya göç içermez.
 Önceki keşif: `docs/e4-eirsaliye-kesif-2026-09-09.md` (WSDL 12 operasyon, 100/101 kodları, XSD incelemesi).
 
@@ -88,7 +88,7 @@ E4a'da durum makinesi `backend/app/einvoice/edespatch.py:107` içinde `TERMINAL 
 - Terminal Kümesi: `TERMINAL = frozenset({ACCEPTED, PARTIALLY_ACCEPTED, REJECTED})`.
 
 ### Yanıt Depolama ve Idempotency
-- `despatch_notes` üzerinde özet kolonlar: `edespatch_status`, `response_status` (KABUL/RED/KISMI_KABUL), `response_received_at`.
+- `despatch_notes` üzerinde özet kolonlar: `edespatch_status`, `response_status` (KABUL/RED/KISMI_KABUL — KISMI_KABUL DOĞRULANMADI, bkz. §3), `response_received_at`.
 - Ayrı yanıt tabloları (`despatch_responses` ve `despatch_response_lines`):
   - `despatch_responses`: `id`, `company_id`, `despatch_id`, `response_uuid` (String(36)), `response_number` (String(16)), `response_type`, `issue_date`, `notes`, `created_at`.
   - `despatch_response_lines`: `id`, `company_id`, `response_id`, `despatch_line_id`, `received_quantity` (`Numeric(18, 4)`), `rejected_quantity` (`Numeric(18, 4)`), `reject_reason`.
@@ -117,7 +117,7 @@ E4a'da durum makinesi `backend/app/einvoice/edespatch.py:107` içinde `TERMINAL 
 CI ortamında dış ağa çıkılmaz; şu çağrı ve kontroller doğrulanır:
 1. **UBL Builder & Kısmi Sevk:** `edespatch.build_despatch_xml` kısmi kalemlerle, `item_type=='LABOR'` hariç tutularak, Decimal miktarlarla UBL 2.1 şemasına uygun XML üretir.
 2. **Fail-Closed Doğrulama:** Yapılandırma yokken (`is_configured=False`) `submit_despatch` `FAILED`, `despatch_status` `UNKNOWN` döner; uç 503 `EBELGE_YAPILANDIRILMAMIS` üretir.
-3. **Mock SOAP Ayrıştırma (KISMI_KABUL bağımsız):**
+3. **Mock SOAP Ayrıştırma (KISMI_KABUL bağımsız — kod DOĞRULANMADI, bkz. §3):**
    - `GetDespatchAdviceStatusResponse` içindeki `RESPONSE_CODE` (`KABUL`, `RED`) ayrıştırılması.
    - `GetReceiptAdviceResponse` XML gövdesinden `ReceiptLine` (`ReceivedQuantity`, `RejectedQuantity`, `RejectReason`) ayrıştırılması (**DOĞRULANMADI** — sandbox teyidi bekliyor).
 4. **Durum Makinesi:** `durumu_ilerlet` ve `kodu_coz` fonksiyonlarının yeni yanıt kodlarıyla ileri yönlü işletilmesi.
@@ -132,23 +132,23 @@ Betik: `backend/sandbox/izibiz_edespatch_smoke.py` (E4b operasyonlarıyla geniş
 
 ---
 
-## 6. PR Ayrımı ve Pin Deltaları (Develop `6442794` Tabanlı)
+## 6. PR Ayrımı ve Pin Deltaları (Develop `2e35393` Tabanlı)
 
-Taban (origin/develop `6442794`): **Rota 400 op / 308 path**, **GET 190**, **TENANT_TABLES 121**, **pg_twins 127** (#120/#121 birleşti, #122 henüz birleşmedi).
+Taban (origin/develop `2e35393`): **Rota 407 op / 315 path**, **GET 197**, **TENANT_TABLES 121**, **pg_twins 128** (test_pp1_platform_paneli_postgresql.py).
 
 ### PR E4b-1: Model + Göç + Kısmi Sevk Builder + Belge Sayacı Deltası
 - **Kapsam:**
   - Göç 0086 (`uq_despatch_notes_company_invoice` drop + `despatch_lines` tablosu).
-  - `backend/app/document_engine.py` Deltası: `DOCUMENT_TABLES` listesine (`:27-38`) `despatch_notes` eklenmesi (mevcutta yoktur ve `:114-115` ValueError fırlatır); `document_engine.py:189` `PREFIX-000001` formatı yerine GİB 16-haneli (`^[A-Z]{3}[0-9]{13}$`) standardına uygun yıl destekli sayaç (`edespatch.belge_numarasi_uret` entegrasyonu).
+  - `backend/app/document_engine.py` Deltası: `DOCUMENT_TABLES` kümesine (`:27-38`) `despatch_notes` eklenmesi (mevcutta yoktur ve `:114-115` ValueError fırlatır); `document_engine.py:189` `PREFIX-000001` formatı yerine GİB 16-haneli (`^[A-Z]{3}[0-9]{13}$`) standardına uygun yıl destekli sayaç (`edespatch.belge_numarasi_uret` entegrasyonu).
   - `backend/app/kiraci_geri_yukleme.py`: `DOGRUDAN_HEDEFLER` altına `("despatch_lines", "product_id"): "products"`.
   - `backend/app/numeric_manifest.py`: `QUANTITY_COLUMNS` altına `"despatch_lines": ("quantity",)`.
   - `invoice_items.item_type != 'LABOR'` filtrelemesi, UBL kısmi sevk builder'ı, `POST /api/despatch-notes` kısmi miktar desteği, `GET /api/invoices/{id}/despatchable-items` ucu.
 - **Pin Deltası:**
-  - Rota İşlemleri: 400 → **401** (+1 GET)
-  - Rota Yolları: 308 → **309** (+1 path: `/api/invoices/{invoice_id}/despatchable-items`)
-  - GET İzin Envanteri: 190 → **191** (izin: `sales`)
+  - Rota İşlemleri: 407 → **408** (+1 GET)
+  - Rota Yolları: 315 → **316** (+1 path: `/api/invoices/{invoice_id}/despatchable-items`)
+  - GET İzin Envanteri: 197 → **198** (izin: `sales`)
   - `TENANT_TABLES`: 121 → **122** (`despatch_lines` eklendi)
-  - `pg_twins.txt`: 127 → **128** (`test_e4b1_partial_despatch_postgresql.py`)
+  - `pg_twins.txt`: 128 → **129** (`test_e4b1_partial_despatch_postgresql.py`)
 - **Testler:** Miktar mutabakatı, aşan miktar reddi (422), hizmet satırı dışlama, PG ikizi.
 
 ### PR E4b-2: ReceiptAdvice Inbound + Durum Makinesi + Sync
@@ -158,16 +158,16 @@ Taban (origin/develop `6442794`): **Rota 400 op / 308 path**, **GET 190**, **TEN
   - `backend/app/kiraci_geri_yukleme.py`: FK'sız kullanıcı/ilişki sütunlarının sınıflandırılması.
   - `edespatch.py` durum makinesi (`ACCEPTED`, `PARTIALLY_ACCEPTED`, `REJECTED`), `endpoints.py` (`GetReceiptAdvice`), `provider.py` (`get_receipt_advice`), `despatch_notes.py` sync güncellemesi, `GET /api/despatch-notes/{id}/response` ucu.
 - **Pin Deltası:**
-  - Rota İşlemleri: 401 → **402** (+1 GET)
-  - Rota Yolları: 309 → **310** (+1 path: `/api/despatch-notes/{despatch_id}/response`)
-  - GET İzin Envanteri: 191 → **192** (izin: `sales`)
+  - Rota İşlemleri: 408 → **409** (+1 GET)
+  - Rota Yolları: 316 → **317** (+1 path: `/api/despatch-notes/{despatch_id}/response`)
+  - GET İzin Envanteri: 198 → **199** (izin: `sales`)
   - `TENANT_TABLES`: 122 → **124** (`despatch_responses`, `despatch_response_lines`)
-  - `pg_twins.txt`: 128 → **129** (`test_e4b2_receipt_advice_postgresql.py`)
+  - `pg_twins.txt`: 129 → **130** (`test_e4b2_receipt_advice_postgresql.py`)
 - **Testler:** Gelen yanıt XML ayrıştırma, kısmi kabul ret kalemleri, idempotent sync, PG ikizi.
 
 ### PR E4b-3: Frontend (Kısmi Sevk Dialogu ve Yanıt Görünümü)
 - **Kapsam:** `DespatchNotePanel.tsx` ve `InvoiceDetail.tsx` arayüz geliştirmeleri (kısmi sevk modalı, yanıt rozeti ve ret gerekçeleri akordiyonu, tip güncellemesi).
-- **Pin Deltası:** Arka uç pinleri değişmez (402 op, 310 path, 192 GET, 124 tablo, 129 pg_twin sabit). Frontend testleri güncellenir (`DespatchNotePanel.test.tsx`).
+- **Pin Deltası:** Arka uç pinleri değişmez (409 op, 317 path, 199 GET, 124 tablo, 130 pg_twin sabit). Frontend testleri güncellenir (`DespatchNotePanel.test.tsx`).
 
 ---
 
@@ -176,7 +176,7 @@ Taban (origin/develop `6442794`): **Rota 400 op / 308 path**, **GET 190**, **TEN
 1. **Göç Numaralandırması:** Çek/senet keşfi (PR #117) `0085` revizyonunu hedeflemektedir. E4b-1 için `0086` (`despatch_lines`), E4b-2 için `0087` (`despatch_responses`) sırası uygun mudur?
 2. **Hizmet Faturası Kısıtı:** Faturada yalnızca hizmet kalemi (`item_type == 'LABOR'`) varsa kullanıcıya irsaliye butonu tamamen gizlensin mi, yoksa tıklandığında bilgilendirici 422 uyarısı mı gösterilsin?
 3. **Varsayılan Sevk Miktarı:** Kısmi sevk diyaloğu açıldığında satır miktarları varsayılan olarak "kalan miktarın tamamı" (%100) şeklinde mi dolsun?
-4. **Belge Numarası Sayacı:** `document_engine.py` `DOCUMENT_TABLES` (:27-38) listesine `despatch_notes` eklenerek ve `:189` formatı GİB 16-haneli standardına (`edespatch.belge_numarasi_uret`) genişletilerek `document_sequences` tablosunda `sequence_key='despatch_notes:IRS'` ile yıl bazlı artış onaylanıyor mu?
+4. **Belge Numarası Sayacı:** `document_engine.py` `DOCUMENT_TABLES` (:27-38) kümesine `despatch_notes` eklenerek ve `:189` formatı GİB 16-haneli standardına (`edespatch.belge_numarasi_uret`) genişletilerek `document_sequences` tablosunda `sequence_key='despatch_notes:IRS'` ile yıl bazlı artış onaylanıyor mu?
 5. **7 Günlük Zımni Kabul Otomasyonu:** 7 gün boyunca alıcıdan yanıt gelmeyen `DELIVERED` irsaliyeler otomatik olarak arka plan işiyle `ACCEPTED` durumuna çekilsin mi, yoksa operatör `sync` yapana kadar `DELIVERED` olarak mı kalsın?
 
 ---
