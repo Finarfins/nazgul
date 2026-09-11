@@ -35,6 +35,12 @@ const menuItems=ALL_NAV_ITEMS.map(item=>[item.path] as const);
  * 2026-08-27 (outbox okuma yüzeyi, FIELD_STOK_OUTBOX açılış koşulu 2):
  * /tarla/olay-kuyrugu YENİ adres olarak eklendi. Mevcut adreslerin hiçbiri
  * değişmedi ya da silinmedi — yani hiçbir yer imi kırılmıyor.
+ *
+ * 2026-09-11 (PP3, platform yönetim paneli): /yedekler MENÜDEN çıktı ve
+ * /platform/yedekler oldu; altı yeni /platform adresi eklendi. /yedekler YER
+ * İMİ KIRILMADI: App.tsx'te /platform/yedekler'e yönlendiren bir rota olarak
+ * duruyor (bkz. App.platform.test.tsx). Adres artık menüde olmadığı için bu
+ * listeden çıktı; yönlendirme testi onun bekçisidir.
  */
 const BOOKMARKED_MENU_URLS=[
  '/',
@@ -69,7 +75,6 @@ const BOOKMARKED_MENU_URLS=[
  '/firmalar',
  '/aktivite',
  '/islem-gecmisi',
- '/yedekler',
  '/bildirimler',
  '/bildirimler/sablonlar',
  '/tedarikci-fiyatlari',
@@ -88,6 +93,13 @@ const BOOKMARKED_MENU_URLS=[
  '/hayvancilik/doller',
  '/hayvancilik/verim',
  '/tanimlar/maliyet-oranlari',
+ '/platform',
+ '/platform/sirketler',
+ '/platform/kullanicilar',
+ '/platform/kuyruk',
+ '/platform/guvenlik',
+ '/platform/e-belgeler',
+ '/platform/yedekler',
 ];
 
 /**
@@ -138,8 +150,13 @@ const ROLE_PERMISSIONS:Record<string,string[]>={
   'herd.view'],
  rapor:['read','reports','farm.view','herd.view'],
 };
-const can=(role:string,permission:Permission)=>
+// `platform` hiçbir rolden GELMEZ — `*` dahil (AuthContext.can ile aynı kural:
+// yalnız `is_platform_operator`). PP3'e kadar bu kopya `*`i `platform`a da
+// genişletiyordu; Yedekler Yönetim grubundaydı ve sonuç değişmiyordu. Platform
+// kendi grubu olunca bu yanlış admin'e hayali bir grup sayardı.
+const can=(role:string,permission:Permission)=>permission==='platform'?false:
  ROLE_PERMISSIONS[role].includes('*')||ROLE_PERMISSIONS[role].includes(permission);
+const operatorCan=(permission:Permission)=>permission==='platform'||can('rapor',permission);
 
 describe('navigasyon izin tutarlılığı',()=>{
  it('App.tsx içindeki her korumalı rotanın izin haritasında karşılığı var',()=>{
@@ -176,15 +193,18 @@ describe('navigasyon izin tutarlılığı',()=>{
   // 50 → 51: BKÜ Kataloğu (göç 20260901_0063) — PHI gün sayısının firma
   // tarafından doldurulan kaydı. Yine Tarla grubunda; grup sayısı DEĞİŞMEDİ
   // ve hiçbir madde çıkmadı.
-  expect(ALL_NAV_ITEMS.length).toBe(51);
+  // 51 → 57 (PP3): Platform Yönetimi grubu yedi madde (/yedekler Yönetim'den
+  // /platform/yedekler olarak taşındı, altı yeni ekran) — 51 - 1 + 7.
+  // Grup sayısı 9 → 10.
+  expect(ALL_NAV_ITEMS.length).toBe(57);
   expect(PINNED_ITEMS.length).toBe(2);
-  expect(NAV_GROUPS.length).toBe(9);
+  expect(NAV_GROUPS.length).toBe(10);
  });
 
  it('menü URL sözleşmesi korunur: elle yazılmış adreslerle küme eşitliği',()=>{
   // Bağımsız sözleşme listesiyle karşılaştırma (bkz. BOOKMARKED_MENU_URLS).
-  expect(BOOKMARKED_MENU_URLS).toHaveLength(51);
-  expect(new Set(BOOKMARKED_MENU_URLS).size).toBe(51);
+  expect(BOOKMARKED_MENU_URLS).toHaveLength(57);
+  expect(new Set(BOOKMARKED_MENU_URLS).size).toBe(57);
   const actual=ALL_NAV_ITEMS.map(item=>item.path);
   // Küme eşitliği: sıra önemli değil, içerik birebir olmalı.
   expect([...actual].sort()).toEqual([...BOOKMARKED_MENU_URLS].sort());
@@ -205,7 +225,7 @@ describe('navigasyon izin tutarlılığı',()=>{
   const LANDING:Record<string,string>={
    sales:'/satislar',customers:'/musteriler',inventory:'/urunler',purchasing:'/alislar',
    service:'/is-emirleri',finance:'/odemeler',farm:'/tarla',herd:'/hayvancilik',
-   admin:'/raporlar',
+   admin:'/raporlar',platform:'/platform',
   };
   expect(Object.keys(LANDING).sort()).toEqual(NAV_GROUPS.map(group=>group.id).sort());
   for(const group of NAV_GROUPS)expect([group.id,group.items[0].path]).toEqual([group.id,LANDING[group.id]]);
@@ -295,6 +315,20 @@ describe('navigasyon izin tutarlılığı',()=>{
   for(const role of ['depo','rapor']){
    expect(can(role,permissionForPath('/is-emirleri/7'))).toBe(true);
   }
+ });
+
+ it('PP3: /platform* yalnız operatöre açık — hiçbir rol (admin dahil) görmez',()=>{
+  const platformYollari=Object.keys(ROUTE_PERMISSIONS).filter(path=>path.startsWith('/platform'));
+  expect(platformYollari).toHaveLength(7);
+  for(const path of [...platformYollari,'/yedekler']){
+   expect(ROUTE_PERMISSIONS[path as keyof typeof ROUTE_PERMISSIONS]).toBe('platform');
+   for(const role of Object.keys(ROLE_PERMISSIONS))expect([role,path,can(role,permissionForPath(path))]).toEqual([role,path,false]);
+   expect(operatorCan(permissionForPath(path))).toBe(true);
+  }
+  // Yönetim grubunda artık platform maddesi yok; yedekler kendi grubunda.
+  expect(NAV_GROUPS.find(group=>group.id==='admin')!.items.some(i=>i.path==='/yedekler')).toBe(false);
+  expect(groupIdForPath('/platform/yedekler')).toBe('platform');
+  expect(groupIdForPath('/platform/sirketler')).toBe('platform');
  });
 
  it('/alacaklar menüde olduğu gibi route tarafında da payments ister',()=>{

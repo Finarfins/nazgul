@@ -293,10 +293,19 @@ describe('rota kapsam sözleşmesi', () => {
     const BEKLENEN_MUAF = [
       '/depo-transferleri/:id',
       '/hayvancilik/hayvanlar/:id',
+      // PP3: platform yönetim paneli — `/yedekler` ile AYNI ölçülmüş sınır
+      // (platform operatörü e2e sunucusunda kurulmuyor).
+      '/platform',
+      '/platform/e-belgeler',
+      '/platform/guvenlik',
+      '/platform/kullanicilar',
+      '/platform/kuyruk',
+      '/platform/sirketler',
+      '/platform/yedekler',
       '/saha/:id',
       '/stok-sayimlari/:id',
       '/yedekler',
-    ];
+    ].sort();
     expect(MUAF_GIRDILERI.map(girdi => girdi.rota).sort()).toEqual(BEKLENEN_MUAF);
 
     // GEREKÇE BOŞALTILAMAZ. #8'de bu koruma `rota-render-kapisi.spec.ts`
@@ -311,6 +320,23 @@ describe('rota kapsam sözleşmesi', () => {
     ).toBe(
       "platform operatörü ortam değişkeni e2e sunucusunda kurulmuyor; rota Protected içinde /'a düşer",
     );
+    // PP3: `/platform*` muafiyetleri AYNI ölçüme dayanır; ayrı ve ölçülmemiş
+    // bir gerekçe sessizce yazılamasın.
+    const yedeklerGerekcesi = MUAF_GIRDILERI.find(girdi => girdi.rota === '/yedekler')?.gerekce;
+    for (const girdi of MUAF_GIRDILERI.filter(g => g.rota.startsWith('/platform'))) {
+      expect(girdi.gerekce, `${girdi.rota}: platform gerekçesi /yedekler ile aynı olmalı`).toBe(
+        yedeklerGerekcesi,
+      );
+    }
+  });
+
+  it('PP3: rota envanteri 78 rota — 71 + yedi /platform rotası (/yedekler yönlendirme olarak kalır)', () => {
+    // Sayı KORUNAN bir taban değil (G1 küme eşitliğidir); bu satır PP3'ün
+    // ölçülen sonucunu kayda geçirir. 77 değil 78: `/yedekler` artık ekran
+    // değil `<Navigate>` ama App.tsx'te ADLANDIRILMIŞ bir `<Route>` olarak
+    // durur ve ayrıştırıcı onu rota sayar — gizlemek kapının körlüğü olurdu.
+    expect(ROTA_ENVANTERI).toHaveLength(78);
+    expect(ENVANTER_ROTALARI.filter(rota => rota.startsWith('/platform'))).toHaveLength(7);
   });
 
   it('G13: render kontratı tam olarak üç girdi ve her biri `isaret` taşır', () => {

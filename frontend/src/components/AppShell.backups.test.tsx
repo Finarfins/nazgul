@@ -7,10 +7,12 @@ const visibleItems=(can:(permission:string)=>boolean)=>
 describe('platform backup navigation',()=>{
  it('hides Yedekler from an admin who is not on the operator allow-list',()=>{
   const adminCan=(permission:string)=>permission!=='platform';
-  expect(visibleItems(adminCan).some(item=>item.path==='/yedekler')).toBe(false);
+  expect(visibleItems(adminCan).some(item=>item.path==='/platform/yedekler')).toBe(false);
  });
 
  it('shows Yedekler to an allow-listed platform operator',()=>{
-  expect(visibleItems(()=>true).some(item=>item.path==='/yedekler')).toBe(true);
+  expect(visibleItems(()=>true).some(item=>item.path==='/platform/yedekler')).toBe(true);
+  // PP3: eski adres menüde değil; App.tsx'te yönlendirme olarak yaşar.
+  expect(ALL_NAV_ITEMS.some(item=>item.path==='/yedekler')).toBe(false);
  });
 });

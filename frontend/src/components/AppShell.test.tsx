@@ -26,15 +26,18 @@ const ROLE_PERMISSIONS:Record<string,string[]>={
  rapor:['read','reports'],
 };
 let permissions:string[]=['*'];
+// AuthContext.can ile aynı kural: `platform` hiçbir rolden (`*` dahil) gelmez,
+// yalnız `is_platform_operator` bayrağından.
+let operator=false;
 vi.mock('../AuthContext',()=>({
  useAuth:()=>({
   user:{id:1,username:'test',display_name:'Test Kullanıcı',role:'admin',must_change_password:false},
   companies:[],activeCompany:null,setActiveCompany:vi.fn(),logout:vi.fn(),
-  can:(permission:string)=>permissions.includes('*')||permissions.includes(permission),
+  can:(permission:string)=>permission==='platform'?operator:permissions.includes('*')||permissions.includes(permission),
  }),
 }));
 
-afterEach(()=>{cleanup();navigate.mockReset();permissions=['*']});
+afterEach(()=>{cleanup();navigate.mockReset();permissions=['*'];operator=false});
 beforeEach(()=>{vi.clearAllMocks()});
 
 function mount(role='admin',route='/'){
@@ -74,7 +77,23 @@ describe('AppShell gruplu menü',()=>{
   // 9 → 10: Tarla grubu eklendi (mobil-erp#2), hiçbir grup çıkarılmadı.
   // 10 → 11: Hayvancılık grubu eklendi (mobil-erp#17), yine çıkarılan yok.
   expect(topLevelLabels()).toHaveLength(11);
-  for(const label of GROUP_LABELS)expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+  // Platform Yönetimi (PP3) operatör olmayan admin'de GÖRÜNMEZ.
+  for(const label of GROUP_LABELS.filter(label=>label!==NAV_LABELS.groupPlatform))expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+  expect(inSidebar(NAV_LABELS.groupPlatform)).toBe(false);
+ });
+
+ it('PP3: Platform Yönetimi grubu yalnız platform operatörüne görünür',async()=>{
+  operator=true;
+  mount('rapor','/platform/sirketler');
+  await waitFor(()=>expect(inSidebar(NAV_LABELS.groupPlatform)).toBe(true));
+  // Aktif sayfa grubun içinde: grup açık ve yedi maddesi görünür.
+  expect(groupExpanded('platform')).toBe(true);
+  for(const label of [NAV_LABELS.platformDashboard,NAV_LABELS.platformCompanies,NAV_LABELS.platformUsers,
+   NAV_LABELS.platformOutbox,NAV_LABELS.platformSecurity,NAV_LABELS.platformEDocuments,NAV_LABELS.backups]){
+   expect(inSidebar(label)).toBe(true);
+  }
+  fireEvent.click(groupHeaderEl('platform'));
+  expect(navigate).toHaveBeenCalledWith('/platform');
  });
 
  it('gruplar varsayılan olarak kapalıdır; alt maddeler görünmez',async()=>{
@@ -145,6 +164,8 @@ describe('AppShell gruplu menü',()=>{
  // maddesi ve "Hızlı Satış" düğmesi birbirine karışabiliyor; e2e tarafında
  // `exact: true` kullanılıyor ve bu test o varsayımı burada kilitliyor.
  it('grup başlıklarının erişilebilir adı tam olarak etiketin kendisidir',async()=>{
+  // TÜM grup başlıkları ölçülür: Platform Yönetimi yalnız operatörde çizilir.
+  operator=true;
   mount('admin');
   await waitFor(()=>expect(inSidebar(NAV_LABELS.home)).toBe(true));
   for(const label of GROUP_LABELS){
@@ -322,6 +343,8 @@ describe('AppShell kenar çubuğu teması',()=>{
 
 describe('AppShell mevcut rotaları kırmaz',()=>{
  it('menü maddelerinin tamamı gerçek bir bağlantı olarak çizilir',async()=>{
+  // Tamamı = Platform Yönetimi dahil; o grup yalnız operatörde çizilir.
+  operator=true;
   mount('admin');
   await waitFor(()=>expect(inSidebar(NAV_LABELS.home)).toBe(true));
   // Her grubu aç, sonra href'lerin rota yollarıyla eşleştiğini doğrula.
@@ -336,7 +359,8 @@ describe('AppShell mevcut rotaları kırmaz',()=>{
   // açılan" bir ekran DEĞİL. Kuyruğu okumak için bir kayıt seçmek gerekmez.
   // 50 → 51: BKÜ Kataloğu (göç 20260901_0063) — Tarla grubunda, menüde
   // GÖRÜNÜR: katalog kayıt başına değil, firma başına yönetilen bir liste.
-  expect(new Set(hrefs).size).toBe(51);
+  // 51 → 57 (PP3): Platform Yönetimi'nin yedi maddesi, /yedekler çıktı.
+  expect(new Set(hrefs).size).toBe(57);
   for(const path of ALL_NAV_ITEMS.map(item=>item.path))expect(hrefs).toContain(path);
  });
 });
