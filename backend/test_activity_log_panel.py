@@ -124,6 +124,10 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
         # SÜTUNU YOK ve o dilim göç EKLEMEDİ; kimin hangi olayı hangi
         # terminal durumdan geri aldığı YALNIZ bu satırda durur.
         "field_event.requeued",
+        # CS1 ÇEK/SENET PORTFÖYÜ (göç 20260914_0085): evrak portföye alındı
+        # (tek evrak ve bordro AYNI eylem; `details.bordro` ayırır) ve her
+        # durum geçişi (kaynak/hedef `details`te).
+        "cek_senet.created", "cek_senet.durum",
         # HAYVANCILIĞIN KATALOĞA GİREN İLK OLAYLARI (göç 20260908_0074).
         # Modül 0049'dan beri HİÇ aktivite kaydı yazmıyordu ve o boşluk
         # buraya kadar zararsızdı: hayvan/sürü/sağım kayıtları kendi
@@ -247,9 +251,11 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
     # AYRI acmak, taslak izini odeme izinden ayirt edilebilir kilar — panel
     # geldiginde gecmis kayitlarin tipi DEGISMEK zorunda kalmaz.
     # 75 -> 76: 5.1c KIRACI GERI YUKLEME (`company.restored`).
-    assert len(ACTION_TYPES) == 76, sorted(ACTION_TYPES)
+    # 76 -> 78: CS1 ÇEK/SENET PORTFÖYÜ (`cek_senet.created`, `cek_senet.durum`).
+    assert len(ACTION_TYPES) == 78, sorted(ACTION_TYPES)
     assert "whatsapp_pending" in RESOURCE_TYPES
-    assert len(RESOURCE_TYPES) == 22, sorted(RESOURCE_TYPES)
+    # 22 -> 23: CS1 (`cek_senet`; kaynak kimliği `cek_senetler.id`).
+    assert len(RESOURCE_TYPES) == 23, sorted(RESOURCE_TYPES)
     assert all(ACTION_TYPES.values()), ACTION_TYPES
     assert "activity_log" in RESOURCE_TYPES
     # POS fişi de bir ``orders`` satırıdır: ayrı bir kaynak tipi eklenmez,

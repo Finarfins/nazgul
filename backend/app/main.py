@@ -54,6 +54,7 @@ from .routers import (
     dashboard,
     demo,
     despatch_notes,
+    cek_senetler,
     entegrasyon_olaylari,
     finance,
     farm,
@@ -774,6 +775,8 @@ app.include_router(invoices.router, prefix="/api")
 # e-belge dörtlüsünün BİREBİR ikizidir — okuyan kişi ikisini yan yana
 # görmeli (push'un notifications'ın yanına konmasıyla aynı gerekçe).
 app.include_router(despatch_notes.router, prefix="/api")
+# CS1: çek/senet portföyü (`/api/cek-senetler`, göç 20260914_0085).
+app.include_router(cek_senetler.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 # PUSH CİHAZ DEFTERİ (5.4c). Bildirim uçlarının HEMEN YANINDA:
 # cihaz kaydı bir bildirim KANALININ hedef defteridir, ayrı bir modül

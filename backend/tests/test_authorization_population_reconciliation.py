@@ -380,7 +380,14 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 #     56'da KIMILDAMADI.
 #   * `EXPECTED_UNDENIABLE` 97'de SABIT: ciplak read (56) + farm/herd (41);
 #     korumali read reddedilemez yuzeyi BUYUTMEZ.
-EXPECTED_AUTHENTICATED = 394
+# CS1 ÇEK/SENET PORTFÖYÜ (göç 20260914_0085): BEŞ yeni uç, beşi de kimlik
+# doğrulamalı ve beşi de "payments".
+#   * `EXPECTED_AUTHENTICATED` 394 -> 399 (+5, TABAN `2e35393`); `test_route_security_contracts`
+#     407 -> 412 ile AYNI beş uç.
+#   * `EXPECTED_READ` 87'de SABİT: izin OLCULDU, beşi de "payments" —
+#     iki GET `read`e düşMÜYOR (açık önek kuralı genel güvenli-metot
+#     kuralının ÜSTÜNDE). GUARDED_READ 31 ve UNDENIABLE 97 de SABİT.
+EXPECTED_AUTHENTICATED = 399
 EXPECTED_READ = 87
 EXPECTED_UNDENIABLE = 97
 

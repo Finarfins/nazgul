@@ -242,7 +242,9 @@ def test_KIRACI_ENVANTERI_120_ve_TABLOYU_ICERIYOR() -> None:
 # 120 -> 121: E4a e-IRSALIYE DEFTERI (goc 20260913_0083). Tek yeni kiraci
     # tablosu `despatch_notes`; `company_id` tasir, yani envantere OTOMATIK
     # girer ve her sorgusundan `company_id=:cid` yuklemi istenir.
-    assert len(TENANT_TABLES) == 121, len(TENANT_TABLES)
+    # 121 -> 122: CS1 CEK/SENET PORTFOYU (goc 20260914_0085). Tek yeni kiraci
+    # tablosu `cek_senetler`; `company_id` tasir, envantere OTOMATIK girer.
+    assert len(TENANT_TABLES) == 122, len(TENANT_TABLES)
 
 
 def test_CLAIM_JETONU_SABIT_SURELI_KARSILASTIRILIYOR() -> None:

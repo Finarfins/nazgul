@@ -186,10 +186,13 @@ def test_lot_id_SAYISAL_MANIFESTOYA_GIRMEZ_olculdu() -> None:
         "bir `lot_id` sütunu sayısal manifestoya girmiş — mutabakat onu para/"
         "miktar gibi yuvarlayıp raporlar."
     )
+    # CS1 (göç 20260914_0085) `cek_senetler.tutar`ı manifestoya EKLEMEZ:
+    # tablo `20260712_0000` tabanından sonra doğar ve girdisi PG sayısal göç
+    # mutabakatında bir varlık farkı üretir (bkz. `test_v2_9_hardening.py`).
     assert len(sutunlar) == 90, (
-        f"sayısal manifesto genişledi ({len(sutunlar)}); 1B-C'nin ölçümü 90 idi "
-        "ve bu dilim manifestoya HİÇBİR ŞEY eklemedi."
+        f"sayısal manifesto genişledi ({len(sutunlar)}); 1B-C sonrası ölçüm 90 idi."
     )
+    assert ("cek_senetler", "tutar") not in sutunlar
 
 
 # ------------------------------------------------------------ göç kapısı ---

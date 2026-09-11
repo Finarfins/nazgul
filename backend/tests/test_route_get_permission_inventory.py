@@ -156,6 +156,12 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/vet-drugs/{drug_id}"): "herd.view",
 
     # --- payments — `/api/payments` ve `/api/receivables` öneklerinden.
+    # CS1 ÇEK/SENET PORTFÖYÜ (göç 20260914_0085). `app/auth.py`de AÇIK önek
+    # kuralı, BÜTÜN metotlar. Kural yazılmadan önce OLCULDU: ikisi de genel
+    # güvenli-metot kuralından `read` devralıyordu — keşideci hesap no'su,
+    # tutar ve vade `depo`/`rapor`a açılırdı. KAYBEDEN: `depo`, `rapor`.
+    ("GET", "/api/cek-senetler"): "payments",
+    ("GET", "/api/cek-senetler/{evrak_id}"): "payments",
     ("GET", "/api/payments"): "payments",
     ("GET", "/api/payments/accounts"): "payments",
     ("GET", "/api/payments/summary"): "payments",
@@ -570,7 +576,10 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # sozlesme envanterindedir ve orada sayim 392/301 -> 399/307.
 # PP1 (PLATFORM YONETIM PANELI, GOC YOK): sayim 190 -> 197. YEDI yeni GET,
 # yedisi de `read` (korumali: `require_platform_operator`).
-GET_INVENTORY_COUNT = 197
+# CS1 (ÇEK/SENET PORTFÖYÜ, göç 20260914_0085): sayım 197 -> 199 (TABAN `2e35393`). İKİ yeni GET,
+# ikisi de "payments"; hiçbir mevcut ucun izni DEĞİŞMEDİ (drift raporu
+# OLCULDU: yalnız `missing`, `stale`/`changed` BOŞ).
+GET_INVENTORY_COUNT = 199
 GET_INVENTORY_FINGERPRINT = (
     # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
     # sonra `auth.py`ye `/api/push/` önek kuralı eklendi, sonra izin
@@ -614,7 +623,10 @@ GET_INVENTORY_FINGERPRINT = (
     # PP1 (GOC YOK): YEDI platform yonetim GET'i. Sira ayni: uclar yazildi,
     # `auth.py`ye YALNIZ GUVENLI METOT `/api/platform/` kurali eklendi, izin
     # OLCULDU ("read", yedisi de), envantere girdi. 0f87b6bd -> 7bd73197.
-    "7bd7319747148d6820ff46f72605df7255e34a35697dac9bad4430b51333b4fe"
+    # CS1 (göç 20260914_0085): iki çek/senet GET'i. Sıra: uçlar yazıldı, izin
+    # kural YAZILMADAN ölçüldü ("read"), `auth.py`ye önek kuralı eklendi,
+    # yeniden ölçüldü ("payments"), envantere girdi. 7bd73197 -> ab2cf865 (TABAN `2e35393`).
+    "ab2cf86532c2f7686e91f9a99cc3dc4b1c571d95a41b0727b57d8a2f316877af"
 )
 
 

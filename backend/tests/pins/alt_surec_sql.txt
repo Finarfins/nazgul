@@ -92,6 +92,7 @@ tests/test_54b_idempotency.py	1
 tests/test_54c_push_devices.py	1
 tests/test_activity_cost_snapshot.py	1
 tests/test_cost_rates_api.py	1
+tests/test_cs1_cek_senet.py	1
 tests/test_d2_avans_tescil.py	1
 tests/test_e2_tedavi_arinma.py	1
 tests/test_e3_karantina.py	1

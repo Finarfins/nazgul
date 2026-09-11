@@ -171,6 +171,12 @@ MASKELENEN_ALANLAR: dict[str, Callable[[Any], Any]] = {
     # Bugun cari tablolarinda YOK; gerekce `maskele_iban` docstring'inde.
     "iban": maskele_iban,
     "bank_account": maskele_iban,
+    # CS1 (göç 20260914_0085): `cek_senetler.hesap_no` KEŞİDECİNİN banka
+    # hesabıdır — carinin kimliğini taşıyan bir finansal tanıtıcı, IBAN ile
+    # aynı sınıf ve aynı kural (son dört hane). Ölçüm: bugün `payments`
+    # taşıyan dört rolün dördü de `MASKESIZ_ROLLER`de, yani maske BAĞLIDIR
+    # ama bugün hiçbir rolde TETİKLENMEZ.
+    "hesap_no": maskele_iban,
 }
 
 #: Duz (nested olmayan) sutun adlarinda kullanilan cari onekleri. `work_orders`
