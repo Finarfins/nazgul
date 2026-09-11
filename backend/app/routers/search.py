@@ -84,6 +84,10 @@ def global_search(
     #     `test_tenant_scoping_guard` sabit metinleri tek tek denetler ve
     #     dosyadaki dinamik text() sayisi 2'de sabit kalir. VKN bu ucta HIC
     #     eslesmiyordu (mercek olctu) ve hala eslesmiyor.
+    #
+    # (3) H27: maskesiz dal da `owner_name` uzerinde eslesir. Onceden
+    #     eslesmiyordu; ayni `q` `depo`da bir cari bulurken `yonetici`de
+    #     bulamiyordu. Maskesiz dal artik maskeli dalin UST KUMESIDIR.
     rol = istek_rolu(request)
     if maskelenecek_mi(rol):
         customers = db.execute(text("""
@@ -99,7 +103,8 @@ def global_search(
             SELECT id, name, phone, email
             FROM customers
             WHERE company_id=:cid AND (
-              name LIKE :q ESCAPE '\\' OR COALESCE(phone,'') LIKE :q ESCAPE '\\' OR COALESCE(email,'') LIKE :q ESCAPE '\\'
+              name LIKE :q ESCAPE '\\' OR COALESCE(owner_name,'') LIKE :q ESCAPE '\\'
+              OR COALESCE(phone,'') LIKE :q ESCAPE '\\' OR COALESCE(email,'') LIKE :q ESCAPE '\\'
             )
             ORDER BY name LIMIT :limit
         """), params).mappings().all()

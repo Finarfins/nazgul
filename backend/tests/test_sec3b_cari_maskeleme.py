@@ -777,6 +777,42 @@ def test_global_arama_vkn_ile_hic_eslesmez(istemci, rol_basliklari, tohum, rol):
     )
 
 
+#: Yalnız `owner_name`de geçen iki sorgu: ad (`SEC3B Müşteri`), telefon, VKN
+#: ve e-posta (`a...@ornek.com`) bunları İÇERMEZ, yani eşleşme YALNIZ yetkili
+#: adından gelebilir.
+YALNIZ_YETKILI_SORGULARI = ("Yetkili", "hmet Yet")
+
+
+@pytest.mark.parametrize("yol", ("/api/customers", "/api/search"))
+@pytest.mark.parametrize("q", YALNIZ_YETKILI_SORGULARI)
+def test_H27_owner_name_aramasi_rolden_bagimsiz(istemci, rol_basliklari, tohum, q, yol):
+    """H27: aynı `q`, maskeli ve maskesiz rolde AYNI cari kimliklerini döndürür.
+
+    ÖLÇÜLDÜ (develop 697a3be): `q=Yetkili` `depo`da 1, `yonetici`de 0 cari
+    buluyordu -- maskeli dal `owner_name`i arıyor, maskesiz dal aramıyordu.
+    Daraltma (SEC-3b) maskeli rolden hassas alanları ÇIKARMAKTI; maskesiz
+    rolden `owner_name`i çıkarmak kimsenin kararı değildi. Rol yalnız GÖRÜNEN
+    alanları değiştirir, bulunan carileri değil.
+    """
+    mid = tohum["musteri_id"]
+    kumeler = {rol: _eslesen_kimlikler(istemci, rol_basliklari[rol], yol, q) for rol in ROLLER}
+    assert mid in kumeler["depo"], kumeler
+    assert len({frozenset(k) for k in kumeler.values()}) == 1, kumeler
+
+
+@pytest.mark.parametrize("q", YALNIZ_YETKILI_SORGULARI)
+def test_H27_tedarikci_owner_name_aramasi_rolden_bagimsiz(istemci, rol_basliklari, tohum, q):
+    """Aynı asimetri `/api/suppliers`ta da vardı (`finance.suppliers`).
+
+    `rapor` tedarikçi listesine 403 alır; ölçülen iki hücre `depo` (maskeli)
+    ve `yonetici` (maskesiz).
+    """
+    sid = tohum["tedarikci_id"]
+    depo = _eslesen_kimlikler(istemci, rol_basliklari["depo"], "/api/suppliers", q)
+    yon = _eslesen_kimlikler(istemci, rol_basliklari["yonetici"], "/api/suppliers", q)
+    assert sid in depo and depo == yon, (depo, yon)
+
+
 @pytest.mark.parametrize("rol", MASKELI_ROLLER)
 def test_maskeli_rol_siralama_ile_ham_deger_alamaz(istemci, rol_basliklari, tohum, rol):
     """Sıralama parametresi de ham değer sızdırmıyor.

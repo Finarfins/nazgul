@@ -136,12 +136,13 @@ def suppliers(request: Request, q: str = '', sort: str = 'name_asc', active: str
     active_sql='' if active=='all' else (' AND COALESCE(s.is_active, TRUE)=FALSE' if active=='inactive' else ' AND COALESCE(s.is_active, TRUE)=TRUE')
     # SEC-3b — maskeli rol (`depo`) icin `q` yalniz ad/yetkili adinda arar;
     # telefon/e-posta/VKN suzgecten CIKAR. Ayni orakul, ayni care: gerekce ve
-    # olcum `customers.musteri_satirlari` docstring'inde. Maskesiz dalin
-    # metni onceki surumle karakteri karakterine aynidir.
+    # olcum `customers.musteri_satirlari` docstring'inde. H27: maskesiz dal da
+    # `owner_name`de eslesir; maskeli dalin UST KUMESIDIR.
     arama_sql=(
         "(LOWER(s.name) LIKE LOWER(:q) OR LOWER(COALESCE(s.owner_name,'')) LIKE LOWER(:q))"
         if maskelenecek_mi(istek_rolu(request)) else
-        """(LOWER(s.name) LIKE LOWER(:q) OR COALESCE(s.phone,'') LIKE :q
+        """(LOWER(s.name) LIKE LOWER(:q) OR LOWER(COALESCE(s.owner_name,'')) LIKE LOWER(:q)
+       OR COALESCE(s.phone,'') LIKE :q
        OR LOWER(COALESCE(s.email,'')) LIKE LOWER(:q) OR COALESCE(s.tax_number,'') LIKE :q)"""
     )
     rows = db.execute(text(f'''SELECT s.id,s.name,s.owner_name,s.phone,s.email,s.address,s.tax_number,s.opening_balance,
