@@ -67,6 +67,14 @@ PLATFORM_OLAYLARI: dict[str, str] = {
     # H32: istek dışı yazıcılar (bakım kurtarması, CLI zorla temizleme).
     "backup.maintenance_recovered": "platform.mt_recover",
     "backup.maintenance_force_cleared": "platform.mt_force",
+    # PP2 yönetim eylemleri (``routers/platform_management.py``).
+    "company.activated": "platform.co_activate",
+    "company.deactivated": "platform.co_deact",
+    "user.status_changed": "platform.us_status",
+    "user.verification_resent": "platform.us_resend",
+    "user.password_reset_forced": "platform.us_pwreset",
+    "rate_limit.cleared": "platform.rl_clear",
+    "outbox.retried": "platform.ob_retry",
 }
 
 #: İstek dışı (sistem/CLI) yazıcının ``failure_reason``daki aktör notu.

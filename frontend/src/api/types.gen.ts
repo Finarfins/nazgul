@@ -3848,6 +3848,12 @@ export interface paths {
         /**
          * List Untenanted Audit
          * @description Hiçbir kiracıya bağlanamayan güvenlik denetim olayları.
+         *
+         *     Süzgeçler (PP2; keşif §PP1 madde 4, PP1'de yapılmamıştı) SATIR İÇİ ve
+         *     TİPLİ bağlı parametredir (``:p IS NULL OR sütun = :p``): koşul listesi
+         *     Core sorgu envanterinde "variable-arg" sayılır. ``date_from`` dahil,
+         *     ``date_to`` hariçtir. ``username`` hem sütunu (eski satırlar) hem platform
+         *     olayının ``aktor=<id>`` notunu eşler; ``actor_id`` yalnız o notu eşler.
          */
         get: operations["list_untenanted_audit_api_platform_audit_get"];
         put?: never;
@@ -3947,6 +3953,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/platform/companies/{sirket_id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Platform Sirket Ac
+         * @description Dondurulmuş firmayı yeniden açar.
+         */
+        post: operations["platform_sirket_ac_api_platform_companies__sirket_id__activate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/companies/{sirket_id}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Platform Sirket Dondur
+         * @description Firmayı dondurur: üyelerin kiracı istekleri 403 COMPANY_ACCESS_DENIED.
+         */
+        post: operations["platform_sirket_dondur_api_platform_companies__sirket_id__deactivate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/platform/edocuments/health": {
         parameters: {
             query?: never;
@@ -3990,6 +4036,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/platform/outbox/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Platform Kuyruk Yeniden
+         * @description Başarısız bildirimleri TOPLU yeniden kuyruğa alır.
+         *
+         *     GEÇİŞ ``FAILED -> RETRY_SCHEDULED``dır, ``PENDING`` DEĞİL — ölçüldü:
+         *     kapalı geçiş tablosu (``notifications/service.py::_ALLOWED_TRANSITIONS``)
+         *     ``FAILED``dan yalnız ``RETRY_SCHEDULED`` ve ``CANCELLED``a izin verir.
+         *     Tek satırlık elle retry (``schedule_retry``) de tam bu geçişi yapar
+         *     (``next_attempt_at = şimdi``); gönderici ``RETRY_SCHEDULED``ı
+         *     ``PENDING``le aynı sınıfta çeker (``DISPATCHABLE_STATUSES``).
+         *
+         *     UYGUNLUK ``schedule_retry``nin yüklemleriyle AYNIDIR: onaylı
+         *     (``approved_at``/``approved_by`` dolu), silahlı ve rıza engeli
+         *     (``consent_decision = 'BLOCKED'``) OLMAYAN satır. Uygun olmayan başarısız
+         *     satırlar ``not_retryable`` olarak SAYILIR, dokunulmaz. ``NONE`` durumu
+         *     (sağlayıcı yok) kapsam DIŞIDIR.
+         *
+         *     KİRACILAR ARASIDIR ve bu, eylemin konusudur ("kuyruk bir bütün olarak
+         *     tıkandı"). Yanıt satır içeriği döndürmez — alıcı, yük, hata metni yok;
+         *     yalnız SAYILAR.
+         */
+        post: operations["platform_kuyruk_yeniden_api_platform_outbox_retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/platform/overview": {
         parameters: {
             query?: never;
@@ -4024,7 +4107,17 @@ export interface paths {
         get: operations["platform_hiz_sinirlari_api_platform_rate_limits_get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Platform Hiz Siniri Temizle
+         * @description Bir IP'nin iki kilidini TEK çağrıda temizler; ikisi de boşsa 404.
+         *
+         *     1. ``auth_rate_limits`` (SEC-6): IP başına deneme sayacı.
+         *     2. ``login_attempts``: kullanıcı adı + IP ikilisine bağlı giriş kilidi
+         *        (``locked_until``, 15 dakika) — bu IP'nin TÜM kullanıcı adları için
+         *        (Şef, PP2 kararı 2). Operatör kilidi kaldırırken ikisini ayrı ayrı
+         *        bilmek zorunda kalmaz; yanıt iki sayıyı AYRI döner.
+         */
+        delete: operations["platform_hiz_siniri_temizle_api_platform_rate_limits_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -4072,6 +4165,97 @@ export interface paths {
         get: operations["platform_kullanicilari_api_platform_users_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/users/{kullanici_id}/force-password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Platform Parola Sifirlat
+         * @description Zorunlu parola rotasyonu + tüm oturumların düşürülmesi.
+         *
+         *     Bayrak MEVCUT olandır: ``app_users.must_change_password`` — ara katman
+         *     (``main.security_and_audit``) bayraklı hesabın self-servis dışındaki HER
+         *     isteğini 403 PASSWORD_CHANGE_REQUIRED ile keser. Oturumlar
+         *     ``logout-all``ın (``routers/auth.py::logout_all``) süpürdüğü üç yerden
+         *     düşer: access jetonları, refresh aileleri, push cihazları — tek commit.
+         *     Operatör parolayı GÖRMEZ ve BELİRLEMEZ (keşif §5 karar 3).
+         */
+        post: operations["platform_parola_sifirlat_api_platform_users__kullanici_id__force_password_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/users/{kullanici_id}/resend-verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Platform Dogrulama Gonder
+         * @description Doğrulama postasını operatör adına yeniden kuyruğa alır.
+         *
+         *     Yol ``POST /api/auth/resend-verification``ın AYNISIDIR:
+         *     ``create_verification_token`` (eski bağlantıyı ve kuyruğunu öldürür) +
+         *     ``queue_verification_email`` + commit + ``deliver_now``. Hız sınırı da
+         *     aynı yardımcıdır (IP başına saatte 5), AYRI eylem adıyla: operatörün
+         *     tıklamaları kamuya açık ucun bütçesini yemesin, tersi de olmasın.
+         *
+         *     "BİR KEZ DOĞRULA" (H18): doğrulanmış hesaba gönderim YOK — 409. Kamu ucu
+         *     aynı durumda hesap varlığını sızdırmamak için sessiz 200 döner; operatör
+         *     hesabı zaten görüyor, ona gerçeği söylemek doğrudur.
+         */
+        post: operations["platform_dogrulama_gonder_api_platform_users__kullanici_id__resend_verification_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/users/{kullanici_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Platform Kullanici Durumu
+         * @description Global hesap kilidi — MEVCUT mekanizma: ``app_users.is_active``.
+         *
+         *     Yeni bir kilit sütunu UYDURULMADI: ``auth.authenticate`` ve
+         *     ``auth.get_user_by_token`` pasif hesabı zaten reddeder (giriş 401
+         *     "Kullanıcı adı veya şifre hatalı"; açık oturum 401 AUTH_REQUIRED) ve
+         *     refresh rotasyonu ``is_active IS TRUE`` şartlıdır. Firma içi durum ucu
+         *     (``routers/auth.py::update_user_status``) AYNI sütunu yazar.
+         *
+         *     Kilitlerken access ve refresh jetonları da süpürülür (``logout-all`` ile
+         *     aynı iki yardımcı): kilit açıldığında eski jetonlar DİRİLMEZ. Operatör
+         *     kendini kilitleyemez (409).
+         *
+         *     Firmanın SON aktif adminini kilitlemek SERBESTTİR (platform kiracı
+         *     kuralını ezer — Şef, PP2 kararı 4); denetim notu "son aktif yönetici"
+         *     ile o firmaları taşır.
+         */
+        post: operations["platform_kullanici_durumu_api_platform_users__kullanici_id__status_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7335,6 +7519,15 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** DogrulamaGonderimi */
+        DogrulamaGonderimi: {
+            /** Changed */
+            changed: boolean;
+            /** Queued */
+            queued: boolean;
+            /** User Id */
+            user_id: number;
+        };
         /**
          * DurumDegistir
          * @description Hedef duruma göre yük: gerekenler zorunlu, ilgisizler REDDEDİLİR.
@@ -8238,6 +8431,17 @@ export interface components {
             /** Last At */
             last_at: string | null;
         };
+        /** HizSiniriTemizligi */
+        HizSiniriTemizligi: {
+            /** Changed */
+            changed: boolean;
+            /** Ip Address */
+            ip_address: string;
+            /** Login Attempt Rows */
+            login_attempt_rows: number;
+            /** Rate Limit Rows */
+            rate_limit_rows: number;
+        };
         /**
          * ImhaTalebi
          * @description Onay, firmanın adının BİREBİR yazılmasıdır.
@@ -8549,6 +8753,20 @@ export interface components {
             /** User Id */
             user_id: number;
         };
+        /** KullaniciDurumu */
+        KullaniciDurumu: {
+            /** Changed */
+            changed: boolean;
+            /** Id */
+            id: number;
+            /** Locked */
+            locked: boolean;
+        };
+        /** KullaniciDurumuIstegi */
+        KullaniciDurumuIstegi: {
+            /** Locked */
+            locked: boolean;
+        };
         /** KullaniciSayilari */
         KullaniciSayilari: {
             /** Total */
@@ -8599,6 +8817,27 @@ export interface components {
             field_stock_scheduler: {
                 [key: string]: unknown;
             };
+        };
+        /** KuyrukYenidenIstegi */
+        KuyrukYenidenIstegi: {
+            /** Channel */
+            channel?: string | null;
+            /**
+             * Max
+             * @default 500
+             */
+            max: number;
+        };
+        /** KuyrukYenidenSonucu */
+        KuyrukYenidenSonucu: {
+            /** Changed */
+            changed: boolean;
+            /** Not Retryable */
+            not_retryable: number;
+            /** Remaining */
+            remaining: number;
+            /** Requeued */
+            requeued: number;
         };
         /**
          * LaborEntry
@@ -9215,6 +9454,15 @@ export interface components {
             neighborhood?: string | null;
             /** Parcel No */
             parcel_no?: string | null;
+        };
+        /** ParolaSifirlama */
+        ParolaSifirlama: {
+            /** Changed */
+            changed: boolean;
+            /** Must Change Password */
+            must_change_password: boolean;
+            /** User Id */
+            user_id: number;
         };
         /** PartsSummary */
         PartsSummary: {
@@ -10321,6 +10569,15 @@ export interface components {
             status: string;
             /** Work Order Id */
             work_order_id: number;
+        };
+        /** SirketDurumu */
+        SirketDurumu: {
+            /** Changed */
+            changed: boolean;
+            /** Id */
+            id: number;
+            /** Is Active */
+            is_active: boolean;
         };
         /** SirketSayilari */
         SirketSayilari: {
@@ -19052,6 +19309,13 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                action?: string | null;
+                ip_address?: string | null;
+                username?: string | null;
+                actor_id?: number | null;
+                status_code?: number | null;
+                date_from?: string | null;
+                date_to?: string | null;
             };
             header?: never;
             path?: never;
@@ -19250,6 +19514,68 @@ export interface operations {
             };
         };
     };
+    platform_sirket_ac_api_platform_companies__sirket_id__activate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sirket_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SirketDurumu"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    platform_sirket_dondur_api_platform_companies__sirket_id__deactivate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sirket_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SirketDurumu"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     platform_ebelge_sagligi_api_platform_edocuments_health_get: {
         parameters: {
             query?: never;
@@ -19286,6 +19612,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["KuyrukSagligi"];
+                };
+            };
+        };
+    };
+    platform_kuyruk_yeniden_api_platform_outbox_retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KuyrukYenidenIstegi"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KuyrukYenidenSonucu"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -19328,6 +19687,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HizSiniriOzeti"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    platform_hiz_siniri_temizle_api_platform_rate_limits_delete: {
+        parameters: {
+            query: {
+                ip: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HizSiniriTemizligi"];
                 };
             };
             /** @description Validation Error */
@@ -19397,6 +19787,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlatformKullaniciListesi"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    platform_parola_sifirlat_api_platform_users__kullanici_id__force_password_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kullanici_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParolaSifirlama"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    platform_dogrulama_gonder_api_platform_users__kullanici_id__resend_verification_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kullanici_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DogrulamaGonderimi"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    platform_kullanici_durumu_api_platform_users__kullanici_id__status_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kullanici_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KullaniciDurumuIstegi"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KullaniciDurumu"];
                 };
             };
             /** @description Validation Error */

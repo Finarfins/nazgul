@@ -26,14 +26,16 @@ type DenetimSatiri={
 
 /** Uç `window_hours` için 1..168 kabul eder (platform_management.py `le=168`). */
 export const PENCERELER=[1,6,24,72,168] as const;
-/** Denetim ucunun bugün desteklediği TEK süzgeç `limit`tir (1..1000). */
+/** Bu ekranın gönderdiği TEK süzgeç `limit`tir (1..1000); PP2 süzgeçleri henüz bağlanmadı. */
 export const DENETIM_LIMITLERI=[50,250,1000] as const;
 
 export default function PlatformSecurity(){
  const [pencere,setPencere]=useState<number>(24);
  const [limit,setLimit]=useState<number>(250);
  const hiz=usePlatformVerisi<HizSiniriOzeti>('/platform/rate-limits',{window_hours:pencere});
- const denetimParametreleri:DenetimParametreleri={limit};
+ // Yalnız `limit` gönderilir: PP2 süzgeçleri `string|null` olarak üretilir ve
+ // `usePlatformVerisi`nin null kabul etmeyen parametre tipine sığmaz.
+ const denetimParametreleri:Pick<DenetimParametreleri,'limit'>={limit};
  const denetim=usePlatformVerisi<DenetimSatiri[]>('/platform/audit',denetimParametreleri);
  const baslik=<PlatformBaslik baslik="Güvenlik" aciklama="Hız sınırı denemeleri · firmasız güvenlik denetim olayları"/>;
  if(hiz.hata?.tur==='yetki'||denetim.hata?.tur==='yetki')return <Stack spacing={2.5}>{baslik}<HataPaneli hata={{tur:'yetki'}} yenile={hiz.yenile}/></Stack>;

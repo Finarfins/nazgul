@@ -84,6 +84,7 @@ test_pos_postgresql.py
 test_pos_system_customer_tenant_default_postgresql.py
 test_postgresql_app_smoke.py
 test_pp1_platform_paneli_postgresql.py
+test_pp2_platform_eylemleri_postgresql.py
 test_purchase_dashboard_postgresql.py
 test_purchase_engine_b_postgresql.py
 test_purchase_engine_bc_postgresql.py

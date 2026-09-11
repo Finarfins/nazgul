@@ -387,7 +387,15 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 #   * `EXPECTED_READ` 87'de SABİT: izin OLCULDU, beşi de "payments" —
 #     iki GET `read`e düşMÜYOR (açık önek kuralı genel güvenli-metot
 #     kuralının ÜSTÜNDE). GUARDED_READ 31 ve UNDENIABLE 97 de SABİT.
-EXPECTED_AUTHENTICATED = 399
+# PP2 PLATFORM YONETIM EYLEMLERI (GOC YOK): YEDI yeni yazma ucu (6 POST +
+# 1 DELETE), yedisi de kimlik dogrulamali ve yedisi de `__admin_only__`.
+#   * `EXPECTED_AUTHENTICATED` 399 -> 406 (+7, TABAN `697a3be`);
+#     `test_route_security_contracts` 412 -> 419 ile AYNI yedi uc.
+#   * `EXPECTED_READ` 87, GUARDED_READ 31, UNDENIABLE 97 SABIT — OLCULDU:
+#     yazma yollari `read`e DUSMEZ (PP1 kurali yalniz guvenli metot), yani
+#     `require_platform_operator` cagirmalarina ragmen korumali-read kumesine
+#     de GIRMEZLER (o kume yalniz `read`e cozulen islemleri sayar).
+EXPECTED_AUTHENTICATED = 406
 EXPECTED_READ = 87
 EXPECTED_UNDENIABLE = 97
 

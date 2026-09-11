@@ -229,6 +229,29 @@ ROUTE_REASON_GROUPS = (
         },
     ),
     (
+        # PP2 PLATFORM YONETIM EYLEMLERI (GOC YOK). AYRI GRUP: bunlar YAZAR.
+        # Ara katman izni `__admin_only__` (PP1'in `read` kurali YALNIZ guvenli
+        # metot; yazma yollari deny-by-default nobetcisine duser — OLCULDU),
+        # gercek kapi her uctaki `require_platform_operator`. Her basarili ve
+        # durum degistiren cagri TEK firmasiz `security_audit_logs` satiri
+        # yazar (`app/platform_denetim.py`); yanitlar yalniz kimlik, bayrak ve
+        # SAYI tasir.
+        "Platform management action (PP2): operator-only write on platform "
+        "state (company freeze, account lock, forced rotation, verification "
+        "resend, rate-limit clear, outbox requeue); middleware permission is "
+        "__admin_only__, the router applies the platform-operator allow-list "
+        "and writes one untenanted audit row per change.",
+        {
+            ("POST", "/api/platform/companies/{sirket_id}/activate"),
+            ("POST", "/api/platform/companies/{sirket_id}/deactivate"),
+            ("POST", "/api/platform/users/{kullanici_id}/status"),
+            ("POST", "/api/platform/users/{kullanici_id}/resend-verification"),
+            ("POST", "/api/platform/users/{kullanici_id}/force-password-reset"),
+            ("DELETE", "/api/platform/rate-limits"),
+            ("POST", "/api/platform/outbox/retry"),
+        },
+    ),
+    (
         "Untenanted security audit read; rows belong to no company, so the router "
         "applies the platform-operator allow-list instead of tenant scoping.",
         {
@@ -666,8 +689,14 @@ DYNAMIC_PERMISSION_CASES = {
 # kural yazılmadan önce iki GET "read", üç POST "__admin_only__" idi.
 # `tenant_scope` "company" ve izin `read` değil, yani `ROUTE_REASONS` gerekçe
 # İSTEMİYOR (`_build_contract`) ve eklenmedi.
-EXPECTED_OPERATION_COUNT = 412
-EXPECTED_PATH_COUNT = 319
+# 20260911 — PP2 PLATFORM YONETIM EYLEMLERI (GOC YOK): YEDI yeni islem, ALTI
+# yeni yol — `DELETE /api/platform/rate-limits` PP1'in `GET`iyle AYNI yolu
+# paylasir. Sayim 412/319 -> 419/325 (TABAN develop `697a3be`). Izin OLCULDU:
+# yedisi de `__admin_only__` (PP1'in `/api/platform/` kurali YALNIZ guvenli
+# metot). `tenant_scope` "platform", yani gerekce ister; KENDI grubuyla
+# `ROUTE_REASONS`a girdi. Parmak izi EN SON turetildi.
+EXPECTED_OPERATION_COUNT = 419
+EXPECTED_PATH_COUNT = 325
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -866,7 +895,9 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # grubu. TABAN 6442794: parmak izi 3506f532 -> 62b0e5f8.
     # CS1 (göç 20260914_0085): BEŞ çek/senet ucu, beşi de "payments".
     # TABAN 2e35393: parmak izi 62b0e5f8 -> dba1b83e.
-    "dba1b83e08da0e1a626decd4e0c8893feb3acaae00531b044e7761abede3013f"
+    # PP2 (GOC YOK): YEDI platform yonetim eylemi, "__admin_only__", platform
+    # gerekce grubu. TABAN 697a3be: parmak izi dba1b83e -> 35f45088.
+    "35f45088f23c8d43fec0e45d0c6c5a938f8ea8c7ada7607da206d86a176b50f2"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

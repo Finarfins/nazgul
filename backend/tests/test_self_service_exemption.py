@@ -186,7 +186,15 @@ def test_no_fourth_self_service_route_outside_the_auth_prefix() -> None:
     # Gezintinin GERÇEKTEN yürüdüğünü kanıtla: sıfır tarama, boş sonuç üretir ve
     # bu kapı hiçbir şey ölçmeden yeşil görünürdü.
     assert scanned > 200, scanned
-    assert offenders == {"/api/users"}, offenders
+    # PP2: iki platform eylemi BAŞKA bir hesabın jetonlarını süpürür (kilit ve
+    # zorunlu parola rotasyonu). ``/api/users`` ile AYNI sınıf: self-servis
+    # DEĞİL, ``SELF_SERVICE_API``da YOK; ara katman izni ``__admin_only__`` ve
+    # yönlendiricide ``require_platform_operator`` (``tests/test_pp2_platform_eylemleri.py``).
+    assert offenders == {
+        "/api/users",
+        "/api/platform/users/{kullanici_id}/status",
+        "/api/platform/users/{kullanici_id}/force-password-reset",
+    }, offenders
 
 
 def test_both_middleware_gates_share_one_list() -> None:

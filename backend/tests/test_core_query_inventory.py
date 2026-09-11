@@ -818,8 +818,14 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     # Kiracıya bağlanamayan denetim satırlarının okuma yolu. company_id ile
     # SÜZMEZ, tam tersine company_id IS NULL arar — hedef kiracı olmayan
     # satırlardır ve yetkiyi `require_platform_operator` verir.
+    # PP2: satır içi tipli bağlı süzgeçler (action/ip/username/status/tarih)
+    # eklendi -> parmak izi a484cea5 -> cf147994 (drift raporu: bir stale +
+    # bir yeni, AYNI bağlam). `_aktor_deseni` yalnız platform tablosu
+    # `app_users`tan kimlik çözer.
     ("app/routers/platform_audit.py", "list_untenanted_audit", "select",
-     "a484cea5af5f3c646ac9be74989e9d86d36cf4e7718226921df515e9212aef86"): (1, "audit_logs", "arg0"),
+     "922e3ec7e18b7b851ab576019d47fe267332b553cd4343a52543103f09227eb4"): (1, "audit_logs", "arg0"),
+    ("app/routers/platform_audit.py", "_aktor_deseni", "select",
+     "671b832e643347657b1f571166e7277d925f7c7630571942b5fa0620fa22f82c"): (1, "users", "arg0"),
     # --- app/routers/products.py
     ("app/routers/products.py", "adjust", "select",
      "1f3c07e9814eaa78dfd498fe32fb7b29a97176298353a30b60f5f1a1f30a48b1"): (1, "warehouse_stocks", "arg0"),  # satır [505]
@@ -1092,6 +1098,38 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "799ca94126f69995cb27e72acde83bae9c4d24442c75b6f75386b13182e2fef0"): (1, "companies", "select_from"),  # satır [415]
     ("app/routers/platform_management.py", "platform_sirketleri", "select",
      "d8bf78c106bc704158a198d41bace12709e9bf122f18f5fae242b5422b6d5bbf"): (1, "companies", "arg0"),  # satır [425]
+    # --- app/routers/platform_management.py (PP2 platform yonetim eylemleri)
+    # On sorgu, HEPSI ekleme. Platform tablolari (companies, app_users,
+    # auth_rate_limits) tek satirlik kimlik yuklemiyle; `notifications`
+    # uzerindeki uc sorgu KIRACILAR ARASIDIR ve Core kiraci kapisinda
+    # lisanslidir (`CEKIRDEK_KIRACI_ISTISNALARI`).
+    ("app/routers/platform_management.py", "_kullanici_satiri", "select",
+     "ab1eaa74a0b006a7fa221f6f120343604e9acf3de7fbfb389618f1666b1edc1b"): (1, "users", "arg0"),
+    ("app/routers/platform_management.py", "_sirket_durumunu_ayarla", "update",
+     "40b99020cf56d65e1a70fe998b01a9d336d64be357f4afcae4e8e5499a82af7d"): (1, "companies", "arg0"),
+    ("app/routers/platform_management.py", "_sirket_satiri", "select",
+     "9f751186d4715ea0989b9df16c855f42ee43a5aeb4a980f0a65e067021bba3fe"): (1, "companies", "arg0"),
+    ("app/routers/platform_management.py", "platform_hiz_siniri_temizle", "delete",
+     "1fc10e2042a0deb1b0cb78f412375e5110b9fc6a2496e448cb78f52b74d52024"): (1, "auth_rate_limits", "arg0"),
+    ("app/routers/platform_management.py", "platform_kullanici_durumu", "update",
+     "eb16fe27c38b43ffa3b249514fbb41bfed84a6ae9adf5ebc745ea3078c82be62"): (1, "users", "arg0"),
+    ("app/routers/platform_management.py", "platform_kuyruk_yeniden", "select",
+     "c50e306ce0fc3ba512053e947a13df308577af450d30a008d75339b1f520a76f"): (1, "notifications", "arg0"),
+    ("app/routers/platform_management.py", "platform_kuyruk_yeniden", "select",
+     "ff2a97dc50cd0d156ae8d24b289c7f3ab9f413f558cb5826fc76fae9723f9175"): (1, "notifications", "select_from"),
+    ("app/routers/platform_management.py", "platform_kuyruk_yeniden", "update",
+     "b7a85b0ff87c02b608dd29ff8e4b721cd0b6c9d42d9345b2a32aa49e94e8cc51"): (1, "notifications", "arg0"),
+    ("app/routers/platform_management.py", "platform_parola_sifirlat", "update",
+     "0fdd74a973b90c496525461a07190be6af5d318fa75b0b9f725a2cd60963b1ff"): (1, "users", "arg0"),
+    # PP2 Şef kararları 2 + 4: giriş kilidi temizliği (`login_attempts`,
+    # platform tablosu) ve son-aktif-admin notu (rol + firma başına diğer
+    # aktif admin; ikincisi `memberships.company_id == firma_id` taşır).
+    ("app/routers/platform_management.py", "_son_aktif_yonetici_firmalari", "select",
+     "6e4545dea9f0b181bfbed45a984938001a672c4a6e080a93ada24f13dd97fe7d"): (1, "users", "arg0"),
+    ("app/routers/platform_management.py", "_son_aktif_yonetici_firmalari", "select",
+     "db818a9ed2335f08d425a556d5cf338cab7679919590f080552f66b770d26595"): (1, "users", "arg0"),
+    ("app/routers/platform_management.py", "platform_hiz_siniri_temizle", "delete",
+     "c03dc2f99318103762316208dc1fea081c51d9f1c62cb85551da4ac5c3dd502b"): (1, "login_attempts", "arg0"),
     # --- app/routers/cek_senetler.py (CS1, göç 20260914_0085)
     # Yedi sorgu; her biri `company_id == cid` yüklemini AÇIKÇA taşır.
     # İsteğe bağlı liste süzgeçleri SATIR İÇİ tipli bağlı parametredir
@@ -1126,8 +1164,17 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # CS1 ÇEK/SENET PORTFÖYÜ (göç 20260914_0085): 199 -> 206 (TABAN `2e35393`), +6 select +1 update,
 # HEPSİ app/routers/cek_senetler.py ve HEPSİ ekleme (drift raporu OLCULDU:
 # `changed`/`stale` BOŞ). `UNRESOLVED_ALLOWLIST` ve `desteksiz` BÜYÜMEDİ.
-TOTAL_CORE_QUERIES = 206
-EXPECTED_OP_COUNTS = {"select": 139, "update": 57, "delete": 10}
+# PP2 PLATFORM YONETIM EYLEMLERI (GOC YOK): 206 -> 216 (TABAN `697a3be`),
+# select 139 -> 144 (+6 yeni, -1 degisen), update 57 -> 61, delete 10 -> 11.
+# Drift raporu OLCULDU: YALNIZ `list_untenanted_audit` DEGISTI (suzgecler;
+# bir stale + bir yeni, ayni baglam); kalan on bir sorgu ekleme.
+# `UNRESOLVED_ALLOWLIST` ve `desteksiz` BUYUMEDI.
+# PP2 SEF KARARLARI (GOC YOK): 216 -> 219, select 144 -> 146, delete 11 -> 12.
+# `_son_aktif_yonetici_firmalari` iki select, `platform_hiz_siniri_temizle`
+# `login_attempts` delete'i; `list_untenanted_audit` `actor_id` suzgeciyle
+# DEGISTI (bir stale + bir yeni, sayim degismez).
+TOTAL_CORE_QUERIES = 219
+EXPECTED_OP_COUNTS = {"select": 146, "update": 61, "delete": 12}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1210,7 +1257,11 @@ EXPECTED_OP_COUNTS = {"select": 139, "update": 57, "delete": 10}
 # (Yardımcılar `_cek_` önekiyle adlandırıldı: SEC-3b tarayıcısı fonksiyonları
 # ADIYLA eşliyor ve `_gorunum`/`_evrak` adları `despatch_notes` ile
 # `mustahsil` rotalarına sızıyordu — ölçüldü.)
-INVENTORY_FINGERPRINT = "c08c5ae1b0474929b2148a43771ef4af17fb18bd1eb3a3c9e8f165089510740a"
+# PP2 (PLATFORM YONETIM EYLEMLERI, GOC YOK): 206 -> 216; on sorgu
+# app/routers/platform_management.py + `_aktor_deseni`, bir DEGISEN
+# (`list_untenanted_audit` suzgecleri). TABAN develop `697a3be`.
+# c08c5ae1 -> be7f6899.
+INVENTORY_FINGERPRINT = "9a561ea63a40c0b3be952bacb82025e6b02df41bd006864a9735276a44c6f415"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:
