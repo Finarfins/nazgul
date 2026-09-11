@@ -1726,9 +1726,10 @@ CEKIRDEK_KIRACI_ISTISNALARI: dict[tuple[str, str, str], str] = {
         "list_untenanted_audit",
         # PP2: satır içi tipli süzgeçler eklendi (action/ip/username/status/
         # tarih) -> parmak izi a484cea5 -> cf147994; Şef kararı 5 `actor_id`
-        # -> 41129ced. Süzgeçlerin HİÇBİRİ `company_id IS NULL` yüklemini
+        # -> 41129ced; `actor_id` satır-sonu `aktor=<id>` biçimini de eşler
+        # -> 922e3ec7. Süzgeçlerin HİÇBİRİ `company_id IS NULL` yüklemini
         # gevşetmez; hepsi AND ile daraltır.
-        "41129cedf0c060e910e2de056fd902c02c8214e1786c91223a2c459d512f5b2e",
+        "922e3ec7e18b7b851ab576019d47fe267332b553cd4343a52543103f09227eb4",
     ): (
         "Kasıtlı olarak KİRACISIZ denetim satırlarının ayrıcalıklı platform "
         "okuma yolu. `company_id IS NULL` bir kapsam KAÇAĞI değil sorgunun "

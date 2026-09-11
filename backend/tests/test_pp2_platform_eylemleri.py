@@ -672,10 +672,28 @@ def test_denetim_actor_id_suzgeci(ortam) -> None:
         return client.get("/api/platform/audit", params={"limit": 1000, **p}, headers=h)
 
     satirlar = al(actor_id=op).json()
-    assert satirlar and all(str(r["failure_reason"]).startswith(f"aktor={op};") for r in satirlar)
+    assert satirlar and all(r["failure_reason"] == f"aktor={op}"
+                            or str(r["failure_reason"]).startswith(f"aktor={op};") for r in satirlar)
     beklenen = _sql(ortam["engine"], "SELECT COUNT(*) FROM security_audit_logs WHERE company_id IS NULL "
-                                     "AND failure_reason LIKE :d", d=f"aktor={op};%")[0][0]
+                                     "AND (failure_reason = :t OR failure_reason LIKE :d)",
+                    t=f"aktor={op}", d=f"aktor={op};%")[0][0]
     assert len(satirlar) == beklenen
     assert al(actor_id=op * 10 + 7).json() == []        # ``aktor=1``, ``aktor=17``yi yakalamaz
     assert al(actor_id=0).status_code == 422
     assert {r["id"] for r in al(actor_id=op, action=KODLAR["activate"]).json()} <= {r["id"] for r in satirlar}
+
+
+def test_denetim_actor_id_iki_satir_bicimi(ortam) -> None:
+    """Ara katman notu ``aktor=<id>`` ile BİTEBİLİR; platform olayı ``aktor=<id>; ...`` yazar."""
+    client, e = ortam["client"], ortam["engine"]
+    aktor = 900001
+    simdi = datetime.now(timezone.utc)
+    kimlikler = {}
+    for ad, notu in (("son", f"aktor={aktor}"), ("onek", f"aktor={aktor}; olay=x | y"),
+                     ("tuzak_son", f"aktor={aktor}7"), ("tuzak_onek", f"aktor={aktor}7; olay=x | y")):
+        kimlikler[ad] = _yaz(e, "INSERT INTO security_audit_logs(action,path,status_code,created_at,outcome,"
+                                "failure_reason,company_id) VALUES ('platform.us_status','/iki-bicim',200,:t,"
+                                "'success',:n,NULL) RETURNING id", t=simdi, n=notu)
+    bulunan = {r["id"] for r in client.get("/api/platform/audit", params={"actor_id": aktor, "limit": 1000},
+                                           headers=ortam["h_op"]).json()}
+    assert bulunan == {kimlikler["son"], kimlikler["onek"]}, (bulunan, kimlikler)

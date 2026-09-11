@@ -823,7 +823,7 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     # bir yeni, AYNI bağlam). `_aktor_deseni` yalnız platform tablosu
     # `app_users`tan kimlik çözer.
     ("app/routers/platform_audit.py", "list_untenanted_audit", "select",
-     "41129cedf0c060e910e2de056fd902c02c8214e1786c91223a2c459d512f5b2e"): (1, "audit_logs", "arg0"),
+     "922e3ec7e18b7b851ab576019d47fe267332b553cd4343a52543103f09227eb4"): (1, "audit_logs", "arg0"),
     ("app/routers/platform_audit.py", "_aktor_deseni", "select",
      "671b832e643347657b1f571166e7277d925f7c7630571942b5fa0620fa22f82c"): (1, "users", "arg0"),
     # --- app/routers/products.py
@@ -1261,7 +1261,7 @@ EXPECTED_OP_COUNTS = {"select": 146, "update": 61, "delete": 12}
 # app/routers/platform_management.py + `_aktor_deseni`, bir DEGISEN
 # (`list_untenanted_audit` suzgecleri). TABAN develop `697a3be`.
 # c08c5ae1 -> be7f6899.
-INVENTORY_FINGERPRINT = "90d91881b45f092291cd9c4b5e298b98a95e71a6485b84ebc517515f98b9a835"
+INVENTORY_FINGERPRINT = "9a561ea63a40c0b3be952bacb82025e6b02df41bd006864a9735276a44c6f415"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:

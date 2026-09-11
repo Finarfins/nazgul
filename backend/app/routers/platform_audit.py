@@ -50,13 +50,19 @@ def _aktor_deseni(db: Session, username: str | None) -> str | None:
     return None if kimlik is None else f"aktor={int(kimlik)};%"
 
 
-def _aktor_kimligi_deseni(actor_id: int | None) -> str | None:
-    """``actor_id`` süzgeci: YALNIZ platform olayının ``aktor=<id>;`` notu.
+def _aktor_kimligi_desenleri(actor_id: int | None) -> tuple[str | None, str | None]:
+    """``actor_id`` süzgecinin iki biçimi: (TAM eşitlik, ``;``lu önek).
 
-    Adı çözmez; hesabı silinmiş ya da adı değişmiş aktörün satırları da
-    kimlikle bulunur. ``;`` ayracı ``_aktor_deseni``ndekiyle aynı gerekçedir.
+    Ara katman (``main.security_and_audit``) notu ``aktor=<id>`` olarak yazar
+    ve ancak bir gerekçe varsa ``; <gerekçe>`` ekler — yani not SATIR SONUNDA
+    bitebilir. Platform olayı her zaman ``aktor=<id>; olay=...`` yazar. Tam
+    eşitlik + ``;`` öneki ``aktor=1``in ``aktor=12``yi yakalamasını önler.
+    Adı çözmez; hesabı silinmiş ya da adı değişmiş aktör de kimlikle bulunur.
     """
-    return None if actor_id is None else f"aktor={int(actor_id)};%"
+    if actor_id is None:
+        return None, None
+    notu = f"aktor={int(actor_id)}"
+    return notu, f"{notu};%"
 
 
 @router.get("")
@@ -86,7 +92,9 @@ def list_untenanted_audit(
     p_ip = bindparam("p_ip", ip_address, type_=String)
     p_kullanici = bindparam("p_kullanici", username, type_=String)
     p_aktor = bindparam("p_aktor", _aktor_deseni(db, username), type_=String)
-    p_aktor_id = bindparam("p_aktor_id", _aktor_kimligi_deseni(actor_id), type_=String)
+    aktor_tam, aktor_onek = _aktor_kimligi_desenleri(actor_id)
+    p_aktor_tam = bindparam("p_aktor_tam", aktor_tam, type_=String)
+    p_aktor_id = bindparam("p_aktor_id", aktor_onek, type_=String)
     p_durum = bindparam("p_durum", status_code, type_=Integer)
     p_bas = bindparam("p_bas", date_from, type_=DateTime(timezone=True))
     p_son = bindparam("p_son", date_to, type_=DateTime(timezone=True))
@@ -101,7 +109,11 @@ def list_untenanted_audit(
                 audit_logs.c.username == p_kullanici,
                 audit_logs.c.failure_reason.like(p_aktor),
             ),
-            or_(p_aktor_id.is_(None), audit_logs.c.failure_reason.like(p_aktor_id)),
+            or_(
+                p_aktor_id.is_(None),
+                audit_logs.c.failure_reason == p_aktor_tam,
+                audit_logs.c.failure_reason.like(p_aktor_id),
+            ),
             or_(p_durum.is_(None), audit_logs.c.status_code == p_durum),
             or_(p_bas.is_(None), audit_logs.c.created_at >= p_bas),
             or_(p_son.is_(None), audit_logs.c.created_at < p_son),
