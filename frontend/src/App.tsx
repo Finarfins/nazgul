@@ -44,6 +44,12 @@ const Users=lazy(()=>import('./pages/Users'));
 const Audit=lazy(()=>import('./pages/Audit'));
 const ActivityLog=lazy(()=>import('./pages/ActivityLog'));
 const Backups=lazy(()=>import('./pages/Backups'));
+const PlatformDashboard=lazy(()=>import('./pages/platform/PlatformDashboard'));
+const PlatformCompanies=lazy(()=>import('./pages/platform/PlatformCompanies'));
+const PlatformUsers=lazy(()=>import('./pages/platform/PlatformUsers'));
+const PlatformOutbox=lazy(()=>import('./pages/platform/PlatformOutbox'));
+const PlatformSecurity=lazy(()=>import('./pages/platform/PlatformSecurity'));
+const PlatformEDocuments=lazy(()=>import('./pages/platform/PlatformEDocuments'));
 const Notifications=lazy(()=>import('./pages/Notifications'));
 const NotificationTemplates=lazy(()=>import('./pages/NotificationTemplates'));
 const SupplierPrices=lazy(()=>import('./pages/SupplierPrices'));
@@ -172,7 +178,18 @@ export default function App(){
       <Route path="kullanicilar" element={<Users/>}/>
       <Route path="islem-gecmisi" element={<Audit/>}/>
       <Route path="aktivite" element={<ActivityLog/>}/>
-      <Route path="yedekler" element={<Backups/>}/>
+      {/* Platform yönetim paneli (PP3). Hepsi `platform` iznine bağlı ve bu
+          izin `*` ile GELMEZ: yalnız `is_platform_operator`. */}
+      <Route path="platform" element={<PlatformDashboard/>}/>
+      <Route path="platform/sirketler" element={<PlatformCompanies/>}/>
+      <Route path="platform/kullanicilar" element={<PlatformUsers/>}/>
+      <Route path="platform/kuyruk" element={<PlatformOutbox/>}/>
+      <Route path="platform/guvenlik" element={<PlatformSecurity/>}/>
+      <Route path="platform/e-belgeler" element={<PlatformEDocuments/>}/>
+      <Route path="platform/yedekler" element={<Backups/>}/>
+      {/* Eski adres: yer imleri kırılmasın. İzin yine `platform`; operatör
+          olmayan Protected içinde /'a düşer. */}
+      <Route path="yedekler" element={<Navigate to="/platform/yedekler" replace/>}/>
       <Route path="bildirimler" element={<Notifications/>}/>
       <Route path="bildirimler/sablonlar" element={<NotificationTemplates/>}/>
       <Route path="tedarikci-fiyatlari" element={<SupplierPrices/>}/>

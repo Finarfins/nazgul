@@ -16,6 +16,7 @@ import React from 'react';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import AgricultureIcon from '@mui/icons-material/Agriculture';
 import AnalyticsIcon from '@mui/icons-material/Analytics';
 import AssessmentIcon from '@mui/icons-material/Assessment';
@@ -26,6 +27,7 @@ import BusinessIcon from '@mui/icons-material/Business';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import ChildCareIcon from '@mui/icons-material/ChildCare';
 import DashboardIcon from '@mui/icons-material/Dashboard';
+import DescriptionIcon from '@mui/icons-material/Description';
 import EventRepeatIcon from '@mui/icons-material/EventRepeat';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import HistoryIcon from '@mui/icons-material/History';
@@ -33,6 +35,7 @@ import Inventory2Icon from '@mui/icons-material/Inventory2';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
+import OutboxIcon from '@mui/icons-material/Outbox';
 import PaymentsIcon from '@mui/icons-material/Payments';
 import PeopleIcon from '@mui/icons-material/People';
 import PetsIcon from '@mui/icons-material/Pets';
@@ -41,6 +44,7 @@ import PriceCheckIcon from '@mui/icons-material/PriceCheck';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import ScienceIcon from '@mui/icons-material/Science';
+import SecurityIcon from '@mui/icons-material/Security';
 import SpaIcon from '@mui/icons-material/Spa';
 import SpeedIcon from '@mui/icons-material/Speed';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
@@ -211,6 +215,17 @@ export const ROUTE_PERMISSIONS = {
   '/bildirimler': 'notifications',
   '/bildirimler/sablonlar': 'notifications',
   '/tedarikci-fiyatlari': 'supplier_prices.view',
+  // Platform yönetim paneli (PP3). `platform` izni hiçbir rolde yoktur ve `*`
+  // ile de GELMEZ (`AuthContext.can` onu `is_platform_operator`a bağlar).
+  '/platform': 'platform',
+  '/platform/sirketler': 'platform',
+  '/platform/kullanicilar': 'platform',
+  '/platform/kuyruk': 'platform',
+  '/platform/guvenlik': 'platform',
+  '/platform/e-belgeler': 'platform',
+  '/platform/yedekler': 'platform',
+  // Eski adres yalnız `/platform/yedekler`e YÖNLENDİRİR; izni aynı kalır ki
+  // operatör olmayan yönlendirmeyi bile görmesin.
   '/yedekler': 'platform',
 } as const satisfies Record<string, Permission>;
 
@@ -291,6 +306,7 @@ export const NAV_LABELS = {
   groupFarm: 'Tarla',
   groupHerd: 'Hayvancılık',
   groupAdmin: 'Yönetim',
+  groupPlatform: 'Platform Yönetimi',
 
   // Grup içi maddeler
   sales: 'Satışlar',
@@ -342,6 +358,12 @@ export const NAV_LABELS = {
   activity: 'Aktivite',
   auditLog: 'İşlem Geçmişi',
   backups: 'Yedekler',
+  platformDashboard: 'Platform Özeti',
+  platformCompanies: 'Şirketler',
+  platformUsers: 'Platform Kullanıcıları',
+  platformOutbox: 'Kuyruk Sağlığı',
+  platformSecurity: 'Güvenlik',
+  platformEDocuments: 'E-Belge Sağlığı',
 
   // Kenar çubuğu bölüm başlığı
   workspace: 'ÇALIŞMA ALANI',
@@ -350,7 +372,7 @@ export const NAV_LABELS = {
 // ============================================================================
 // NAVİGASYON AĞACI
 //
-// 2 sabit madde + 8 grup = 10 üst düzey. Bir grup, o rolde görünür EN AZ BİR
+// 2 sabit madde + 10 grup (Platform Yönetimi yalnız operatörde görünür). Bir grup, o rolde görünür EN AZ BİR
 // maddesi varsa görünür; izinler yukarıdaki ROUTE_PERMISSIONS'tan okunur, bu
 // ağaçta izin YAZILMAZ.
 //
@@ -487,7 +509,23 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       item('/bildirimler/sablonlar', NAV_LABELS.notificationTemplates, <NotificationsActiveIcon />),
       item('/aktivite', NAV_LABELS.activity, <FactCheckOutlinedIcon />),
       item('/islem-gecmisi', NAV_LABELS.auditLog, <HistoryIcon />),
-      item('/yedekler', NAV_LABELS.backups, <BackupIcon />),
+    ],
+  },
+  {
+    // Platform operatörünün grubu (PP3). Kiracı yönetiminden AYRI: buradaki
+    // her ekran bütün firmaları görür. Maddelerin tamamı `platform` iznine
+    // bağlı olduğu için grup yalnız operatörde görünür.
+    id: 'platform',
+    label: NAV_LABELS.groupPlatform,
+    icon: <AdminPanelSettingsIcon />,
+    items: [
+      item('/platform', NAV_LABELS.platformDashboard, <AdminPanelSettingsIcon />),
+      item('/platform/sirketler', NAV_LABELS.platformCompanies, <BusinessIcon />),
+      item('/platform/kullanicilar', NAV_LABELS.platformUsers, <ManageAccountsIcon />),
+      item('/platform/kuyruk', NAV_LABELS.platformOutbox, <OutboxIcon />),
+      item('/platform/guvenlik', NAV_LABELS.platformSecurity, <SecurityIcon />),
+      item('/platform/e-belgeler', NAV_LABELS.platformEDocuments, <DescriptionIcon />),
+      item('/platform/yedekler', NAV_LABELS.backups, <BackupIcon />),
     ],
   },
 ];

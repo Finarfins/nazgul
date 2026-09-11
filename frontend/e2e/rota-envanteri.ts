@@ -120,6 +120,10 @@ export type RotaGirdisi =
 const TOHUM_GEREKTIREN_ID =
   'tohumlanmış kayıt ister; kapı tohum GEREKTİRMEYEN rotaları bitirir, bu rota ayrı bir turdur';
 
+/** `platform` iznine bağlı rotaların ORTAK gerekçesi (bkz. Platform bölümü). */
+const PLATFORM_OPERATORU_GEREKTIREN =
+  "platform operatörü ortam değişkeni e2e sunucusunda kurulmuyor; rota Protected içinde /'a düşer";
+
 export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
   // --- Oturumsuz uç rotalar --------------------------------------------------
   {
@@ -639,19 +643,26 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
       'receivables, invoice, and activity mobile slice gate > mobile-390: seeded data and required actions survive responsive rendering',
     gerekce: 'tohumlanan tek POS satış olayıyla 390px\'te açılır; olay satırı ve arşivle eylemi ölçülür',
   },
-  {
-    rota: '/yedekler',
-    tur: 'muaf',
-    // ÖLÇÜLDÜ (#8): rota `platform` iznine bağlıdır ve bu izin `*` ile GELMEZ.
-    // `AuthContext.can` onu tek başına `is_platform_operator` bayrağına, backend
-    // de `SUNGUR_PLATFORM_OPERATORS` ortam değişkeninde ADI GEÇEN kullanıcı
-    // kimliklerine bağlar (`platform_access.is_platform_operator`). `e2e/serve.py`
-    // bu değişkeni KURMAZ. Değişkeni açmak kapsamı tek satırda büyütürdü ama
-    // BÜTÜN spec'lerin sertifikaladığı güvenlik duruşunu değiştirirdi; kapsam
-    // uğruna duruş değiştirmek kapının kendisini zayıflatmaktır.
-    gerekce:
-      "platform operatörü ortam değişkeni e2e sunucusunda kurulmuyor; rota Protected içinde /'a düşer",
-  },
+  // --- Platform yönetim paneli (PP3) -----------------------------------------
+  // ÖLÇÜLDÜ (#8): bu rotalar `platform` iznine bağlıdır ve bu izin `*` ile
+  // GELMEZ. `AuthContext.can` onu tek başına `is_platform_operator` bayrağına,
+  // backend de `SUNGUR_PLATFORM_OPERATORS` ortam değişkeninde ADI GEÇEN
+  // kullanıcı kimliklerine bağlar (`platform_access.is_platform_operator`).
+  // `e2e/serve.py` bu değişkeni KURMAZ. Değişkeni açmak kapsamı tek satırda
+  // büyütürdü ama BÜTÜN spec'lerin sertifikaladığı güvenlik duruşunu
+  // değiştirirdi; kapsam uğruna duruş değiştirmek kapının kendisini
+  // zayıflatmaktır. PP3'ün yedi rotası ve `/yedekler` yönlendirmesi AYNI
+  // ölçümü paylaşır; ekranların davranışı vitest'te ölçülür
+  // (`src/pages/platform/*.test.tsx`).
+  {rota: '/platform', tur: 'muaf', gerekce: PLATFORM_OPERATORU_GEREKTIREN},
+  {rota: '/platform/sirketler', tur: 'muaf', gerekce: PLATFORM_OPERATORU_GEREKTIREN},
+  {rota: '/platform/kullanicilar', tur: 'muaf', gerekce: PLATFORM_OPERATORU_GEREKTIREN},
+  {rota: '/platform/kuyruk', tur: 'muaf', gerekce: PLATFORM_OPERATORU_GEREKTIREN},
+  {rota: '/platform/guvenlik', tur: 'muaf', gerekce: PLATFORM_OPERATORU_GEREKTIREN},
+  {rota: '/platform/e-belgeler', tur: 'muaf', gerekce: PLATFORM_OPERATORU_GEREKTIREN},
+  {rota: '/platform/yedekler', tur: 'muaf', gerekce: PLATFORM_OPERATORU_GEREKTIREN},
+  // Eski adres: yalnız `/platform/yedekler`e yönlendirir; izni aynı.
+  {rota: '/yedekler', tur: 'muaf', gerekce: PLATFORM_OPERATORU_GEREKTIREN},
   {
     rota: '/bildirimler',
     tur: 'spec',
