@@ -1724,7 +1724,10 @@ CEKIRDEK_KIRACI_ISTISNALARI: dict[tuple[str, str, str], str] = {
     (
         "backend/app/routers/platform_audit.py",
         "list_untenanted_audit",
-        "a484cea5af5f3c646ac9be74989e9d86d36cf4e7718226921df515e9212aef86",
+        # PP2: satır içi tipli süzgeçler eklendi (action/ip/username/status/
+        # tarih) -> parmak izi a484cea5 -> cf147994. Süzgeçlerin HİÇBİRİ
+        # `company_id IS NULL` yüklemini gevşetmez; hepsi AND ile daraltır.
+        "cf14799459bfbc96d0344b7b04eeda1fb3c26b6b56c57efa8fbc280c0e29f1a0",
     ): (
         "Kasıtlı olarak KİRACISIZ denetim satırlarının ayrıcalıklı platform "
         "okuma yolu. `company_id IS NULL` bir kapsam KAÇAĞI değil sorgunun "
@@ -1733,6 +1736,42 @@ CEKIRDEK_KIRACI_ISTISNALARI: dict[tuple[str, str, str], str] = {
         "düşer. Yetki kiracı kapsamıyla değil `require_platform_operator` ile "
         "verilir. Bkz. göç 20260812_0059 ve CHECK "
         "ck_security_audit_logs_untenanted_only_preauth."
+    ),
+    (
+        "backend/app/routers/platform_management.py",
+        "platform_kuyruk_yeniden",
+        "ff2a97dc50cd0d156ae8d24b289c7f3ab9f413f558cb5826fc76fae9723f9175",
+    ): (
+        "(d) PP2 toplu kuyruk retry'ının SAYACI: platform genelinde FAILED "
+        "satır sayısı ve bunların `schedule_retry` yüklemlerine (onaylı, "
+        "silahlı, rıza engeli yok) uyan kısmı. Yalnız COUNT/SUM döner; "
+        "alıcı, yük, hata metni SEÇİLMEZ. Kiracılar arasıdır çünkü eylemin "
+        "konusu kuyruğun BÜTÜNÜdür. Yetki `require_platform_operator`; "
+        "önek kiracı çözümünden MUAF. Kapı: `tests/test_pp2_platform_eylemleri.py`."
+    ),
+    (
+        "backend/app/routers/platform_management.py",
+        "platform_kuyruk_yeniden",
+        "c50e306ce0fc3ba512053e947a13df308577af450d30a008d75339b1f520a76f",
+    ): (
+        "(d) PP2 toplu kuyruk retry'ının SEÇİCİSİ: uygun FAILED satırların "
+        "YALNIZ `id`si, `max` (<= 500) tavanıyla. Sonraki UPDATE'in hedef "
+        "kümesidir ve yanıta çıkmaz. Yüklemler `schedule_retry`ninkiyle AYNI. "
+        "Yetki `require_platform_operator`. Kapı: `tests/test_pp2_platform_eylemleri.py`."
+    ),
+    (
+        "backend/app/routers/platform_management.py",
+        "platform_kuyruk_yeniden",
+        "b7a85b0ff87c02b608dd29ff8e4b721cd0b6c9d42d9345b2a32aa49e94e8cc51",
+    ): (
+        "(d) PP2 toplu kuyruk retry'ının YAZIMI: seçilen kimliklerde "
+        "`FAILED -> RETRY_SCHEDULED` (kapalı geçiş tablosunun izin verdiği "
+        "TEK yeniden deneme geçişi; `schedule_retry` ile aynı sütunlar: "
+        "`status`, `next_attempt_at`, `updated_at`). Yüklem `status = FAILED` "
+        "tekrar koşulur, arada değişen satıra dokunulmaz. Kiracı verisi "
+        "(alıcı/yük) YAZILMAZ. Yetki `require_platform_operator`; olay TEK "
+        "firmasız denetim satırı (`platform.ob_retry`). Kapı: "
+        "`tests/test_pp2_platform_eylemleri.py`."
     ),
     (
         "backend/app/whatsapp/eslestirme.py",
@@ -1908,7 +1947,13 @@ def test_istisna_gercekten_kullaniliyor() -> None:
     # gerekceler kendi girdilerinde. Hicbiri kiracinin ticari satirini
     # okumuyor ve hicbiri bir istek kiracisina baglanabilir durumda degil:
     # `/api/platform/` oneki kiraci cozumunden MUAF.
-    assert len(CEKIRDEK_KIRACI_ISTISNALARI) == 11, (
+    # 11 -> 14: PP2 PLATFORM YONETIM EYLEMLERI (GOC YOK). UC kayit, TEK
+    # fonksiyon, YENI sinif (d): platform geneli kuyruk YAZIMI
+    # (`platform_kuyruk_yeniden`: sayac + secici + FAILED -> RETRY_SCHEDULED).
+    # Ilk kez bir platform lisansi kiraci tablosuna YAZIYOR; yazilan sutunlar
+    # yalniz durum/zaman (`schedule_retry` ile ayni), kiraci verisi degil.
+    # `list_untenanted_audit` lisansi yeni parmak izine TASINDI (sayim ayni).
+    assert len(CEKIRDEK_KIRACI_ISTISNALARI) == 14, (
         "Bu kapıdaki istisna sayısı arttı. Her yeni kayıt AYRI bir güvenlik "
         "kararıdır ve kendi gerekçesiyle incelenmelidir: "
         f"{sorted(CEKIRDEK_KIRACI_ISTISNALARI)}"
@@ -1998,7 +2043,15 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # taraf dogrulamasi `id == :x AND company_id == cid` ile Core'a gecti).
 # Durum UPDATE'i `**degerler` yayilimi yerine ACIK SUTUN KUMESIYLE yazildi —
 # yayilim kapida "cozulemiyor" ihlali uretiyordu (olculdu).
-BEKLENEN_CORE_IFADE_SAYISI = 167
+# 167 -> 170: PP2 PLATFORM YONETIM EYLEMLERI (GOC YOK; TABAN develop
+# `697a3be`). UC ifade, UCU DE `routers/platform_management.py::
+# platform_kuyruk_yeniden` (notifications: sayac, secici, UPDATE) ve UCU DE
+# `CEKIRDEK_KIRACI_ISTISNALARI`nda ADIYLA ve PARMAK IZIYLE lisansli.
+# `list_untenanted_audit`in lisansi yeni parmak izine TASINDI (sayim
+# degismez). Diger PP2 ifadeleri platform tablolarina (companies,
+# app_users, auth_rate_limits) dokunur ve kapinin kiraci tablosu DEGIL.
+# Yeni kiraci tablosu YOK (`notifications` zaten gorunuyordu).
+BEKLENEN_CORE_IFADE_SAYISI = 170
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
     # CS1 (goc 20260914_0085): portfoy defteri ve iki taraf dogrulamasi.

@@ -283,6 +283,14 @@ def test_muafiyet_yuklemi_her_platform_rotasini_kapsar_baskasini_kapsamaz(ortam)
         "/api/platform/audit", "/api/platform/backups", "/api/platform/backups/{name}/download",
         "/api/platform/backups/{name}/verify", "/api/platform/backups/{name}/restore",
         "/api/platform/tenant-restore", *YENI_UCLAR,
+        # PP2 yazma uçları (``tests/test_pp2_platform_eylemleri.py``); DELETE
+        # ``/api/platform/rate-limits`` PP1'in yolunu paylaşır.
+        "/api/platform/companies/{sirket_id}/activate",
+        "/api/platform/companies/{sirket_id}/deactivate",
+        "/api/platform/users/{kullanici_id}/status",
+        "/api/platform/users/{kullanici_id}/resend-verification",
+        "/api/platform/users/{kullanici_id}/force-password-reset",
+        "/api/platform/outbox/retry",
     })
     assert muaf == beklenen, muaf
     for yol, _ in rotalar:

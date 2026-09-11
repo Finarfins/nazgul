@@ -53,6 +53,14 @@ PLATFORM_OLAYLARI: dict[str, str] = {
     "backup.restore_rollback_completed": "platform.rb_done",
     "backup.restore_rollback_failed": "platform.rb_fail",
     "company.restored": "platform.tn_restore",
+    # PP2 yönetim eylemleri (``routers/platform_management.py``).
+    "company.activated": "platform.co_activate",
+    "company.deactivated": "platform.co_deact",
+    "user.status_changed": "platform.us_status",
+    "user.verification_resent": "platform.us_resend",
+    "user.password_reset_forced": "platform.us_pwreset",
+    "rate_limit.cleared": "platform.rl_clear",
+    "outbox.retried": "platform.ob_retry",
 }
 
 
