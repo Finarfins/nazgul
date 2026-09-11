@@ -14,7 +14,10 @@ type DenetimParametreleri=NonNullable<operations['list_untenanted_audit_api_plat
  * `/api/platform/audit` yanıtı types.gen.ts'te `unknown` (uçta response_model
  * yok). Satır, `security_audit_logs` tablosunun kolonlarıdır
  * (backend/app/auth.py `audit_logs`); burada yalnız ekranda kullanılan alanlar
- * daraltılır. Uca response_model eklenince bu tip types.gen.ts'e taşınmalı.
+ * daraltılır.
+ *
+ * TODO(H38): PP2 uca response_model ekleyecek; types.gen.ts yeniden üretilince
+ * bu elle yazılmış tip silinip `components['schemas']` tipine geçilmeli.
  */
 type DenetimSatiri={
  id:number;username:string|null;action:string;path:string;status_code:number;ip_address:string|null;
