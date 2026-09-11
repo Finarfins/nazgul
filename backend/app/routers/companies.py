@@ -68,6 +68,9 @@ class CompanyPolicyUpdate(BaseModel):
     # `model_fields_set` ile korunur: alan hiç gönderilmezse mevcut değer
     # KORUNUR, boş liste gönderilirse seçim BİLİNÇLİ olarak temizlenir.
     profiller: list[FirmaProfili] | None = None
+    # CS2 (göç 0086): ciro edilen çek tedarikçiye otomatik ödeme açsın mı?
+    # VARSAYILAN KAPALI (karar 3 açık); `None` = gönderilmedi, dokunulmaz.
+    ciro_tedarikci_odemesi: bool | None = None
 
     @field_validator("tax_number")
     @classmethod
@@ -141,6 +144,7 @@ def get_company_settings(request: Request, db: Session = Depends(get_db)):
             companies.c.herd_withdrawal_policy,
             companies.c.herd_quarantine_policy,
             companies.c.profiller,
+            companies.c.ciro_tedarikci_odemesi,
         ).where(companies.c.id == cid)
     ).mappings().first()
     if not row:
@@ -180,6 +184,9 @@ def update_company_settings(
     ):
         if alan in payload.model_fields_set:
             values[alan] = getattr(payload, alan)
+    # NOT NULL Boolean: açık `null` "dokunma" demektir, NULL yazmak DEĞİL.
+    if payload.ciro_tedarikci_odemesi is not None:
+        values["ciro_tedarikci_odemesi"] = payload.ciro_tedarikci_odemesi
     if "profiller" in payload.model_fields_set:
         values["profiller"] = profilleri_birlestir(payload.profiller or [])
     warning = None
@@ -205,6 +212,7 @@ def update_company_settings(
         "farm_plantback_policy": values.get("farm_plantback_policy"),
         "herd_withdrawal_policy": values.get("herd_withdrawal_policy"),
         "herd_quarantine_policy": values.get("herd_quarantine_policy"),
+        "ciro_tedarikci_odemesi": values.get("ciro_tedarikci_odemesi"),
         "tax_number": values.get("tax_number"),
         "profiller": profilleri_coz(values.get("profiller")),
         "warning": warning,

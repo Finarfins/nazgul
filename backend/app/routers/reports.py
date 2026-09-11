@@ -6,11 +6,13 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import inspect, text
+from sqlalchemy import func, inspect, select, text
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.orm import Session
 
 from ..business_time import business_today
+from ..cek_senet_schema import cek_senetler
+from ..core_schema import customers
 from ..db import get_db
 from ..money import money
 from ..document_engine import SALES_IMPORT_NOTE, accounting_document_status_sql
@@ -55,6 +57,9 @@ class ReceivableAgingCustomer(BaseModel):
     days_61_90: str
     days_90_plus: str
     total: str
+    # CS2: portföydeki alınan evrak ve NET RİSK = alacak − portföy (§3.5).
+    portfolio_checks: str
+    net_risk: str
     documents: list[ReceivableAgingDocument]
 
 
@@ -65,6 +70,8 @@ class ReceivableAgingTotals(BaseModel):
     days_61_90: str
     days_90_plus: str
     total: str
+    portfolio_checks: str
+    net_risk: str
 
 
 class ReceivableAgingResponse(BaseModel):
@@ -283,6 +290,38 @@ def summary(
     return ozet_verisi(db, company_id(request), date_from, date_to)
 
 
+def portfoy_evraklari(db: Session, cid: int) -> dict[int, tuple[str, Decimal]]:
+    """Müşteri -> (ad, portföydeki ALINAN evrak toplamı). CS2, §3.5.
+
+    Durum ``as_of``a göre DEĞİL bugüne göredir: evrakın durum geçmişi
+    tutulmuyor (yalnız ``activity_logs``), yani geçmiş bir tarihteki portföy
+    ölçülemez. Rapor tarihi geçmişse bu kolon bugünün portföyüdür.
+    """
+    # İKİ tek-tablo sorgusu, JOIN DEĞİL: Core envanter tarayıcısı `join(...)`
+    # argümanını statik çözemez ("variable-arg"); tek tablolu iki select'in
+    # hedefi de kiracı yüklemi de açıktır.
+    toplamlar = db.execute(
+        select(cek_senetler.c.customer_id, func.coalesce(func.sum(cek_senetler.c.tutar), 0))
+        .where(
+            cek_senetler.c.company_id == cid,
+            cek_senetler.c.yon == "alinan",
+            cek_senetler.c.portfoy_durumu.in_(("portfoyde", "tahsile_verildi")),
+        )
+        .group_by(cek_senetler.c.customer_id)
+    ).all()
+    if not toplamlar:
+        return {}
+    adlar = dict(
+        db.execute(
+            select(customers.c.id, customers.c.name).where(
+                customers.c.company_id == cid,
+                customers.c.id.in_([int(r[0]) for r in toplamlar]),
+            )
+        ).all()
+    )
+    return {int(r[0]): (str(adlar.get(int(r[0]), "")), money(r[1])) for r in toplamlar}
+
+
 def yaslandirma_verisi(db: Session, cid: int, as_of: date | None = None) -> dict[str, Any]:
     """`/api/reports/receivables-aging`in GÖVDESİ — `Request` YOK.
 
@@ -324,6 +363,23 @@ def yaslandirma_verisi(db: Session, cid: int, as_of: date | None = None) -> dict
         grand_totals[bucket] += document.remaining
         grand_total += document.remaining
 
+    # CS2 "Portföy Çekleri": elde tutulan alınan evrak (portföyde + tahsilde).
+    # Alacağı kalmamış ama portföyünde evrakı olan müşteri de satır alır —
+    # net riski eksidir ve rapor bunu SAKLAMAZ.
+    portfoy = portfoy_evraklari(db, cid)
+    for customer_id, (customer_name, _tutar) in portfoy.items():
+        customers.setdefault(
+            customer_id,
+            {
+                "customer_id": customer_id,
+                "customer_name": customer_name,
+                "buckets": _empty_aging_totals(),
+                "total": money(0),
+                "documents": [],
+            },
+        )
+    grand_portfolio = money(sum((t for _, t in portfoy.values()), money(0)))
+
     customer_rows = [
         {
             "customer_id": customer["customer_id"],
@@ -333,6 +389,12 @@ def yaslandirma_verisi(db: Session, cid: int, as_of: date | None = None) -> dict
                 for bucket in AGING_BUCKETS
             },
             "total": _money_string(customer["total"]),
+            "portfolio_checks": _money_string(
+                portfoy.get(customer["customer_id"], ("", money(0)))[1]
+            ),
+            "net_risk": _money_string(
+                customer["total"] - portfoy.get(customer["customer_id"], ("", money(0)))[1]
+            ),
             "documents": customer["documents"],
         }
         for customer in customers.values()
@@ -346,6 +408,8 @@ def yaslandirma_verisi(db: Session, cid: int, as_of: date | None = None) -> dict
                 for bucket in AGING_BUCKETS
             },
             "total": _money_string(grand_total),
+            "portfolio_checks": _money_string(grand_portfolio),
+            "net_risk": _money_string(grand_total - grand_portfolio),
         },
     }
 

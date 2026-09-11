@@ -157,20 +157,38 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
           -- borcu kaldırır, `issuing` ise CAS'ın ARA DURUMUDUR.
           SELECT COALESCE(SUM(net_payable),0) AS issued_receipts
           FROM producer_receipts WHERE company_id=:cid AND status='issued'
+        ), bounced_check_summary AS (
+          -- CS2: karşılıksız/iade çek borç belgesi müşteri ALACAĞIDIR. Çekle
+          -- tahsilat `payment_summary`de cariyi zaten düşürdü (Seçenek A);
+          -- belge onu geri yazar. Ters kayıt eksi tutarla sıfırlar.
+          SELECT COALESCE(SUM(gross_amount),0) AS bounced_checks
+          FROM receivable_charge_documents
+          WHERE company_id=:cid AND charge_type='bounced_check'
+            AND status IN ('posted','reversed') AND posted_at IS NOT NULL
+        ), portfolio_summary AS (
+          -- CS2 `portfolio_checks`: elde tutulan ALINAN evrak (çek + senet),
+          -- henüz paraya dönmemiş: portföyde ya da tahsile verilmiş.
+          SELECT COUNT(*) AS portfolio_check_count,
+                 COALESCE(SUM(tutar),0) AS portfolio_check_total
+          FROM cek_senetler
+          WHERE company_id=:cid AND yon='alinan'
+            AND portfoy_durumu IN ('portfoyde','tahsile_verildi')
         )
         SELECT sales.today_sales,sales.month_sales,purchases_summary.month_purchases,
                payment_summary.today_collections,payment_summary.month_collections,
                expense_summary.month_expenses,product_summary.product_count,
                product_summary.stock_value,product_summary.critical_stock_count,
                customer_summary.customer_count,
-               customer_summary.customer_opening+sales.active_sales-payment_summary.customer_payments AS customer_receivables,
+               customer_summary.customer_opening+sales.active_sales-payment_summary.customer_payments
+                 +bounced_check_summary.bounced_checks AS customer_receivables,
+               portfolio_summary.portfolio_check_count,portfolio_summary.portfolio_check_total,
                supplier_summary.supplier_opening+purchases_summary.active_purchases
                  +producer_receipt_summary.issued_receipts
                  -payment_summary.supplier_payments AS supplier_payables,
                sales.overdue_count,sales.overdue_total
         FROM sales,purchases_summary,payment_summary,expense_summary,
              product_summary,customer_summary,supplier_summary,
-             producer_receipt_summary
+             producer_receipt_summary,bounced_check_summary,portfolio_summary
         """,
         params,
     )
@@ -374,6 +392,11 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         "cash_bank_total": round(cash_bank_total, 2) if can_view_finance else 0,
         "customer_receivables": round(money(summary.get("customer_receivables")), 2),
         "supplier_payables": round(supplier_payables, 2),
+        # CS2: portföydeki alınan çek/senet (portfoyde + tahsile_verildi).
+        "portfolio_checks": {
+            "count": int(summary.get("portfolio_check_count") or 0),
+            "total": round(money(summary.get("portfolio_check_total")), 2),
+        },
         "customer_count": int(summary.get("customer_count") or 0),
         "product_count": int(summary.get("product_count") or 0),
         "critical_stock_count": int(summary.get("critical_stock_count") or 0),

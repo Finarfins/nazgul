@@ -123,7 +123,7 @@ def musteri_satirlari(db: Session, cid: int, *, q: str = '', sort: str = 'name_a
             AND effective_date<=:as_of
           GROUP BY receivable_charge_id
         ) a ON a.receivable_charge_id=d.id
-        WHERE d.company_id=:cid AND d.charge_type IN ('late_fee','service_fee')
+        WHERE d.company_id=:cid AND d.charge_type IN ('late_fee','service_fee','bounced_check')
           AND d.status IN ('posted','reversed') AND d.posted_at IS NOT NULL
           AND d.period_end<=:as_of
         GROUP BY d.customer_id

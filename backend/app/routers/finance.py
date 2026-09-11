@@ -25,6 +25,7 @@ from ..payment_allocation_engine import (
 )
 from ..movement_references import validate_payment_reference
 from ..activity_log import diff_details, format_money_tr, log_request_activity
+from ..cek_senet_cari import CEK_YONTEMLERI, YONTEM_TUR, cek_ekle, odemenin_evraki
 
 router = APIRouter(tags=['finance'])
 logger = logging.getLogger(__name__)
@@ -280,10 +281,90 @@ def list_payment_accounts(
     ]
 
 
+def _cek_bilgisi(payload: PaymentCreate, *, cek_zorunlu: bool):
+    """CS2 köprüsünün kapısı: çek/senet yönteminde evrak alanları ZORUNLU.
+
+    Diğer yöntemlerde ``cek_senet`` YASAKTIR: sessizce yok saymak, istemciye
+    yazılmayan bir evrakı yazılmış sandırırdı. ``cek_zorunlu=False`` yalnız
+    toplu içe aktarımındır (``imports.py``): o dosyada evrak sütunu yoktur ve
+    satırlar CS2 öncesi gibi evraksız yazılır (açık soru, PR notu).
+    """
+    if payload.payment_method in CEK_YONTEMLERI:
+        if payload.cek_senet is None and cek_zorunlu:
+            raise HTTPException(
+                422,
+                'Çek/senet ile ödemede evrak bilgisi (cek_senet: vade, seri_no) zorunludur',
+            )
+        return payload.cek_senet
+    if payload.cek_senet is not None:
+        raise HTTPException(422, 'cek_senet yalnız çek/senet yöntemiyle gönderilebilir')
+    return None
+
+
+def _cek_bagla(db: Session, request: Request, cid: int, payload: PaymentCreate, cek, payment_id: int) -> int:
+    """Ödemeyle AYNI işlemde portföy satırı (``portfoyde``, ``payment_id`` dolu)."""
+    musteri = payload.entity_type == 'customer'
+    tur = YONTEM_TUR[payload.payment_method]
+    yon = 'alinan' if musteri else 'verilen'
+    evrak_id = cek_ekle(
+        db, cid, int(request.state.user['id']),
+        tur=tur,
+        yon=yon,
+        customer_id=payload.entity_id if musteri else None,
+        supplier_id=None if musteri else payload.entity_id,
+        tutar=payload.amount,
+        vade=cek.vade,
+        seri_no=cek.seri_no,
+        keside_tarihi=cek.keside_tarihi,
+        banka_adi=cek.banka_adi,
+        sube_adi=cek.sube_adi,
+        hesap_no=cek.hesap_no,
+        kesideci=cek.kesideci,
+        notlar=cek.notlar,
+        payment_id=payment_id,
+    )
+    log_request_activity(
+        db, request, cid, 'cek_senet.created', 'cek_senet', evrak_id,
+        f"{'Çek' if tur == 'cek' else 'Senet'} portföye alındı: {cek.seri_no} "
+        f'({format_money_tr(payload.amount)})',
+        {'tur': tur, 'yon': yon, 'tutar': str(money(payload.amount)),
+         'vade': cek.vade.isoformat(), 'bordro': False, 'payment_id': payment_id},
+    )
+    return evrak_id
+
+
+def _cek_bagli_odeme_kilidi(db: Session, cid: int, payment_id: int) -> None:
+    """Portföydeki evraka bağlı ödeme elle düzenlenemez/silinemez (409).
+
+    Ödemenin tutarı ya da carisi değişirse evrak başka bir borcu kapatıyor
+    görünürdü; silinirse ``fk_cek_senetler_payment`` zaten reddeder (500).
+    Evrakın akıbeti durum makinesiyle yürür (``/api/cek-senetler``).
+    """
+    if odemenin_evraki(db, cid, payment_id) is not None:
+        raise HTTPException(
+            409,
+            {'code': 'CEK_BAGLI_ODEME',
+             'message': 'Bu ödeme bir çek/senet evrakına bağlı; evrak üzerinden yönetilir'},
+        )
+
+
 @router.post('/payments', status_code=201)
 def add(payload: PaymentCreate, request: Request, db: Session = Depends(get_db)):
+    return odeme_kaydet(payload, request, db)
+
+
+def odeme_kaydet(
+    payload: PaymentCreate, request: Request, db: Session, *,
+    cek_zorunlu: bool = True, defter_anahtari: str | None = None,
+) -> dict:
+    """``POST /api/payments``in gövdesi; CS2 ters köprüsü de BURADAN yazar.
+
+    ``defter_anahtari`` verilirse ödeme defterine (``payment_idempotency``)
+    başlık yerine O yazılır — ters köprü kendi türettiği anahtarı geçirir.
+    """
     cid = company_id(request)
     _validate_payment(payload)
+    cek = _cek_bilgisi(payload, cek_zorunlu=cek_zorunlu)
     _ensure_entity(db, cid, payload.entity_type, payload.entity_id)
     validate_payment_account(db, cid, payload.payment_method, payload.account_id)
     if payload.reference_type is not None and payload.reference_id is not None:
@@ -296,7 +377,11 @@ def add(payload: PaymentCreate, request: Request, db: Session = Depends(get_db))
             payload.reference_id,
         )
     if settings.payment_allocation_engine_enabled:
-        values = payload.model_dump()
+        values = payload.model_dump(exclude={'cek_senet'})
+        if cek is not None:
+            # Parmak izine girer: aynı anahtarla FARKLI bir evrak 409'dur.
+            # INSERT bu anahtarı kullanmaz (bağlı parametre değil).
+            values['cek_senet'] = cek.model_dump(mode='json')
 
         def _log_created(payment_id: int, _result: dict) -> None:
             # Motorun commit'inden hemen ÖNCE, aynı transaction içinde.
@@ -316,16 +401,21 @@ def add(payload: PaymentCreate, request: Request, db: Session = Depends(get_db))
                     'reference_id': payload.reference_id,
                 }},
             )
+            if cek is not None:
+                _cek_bagla(db, request, cid, payload, cek, payment_id)
 
         try:
-            return create_payment_with_allocation(
+            sonuc = create_payment_with_allocation(
                 db,
                 cid,
                 values,
-                request.headers.get('idempotency-key', ''),
+                defter_anahtari if defter_anahtari is not None else request.headers.get('idempotency-key', ''),
                 created_by=int(request.state.user['id']),
                 on_created=_log_created,
             )
+            if cek is not None:
+                sonuc = {**sonuc, 'cek_senet_id': odemenin_evraki(db, cid, int(sonuc['id']))}
+            return sonuc
         except HTTPException:
             db.rollback()
             raise
@@ -335,13 +425,16 @@ def add(payload: PaymentCreate, request: Request, db: Session = Depends(get_db))
             raise HTTPException(500, 'Ödeme kaydedilemedi. Lütfen tekrar deneyin.') from exc
     if payload.reference_type is not None:
         raise HTTPException(409, 'Belge tahsisi için allocation motoru etkinleştirilmelidir')
-    values = payload.model_dump(); values['company_id'] = cid
+    values = payload.model_dump(exclude={'cek_senet'}); values['company_id'] = cid
     values.pop('reference_type', None); values.pop('reference_id', None)
     result = db.execute(text('''INSERT INTO payments(entity_type,entity_id,amount,payment_date,note,company_id,payment_method,account_id)
       VALUES(:entity_type,:entity_id,:amount,:payment_date,:note,:company_id,:payment_method,:account_id) RETURNING id'''), values)
     payment_id = int(result.scalar_one())
+    evrak_id = None
     try:
         sync_payment_finance(db,cid,payment_id,payload.entity_type,payload.amount,payload.payment_date,payload.payment_method,payload.note,payload.account_id)
+        if cek is not None:
+            evrak_id = _cek_bagla(db, request, cid, payload, cek, payment_id)
         log_request_activity(
             db, request, cid, 'payment.create', 'payment', payment_id,
             _payment_summary(
@@ -359,20 +452,26 @@ def add(payload: PaymentCreate, request: Request, db: Session = Depends(get_db))
         db.commit()
     except Exception as exc:
         db.rollback(); logger.exception('Unexpected payment create failure'); raise HTTPException(500,'Ödeme kaydedilemedi. Lütfen tekrar deneyin.') from exc
-    return {'id': payment_id, **payload.model_dump()}
+    sonuc = {'id': payment_id, **payload.model_dump(exclude={'cek_senet'})}
+    if cek is not None:
+        sonuc['cek_senet_id'] = evrak_id
+    return sonuc
 
 
 @router.put('/payments/{payment_id}')
 def update_payment(payment_id:int,payload:PaymentCreate,request:Request,db:Session=Depends(get_db)):
     cid=company_id(request)
     _validate_payment(payload)
+    if payload.cek_senet is not None:
+        raise HTTPException(422,'cek_senet yalnız yeni ödemede gönderilebilir')
     _ensure_entity(db,cid,payload.entity_type,payload.entity_id)
     validate_payment_account(db, cid, payload.payment_method, payload.account_id)
     existing=db.execute(text('SELECT * FROM payments WHERE id=:id AND company_id=:cid'),{'id':payment_id,'cid':cid}).mappings().first()
     if not existing: raise HTTPException(404,'Hareket bulunamadı')
+    _cek_bagli_odeme_kilidi(db, cid, payment_id)
     if existing['reference_type'] is not None:
         raise HTTPException(409,'Belgeye bağlı otomatik hareket belge üzerinden düzenlenmelidir.')
-    values=payload.model_dump();values.update({'id':payment_id,'cid':cid})
+    values=payload.model_dump(exclude={'cek_senet'});values.update({'id':payment_id,'cid':cid})
     if settings.payment_allocation_engine_enabled:
         try:
             if payload.reference_type is not None and payload.reference_id is not None:
@@ -388,7 +487,7 @@ def update_payment(payment_id:int,payload:PaymentCreate,request:Request,db:Sessi
                 db,
                 cid,
                 payment_id,
-                payload.model_dump(),
+                payload.model_dump(exclude={'cek_senet'}),
             )
             record_change(db,request,company_id=cid,entity_type='payment',entity_id=payment_id,action='update',before=dict(existing),after=after)
             log_request_activity(
@@ -435,6 +534,7 @@ def delete(payment_id: int, request: Request, db: Session = Depends(get_db)):
     if not existing: raise HTTPException(404,'Hareket bulunamadı')
     if existing['reference_type'] is not None:
         raise HTTPException(409,'Belgeye bağlı otomatik hareket belge üzerinden silinmelidir.')
+    _cek_bagli_odeme_kilidi(db, cid, payment_id)
     if settings.payment_allocation_engine_enabled:
         try:
             before = delete_unallocated_payment(db, cid, payment_id)

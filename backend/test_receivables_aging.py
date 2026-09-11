@@ -190,6 +190,9 @@ with TestClient(app) as client:
         "days_61_90": "200.00",
         "days_90_plus": "100.00",
         "total": "975.00",
+        # CS2 (göç 0086): portföy çekleri ve net risk. Bu kurguda portföy yok.
+        "portfolio_checks": "0.00",
+        "net_risk": "975.00",
     }
     by_customer = {row["customer_name"]: row for row in data["customers"]}
     assert by_customer["Müşteri A"]["total"] == "900.00"

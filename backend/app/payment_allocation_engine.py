@@ -632,7 +632,7 @@ def _lock_charge_documents(
             reversal_of_document_id
             FROM receivable_charge_documents
             WHERE company_id=:cid AND customer_id=:customer_id
-              AND charge_type IN ('late_fee','service_fee') AND status='posted'
+              AND charge_type IN ('late_fee','service_fee','bounced_check') AND status='posted'
               AND reversal_of_document_id IS NULL
             ORDER BY due_date_snapshot,id"""
             + _lock_suffix(db)

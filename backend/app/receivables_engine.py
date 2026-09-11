@@ -80,6 +80,12 @@ def charge_due_date_sql(alias: str = "d") -> str:
     over a range that has already been billed. Splitting the overloaded column
     in two is backlogged as separate work.
 
+    A bounced cheque (``bounced_check``, CS2 / migration 0086) is due on the
+    CHEQUE'S due date, which is what its ``due_date_snapshot`` holds: the debit
+    re-opens a receivable the cheque had closed, and the customer has owed it
+    since the cheque matured. Its ``period_end`` is the bounce date, and using
+    it would make a cheque that bounced months after maturity look fresh.
+
     The branch is charge-type aware on purpose -- but it lives here ONCE. The
     receivables engine and both cari projections (detail card and list) read the
     rule from this single source, so the three cannot drift apart again.
@@ -88,7 +94,7 @@ def charge_due_date_sql(alias: str = "d") -> str:
     this document in scope for this as-of date") and is deliberately untouched.
     """
     return (
-        f"(CASE WHEN {alias}.charge_type='service_fee' "
+        f"(CASE WHEN {alias}.charge_type IN ('service_fee','bounced_check') "
         f"THEN {alias}.due_date_snapshot ELSE {alias}.period_end END)"
     )
 
@@ -99,10 +105,15 @@ def charge_due_date(row: Any) -> date:
     Kept beside the SQL so the engine and the two cari projections cannot drift
     apart; see there for why the branch is charge-type aware.
     """
-    is_service_fee = str(row["charge_type"]) == "service_fee"
+    own_due_date = str(row["charge_type"]) in ("service_fee", "bounced_check")
     return parse_receivable_date(
-        row["due_date_snapshot"] if is_service_fee else row["period_end"]
+        row["due_date_snapshot"] if own_due_date else row["period_end"]
     )
+
+
+def charge_document_prefix(charge_type: str) -> str:
+    """Display prefix of a non-service charge: ``VF`` late fee, ``KC`` bounced cheque."""
+    return "KC" if charge_type == "bounced_check" else "VF"
 
 
 def normalized_date_sql(date_column: str, dialect_name: str) -> str:
@@ -397,7 +408,7 @@ def _late_fee_receivables(
             LEFT JOIN work_orders w
               ON w.id=d.work_order_id AND w.company_id=d.company_id
             WHERE d.company_id=:cid
-              AND d.charge_type IN ('late_fee','service_fee')
+              AND d.charge_type IN ('late_fee','service_fee','bounced_check')
               AND d.status IN ('posted','reversed')
               AND d.posted_at IS NOT NULL
               AND d.period_end<=:as_of
@@ -436,7 +447,7 @@ def _late_fee_receivables(
             f"{row['work_order_no'] or 'SE-'+str(row['work_order_id'])}"
             f"-R{int(row['revision_no'])}"
             if is_service_fee
-            else f"VF-{charge_id}-R{int(row['revision_no'])}"
+            else f"{charge_document_prefix(charge_type)}-{charge_id}-R{int(row['revision_no'])}"
         )
         documents.append(
             ReceivableDocument(
