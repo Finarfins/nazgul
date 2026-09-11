@@ -659,8 +659,15 @@ DYNAMIC_PERMISSION_CASES = {
 # satirlari USTTE ve DEGISMEDI). `tenant_scope` "platform" (bu dosyadaki
 # `PLATFORM_ROUTE_PREFIXES`), yani her biri gerekce ister ve KENDI grubuyla
 # `ROUTE_REASONS`a girdi. Parmak izi EN SON turetildi.
-EXPECTED_OPERATION_COUNT = 407
-EXPECTED_PATH_COUNT = 315
+# 20260914 — CS1 ÇEK/SENET PORTFÖYÜ (göç 20260914_0085): BEŞ yeni uç, DÖRT yeni
+# yol — liste ile oluşturma AYNI yolu (`/api/cek-senetler`) farklı METOTLA
+# paylaşır. Sayım 400/308 -> 405/312 (TABAN develop `6442794`). İzin OLCULDU:
+# beşi de "payments" (`app/auth.py`de açık önek kuralı, BÜTÜN metotlar);
+# kural yazılmadan önce iki GET "read", üç POST "__admin_only__" idi.
+# `tenant_scope` "company" ve izin `read` değil, yani `ROUTE_REASONS` gerekçe
+# İSTEMİYOR (`_build_contract`) ve eklenmedi.
+EXPECTED_OPERATION_COUNT = 405
+EXPECTED_PATH_COUNT = 312
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -857,7 +864,9 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # "sales". REBASE TABAN c66e232: parmak izi f131e483 -> 3506f532.
     # PP1 (GOC YOK): YEDI platform yonetim GET'i, "read", platform gerekce
     # grubu. TABAN 6442794: parmak izi 3506f532 -> 62b0e5f8.
-    "62b0e5f8a751f0d0d900a61fd1f444e7abfaaca4f4a94c9a03d61f2d204cc4de"
+    # CS1 (göç 20260914_0085): BEŞ çek/senet ucu, beşi de "payments".
+    # TABAN 6442794: parmak izi 3506f532 -> e62f0fbc.
+    "e62f0fbca3bb258c75bde8178279ce2de19495898c499a54745ffe7ae1d5d1bf"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

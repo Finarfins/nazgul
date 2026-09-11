@@ -186,10 +186,14 @@ def test_lot_id_SAYISAL_MANIFESTOYA_GIRMEZ_olculdu() -> None:
         "bir `lot_id` sütunu sayısal manifestoya girmiş — mutabakat onu para/"
         "miktar gibi yuvarlayıp raporlar."
     )
-    assert len(sutunlar) == 90, (
-        f"sayısal manifesto genişledi ({len(sutunlar)}); 1B-C'nin ölçümü 90 idi "
-        "ve bu dilim manifestoya HİÇBİR ŞEY eklemedi."
+    # 90 -> 91: CS1 (göç 20260914_0085) `cek_senetler.tutar`ı MONEY ailesine
+    # ekledi — bir KİMLİK değil, TUTAR; yukarıdaki iki iddia (lot_id yok,
+    # stock_movements yalnız quantity) KIMILDAMADI.
+    assert len(sutunlar) == 91, (
+        f"sayısal manifesto genişledi ({len(sutunlar)}); CS1 sonrası ölçüm 91 idi "
+        "(1B-C: 90, CS1 `cek_senetler.tutar` +1)."
     )
+    assert ("cek_senetler", "tutar") in sutunlar
 
 
 # ------------------------------------------------------------ göç kapısı ---

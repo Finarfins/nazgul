@@ -1,4 +1,18 @@
 GET /api/auth/verify-email	read	email	H,H,H,H,H
+# CS1 CEK/SENET PORTFOYU (goc 20260914_0085). `hesap_no` KESIDECININ banka
+# hesabidir ve `alan_maskeleme.MASKELENEN_ALANLAR`a (`maskele_iban`: son dort
+# hane) eklendi; yanit `maskele_cari`den gecer. Vektor URETILDI: `payments`
+# tasiyan uc rolun ucu de (`yonetici`, `muhasebe`, `satis`) `MASKESIZ_ROLLER`de
+# -> F; `depo`/`rapor` `payments` TASIMAZ -> D. Yani maske BAGLI ama bugun
+# HICBIR rolde TETIKLENMIYOR (M hucresi dogamiyor).
+# `phone` TARAYICININ GENIS TARAFTAKI YANLIS POZITIFIDIR ve bu olculdu: BFS
+# `_cek_gorunum -> maskele_cari -> _alan_maskesi` zincirinde `_alan_maskesi`
+# docstring'indeki "customer_phone" ornegini goruyor. Yanit modeli
+# (`CekSenet`) `phone` TASIMAZ; `customers` rotalari ayni zincirden ayni
+# kelimeyi zaten gorur. Tarayicinin sozlesmesi "yanlis pozitif incelenir,
+# yanlis negatif sizar" -- incelendi, satira dokunulmadi.
+GET /api/cek-senetler	payments	hesap_no,phone	F,F,F,D,D
+GET /api/cek-senetler/{evrak_id}	payments	hesap_no,phone	F,F,F,D,D
 GET /api/customers	read	address,email,phone,tax_number	F,F,F,M,M
 GET /api/customers/{customer_id}	read	address,email,phone,tax_number	F,F,F,M,M
 GET /api/customers/{customer_id}/statement	sales	address,email,phone,tax_number	F,F,F,D,D

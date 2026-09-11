@@ -181,6 +181,15 @@ METIN_KIMLIK_SUTUNLARI: frozenset[tuple[str, str]] = frozenset(
 
 #: Sütun adı -> hedef tablo. Ayırt edici sütunu OLMAYAN yumuşak referanslar.
 DOGRUDAN_HEDEFLER: dict[tuple[str, str], str] = {
+    # CS1 (göç 20260914_0085): `cek_senetler`in FK'SIZ iki bağı (CS2
+    # dolduracak). Beş FK'li sütunu (customer_id, supplier_id,
+    # endorsed_supplier_id, tahsil_hesap_id, payment_id) BURADA YOK ve bu
+    # ölçüldü: `_Plan` onları YANSITILAN bileşik FK'lerden `fk_kiraci` olarak
+    # kendisi eşliyor ve FK sütunları bu sözlüğe HİÇ BAKILMADAN geçiliyor —
+    # yazılsalardı ölü kayıt olurlardı. `created_by` da aynı sebeple
+    # `KULLANICI_SUTUNLARI`nda değil: FK -> app_users (`fk_kullanici`).
+    ("cek_senetler", "charge_document_id"): "receivable_charge_documents",
+    ("cek_senetler", "financial_transaction_id"): "finance_transactions",
     ("delivery_note_items", "product_id"): "products",
     ("delivery_notes", "customer_id"): "customers",
     ("delivery_notes", "warehouse_id"): "warehouses",

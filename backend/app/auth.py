@@ -1033,6 +1033,17 @@ def required_permission(method: str, path: str) -> str:
         return "payments"
     if path.startswith("/api/receivables"):
         return "payments"
+    # --- ÇEK/SENET PORTFÖYÜ (CS1, göç 20260914_0085): TEK ÖNEK, HER METOT --
+    # Şef kararı: `POST /api/payments` ile AYNI izin. Kural yazılmadan ÖNCE
+    # ölçüldü: iki GET `read`e (genel güvenli-metot kuralı), üç POST
+    # `__admin_only__`a (deny-by-default nöbetçisi) düşüyordu — aynı uç
+    # ailesi metoda göre İKİ kapıdan geçiyordu. `read` fazla geniş (keşideci
+    # hesap no, tutar, vade `depo`/`rapor`a açılırdı), `__admin_only__` fazla
+    # dar (muhasebe çek giremezdi). GET DAHİL `payments`: portföy bir tahsilat
+    # yüzeyidir. Ölçülen sonuç: `admin`, `yonetici`, `muhasebe`, `satis`
+    # okur/yazar; `depo`, `rapor` GET'te de 403.
+    if path.startswith("/api/cek-senetler"):
+        return "payments"
     if path.startswith("/api/finance"):
         return "finance"
     if path.startswith("/api/harvest-scheduling"):

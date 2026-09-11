@@ -1092,6 +1092,24 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "799ca94126f69995cb27e72acde83bae9c4d24442c75b6f75386b13182e2fef0"): (1, "companies", "select_from"),  # satır [415]
     ("app/routers/platform_management.py", "platform_sirketleri", "select",
      "d8bf78c106bc704158a198d41bace12709e9bf122f18f5fae242b5422b6d5bbf"): (1, "companies", "arg0"),  # satır [425]
+    # --- app/routers/cek_senetler.py (CS1, göç 20260914_0085)
+    # Yedi sorgu; her biri `company_id == cid` yüklemini AÇIKÇA taşır.
+    # İsteğe bağlı liste süzgeçleri SATIR İÇİ tipli bağlı parametredir
+    # (`:p IS NULL OR sütun = :p`), yani `variable-arg` üretmez.
+    ("app/routers/cek_senetler.py", "_cek_evrak", "select",
+     "b8f6c657130d6cd88f92153d967fd737cc1c9a3b3a36028db03561b702202655"): (1, "cek_senetler", "arg0"),  # satır [199]
+    ("app/routers/cek_senetler.py", "_cek_musteri_var", "select",
+     "2051cd6161cea24c65fbb2481c675194fc1c686ec8add307c2fe98dc80dbc5a9"): (1, "customers", "arg0"),  # satır [211]
+    ("app/routers/cek_senetler.py", "_cek_tahsil_hesabi_uygun", "select",
+     "5bb413571ccdc6c25bbc70d65cfce5007b5522a7cf85c2e79d9810faedb13fd8"): (1, "finance_accounts", "arg0"),  # satır [223]
+    ("app/routers/cek_senetler.py", "_cek_tedarikci_var", "select",
+     "98b43b8b5509f9f9201dabeb38435cc2ff459d1c458b7531ad66d3096f99d9a8"): (1, "suppliers", "arg0"),  # satır [217]
+    ("app/routers/cek_senetler.py", "cek_senet_durum_degistir", "update",
+     "9c9379d98ef04d7795e494628427fc5ea4afff02c89d04d10ddf9ad864a480fb"): (1, "cek_senetler", "arg0"),  # satır [471]
+    ("app/routers/cek_senetler.py", "cek_senet_listesi", "select",
+     "23d3fe0cbdf1a013537e5f19b5afcbc78843525e0c4260c908a045c6ea128df3"): (1, "cek_senetler", "select_from"),  # satır [316]
+    ("app/routers/cek_senetler.py", "cek_senet_listesi", "select",
+     "97e0f21430c76373551c6e876af62050631cf1a7b459cbe1dd75f73be779de43"): (1, "cek_senetler", "arg0"),  # satır [335]
 }
 
 # 20260910 5.1c KIRACI GERI YUKLEME (GOC YOK): 176 -> 184, +6 select +2 update,
@@ -1105,8 +1123,11 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # BUYUMEDI: on besinin de hedefi statik cozuldu (arg0 / sole-table) ve
 # istege bagli suzgecler `where(*liste)` yerine satir ici bagli parametreyle
 # yazildi.
-TOTAL_CORE_QUERIES = 199
-EXPECTED_OP_COUNTS = {"select": 133, "update": 56, "delete": 10}
+# CS1 ÇEK/SENET PORTFÖYÜ (göç 20260914_0085): 184 -> 191, +6 select +1 update,
+# HEPSİ app/routers/cek_senetler.py ve HEPSİ ekleme (drift raporu OLCULDU:
+# `changed`/`stale` BOŞ). `UNRESOLVED_ALLOWLIST` ve `desteksiz` BÜYÜMEDİ.
+TOTAL_CORE_QUERIES = 191
+EXPECTED_OP_COUNTS = {"select": 124, "update": 57, "delete": 10}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1184,7 +1205,12 @@ EXPECTED_OP_COUNTS = {"select": 133, "update": 56, "delete": 10}
 # TABAN develop `6442794`. Sayim/sole-table kapisi icin sayim sorgularina
 # ACIK `.select_from(...)` yazildi (hedef `select_from` yoluyla cozuluyor).
 # 0c53dc66 -> 6f54d98b.
-INVENTORY_FINGERPRINT = "6f54d98bc09c19c44035e1c0238316fa2eff563595da52755c3484657449135b"
+# CS1 (ÇEK/SENET PORTFÖYÜ, göç 20260914_0085): 184 -> 191, yedisi de
+# app/routers/cek_senetler.py; TABAN develop `6442794`. 0c53dc66 -> 5e9000b5.
+# (Yardımcılar `_cek_` önekiyle adlandırıldı: SEC-3b tarayıcısı fonksiyonları
+# ADIYLA eşliyor ve `_gorunum`/`_evrak` adları `despatch_notes` ile
+# `mustahsil` rotalarına sızıyordu — ölçüldü.)
+INVENTORY_FINGERPRINT = "5e9000b54c777793efa6f4d81dc6901fe901415d4f3ae42c31fe9d68d9a1a308"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:

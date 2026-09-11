@@ -223,6 +223,11 @@ ACTION_TYPES: dict[str, str] = {
     # TAŞIMIYOR (0049'dan beri hayvancılık modülünün deseni; ölçüldü,
     # varsayılmadı). "Bu hayvanı karantinadan kim çıkardı" sorusunun cevabı
     # yalnız BURADAN çıkar.
+    # Çek/senet portföyü (CS1, göç 20260914_0085). Oluşturma TEK evrakta da
+    # bordroda da aynı eylemdir (`details.bordro` ayırır); her durum geçişi
+    # TEK eylemdir, kaynak/hedef `details`te.
+    "cek_senet.created": "Çek/senet portföye alındı",
+    "cek_senet.durum": "Çek/senet durum değişikliği",
     "animal_quarantine.opened": "Karantina açıldı",
     "animal_quarantine.closed": "Karantina kapatıldı",
 }
@@ -253,6 +258,9 @@ RESOURCE_TYPES: frozenset[str] = frozenset(
         # taslak izini ödeme izinden ayırt edilebilir kılar — panel geldiğinde
         # geçmiş kayıtların tipi DEĞİŞMEK zorunda kalmaz.
         "whatsapp_pending",
+        # Çek/senet portföy satırı (CS1, göç 20260914_0085). Kaynak KİMLİĞİ
+        # `cek_senetler.id`, okuma yüzeyi `GET /api/cek-senetler/{id}`.
+        "cek_senet",
         # Outbox olayı (açılış koşulu 3). Kaynak KİMLİĞİ olay satırının
         # id'sidir; panelin kaynak bağlantısı okuma yüzeyine (`GET
         # /api/field-integration-events`) karşılık gelir.

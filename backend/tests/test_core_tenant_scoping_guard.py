@@ -1988,9 +1988,23 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # `activity_logs` ve `invoices` — ikisinin de depoda Core `Table` nesnesi
 # yoktu; panel yalniz okudugu sutunlarla ayri bir metadata uzerinde tanimliyor
 # ve Python adini tablo adiyla AYNI tuttu ki bu kapi onlari GORSUN.
-BEKLENEN_CORE_IFADE_SAYISI = 159
+# 159 -> 167: CS1 CEK/SENET PORTFOYU (goc 20260914_0085; #122 sonrasi
+# rebase, TABAN develop `2e35393`). SEKIZ ifade, TEK
+# dosya (`app/routers/cek_senetler.py`), HICBIRI lisans istemedi: her biri
+# `<tablo>.c.company_id == cid` yuklemini ACIKCA tasir ya da INSERT'te
+# `company_id=cid` degerini acik anahtarla yazar. UC tablo Core uzerinden
+# ILK KEZ gorunuyor: `cek_senetler` (yeni kiraci tablosu), `customers` ve
+# `suppliers` (bu ikisi bugune kadar yalniz text() ile okunuyordu; burada
+# taraf dogrulamasi `id == :x AND company_id == cid` ile Core'a gecti).
+# Durum UPDATE'i `**degerler` yayilimi yerine ACIK SUTUN KUMESIYLE yazildi —
+# yayilim kapida "cozulemiyor" ihlali uretiyordu (olculdu).
+BEKLENEN_CORE_IFADE_SAYISI = 167
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
+    # CS1 (goc 20260914_0085): portfoy defteri ve iki taraf dogrulamasi.
+    "cek_senetler",
+    "customers",
+    "suppliers",
     # PP1 platform yonetim paneli: ikisi de YALNIZ lisansli platform
     # okumalarinda (sayi/damga), baska hicbir Core ifadesinde degil.
     "activity_logs",
