@@ -175,14 +175,29 @@ const statusFallback=(error:AxiosError):string=>{
 // aynı okunabilir metinle DEĞİŞTİRİR: sayfaların yaygın
 // `setError(e.response?.data?.detail||'...')` deseni ham diziyi React child
 // olarak render edip uygulamayı çökertiyordu (React #31).
+// Kodlu gövde (`{code, message, ...}`) metne çevrilmeden önce `apiDetail`
+// olarak hatanın üstünde saklanır; koda göre dallanan sayfalar (Login
+// EMAIL_VERIFICATION_REQUIRED, POS AMBIGUOUS_BARCODE) onu buradan okur.
 export const unwrapApiError=(error:unknown):unknown=>{
  if(axios.isAxiosError(error)){
   const message=errorDetail(error,statusFallback(error));
   error.message=message;
   const data=error.response?.data as {detail?:unknown}|undefined;
+  if(isCodedDetail(data?.detail))(error as {apiDetail?:unknown}).apiDetail=data.detail;
   if(data&&data.detail!==undefined&&typeof data.detail!=='string')data.detail=message;
  }
  return error;
+};
+
+type CodedDetail={code?:string;[key:string]:unknown};
+const isCodedDetail=(value:unknown):value is CodedDetail=>Boolean(value)&&typeof value==='object'&&!Array.isArray(value);
+
+// Hatanın yapısal gövdesi: interceptor'dan geçmişse `apiDetail`, geçmemişse
+// (ham yanıt) `response.data.detail` nesnesi; metin/dizi detail'de undefined.
+export const apiDetail=(err:unknown):CodedDetail|undefined=>{
+ const error=err as {apiDetail?:unknown;response?:{data?:{detail?:unknown}}}|undefined;
+ const detail=error?.apiDetail??error?.response?.data?.detail;
+ return isCodedDetail(detail)?detail:undefined;
 };
 
 export const api=axios.create({baseURL:API_BASE_URL,timeout:15000,withCredentials:true});

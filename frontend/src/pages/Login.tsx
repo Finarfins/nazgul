@@ -2,7 +2,7 @@ import React,{useState} from 'react';
 import {Alert,Box,Button,Card,CardContent,CircularProgress,Link,Stack,TextField,Typography} from '@mui/material';
 import {Link as RouterLink,useNavigate} from 'react-router-dom';
 import {useAuth} from '../AuthContext';
-import {errorDetail} from '../api';
+import {apiDetail,errorDetail} from '../api';
 
 export default function Login(){
  const [username,setUsername]=useState('');
@@ -17,8 +17,7 @@ export default function Login(){
    const mustChange=await login(username,password);
    navigate(mustChange?'/sifre-degistir':'/');
   }catch(err:any){
-   const code=err?.response?.data?.detail?.code;
-   setError(code==='EMAIL_VERIFICATION_REQUIRED'
+   setError(apiDetail(err)?.code==='EMAIL_VERIFICATION_REQUIRED'
     ?'Giriş yapmadan önce e-posta adresinizi doğrulayın.'
     :errorDetail(err,'Giriş başarısız'));
   }finally{setBusy(false)}
