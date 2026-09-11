@@ -263,9 +263,10 @@ def _bakim_ve_gunluk(url: str) -> tuple[dict, int]:
                 ).mappings().one()
             )
             gunluk = baglanti.execute(
+                # H32: kurtarma olayı firmasız denetim satırıdır.
                 text(
-                    "SELECT count(*) FROM activity_logs"
-                    " WHERE action_type='backup.maintenance_recovered'"
+                    "SELECT count(*) FROM security_audit_logs"
+                    " WHERE action='platform.mt_recover' AND company_id IS NULL"
                 )
             ).scalar_one()
     finally:

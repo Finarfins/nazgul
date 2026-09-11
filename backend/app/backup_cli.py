@@ -7,9 +7,6 @@ import os
 import socket
 import sys
 
-import sqlalchemy as sa
-
-from .activity_log import log_activity
 from .backup_errors import BackupError
 from .config import settings
 from .database_backup import (
@@ -29,6 +26,7 @@ from .maintenance import (
     operation_lock,
     set_maintenance,
 )
+from .platform_denetim import platform_olayi_yaz
 from .restore_journal import safe_append_restore_journal
 
 
@@ -178,30 +176,24 @@ def _caller_identity() -> dict[str, object]:
 
 
 def _force_clear_activity(operation_id: str, details: dict[str, object]) -> None:
+    # Platform olayı: firmasız denetim satırı (H32; gerekçe
+    # ``app/platform_denetim.py``). CLI'ın uygulama kullanıcısı yoktur; çağıran
+    # kimliği özette, tamamı (gerekçe dahil) journal kaydındadır.
+    caller = details.get("caller") or {}
+    kimlik = f"{caller.get('os_user')}@{caller.get('hostname')}:{caller.get('pid')}"
+    if caller.get("operator_id"):
+        kimlik += f" operator_id={caller['operator_id']}"
     try:
-        with engine.begin() as connection:
-            inspector = sa.inspect(connection)
-            if not inspector.has_table("activity_logs") or not inspector.has_table("companies"):
-                raise RuntimeError("activity_logs veya companies tablosu yok")
-            company_id = connection.execute(
-                sa.text("SELECT id FROM companies ORDER BY id LIMIT 1")
-            ).scalar_one_or_none()
-            if company_id is None:
-                raise RuntimeError("activity audit için şirket kaydı yok")
-            log_activity(
-                connection,
-                int(company_id),
-                None,
-                "backup.maintenance_force_cleared",
-                "backup",
-                None,
-                "Platform bakım durumu operatör tarafından zorla temizlendi",
-                details,
-                correlation_id=operation_id,
-            )
+        platform_olayi_yaz(
+            None,
+            "backup.maintenance_force_cleared",
+            f"Platform bakım durumu operatör tarafından zorla temizlendi; "
+            f"islem={operation_id}; cli={kimlik}; gerekce={details.get('reason')}",
+            sistem=True,
+        )
     except Exception as exc:
         print(
-            f"UYARI: force-clear activity audit yazılamadı; journal kaydı korundu: {exc}",
+            f"UYARI: force-clear platform denetim satırı yazılamadı; journal kaydı korundu: {exc}",
             file=sys.stderr,
         )
 

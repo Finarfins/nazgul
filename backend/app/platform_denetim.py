@@ -28,6 +28,17 @@ kimliği çözülmüş bir operatörün eylemidir ve kısıtın hayal ettiği "k
 11 kalır. Bu yüzden olay adları KISA bir kataloğa eşlenir; uzun ad (ör.
 ``backup.restore_rollback_completed``) ``failure_reason`` içinde ``olay=``
 olarak durur. Katalog dışı olay ``ValueError`` ile reddedilir.
+
+SİSTEM AKTÖRÜ (H32). Bakım kurtarması (``maintenance._record_recovery``) ve
+CLI zorla temizleme (``backup_cli._force_clear_activity``) HTTP isteği ve
+uygulama kullanıcısı OLMADAN koşar. Onlar için sahte bir kullanıcı eşlemesi
+(``{"id": 0}``) uydurulmaz — ``aktor=0`` var olmayan bir kullanıcıyı işaret
+ederdi. Bunun yerine AÇIK bir yol vardır: ``platform_olayi_yaz(None, ...,
+sistem=True)`` ve ``failure_reason``da ``aktor=sistem`` yazılır. İstek ile
+bayrak birbirini dışlar: isteksiz ama bayraksız çağrı ``ValueError`` alır,
+yani aktörsüz bir platform satırı ancak BİLEREK yazılabilir. H32 öncesi bu iki
+yazıcı olayı ``SELECT id FROM companies ORDER BY id LIMIT 1`` ile İLK
+kiracının ``activity_logs``una yazıyordu (#122 mercegi, develop 50b0dba).
 """
 from __future__ import annotations
 
@@ -53,6 +64,9 @@ PLATFORM_OLAYLARI: dict[str, str] = {
     "backup.restore_rollback_completed": "platform.rb_done",
     "backup.restore_rollback_failed": "platform.rb_fail",
     "company.restored": "platform.tn_restore",
+    # H32: istek dışı yazıcılar (bakım kurtarması, CLI zorla temizleme).
+    "backup.maintenance_recovered": "platform.mt_recover",
+    "backup.maintenance_force_cleared": "platform.mt_force",
     # PP2 yönetim eylemleri (``routers/platform_management.py``).
     "company.activated": "platform.co_activate",
     "company.deactivated": "platform.co_deact",
@@ -63,6 +77,9 @@ PLATFORM_OLAYLARI: dict[str, str] = {
     "outbox.retried": "platform.ob_retry",
 }
 
+#: İstek dışı (sistem/CLI) yazıcının ``failure_reason``daki aktör notu.
+SISTEM_AKTOR_NOTU = "aktor=sistem"
+
 
 def aktor_notu(kullanici: Mapping[str, Any] | None) -> str | None:
     """Firmasız satırda kimliğin taşındığı biçim: ``aktor=<id>``."""
@@ -72,13 +89,23 @@ def aktor_notu(kullanici: Mapping[str, Any] | None) -> str | None:
 
 
 def platform_olayi_yaz(
-    request: Any, olay: str, ozet: str, *, status_code: int | None = None
+    request: Any | None,
+    olay: str,
+    ozet: str,
+    *,
+    status_code: int | None = None,
+    sistem: bool = False,
 ) -> None:
     """Platform olayını firmasız denetim satırı olarak yazar.
+
+    ``sistem=True`` yalnız ``request=None`` ile geçerlidir (modül notu,
+    "SİSTEM AKTÖRÜ").
 
     Yazım HATASI YUTULMAZ: çağıran karar verir (``platform_backups._safe_log``
     geri yükleme sonrası yutar; olayın asıl kalıcı izi orada dış günlüktür).
     """
+    if sistem != (request is None):
+        raise ValueError("platform olayı: sistem=True yalnız request=None ile verilir")
     eylem = PLATFORM_OLAYLARI.get(olay)
     # Başarısız olay "success" yazılmaz: ``outcome`` okuyanın ilk süzgecidir.
     # Durum kodu verilmezse olayın kendisinden türer: bu uçlarda başarısız
@@ -93,7 +120,8 @@ def platform_olayi_yaz(
     kullanici = getattr(state, "user", None)
     istemci = getattr(request, "client", None)
     basliklar = getattr(request, "headers", None) or {}
-    parcalar = [p for p in (aktor_notu(kullanici), f"olay={olay}") if p]
+    aktor = SISTEM_AKTOR_NOTU if sistem else aktor_notu(kullanici)
+    parcalar = [p for p in (aktor, f"olay={olay}") if p]
     not_metni = "; ".join(parcalar) + f" | {ozet}"
     # ``company_id`` AÇIKÇA ``None`` — kiracı kapsam kapısında
     # (`tests/test_core_tenant_scoping_guard.py::CEKIRDEK_KIRACI_ISTISNALARI`)
