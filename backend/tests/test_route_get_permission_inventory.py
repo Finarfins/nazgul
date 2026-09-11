@@ -285,6 +285,11 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     # erisim anahtari. Hemen ustteki `.../einvoice/download` ZATEN `sales`ti;
     # `status`un `read`te kalmasi o kuralla ACIKCA tutarsizdi.
     ("GET", "/api/invoices/{invoice_id}/einvoice/status"): "sales",
+    # E4b-1 KISMI SEVK (goc 20260915_0087): faturanin sevk edilebilir kalemleri.
+    # YENI KURAL YAZILMADI — izin SEC-3'un `/api/invoices` guvenli-metot
+    # kuralindan geliyor ve OLCULDU ("sales", irsaliye ailesiyle AYNI): satirlar
+    # fatura kalemi adlarini ve miktarlarini tasiyor, `depo`/`rapor`a kapali.
+    ("GET", "/api/invoices/{invoice_id}/despatchable-items"): "sales",
     # `/history` `SELECT * FROM invoice_history` yapiyor: actor_username,
     # ip_address, reason. Bir DENETIM yuzeyi oldugu icin `users` de savunulur
     # (`auth.py` `/api/audit` ve `/api/history`yi oraya bagliyor); karar `sales`
@@ -579,7 +584,10 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # CS1 (ÇEK/SENET PORTFÖYÜ, göç 20260914_0085): sayım 197 -> 199 (TABAN `2e35393`). İKİ yeni GET,
 # ikisi de "payments"; hiçbir mevcut ucun izni DEĞİŞMEDİ (drift raporu
 # OLCULDU: yalnız `missing`, `stale`/`changed` BOŞ).
-GET_INVENTORY_COUNT = 199
+# E4b-1 (KISMI SEVK, goc 20260915_0087): sayim 199 -> 200 (TABAN `697a3be`). BIR
+# yeni GET, "sales"; hicbir mevcut ucun izni DEGISMEDI (drift raporu OLCULDU:
+# yalniz `missing`, `stale`/`changed` BOS).
+GET_INVENTORY_COUNT = 200
 GET_INVENTORY_FINGERPRINT = (
     # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
     # sonra `auth.py`ye `/api/push/` önek kuralı eklendi, sonra izin
@@ -626,7 +634,10 @@ GET_INVENTORY_FINGERPRINT = (
     # CS1 (göç 20260914_0085): iki çek/senet GET'i. Sıra: uçlar yazıldı, izin
     # kural YAZILMADAN ölçüldü ("read"), `auth.py`ye önek kuralı eklendi,
     # yeniden ölçüldü ("payments"), envantere girdi. 7bd73197 -> ab2cf865 (TABAN `2e35393`).
-    "ab2cf86532c2f7686e91f9a99cc3dc4b1c571d95a41b0727b57d8a2f316877af"
+    # E4b-1 (goc 20260915_0087): faturanin sevk edilebilir kalemleri. Sira: uc
+    # yazildi, izin kural YAZILMADAN olculdu ("sales", SEC-3 `/api/invoices`
+    # kuralindan), envantere girdi, EN SON parmak izi. ab2cf865 -> 088b3c51 (TABAN `697a3be`).
+    "088b3c51e7edf5c0d21e3a65a7a12a726e321d6d1cb33e80fcc4db83fd5aa10e"
 )
 
 

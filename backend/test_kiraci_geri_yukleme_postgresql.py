@@ -81,6 +81,12 @@ def test_pg_yuvarlak_yolculuk_gercek_fklarla(hazir) -> None:
     assert sorted(t for t, n in manifest.items() if n == 0) == sorted(ikiz.BOS_KABUL)
 
 
+def test_pg_sevk_satirlari_uc_referansla_yeniden_eslendi(hazir) -> None:
+    """E4b-1 (göç 20260915_0087): SQLite ikiziyle AYNI iddia, GERÇEK bileşik
+    FK altında — yanlış eşlenen `despatch_id` burada 500 olurdu."""
+    _sqlite_ikizi().test_sevk_satirlari_uc_referansla_yeniden_eslendi(hazir)
+
+
 def test_pg_enjekte_hata_hicbir_sey_birakmaz(hazir) -> None:
     assert hazir["enjekte_status"] == 500
     assert hazir["enjekte_sonrasi"] == hazir["imha_sonrasi_a"]

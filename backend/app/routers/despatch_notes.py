@@ -52,14 +52,29 @@ bile YAZMALAR kendi yüklemlerini AYRICA taşır. İki koruma aynı şeyi
 ölçmüyor: biri "satır senin mi", öteki "yazma senin satırına mı gitti"
 (0080'in `_sahip_mi` kaydıyla ve `einvoice_sync`in yorumuyla AYNI gerekçe).
 
---- E4b İÇİN BIRAKILAN DİKİŞLER ------------------------------------------
+--- E4b-1 KISMİ SEVK (göç `20260915_0087`) --------------------------------
 
-Sorgular faturaya `despatch_id` üzerinden DEĞİL, irsaliyeden faturaya
-`invoice_id` ile bakıyor ve HİÇBİR yerde "bu faturanın TEK irsaliyesi"
-varsayan bir JOIN yok: `_irsaliye` satırı kendi kimliğiyle çözüyor,
-liste ucu irsaliyeleri kendi tablosundan sayfalıyor. Kısmi sevk geldiğinde
-değişecek tek şey göçteki `UNIQUE(company_id, invoice_id)` kısıtı ve
-`POST /api/despatch-notes`in 409 dalıdır.
+E4a'nın bıraktığı iki dikiş söküldü: göçteki `UNIQUE(company_id,
+invoice_id)` düştü ve `POST /api/despatch-notes`in "zaten var" 409 dalı
+KALKTI (kısıt yokken o dal ölü kod olurdu). Yerine:
+
+* Her irsaliye KENDİ satırlarını `despatch_lines`ta taşır; UBL satırları
+  artık fatura kalemlerinden değil O defterden üretilir.
+* Kural (keşif §2): bir fatura kalemi için sevk edilen TOPLAM faturalanan
+  miktarı aşamaz. Aşan istek 422 `SEVK_MIKTAR_ASIMI`; her kalemin kalanı
+  sıfırsa 409 `IRSALIYE_TAMAMLANDI` (istek geçerli, çakışan şey KAYNAĞIN
+  DURUMU — E4a'nın 409 gerekçesiyle aynı).
+* Hizmet kalemleri (`item_type='LABOR'`) sevk satırı OLAMAZ (Şef kararı):
+  gövdesiz istek onları atlar, gövdede adı geçen bir LABOR kalemi 422
+  `HIZMET_SATIRI_SEVK_EDILMEZ`.
+* HAKEM FATURANIN SATIR KİLİDİDİR: kalan miktar okunmadan ÖNCE fatura
+  satırına boş bir UPDATE atılır (`_faturayi_kilitle`). İki eşzamanlı
+  kısmi sevk aynı kalanı okuyup İKİSİ DE yazamasın diye — bir SUM kısıtı
+  şemada ifade edilemez, kilit edilebilir.
+
+YENİ KOD CORE İLE YAZILDI (`app/despatch_schema.py`); E4a'nın sabit metinli
+`text()` sorguları olduğu gibi duruyor ve kiracı yüklemlerini taşımaya
+devam ediyor.
 """
 
 from __future__ import annotations
@@ -68,17 +83,19 @@ import json
 import logging
 import uuid as uuid_modulu
 from datetime import date, datetime, timezone
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func, insert, select, text, update
 from sqlalchemy.orm import Session
 
 from ..auth import utcnow
 from ..config import settings
 from ..db import get_db
+from ..despatch_schema import despatch_lines, despatch_notes, invoice_items, invoices
+from ..document_engine import next_sequence_value
 from ..einvoice import UblBuildError, einvoice_configuration, get_einvoice_provider
 from ..einvoice import edespatch
 from ..einvoice.endpoints import IZIBIZ_EDESPATCH_PDF_UNVERIFIED
@@ -87,6 +104,11 @@ from ..tenancy import company_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/despatch-notes", tags=["despatch-notes"])
+#: `GET /api/invoices/{id}/despatchable-items`. Ayrı bir yönlendirici çünkü
+#: yol fatura ailesinde; izni `app/auth.py`nin SEC-3 kuralından gelir
+#: (`/api/invoices` altındaki her güvenli metot `sales`) — irsaliye uçlarıyla
+#: AYNI izin, yeni bir kural yazmadan.
+fatura_router = APIRouter(prefix="/invoices", tags=["despatch-notes"])
 
 #: Yanıt gövdesinde görünen sütunlar. `SELECT *` DEĞİL ve bu bilinçli:
 #: yıldızlı bir okuma, göçle eklenecek her sütunu istemciye sessizce
@@ -120,26 +142,28 @@ GORUNEN_ALANLAR = (
 EBELGE_YAPILANDIRILMAMIS = "e-Belge entegrasyonu yapılandırılmamış"
 IRSALIYE_YOK = "İrsaliye bulunamadı"
 FATURA_YOK = "Fatura bulunamadı"
-#: E4a'nın "bir fatura bir irsaliye" kuralı. 409, 400 DEĞİL: istek
-#: GEÇERLİDİR, çakışan şey KAYNAĞIN MEVCUT DURUMUDUR.
-IRSALIYE_ZATEN_VAR = "Bu faturanın e-İrsaliyesi zaten var"
 INDIRME_FORMATLARI = ("xml", "pdf")
-#: "Bir fatura bir irsaliye" ihlalinin İMZALARI. 409'u YALNIZ bu ihlal
-#: için veriyoruz; gerekçe `irsaliye_olustur`un `except` dalında.
+
+#: Sevk satırı OLAMAYAN kalem türü (keşif §2, Şef kararı). Göç 0087'nin
+#: `HIZMET_TURU` sabitiyle AYNI değer.
+HIZMET_TURU = "LABOR"
+#: Miktar ölçeği — `despatch_lines.quantity` ve `invoice_items.quantity`
+#: ikisi de Numeric(18, 4). Karşılaştırma bu ölçekte yapılır; SQLite'ın
+#: REAL depolaması `0.1 + 0.2` gibi toplamlarda ikili kalıntı bırakırdı.
+MIKTAR_OLCEGI = Decimal("0.0001")
+
+#: Kısmi sevkin adı konmuş hataları. Gövde `{"code", "message", ...}`
+#: (`routers/avans.py`nin `MAKBUZ_*` biçimi); istemci metne değil KODA bakar.
 #:
-#: İKİ İMZA, ÇÜNKÜ İKİ DİYALEKT İKİ FARKLI ŞEY SÖYLÜYOR — ölçüldü:
-#:   PostgreSQL: `... violates unique constraint
-#:               "uq_despatch_notes_company_invoice"`   (KISIT ADI)
-#:   SQLite:     `UNIQUE constraint failed:
-#:               despatch_notes.company_id, despatch_notes.invoice_id`
-#:                                                       (SÜTUN ADLARI)
-#: Yalnız kısıt adına bakan bir kontrol SQLite'ta HİÇ eşleşmez ve gerçek
-#: bir çakışma 500 olarak kaçardı; yalnız sütunlara bakan bir kontrol de
-#: PG'de eşleşmezdi.
-FATURA_TEKIL_IMZALARI = (
-    "uq_despatch_notes_company_invoice",
-    "despatch_notes.company_id, despatch_notes.invoice_id",
-)
+#: 409 vs 422 ayrımı E4a'nın ölçüsüyle aynı: 409 isteğin GEÇERLİ olduğu ama
+#: kaynağın durumunun izin vermediği hâl (fatura tamamen sevk edildi); 422
+#: isteğin KENDİSİNİN kurala aykırı olduğu hâl (fazla miktar, hizmet satırı).
+IRSALIYE_TAMAMLANDI = "IRSALIYE_TAMAMLANDI"
+SEVK_MIKTAR_ASIMI = "SEVK_MIKTAR_ASIMI"
+HIZMET_SATIRI_SEVK_EDILMEZ = "HIZMET_SATIRI_SEVK_EDILMEZ"
+SEVK_KALEMI_YOK = "SEVK_KALEMI_YOK"
+FATURA_KALEMI_YOK = "FATURA_KALEMI_YOK"
+SEVK_SATIRI_TEKRAR = "SEVK_SATIRI_TEKRAR"
 
 #: `UNKNOWN` durumundaki bir belge yeniden GÖNDERİLMEZ; önce sorulur.
 #: Cümle uca özeldir çünkü operatörün yapacağı iş burada BELLİDİR.
@@ -150,6 +174,18 @@ GONDERIM_KAPALI_MESAJI = {
     ),
 }
 GONDERIM_KAPALI_VARSAYILAN = "İrsaliye zaten gönderilmiş; durumu: {durum}"
+
+
+class SevkSatiri(BaseModel):
+    """Kısmi sevkin bir satırı: HANGİ fatura kaleminden NE KADAR.
+
+    Ölçek Numeric(18, 4) ile AYNI: dört haneden fazla kesir PG'de sessizce
+    yuvarlanır, SQLite'ta olduğu gibi kalırdı — iki diyalekt iki farklı
+    kalan hesaplardı. Reddetmek ikisini eşitler.
+    """
+
+    invoice_item_id: int
+    quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=4)
 
 
 class IrsaliyeOlustur(BaseModel):
@@ -177,6 +213,10 @@ class IrsaliyeOlustur(BaseModel):
     delivery_postal_code: str = Field(min_length=4, max_length=10)
     delivery_customer_id: int | None = None
     despatch_number: str | None = Field(default=None, max_length=40)
+    #: YOK -> faturanın LABOR olmayan HER kaleminin KALANI (E4a'nın düz
+    #: sevki, eksi hizmet). VAR -> yalnız listelenen kalemler, verilen
+    #: miktarla. Boş liste bir anlam taşımaz, o yüzden 422.
+    lines: list[SevkSatiri] | None = Field(default=None, min_length=1, max_length=500)
 
 
 def _gorunum(satir: dict) -> dict:
@@ -222,7 +262,7 @@ def _fatura(db: Session, cid: int, fatura_id: int) -> dict:
     return dict(satir)
 
 
-def _belge_numarasi(fatura: dict, yil: int, verilen: str | None) -> str:
+def _belge_numarasi(db: Session, cid: int, yil: int, verilen: str | None) -> str:
     """İrsaliye belge numarası — GİB BİÇİMİNDE (3 harf + yıl + 9 hane).
 
     BİÇİM SANDBOX'TA ÖLÇÜLDÜ, VARSAYILMADI. İlk yazımda değer faturanın
@@ -232,12 +272,21 @@ def _belge_numarasi(fatura: dict, yil: int, verilen: str | None) -> str:
     elemanı 'ABC2009123456789' formatında olmalıdır."` Yani okunabilirlik
     bir biçim kuralının yerine geçmiyor.
 
-    SIRA FATURA KİMLİĞİNDEN geliyor ve bu tekilliği BEDAVA veriyor:
-    `invoices.id` kürsel bir birincil anahtardır ve göçteki
-    `UNIQUE(company_id, invoice_id)` bir faturaya ikinci irsaliye
-    açılmasını zaten engeller — yani (yıl, sıra) çifti tekrar edemez.
-    Ayrı bir sayaç (`document_sequences`) E4b'nin işi: kısmi sevkte bir
-    faturanın BİRDEN ÇOK irsaliyesi olacak ve o gün türetme yetmeyecek.
+    SIRA ARTIK SAYAÇTAN GELİYOR (E4b-1). E4a sırayı FATURA KİMLİĞİNDEN
+    türetiyordu ve tekilliği `UNIQUE(company_id, invoice_id)`den bedava
+    alıyordu; göç 0087 o kısıtı düşürdü ve bir faturanın ikinci irsaliyesi
+    AYNI numarayı alırdı. Kaynak `document_sequences`tır (ikinci bir sayaç
+    tablosu DEĞİL), anahtar `despatch_notes:IRS<yıl>` — yıl anahtarda,
+    çünkü GİB numarası yılı taşır ve her yıl kendi sırasıdır.
+
+    TOHUM, VERİLMİŞ NUMARALARIN EN BÜYÜĞÜ: sayaç satırı ilk kez doğarken
+    firmanın o yıl verdiği en büyük numaranın sırasından başlar. E4a'nın
+    fatura kimliğinden türettiği numaralar (ör. `IRS2026000000042`) ve
+    operatörün elle verdikleri böylece ÇAKIŞMAZ. Aynı desen sabit 16
+    karakter olduğu için metin MAX'ı sayısal MAX'la aynıdır. Sayaç ilk
+    değerden sonra yine de alınmış bir numaraya denk gelirse (sonradan elle
+    verilmiş bir numara) bir sonrakine geçilir — `next_document_no`nun
+    döngüsüyle aynı.
 
     Operatörün verdiği değer de AYNI desenden geçer — geçmezse 400. Kendi
     numarasını veren biri onu geçerli bir belge sanmamalı.
@@ -251,20 +300,206 @@ def _belge_numarasi(fatura: dict, yil: int, verilen: str | None) -> str:
                 "9 hane (örn. IRS2026000000001)",
             )
         return elle
-    return edespatch.belge_numarasi_uret(yil, int(fatura["id"]))
+    onek = f"{edespatch.BELGE_SERI_ONEKI}{int(yil):04d}"
+    en_buyuk = db.execute(
+        select(func.max(despatch_notes.c.despatch_number))
+        .select_from(despatch_notes)
+        .where(
+            despatch_notes.c.company_id == cid,
+            despatch_notes.c.despatch_number.like(onek + "%"),
+        )
+    ).scalar()
+    tohum = (
+        int(en_buyuk[len(onek):])
+        if en_buyuk and edespatch.GIB_BELGE_NO_DESENI.match(en_buyuk)
+        else 0
+    )
+    for _ in range(1000):
+        sira = next_sequence_value(db, "despatch_notes", cid, onek, tohum)
+        numara = edespatch.belge_numarasi_uret(yil, sira)
+        alinmis = db.execute(
+            select(despatch_notes.c.id).where(
+                despatch_notes.c.company_id == cid,
+                despatch_notes.c.despatch_number == numara,
+            )
+        ).first()
+        if not alinmis:
+            return numara
+    raise RuntimeError("İrsaliye numarası üretilemedi; sayaç olağandışı biçimde çakışıyor")
 
 
-def _satirlar(db: Session, cid: int, fatura_id: int) -> list[dict]:
-    """Fatura kalemleri — DÜZ SEVKTE irsaliye satırlarının BİREBİR kaynağı."""
+def _faturayi_kilitle(db: Session, cid: int, fatura_id: int) -> None:
+    """Faturanın satırını bu işlemin sonuna dek KİLİTLE — kalan hesabının hakemi.
+
+    Boş bir UPDATE (`updated_at = updated_at`): PostgreSQL'de satır kilidi
+    alır, SQLite'ta veritabanı yazma kilidini. İkisinde de eşzamanlı ikinci
+    bir kısmi sevk BURADA bekler ve kalan miktarı birincinin satırları
+    yazıldıktan SONRA okur. Kilit OKUMADAN ÖNCE alınmak zorunda: önce okuyup
+    sonra kilitlemek, iki isteğin aynı kalanı görmesine izin verirdi.
+    `SELECT ... FOR UPDATE` yerine UPDATE, çünkü SQLite `FOR UPDATE`i
+    sessizce yok sayar — kilit yalnız bir lehçede var olurdu.
+    """
+    db.execute(
+        update(invoices)
+        .where(invoices.c.id == fatura_id, invoices.c.company_id == cid)
+        .values(updated_at=invoices.c.updated_at)
+    )
+
+
+def _miktar(deger) -> Decimal:
+    return Decimal(str(deger if deger is not None else 0)).quantize(MIKTAR_OLCEGI)
+
+
+def _sevk_durumu(db: Session, cid: int, fatura_id: int) -> list[dict]:
+    """Faturanın HER kalemi: faturalanan, sevk edilen, kalan — kiracı kapsamında.
+
+    `sira` kalemin FATURA İÇİNDEKİ sırasıdır (kimlik sırasıyla 1..N, hizmet
+    kalemleri DAHİL) — UBL'deki `OrderLineReference/LineID` odur. Toplam
+    Python'da alınıyor, SQL `SUM`da DEĞİL: SQLite Numeric'i REAL olarak
+    toplar ve dört haneli ölçekte ikili kalıntı bırakır; tek tek okunan
+    değerler ise sütun tipinin ölçeğinde `Decimal` gelir.
+    """
+    kalemler = db.execute(
+        select(
+            invoice_items.c.id,
+            invoice_items.c.item_type,
+            invoice_items.c.description,
+            invoice_items.c.quantity,
+            invoice_items.c.source_snapshot,
+        )
+        .where(
+            invoice_items.c.company_id == cid,
+            invoice_items.c.invoice_id == fatura_id,
+        )
+        .order_by(invoice_items.c.id)
+    ).mappings().all()
+    sevk_edilen: dict[int, Decimal] = {}
+    if kalemler:
+        for satir in db.execute(
+            select(despatch_lines.c.invoice_item_id, despatch_lines.c.quantity).where(
+                despatch_lines.c.company_id == cid,
+                despatch_lines.c.invoice_item_id.in_([int(k["id"]) for k in kalemler]),
+            )
+        ).mappings():
+            anahtar = int(satir["invoice_item_id"])
+            sevk_edilen[anahtar] = sevk_edilen.get(anahtar, Decimal(0)) + _miktar(
+                satir["quantity"]
+            )
+    durum = []
+    for sira, kalem in enumerate(kalemler, start=1):
+        faturalanan = _miktar(kalem["quantity"])
+        gonderilen = sevk_edilen.get(int(kalem["id"]), Decimal(0)).quantize(MIKTAR_OLCEGI)
+        durum.append(
+            {
+                "id": int(kalem["id"]),
+                "sira": sira,
+                "item_type": str(kalem["item_type"] or "").upper(),
+                "description": kalem["description"],
+                "product_id": _urun_kimligi(kalem["source_snapshot"]),
+                "faturalanan": faturalanan,
+                "sevk_edilen": gonderilen,
+                "kalan": max(faturalanan - gonderilen, Decimal(0)).quantize(MIKTAR_OLCEGI),
+            }
+        )
+    return durum
+
+
+def _urun_kimligi(kaynak) -> int | None:
+    """Parça kalemi `work_order_parts` satırını (`product_id` dâhil)
+    `source_snapshot`a yazar (`invoice_service.generate_invoice`). Hizmet
+    kaleminde ürün yoktur; bozuk ya da eksik anlık görüntü `None` verir."""
+    try:
+        deger = json.loads(kaynak or "{}").get("product_id")
+    except (ValueError, AttributeError):
+        return None
+    return int(deger) if isinstance(deger, int) and not isinstance(deger, bool) else None
+
+
+def _hata(kod: int, code: str, mesaj: str, **ek) -> HTTPException:
+    return HTTPException(kod, {"code": code, "message": mesaj, **ek})
+
+
+def _tahsis(durum: list[dict], istek: list[SevkSatiri] | None) -> list[tuple[dict, Decimal]]:
+    """İstekten satır tahsisini kur ve kuralı uygula (keşif §2).
+
+    Sonuç FATURA SIRASIYLA döner — istek sırası değil: aynı tahsis her
+    zaman aynı satır numaralarını üretir.
+    """
+    mallar = [d for d in durum if d["item_type"] != HIZMET_TURU]
+    if not mallar:
+        raise _hata(422, SEVK_KALEMI_YOK, "Faturada sevk edilecek mal kalemi bulunmuyor")
+    if all(d["kalan"] <= 0 for d in mallar):
+        raise _hata(
+            409, IRSALIYE_TAMAMLANDI, "Faturanın bütün mal kalemleri sevk edildi"
+        )
+    if istek is None:
+        return [(d, d["kalan"]) for d in mallar if d["kalan"] > 0]
+
+    kimlikle = {d["id"]: d for d in durum}
+    istenen: dict[int, Decimal] = {}
+    for satir in istek:
+        kalem = kimlikle.get(int(satir.invoice_item_id))
+        if kalem is None:
+            # Başka faturanın ya da başka firmanın kalemi de BURAYA düşer:
+            # durum listesi zaten kiracı ve fatura kapsamında kuruldu.
+            raise _hata(
+                422, FATURA_KALEMI_YOK, "Kalem bu faturaya ait değil",
+                invoice_item_id=satir.invoice_item_id,
+            )
+        if kalem["id"] in istenen:
+            raise _hata(
+                422, SEVK_SATIRI_TEKRAR, "Aynı fatura kalemi bir irsaliyede iki kez yazılamaz",
+                invoice_item_id=kalem["id"],
+            )
+        if kalem["item_type"] == HIZMET_TURU:
+            raise _hata(
+                422, HIZMET_SATIRI_SEVK_EDILMEZ, "Hizmet kalemi e-İrsaliyeyle sevk edilmez",
+                invoice_item_id=kalem["id"],
+            )
+        miktar = Decimal(satir.quantity).quantize(MIKTAR_OLCEGI)
+        if miktar > kalem["kalan"]:
+            raise _hata(
+                422, SEVK_MIKTAR_ASIMI, "Sevk miktarı kalan miktarı aşıyor",
+                invoice_item_id=kalem["id"], remaining=str(kalem["kalan"]),
+                requested=str(miktar),
+            )
+        istenen[kalem["id"]] = miktar
+    return [(d, istenen[d["id"]]) for d in durum if d["id"] in istenen]
+
+
+def _irsaliye_satirlari(db: Session, cid: int, irsaliye_id: int) -> list[dict]:
     return [
         dict(x)
         for x in db.execute(
-            text(
-                "SELECT id, description, quantity FROM invoice_items "
-                "WHERE invoice_id=:id AND company_id=:cid ORDER BY id"
-            ),
-            {"id": fatura_id, "cid": cid},
+            select(
+                despatch_lines.c.line_no,
+                despatch_lines.c.invoice_item_id,
+                despatch_lines.c.product_id,
+                despatch_lines.c.item_name,
+                despatch_lines.c.quantity,
+                despatch_lines.c.unit_code,
+            )
+            .where(
+                despatch_lines.c.company_id == cid,
+                despatch_lines.c.despatch_id == irsaliye_id,
+            )
+            .order_by(despatch_lines.c.line_no)
         ).mappings().all()
+    ]
+
+
+def _satir_gorunumu(satirlar: list[dict]) -> list[dict]:
+    """Miktar METİN — `float` yok (`test_v2_9_decimal_contract`)."""
+    return [
+        {
+            "line_no": int(s["line_no"]),
+            "invoice_item_id": int(s["invoice_item_id"]),
+            "product_id": s["product_id"],
+            "item_name": s["item_name"],
+            "quantity": str(_miktar(s["quantity"])),
+            "unit_code": s["unit_code"],
+        }
+        for s in satirlar
     ]
 
 
@@ -280,9 +515,16 @@ def _ubl_payload(db: Session, cid: int, irsaliye: dict) -> dict:
     fatura = _fatura(db, cid, int(irsaliye["invoice_id"]))
     musteri = json.loads(fatura.get("customer_snapshot") or "{}")
     firma = json.loads(fatura.get("company_snapshot") or "{}")
-    kalemler = _satirlar(db, cid, int(irsaliye["invoice_id"]))
-    if not kalemler:
-        raise UblBuildError("Faturada kalem yok; irsaliye üretilemez")
+    # KAYNAK İRSALİYENİN KENDİ SATIRLARI (E4b-1), fatura kalemleri DEĞİL:
+    # kısmi sevkte ikisi farklıdır. Göç 0087 eski irsaliyeleri de geri
+    # doldurdu, yani satırsız bir irsaliye yalnız mal kalemi hiç olmayan
+    # (geri doldurmanın `satirsiz_irsaliye` saydığı) eski bir kayıttır.
+    satirlar = _irsaliye_satirlari(db, cid, int(irsaliye["id"]))
+    if not satirlar:
+        raise UblBuildError("İrsaliyenin sevk satırı yok; irsaliye üretilemez")
+    fatura_sirasi = {
+        d["id"]: d["sira"] for d in _sevk_durumu(db, cid, int(irsaliye["invoice_id"]))
+    }
 
     if irsaliye.get("delivery_customer_id"):
         # Teslim tarafı faturadan FARKLI. Adı canlı tablodan okunuyor
@@ -325,15 +567,17 @@ def _ubl_payload(db: Session, cid: int, irsaliye: dict) -> dict:
         },
         "lines": [
             {
-                "id": sira,
-                "name": kalem.get("description"),
-                # DÜZ SEVK: miktar faturadakinin BİREBİR aynısı ve
-                # `Decimal` olarak taşınıyor — `edespatch._miktar` `float`u
-                # REDDEDER, çünkü yuvarlanmış bir miktar iki belgenin
-                # eşitliğini bozardı ve E4a'nın TEK iddiası o eşitliktir.
-                "quantity": kalem.get("quantity"),
+                "id": int(satir["line_no"]),
+                "name": satir["item_name"],
+                # Miktar SEVK SATIRININ miktarı ve `Decimal` olarak
+                # taşınıyor — `edespatch._miktar` `float`u REDDEDER, çünkü
+                # yuvarlanmış bir miktar sevk edileni faturalanandan
+                # ayırırdı.
+                "quantity": _miktar(satir["quantity"]),
+                "unit_code": satir["unit_code"],
+                "order_line_id": fatura_sirasi.get(int(satir["invoice_item_id"])),
             }
-            for sira, kalem in enumerate(kalemler, start=1)
+            for satir in satirlar
         ],
     }
 
@@ -381,6 +625,10 @@ def irsaliye_olustur(payload: IrsaliyeOlustur, request: Request, db: Session = D
         if not var_mi:
             raise HTTPException(404, "Teslim müşterisi bulunamadı")
 
+    # KİLİT, KALAN OKUNMADAN ÖNCE — gerekçe `_faturayi_kilitle`de.
+    _faturayi_kilitle(db, cid, payload.invoice_id)
+    tahsis = _tahsis(_sevk_durumu(db, cid, payload.invoice_id), payload.lines)
+
     simdi = utcnow()
     sevk_ani = payload.actual_shipment_at
     if sevk_ani.tzinfo is None:
@@ -395,7 +643,7 @@ def irsaliye_olustur(payload: IrsaliyeOlustur, request: Request, db: Session = D
         # boyunca DEĞİŞMEZ; çift belgeye karşı ilk savunma.
         "despatch_uuid": str(uuid_modulu.uuid4()),
         "despatch_number": _belge_numarasi(
-            fatura, (payload.issue_date or simdi.date()).year, payload.despatch_number
+            db, cid, (payload.issue_date or simdi.date()).year, payload.despatch_number
         ),
         "issue_date": payload.issue_date or simdi.date(),
         "actual_shipment_at": sevk_ani,
@@ -411,8 +659,14 @@ def irsaliye_olustur(payload: IrsaliyeOlustur, request: Request, db: Session = D
         "status": edespatch.NONE,
         "now": simdi,
     }
-    try:
-        yeni_id = db.execute(
+    # `IntegrityError` YAKALANMIYOR. E4a burada `UNIQUE(company_id,
+    # invoice_id)` ihlalini 409 "zaten var"a çeviriyordu; göç 0087 o kısıtı
+    # düşürdü ve "fatura tamamlandı" artık yukarıda, kilit altında, adıyla
+    # veriliyor. Kalan her ihlal (ör. unutulmuş bir NOT NULL) bir KUSURDUR
+    # ve 500 olarak görünmeli — E4a'nın ölçtüğü ders: tanımadığımız bir
+    # ihlali 409'a çevirmek operatörü var olmayan bir kaydı aramaya gönderir.
+    yeni_id = int(
+        db.execute(
             text(
                 "INSERT INTO despatch_notes(company_id,invoice_id,despatch_uuid,despatch_number,"
                 "issue_date,actual_shipment_at,carrier_name,carrier_tax_number,driver_name,"
@@ -427,31 +681,28 @@ def irsaliye_olustur(payload: IrsaliyeOlustur, request: Request, db: Session = D
             ),
             parametreler,
         ).scalar_one()
-    except IntegrityError as exc:
-        # HAKEM VERİTABANIDIR, ÖN SORGU DEĞİL. İki eşzamanlı POST'ta bir
-        # `SELECT ... WHERE invoice_id=?` kontrolü İKİSİNİ DE geçirir ve
-        # aynı faturaya iki irsaliye açılırdı. `UNIQUE(company_id,
-        # invoice_id)` ikinciyi reddeder ve burada 409'a çevrilir.
-        #
-        # KISIT ADIYLA AYIRT EDİLİYOR — ve bu bir titizlik değil, ÖLÇÜLMÜŞ
-        # bir kusurun düzeltmesi: önce HER `IntegrityError` 409 "zaten var"
-        # oluyordu ve `delivery_postal_code` NOT NULL eklendiğinde INSERT'in
-        # sütun listesine yazılmayı unutunca kullanıcı "Bu faturanın
-        # e-İrsaliyesi zaten var" gördü — VAR OLMAYAN bir kayıt için,
-        # HİÇBİR faturası olmayan taze bir veritabanında. Yanlış cevap
-        # doğru cevaptan daha kötüydü: operatörü olmayan bir kaydı silmeye
-        # gönderirdi. Tanımadığımız bir ihlal artık YUTULMUYOR.
-        db.rollback()
-        gerekce = str(getattr(exc, "orig", exc))
-        if any(imza in gerekce for imza in FATURA_TEKIL_IMZALARI):
-            raise HTTPException(409, IRSALIYE_ZATEN_VAR) from None
-        raise
+    )
+    for satir_no, (kalem, miktar) in enumerate(tahsis, start=1):
+        db.execute(
+            insert(despatch_lines).values(
+                company_id=cid,
+                despatch_id=yeni_id,
+                invoice_item_id=kalem["id"],
+                line_no=satir_no,
+                product_id=kalem["product_id"],
+                item_name=kalem["description"],
+                quantity=miktar,
+                unit_code=edespatch.DEFAULT_UNIT_CODE,
+                created_at=simdi,
+                updated_at=simdi,
+            )
+        )
     log_invoice_action(
         db, request, cid, payload.invoice_id, "EDESPATCH_CREATE",
-        metadata={"despatch_id": yeni_id},
+        metadata={"despatch_id": yeni_id, "lines": len(tahsis)},
     )
     db.commit()
-    return _gorunum(_irsaliye(db, cid, int(yeni_id)))
+    return _detay_gorunumu(db, cid, yeni_id)
 
 
 @router.get("")
@@ -490,9 +741,52 @@ def irsaliye_listesi(
     return {"items": [_gorunum(dict(x)) for x in satirlar], "total": int(toplam)}
 
 
+def _detay_gorunumu(db: Session, cid: int, irsaliye_id: int) -> dict:
+    """Tek irsaliye + SATIRLARI. Liste ucu satır taşımaz (sayfa başına N+1
+    sorgu olurdu); satırlar detayda ve oluşturma yanıtında."""
+    govde = _gorunum(_irsaliye(db, cid, irsaliye_id))
+    govde["lines"] = _satir_gorunumu(_irsaliye_satirlari(db, cid, irsaliye_id))
+    return govde
+
+
 @router.get("/{despatch_id}")
 def irsaliye_detay(despatch_id: int, request: Request, db: Session = Depends(get_db)):
-    return _gorunum(_irsaliye(db, company_id(request), despatch_id))
+    return _detay_gorunumu(db, company_id(request), despatch_id)
+
+
+@fatura_router.get("/{invoice_id}/despatchable-items")
+def sevk_edilebilir_kalemler(invoice_id: int, request: Request, db: Session = Depends(get_db)):
+    """Faturanın sevk edilebilir kalemleri: faturalanan / sevk edilen / kalan.
+
+    YALNIZ OKUR, kilit ALMAZ: gösterilen kalan bir BİLGİDİR, rezervasyon
+    değil — hakem yine `POST /api/despatch-notes`in kilidi altındaki
+    hesaptır. Hizmet kalemleri (LABOR) listede YOK: sevk edilemeyen bir
+    satırı göstermek, arayüzün ona miktar yazdırmasına davetiye olurdu.
+    Başka firmanın faturası 404 (`_fatura`, varlık bilgisi sızmaz).
+
+    Miktarlar METİN: `float` yok ve dört haneli ölçek korunur.
+    """
+    cid = company_id(request)
+    _fatura(db, cid, invoice_id)
+    mallar = [
+        d for d in _sevk_durumu(db, cid, invoice_id) if d["item_type"] != HIZMET_TURU
+    ]
+    return {
+        "invoice_id": invoice_id,
+        "items": [
+            {
+                "invoice_item_id": d["id"],
+                "invoice_line_no": d["sira"],
+                "description": d["description"],
+                "product_id": d["product_id"],
+                "invoiced": str(d["faturalanan"]),
+                "despatched": str(d["sevk_edilen"]),
+                "remaining": str(d["kalan"]),
+            }
+            for d in mallar
+        ],
+        "complete": bool(mallar) and all(d["kalan"] <= 0 for d in mallar),
+    }
 
 
 # ------------------------------------------------------------------ e-belge

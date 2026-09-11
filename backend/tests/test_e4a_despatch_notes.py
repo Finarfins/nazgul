@@ -23,8 +23,9 @@ Her kapı, HANGİ değişikliğin onu kırmızı yapacağını ADIYLA söylüyor
                                     -> `test_UNKNOWN_canli_belgeyi_GERI_CEKMIYOR` KIRMIZI
   * `bilinmeyeni_yok_say`ı `durumu_ilerlet`in içine gömmek
                                     -> `test_BELGE_YOK_cevabi_UNKNOWNi_FAILEDe_cevirir` KIRMIZI
-  * Göçten `UNIQUE(company_id, invoice_id)` kısıtını düşürmek
-                                    -> `test_IKINCI_irsaliye_409` KIRMIZI
+  * `_tahsis`in "kalan sıfır" 409 dalını silmek (E4b-1: 1:1 kısıtı göç
+    0087'de DÜŞTÜ, hakem artık kalan miktar)
+                                    -> `test_IKINCI_irsaliye_TAMAMLANDI_409` KIRMIZI
   * `_fatura`dan `company_id=:cid` yüklemini düşürmek
                                     -> `test_CAPRAZ_KIRACI_faturasi_404` KIRMIZI
   * `auth.py`deki `/api/despatch-notes` önek kuralını silmek
@@ -1005,12 +1006,20 @@ def test_OLUSTURMA_ETTN_uretir_ve_durum_NONE(irsaliye) -> None:
     assert len(irsaliye["despatch_number"]) == 16
 
 
-def test_IKINCI_irsaliye_409(istemci, admin_basliklari, tohum, irsaliye) -> None:
-    """E4a: bir fatura, bir irsaliye. HAKEM VERİTABANIDIR.
+def test_IKINCI_irsaliye_TAMAMLANDI_409(istemci, admin_basliklari, tohum, irsaliye) -> None:
+    """Tam sevk edilmiş faturaya ikinci irsaliye 409 — ama SEBEBİ DEĞİŞTİ.
 
-    MUTASYON: göçten `UNIQUE(company_id, invoice_id)` kısıtını düşürmek
-    bunu KIRMIZI yapar — ve iki eşzamanlı POST aynı faturaya İKİ irsaliye
-    açardı.
+    E4b-1 İLE BİLİNÇLİ OLARAK YENİDEN YAZILDI. Eski hâli
+    (`test_IKINCI_irsaliye_409`) şunu ölçüyordu: "bir fatura, bir irsaliye;
+    HAKEM VERİTABANIDIR" — `UNIQUE(company_id, invoice_id)` ikinciyi
+    reddeder, gövde `"Bu faturanın e-İrsaliyesi zaten var"`. Göç 0087 o
+    kısıtı DÜŞÜRDÜ: bir faturaya artık N irsaliye açılabilir. Değişmeyen
+    şey, bu testin tohumundaki irsaliyenin gövdesiz (TAM) sevk olması —
+    yani faturanın bütün mal kalemlerinin kalanı SIFIR. İkinci istek 409
+    alır, ama kısıttan değil KALANDAN: kod `IRSALIYE_TAMAMLANDI`.
+
+    MUTASYON: `_tahsis`in "kalan sıfır" dalını silmek bunu KIRMIZI yapar —
+    boş satırlı (ya da hiç satırsız) bir irsaliye doğardı.
     """
     ikinci = istemci.post(
         "/api/despatch-notes",
@@ -1018,43 +1027,40 @@ def test_IKINCI_irsaliye_409(istemci, admin_basliklari, tohum, irsaliye) -> None
         json=_irsaliye_govdesi(tohum["invoice_id"]),
     )
     assert ikinci.status_code == 409, ikinci.text
-    assert "zaten var" in ikinci.json()["detail"]
+    assert ikinci.json()["detail"]["code"] == "IRSALIYE_TAMAMLANDI"
 
 
-def test_TEKIL_IHLALI_DISINDAKI_kisit_409_SAYILMIYOR() -> None:
-    """409 YALNIZ "bir fatura bir irsaliye" ihlaline verilir.
+def test_TANINMAYAN_butunluk_ihlali_409e_CEVRILMIYOR() -> None:
+    """Oluşturma ucu `IntegrityError`i YUTMUYOR — E4a'nın dersi korunuyor.
 
-    ÖLÇÜLMÜŞ KUSUR: önce HER `IntegrityError` 409 "zaten var" oluyordu.
-    `delivery_postal_code` NOT NULL eklenip INSERT'in sütun listesine
-    yazılmayı unutulunca kullanıcı, HİÇBİR irsaliyesi olmayan taze bir
-    veritabanında "Bu faturanın e-İrsaliyesi zaten var" gördü — yanlış
-    cevap, doğru cevabın yokluğundan daha kötüydü: operatörü olmayan bir
-    kaydı aramaya gönderirdi.
+    E4b-1 İLE BİLİNÇLİ OLARAK YENİDEN YAZILDI. Eski hâli
+    (`test_TEKIL_IHLALI_DISINDAKI_kisit_409_SAYILMIYOR`) `FATURA_TEKIL_
+    IMZALARI`nin YALNIZ 1:1 kısıtının iki diyalekt imzasını eşlediğini
+    ölçüyordu. Kısıt göç 0087'de düştü ve o imzalarla birlikte `except
+    IntegrityError` dalı da KALKTI — imza listesi ölü kod olurdu.
 
-    İKİ DİYALEKTİN İMZASI DA ÇİVİLİ. MUTASYON: `FATURA_TEKIL_IMZALARI`den
-    SQLite satırını silmek bu kapıyı KIRMIZI yapar — ve davranışta gerçek
-    bir çakışma SQLite'ta 500 olurdu.
+    Korunan ders AYNI: önce HER `IntegrityError` 409 "zaten var"
+    oluyordu ve unutulmuş bir NOT NULL, HİÇBİR irsaliyesi olmayan taze bir
+    veritabanında "zaten var" gösterdi. Şimdi dal hiç yok; tanımadığımız
+    bir ihlal 500 olarak görünür. MUTASYON: `irsaliye_olustur`a bir
+    `except IntegrityError` geri eklemek bunu KIRMIZI yapar.
     """
-    from app.routers.despatch_notes import FATURA_TEKIL_IMZALARI
+    import ast
 
-    pg_metni = (
-        'duplicate key value violates unique constraint '
-        '"uq_despatch_notes_company_invoice"'
-    )
-    sqlite_metni = (
-        "UNIQUE constraint failed: despatch_notes.company_id, "
-        "despatch_notes.invoice_id"
-    )
-    for metin in (pg_metni, sqlite_metni):
-        assert any(imza in metin for imza in FATURA_TEKIL_IMZALARI), metin
+    from app.routers import despatch_notes as uc_modulu
 
-    # BAŞKA bir ihlal EŞLEŞMEMELİ — yoksa 409 yine her şeyi yutar.
-    for yabanci in (
-        "NOT NULL constraint failed: despatch_notes.delivery_postal_code",
-        "UNIQUE constraint failed: despatch_notes.company_id, despatch_notes.despatch_uuid",
-        'violates check constraint "ck_despatch_notes_tasima"',
-    ):
-        assert not any(imza in yabanci for imza in FATURA_TEKIL_IMZALARI), yabanci
+    assert not hasattr(uc_modulu, "FATURA_TEKIL_IMZALARI")
+    assert not hasattr(uc_modulu, "IRSALIYE_ZATEN_VAR")
+    agac = ast.parse(UC.read_text(encoding="utf-8"))
+    fonksiyon = next(
+        d for d in ast.walk(agac)
+        if isinstance(d, ast.FunctionDef) and d.name == "irsaliye_olustur"
+    )
+    yakalananlar = [
+        ast.unparse(h.type) for h in ast.walk(fonksiyon)
+        if isinstance(h, ast.ExceptHandler) and h.type is not None
+    ]
+    assert not any("IntegrityError" in y for y in yakalananlar), yakalananlar
 
 
 def test_CAPRAZ_KIRACI_faturasi_404(istemci, admin_basliklari, tohum) -> None:
@@ -1188,15 +1194,26 @@ def test_XML_indirmesi_belgeyi_YENIDEN_URETIYOR(
 def test_UBL_miktarlar_fatura_ile_ESIT(
     istemci, admin_basliklari, tohum, irsaliye
 ) -> None:
-    """DÜZ SEVKİN TEK İDDİASI: her fatura satırı için bir DespatchLine, EŞİT miktar.
+    """TAM SEVK: her MAL kalemi için bir DespatchLine, EŞİT miktar.
 
-    MUTASYON: `_ubl_payload`daki miktarı `float`a çevirmek ya da satırları
-    süzmek bunu KIRMIZI yapar.
+    E4b-1 İLE BİLİNÇLİ OLARAK DARALTILDI. Eski iddia "HER fatura satırı
+    için bir DespatchLine" idi ve bu tohumda üç satır ölçüyordu: iki PARÇA
+    ve bir `LABOR` ("Servis İşçiliği"). Şef kararı (keşif §2): hizmet
+    kalemi sevk satırı OLAMAZ. Yeni iddia "her LABOR OLMAYAN kalem için
+    bir satır, eşit miktar" — ve LABOR satırının faturada GERÇEKTEN var
+    olduğu da ölçülüyor; yoksa süzgeç hiç sınanmamış olurdu.
+
+    MUTASYON: `_ubl_payload`daki miktarı `float`a çevirmek, `_tahsis`ten
+    LABOR süzgecini kaldırmak ya da satırları başka biçimde süzmek bunu
+    KIRMIZI yapar.
     """
     fatura = istemci.get(
         f"/api/invoices/{tohum['invoice_id']}", headers=admin_basliklari
     ).json()
-    beklenen = [str(k["quantity"]) for k in fatura["items"]]
+    assert any(k["item_type"] == "LABOR" for k in fatura["items"]), (
+        "tohumda hizmet kalemi yok; süzgeç sınanmıyor"
+    )
+    beklenen = [str(k["quantity"]) for k in fatura["items"] if k["item_type"] != "LABOR"]
     assert len(beklenen) >= 2, "tohumlama iki kalem üretmedi; iddia zayıflar"
 
     xml = istemci.get(
