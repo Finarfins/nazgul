@@ -95,6 +95,12 @@ def test_drain_timeout_cancels_before_database_change() -> None:
     assert current == original
 
 
+#: H32: kurtarma olayı firmasız denetim satırıdır, kiracı defterinde değil.
+_KURTARMA_SAYIMI = """SELECT COUNT(*) FROM security_audit_logs
+   WHERE action='platform.mt_recover' AND company_id IS NULL
+     AND failure_reason LIKE '%olay=backup.maintenance_recovered%'"""
+
+
 def _set_active_maintenance(engine, operation_id: str) -> None:
     with engine.begin() as connection:
         connection.execute(
@@ -122,6 +128,11 @@ def test_stale_maintenance_without_owner_is_recovered() -> None:
         ).one()
         recovered = connection.execute(
             text(
+                _KURTARMA_SAYIMI
+            )
+        ).scalar_one()
+        tenant_rows = connection.execute(
+            text(
                 """SELECT COUNT(*) FROM activity_logs
                    WHERE action_type='backup.maintenance_recovered'"""
             )
@@ -129,6 +140,7 @@ def test_stale_maintenance_without_owner_is_recovered() -> None:
     engine.dispose()
     assert row == (False, None)
     assert recovered == 1
+    assert tenant_rows == 0
 
 
 def test_concurrent_stale_recovery_has_single_winner_and_event() -> None:
@@ -139,8 +151,7 @@ def test_concurrent_stale_recovery_has_single_winner_and_event() -> None:
     with engine.connect() as connection:
         before = connection.execute(
             text(
-                """SELECT COUNT(*) FROM activity_logs
-                   WHERE action_type='backup.maintenance_recovered'"""
+                _KURTARMA_SAYIMI
             )
         ).scalar_one()
     _set_active_maintenance(engine, "concurrent-stale-recovery")
@@ -165,8 +176,7 @@ def test_concurrent_stale_recovery_has_single_winner_and_event() -> None:
     with engine.connect() as connection:
         after = connection.execute(
             text(
-                """SELECT COUNT(*) FROM activity_logs
-                   WHERE action_type='backup.maintenance_recovered'"""
+                _KURTARMA_SAYIMI
             )
         ).scalar_one()
         active = connection.execute(

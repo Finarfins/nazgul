@@ -126,9 +126,13 @@ def _bakim_satiri(veritabani: Path) -> dict[str, object]:
 def _kurtarma_gunlugu(veritabani: Path) -> int:
     baglanti = sqlite3.connect(veritabani)
     try:
+        # H32 sonrası kurtarma olayı firmasız denetim satırıdır; eski yer
+        # (kiracı defteri) de sayılır ki iki yoldan biri yazsa ölçüm görsün.
         return baglanti.execute(
-            "SELECT count(*) FROM activity_logs"
-            " WHERE action_type='backup.maintenance_recovered'"
+            "SELECT (SELECT count(*) FROM activity_logs"
+            "        WHERE action_type='backup.maintenance_recovered')"
+            "     + (SELECT count(*) FROM security_audit_logs"
+            "        WHERE action='platform.mt_recover')"
         ).fetchone()[0]
     finally:
         baglanti.close()

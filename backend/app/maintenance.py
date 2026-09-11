@@ -330,9 +330,8 @@ def _recover_stale_row(connection, row) -> dict | None:
 
 
 def _record_recovery(recovered: dict) -> None:
-    from .activity_log import log_activity
     from .config import settings
-    from .db import SessionLocal
+    from .platform_denetim import platform_olayi_yaz
     from .restore_journal import safe_append_restore_journal
 
     safe_append_restore_journal(
@@ -342,16 +341,15 @@ def _record_recovery(recovered: dict) -> None:
         owner="automatic-recovery",
         details=recovered,
     )
+    # Platform olayı: hiçbir kiracının defterine değil, firmasız denetim
+    # satırına (H32; gerekçe ``app/platform_denetim.py``).
     try:
-        with SessionLocal.begin() as db:
-            company_id = db.execute(
-                text("SELECT id FROM companies ORDER BY id LIMIT 1")
-            ).scalar_one()
-            log_activity(
-                db, int(company_id), None, "backup.maintenance_recovered",
-                "backup", None, "Sahipsiz bakım durumu otomatik temizlendi",
-                recovered,
-            )
+        platform_olayi_yaz(
+            None,
+            "backup.maintenance_recovered",
+            f"Sahipsiz bakım durumu otomatik temizlendi; islem={recovered['operation_id']}",
+            sistem=True,
+        )
     except Exception:
         # Journal is authoritative when the restored DB cannot accept activity.
         pass
