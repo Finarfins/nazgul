@@ -711,6 +711,99 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/cek-senetler": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cek Senet Listesi
+         * @description Portföy listesi, vade ARTAN (en yakın vade önce), sonra kimlik.
+         *
+         *     İsteğe bağlı süzgeçler SATIR İÇİ ve TİPLİ bağlı parametredir
+         *     (``:x IS NULL OR sütun = :x``): koşul listesi (``where(*liste)``) Core
+         *     sorgu envanterinde "variable-arg" sayılır ve bilerek kullanılmadı.
+         *     ``q`` seri no / keşideci / banka adında büyük-küçük harf duyarsız arar;
+         *     joker karakterler kaçışlıdır.
+         */
+        get: operations["cek_senet_listesi_api_cek_senetler_get"];
+        put?: never;
+        /** Cek Senet Olustur */
+        post: operations["cek_senet_olustur_api_cek_senetler_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cek-senetler/bordro": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cek Senet Bordro
+         * @description Toplu giriş: HEP-YA-HİÇ.
+         *
+         *     Satırların TAMAMI önce doğrulanır (şema: FastAPI 422; taraf: aynı firmada
+         *     yoksa 422 ve satır numarası). Yazım TEK işlemdedir: herhangi bir satır
+         *     veritabanında reddedilirse (CHECK/FK) işlem geri alınır ve HİÇBİR satır
+         *     kalmaz. Yanıt, yazılan kimlikleri GİRİŞ SIRASIYLA döndürür.
+         */
+        post: operations["cek_senet_bordro_api_cek_senetler_bordro_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cek-senetler/{evrak_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cek Senet Detay */
+        get: operations["cek_senet_detay_api_cek_senetler__evrak_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cek-senetler/{evrak_id}/durum-degistir": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cek Senet Durum Degistir
+         * @description Durum makinesi. Sıra: 404 -> 409 (geçiş/yön) -> 422 (yük).
+         *
+         *     Yazım bir CAS'tır: ``WHERE portfoy_durumu = <okunan>``. Arada başka bir
+         *     istek durumu değiştirdiyse satır güncellenmez ve 409 döner — iki
+         *     eşzamanlı "tahsil edildi" aynı çeki iki kez kapatamaz.
+         */
+        post: operations["cek_senet_durum_degistir_api_cek_senetler__evrak_id__durum_degistir_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/companies": {
         parameters: {
             query?: never;
@@ -6823,6 +6916,16 @@ export interface components {
              */
             kind: string;
         };
+        /** BordroGirdisi */
+        BordroGirdisi: {
+            /** Satirlar */
+            satirlar: components["schemas"]["CekSenetGirdisi"][];
+        };
+        /** BordroSonucu */
+        BordroSonucu: {
+            /** Ids */
+            ids: number[];
+        };
         /** BreedingUpdate */
         BreedingUpdate: {
             /** Animal Id */
@@ -6917,6 +7020,115 @@ export interface components {
             value: number | string;
             /** Warehouse Id */
             warehouse_id?: number | null;
+        };
+        /** CekSenet */
+        CekSenet: {
+            /** Banka Adi */
+            banka_adi: string | null;
+            /** Charge Document Id */
+            charge_document_id: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By */
+            created_by: number | null;
+            /** Customer Id */
+            customer_id: number | null;
+            /** Endorsed Date */
+            endorsed_date: string | null;
+            /** Endorsed Supplier Id */
+            endorsed_supplier_id: number | null;
+            /** Financial Transaction Id */
+            financial_transaction_id: number | null;
+            /** Hesap No */
+            hesap_no: string | null;
+            /** Id */
+            id: number;
+            /** Keside Tarihi */
+            keside_tarihi: string | null;
+            /** Kesideci */
+            kesideci: string | null;
+            /** Notlar */
+            notlar: string | null;
+            /** Payment Id */
+            payment_id: number | null;
+            /** Portfoy Durumu */
+            portfoy_durumu: string;
+            /** Seri No */
+            seri_no: string;
+            /** Sube Adi */
+            sube_adi: string | null;
+            /** Supplier Id */
+            supplier_id: number | null;
+            /** Tahsil Hesap Id */
+            tahsil_hesap_id: number | null;
+            /** Tahsil Tarihi */
+            tahsil_tarihi: string | null;
+            /** Tur */
+            tur: string;
+            /** Tutar */
+            tutar: string;
+            /**
+             * Vade
+             * Format: date
+             */
+            vade: string;
+            /** Yon */
+            yon: string;
+        };
+        /**
+         * CekSenetGirdisi
+         * @description Yeni evrak. ``portfoy_durumu`` ALINMAZ: her evrak ``portfoyde`` doğar.
+         */
+        CekSenetGirdisi: {
+            /** Banka Adi */
+            banka_adi?: string | null;
+            /** Customer Id */
+            customer_id?: number | null;
+            /** Hesap No */
+            hesap_no?: string | null;
+            /** Keside Tarihi */
+            keside_tarihi?: string | null;
+            /** Kesideci */
+            kesideci?: string | null;
+            /** Notlar */
+            notlar?: string | null;
+            /** Seri No */
+            seri_no: string;
+            /** Sube Adi */
+            sube_adi?: string | null;
+            /** Supplier Id */
+            supplier_id?: number | null;
+            /**
+             * Tur
+             * @enum {string}
+             */
+            tur: "cek" | "senet";
+            /** Tutar */
+            tutar: number | string;
+            /**
+             * Vade
+             * Format: date
+             */
+            vade: string;
+            /**
+             * Yon
+             * @enum {string}
+             */
+            yon: "alinan" | "verilen";
+        };
+        /** CekSenetListesi */
+        CekSenetListesi: {
+            /** Items */
+            items: components["schemas"]["CekSenet"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
         };
         /** ChangePasswordPayload */
         ChangePasswordPayload: {
@@ -7122,6 +7334,27 @@ export interface components {
             message?: string | null;
             /** Status */
             status: string;
+        };
+        /**
+         * DurumDegistir
+         * @description Hedef duruma göre yük: gerekenler zorunlu, ilgisizler REDDEDİLİR.
+         */
+        DurumDegistir: {
+            /** Endorsed Date */
+            endorsed_date?: string | null;
+            /** Endorsed Supplier Id */
+            endorsed_supplier_id?: number | null;
+            /**
+             * Hedef
+             * @enum {string}
+             */
+            hedef: "portfoyde" | "tahsile_verildi" | "tahsil_edildi" | "ciro_edildi" | "karsiliksiz" | "iade";
+            /** Not Metni */
+            not_metni?: string | null;
+            /** Tahsil Hesap Id */
+            tahsil_hesap_id?: number | null;
+            /** Tahsil Tarihi */
+            tahsil_tarihi?: string | null;
         };
         /** EBelgeSagligi */
         EBelgeSagligi: {
@@ -12512,6 +12745,178 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    cek_senet_listesi_api_cek_senetler_get: {
+        parameters: {
+            query?: {
+                tur?: ("cek" | "senet") | null;
+                yon?: ("alinan" | "verilen") | null;
+                portfoy_durumu?: ("portfoyde" | "tahsile_verildi" | "tahsil_edildi" | "ciro_edildi" | "karsiliksiz" | "iade") | null;
+                customer_id?: number | null;
+                supplier_id?: number | null;
+                vade_from?: string | null;
+                vade_to?: string | null;
+                q?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CekSenetListesi"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cek_senet_olustur_api_cek_senetler_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CekSenetGirdisi"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CekSenet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cek_senet_bordro_api_cek_senetler_bordro_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BordroGirdisi"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BordroSonucu"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cek_senet_detay_api_cek_senetler__evrak_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evrak_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CekSenet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cek_senet_durum_degistir_api_cek_senetler__evrak_id__durum_degistir_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evrak_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DurumDegistir"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CekSenet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

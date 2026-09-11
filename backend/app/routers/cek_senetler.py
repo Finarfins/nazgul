@@ -43,7 +43,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import String, Date, Integer, bindparam, func, insert, or_, select, update
 from sqlalchemy.orm import Session
@@ -75,6 +75,9 @@ router = APIRouter(prefix="/cek-senetler", tags=["Çek/Senet Portföyü"])
 #: aktarımdır ve ayrı bir iş olarak ele alınmalıdır.
 BORDRO_TAVANI = 200
 SAYFA_TAVANI = 200
+#: Kimlik sütunları PG'de INTEGER (int4). Üstündeki bir kimlik sorguya
+#: ulaşırsa PG ``NumericValueOutOfRange`` (500) verir; sınır uçta 422'dir.
+INT4_UST = 2147483647
 
 Tur = Literal["cek", "senet"]
 Yon = Literal["alinan", "verilen"]
@@ -88,8 +91,8 @@ class CekSenetGirdisi(BaseModel):
 
     tur: Tur
     yon: Yon
-    customer_id: int | None = Field(default=None, gt=0)
-    supplier_id: int | None = Field(default=None, gt=0)
+    customer_id: int | None = Field(default=None, ge=1, le=INT4_UST)
+    supplier_id: int | None = Field(default=None, ge=1, le=INT4_UST)
     tutar: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
     vade: date
     keside_tarihi: date | None = None
@@ -137,9 +140,9 @@ class DurumDegistir(BaseModel):
     """Hedef duruma göre yük: gerekenler zorunlu, ilgisizler REDDEDİLİR."""
 
     hedef: Durum
-    tahsil_hesap_id: int | None = Field(default=None, gt=0)
+    tahsil_hesap_id: int | None = Field(default=None, ge=1, le=INT4_UST)
     tahsil_tarihi: date | None = None
-    endorsed_supplier_id: int | None = Field(default=None, gt=0)
+    endorsed_supplier_id: int | None = Field(default=None, ge=1, le=INT4_UST)
     endorsed_date: date | None = None
     not_metni: str | None = Field(default=None, max_length=2000)
 
@@ -292,13 +295,13 @@ def cek_senet_listesi(
     tur: Tur | None = None,
     yon: Yon | None = None,
     portfoy_durumu: Durum | None = None,
-    customer_id: int | None = Query(None, gt=0),
-    supplier_id: int | None = Query(None, gt=0),
+    customer_id: int | None = Query(None, ge=1, le=INT4_UST),
+    supplier_id: int | None = Query(None, ge=1, le=INT4_UST),
     vade_from: date | None = None,
     vade_to: date | None = None,
     q: str | None = Query(None, max_length=100),
     limit: int = Query(50, ge=1, le=SAYFA_TAVANI),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=INT4_UST),
     db: Session = Depends(get_db),
 ) -> dict:
     """Portföy listesi, vade ARTAN (en yakın vade önce), sonra kimlik.
@@ -409,7 +412,7 @@ def cek_senet_bordro(
 
 
 @router.get("/{evrak_id}", response_model=CekSenet)
-def cek_senet_detay(evrak_id: int, request: Request, db: Session = Depends(get_db)) -> dict:
+def cek_senet_detay(evrak_id: int = Path(ge=1, le=INT4_UST), *, request: Request, db: Session = Depends(get_db)) -> dict:
     return _cek_gorunum(_cek_evrak(db, company_id(request), evrak_id), istek_rolu(request))
 
 
@@ -420,7 +423,7 @@ _IZINLI_ALANLAR: dict[str, frozenset[str]] = {
     "portfoyde": frozenset({"not_metni"}),
     TAHSIL_EDILDI: frozenset({"tahsil_hesap_id", "tahsil_tarihi", "not_metni"}),
     CIRO_EDILDI: frozenset({"endorsed_supplier_id", "endorsed_date", "not_metni"}),
-    KARSILIKSIZ: frozenset(),
+    KARSILIKSIZ: frozenset({"not_metni"}),
     IADE: frozenset({"not_metni"}),
 }
 _YUK_ALANLARI = ("tahsil_hesap_id", "tahsil_tarihi", "endorsed_supplier_id", "endorsed_date", "not_metni")
@@ -428,7 +431,10 @@ _YUK_ALANLARI = ("tahsil_hesap_id", "tahsil_tarihi", "endorsed_supplier_id", "en
 
 @router.post("/{evrak_id}/durum-degistir", response_model=CekSenet)
 def cek_senet_durum_degistir(
-    evrak_id: int, payload: DurumDegistir, request: Request, db: Session = Depends(get_db)
+    payload: DurumDegistir,
+    request: Request,
+    evrak_id: int = Path(ge=1, le=INT4_UST),
+    db: Session = Depends(get_db),
 ) -> dict:
     """Durum makinesi. Sıra: 404 -> 409 (geçiş/yön) -> 422 (yük).
 

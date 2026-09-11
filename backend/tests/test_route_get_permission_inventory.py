@@ -576,10 +576,10 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # sozlesme envanterindedir ve orada sayim 392/301 -> 399/307.
 # PP1 (PLATFORM YONETIM PANELI, GOC YOK): sayim 190 -> 197. YEDI yeni GET,
 # yedisi de `read` (korumali: `require_platform_operator`).
-# CS1 (ÇEK/SENET PORTFÖYÜ, göç 20260914_0085): sayım 190 -> 192. İKİ yeni GET,
+# CS1 (ÇEK/SENET PORTFÖYÜ, göç 20260914_0085): sayım 197 -> 199 (TABAN `2e35393`). İKİ yeni GET,
 # ikisi de "payments"; hiçbir mevcut ucun izni DEĞİŞMEDİ (drift raporu
 # OLCULDU: yalnız `missing`, `stale`/`changed` BOŞ).
-GET_INVENTORY_COUNT = 192
+GET_INVENTORY_COUNT = 199
 GET_INVENTORY_FINGERPRINT = (
     # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
     # sonra `auth.py`ye `/api/push/` önek kuralı eklendi, sonra izin
@@ -625,8 +625,8 @@ GET_INVENTORY_FINGERPRINT = (
     # OLCULDU ("read", yedisi de), envantere girdi. 0f87b6bd -> 7bd73197.
     # CS1 (göç 20260914_0085): iki çek/senet GET'i. Sıra: uçlar yazıldı, izin
     # kural YAZILMADAN ölçüldü ("read"), `auth.py`ye önek kuralı eklendi,
-    # yeniden ölçüldü ("payments"), envantere girdi. 0f87b6bd -> 1540c93a.
-    "1540c93a02ebb690d297983b29238bea650918d6926450bebd9ab3f884892fad"
+    # yeniden ölçüldü ("payments"), envantere girdi. 7bd73197 -> ab2cf865 (TABAN `2e35393`).
+    "ab2cf86532c2f7686e91f9a99cc3dc4b1c571d95a41b0727b57d8a2f316877af"
 )
 
 

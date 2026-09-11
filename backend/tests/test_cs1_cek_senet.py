@@ -383,13 +383,50 @@ def test_yuk_dogrulamasi(ortam) -> None:
                 tahsil_tarihi="2026-12-01").status_code == 422          # POS kasa/banka değil
     assert _gec(ortam, tahsilde, "tahsil_edildi", tahsil_hesap_id=ortam["banka_b"],
                 tahsil_tarihi="2026-12-01").status_code == 422          # başka firmanın hesabı
-    assert _gec(ortam, tahsilde, "karsiliksiz", not_metni="x").status_code == 422  # yük yok
+    assert _gec(ortam, tahsilde, "karsiliksiz", tahsil_tarihi="2026-12-01").status_code == 422  # ilgisiz alan
     assert _gec(ortam, tahsilde, "portfoyde", tahsil_hesap_id=ortam["banka_a"]).status_code == 422
     portfoy = _olustur(ortam, seri_no="YUK-2")["id"]
     assert _gec(ortam, portfoy, "ciro_edildi").status_code == 422
     assert _gec(ortam, portfoy, "ciro_edildi", endorsed_supplier_id=ortam["ted_b"]).status_code == 422
     # Hiçbiri durumu değiştirmedi.
     assert _sql(ortam["engine"], "SELECT portfoy_durumu FROM cek_senetler WHERE id=:i", i=tahsilde)[0][0] == "tahsile_verildi"
+
+
+def test_karsiliksiz_notu_kabul_edilir(ortam) -> None:
+    # Diğer her hedef not alır; karşılıksız da almalı (lens C, bulgu 2).
+    tahsilde = _duruma_getir(ortam, "tahsile_verildi", seri_no="KRS-NOT")
+    cevap = _gec(ortam, tahsilde, "karsiliksiz", not_metni="Banka iade etti")
+    assert cevap.status_code == 200, cevap.text
+    assert cevap.json()["portfoy_durumu"] == "karsiliksiz"
+    notlar = _sql(ortam["engine"], "SELECT notlar FROM cek_senetler WHERE id=:i", i=tahsilde)[0][0]
+    assert notlar.endswith("[karsiliksiz] Banka iade etti")
+
+
+INT4_ASIM = 2147483648
+
+
+def test_int4_ustu_kimlik_422(ortam) -> None:
+    # PG'de ``::INTEGER`` dönüşümü 500 verirdi; sınır uçta 422'dir.
+    client, h = ortam["client"], ortam["h_muh"]
+    assert client.get(f"/api/cek-senetler/{INT4_ASIM}", headers=h).status_code == 422
+    assert client.get(f"/api/cek-senetler/{INT4_ASIM - 1}", headers=h).status_code == 404
+    assert _gec(ortam, INT4_ASIM, "tahsile_verildi").status_code == 422
+    for alan in ("customer_id", "supplier_id"):
+        cevap = client.get(f"/api/cek-senetler?{alan}={INT4_ASIM}", headers=h)
+        assert cevap.status_code == 422, (alan, cevap.text)
+    cevap = client.post("/api/cek-senetler", headers=h, json=_alinan(ortam, customer_id=INT4_ASIM))
+    assert cevap.status_code == 422, cevap.text
+    evrak = _olustur(ortam, seri_no="INT4-1")["id"]
+    assert _gec(ortam, evrak, "ciro_edildi", endorsed_supplier_id=INT4_ASIM).status_code == 422
+
+
+def test_liste_offset_tavani_422(ortam) -> None:
+    client, h = ortam["client"], ortam["h_muh"]
+    assert client.get("/api/cek-senetler?offset=9223372036854775808", headers=h).status_code == 422
+    assert client.get(f"/api/cek-senetler?offset={INT4_ASIM}", headers=h).status_code == 422
+    cevap = client.get(f"/api/cek-senetler?offset={INT4_ASIM - 1}", headers=h)
+    assert cevap.status_code == 200, cevap.text
+    assert cevap.json()["items"] == []
 
 
 def test_verilen_evrak_ciro_edilemez_409(ortam) -> None:

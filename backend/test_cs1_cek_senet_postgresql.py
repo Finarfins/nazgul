@@ -297,6 +297,10 @@ def test_UC_KATMANI_PG_smoke(motor, iki_firma) -> None:
             assert client.get("/api/cek-senetler?q=" + KOSU, headers=h).json()["total"] == once
             baska = {"Authorization": h["Authorization"], "X-Company-ID": str(b["cid"])}
             assert client.get(f"/api/cek-senetler/{evrak['id']}", headers=baska).status_code == 403
+            # int4 üstü kimlik PG'de `::INTEGER` taşmasıyla 500 verirdi; uçta 422.
+            assert client.get("/api/cek-senetler/2147483648", headers=h).status_code == 422
+            assert client.get("/api/cek-senetler/2147483647", headers=h).status_code == 404
+            assert client.get("/api/cek-senetler?customer_id=2147483648", headers=h).status_code == 422
     finally:
         with motor.begin() as c:
             # `activity_logs` silinmez (yalnız-ekleme); satırları firmayla kalır.

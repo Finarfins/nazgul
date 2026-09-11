@@ -382,13 +382,13 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 #     korumali read reddedilemez yuzeyi BUYUTMEZ.
 # CS1 ÇEK/SENET PORTFÖYÜ (göç 20260914_0085): BEŞ yeni uç, beşi de kimlik
 # doğrulamalı ve beşi de "payments".
-#   * `EXPECTED_AUTHENTICATED` 387 -> 392 (+5); `test_route_security_contracts`
-#     400 -> 405 ile AYNI beş uç.
-#   * `EXPECTED_READ` 80'de SABİT: izin OLCULDU, beşi de "payments" —
+#   * `EXPECTED_AUTHENTICATED` 394 -> 399 (+5, TABAN `2e35393`); `test_route_security_contracts`
+#     407 -> 412 ile AYNI beş uç.
+#   * `EXPECTED_READ` 87'de SABİT: izin OLCULDU, beşi de "payments" —
 #     iki GET `read`e düşMÜYOR (açık önek kuralı genel güvenli-metot
-#     kuralının ÜSTÜNDE). GUARDED_READ 24 ve UNDENIABLE 97 de SABİT.
-EXPECTED_AUTHENTICATED = 392
-EXPECTED_READ = 80
+#     kuralının ÜSTÜNDE). GUARDED_READ 31 ve UNDENIABLE 97 de SABİT.
+EXPECTED_AUTHENTICATED = 399
+EXPECTED_READ = 87
 EXPECTED_UNDENIABLE = 97
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,

@@ -1123,11 +1123,11 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # BUYUMEDI: on besinin de hedefi statik cozuldu (arg0 / sole-table) ve
 # istege bagli suzgecler `where(*liste)` yerine satir ici bagli parametreyle
 # yazildi.
-# CS1 ÇEK/SENET PORTFÖYÜ (göç 20260914_0085): 184 -> 191, +6 select +1 update,
+# CS1 ÇEK/SENET PORTFÖYÜ (göç 20260914_0085): 199 -> 206 (TABAN `2e35393`), +6 select +1 update,
 # HEPSİ app/routers/cek_senetler.py ve HEPSİ ekleme (drift raporu OLCULDU:
 # `changed`/`stale` BOŞ). `UNRESOLVED_ALLOWLIST` ve `desteksiz` BÜYÜMEDİ.
-TOTAL_CORE_QUERIES = 191
-EXPECTED_OP_COUNTS = {"select": 124, "update": 57, "delete": 10}
+TOTAL_CORE_QUERIES = 206
+EXPECTED_OP_COUNTS = {"select": 139, "update": 57, "delete": 10}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1205,12 +1205,12 @@ EXPECTED_OP_COUNTS = {"select": 124, "update": 57, "delete": 10}
 # TABAN develop `6442794`. Sayim/sole-table kapisi icin sayim sorgularina
 # ACIK `.select_from(...)` yazildi (hedef `select_from` yoluyla cozuluyor).
 # 0c53dc66 -> 6f54d98b.
-# CS1 (ÇEK/SENET PORTFÖYÜ, göç 20260914_0085): 184 -> 191, yedisi de
-# app/routers/cek_senetler.py; TABAN develop `6442794`. 0c53dc66 -> 5e9000b5.
+# CS1 (ÇEK/SENET PORTFÖYÜ, göç 20260914_0085): 199 -> 206, yedisi de
+# app/routers/cek_senetler.py; TABAN develop `2e35393`. 6f54d98b -> c08c5ae1.
 # (Yardımcılar `_cek_` önekiyle adlandırıldı: SEC-3b tarayıcısı fonksiyonları
 # ADIYLA eşliyor ve `_gorunum`/`_evrak` adları `despatch_notes` ile
 # `mustahsil` rotalarına sızıyordu — ölçüldü.)
-INVENTORY_FINGERPRINT = "5e9000b54c777793efa6f4d81dc6901fe901415d4f3ae42c31fe9d68d9a1a308"
+INVENTORY_FINGERPRINT = "c08c5ae1b0474929b2148a43771ef4af17fb18bd1eb3a3c9e8f165089510740a"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:
