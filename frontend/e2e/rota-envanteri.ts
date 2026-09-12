@@ -605,6 +605,15 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
     oturum: 'oturumlu',
   },
   {
+    rota: '/raporlar/parti-mutabakati',
+    tur: 'kapi',
+    // "Parti Mutabakatı" hem başlık hem MENÜ ETİKETİdir (kabuğu ölçerdi). Bu
+    // not yalnız bu sayfanın gövdesinde çizilir ve veriden BAĞIMSIZDIR: taze
+    // veritabanında da "0 rapordan düşülen boş çift" olarak görünür.
+    isaret: 'rapordan düşülen boş çift',
+    oturum: 'oturumlu',
+  },
+  {
     rota: '/sezonsal-stok-plani',
     tur: 'kapi',
     isaret: 'Sezonsal Stok Planı',
