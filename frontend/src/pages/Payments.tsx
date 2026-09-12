@@ -7,6 +7,8 @@ import {GridColDef} from '@mui/x-data-grid';import ResponsiveTable from '../comp
 import {useAuth} from '../AuthContext';
 import ExcelImportDialog from '../components/ExcelImportDialog';
 import UploadFileIcon from '@mui/icons-material/UploadFile';import {api,money} from '../api';
+import {YeniEvrakDialog} from './cek-senet/CekSenetDialoglari';
+import {cekYontemiMi,evrakBaslangici} from './cek-senet/odemeKoprusu';
 
 const methods=[['cash','Nakit'],['card','Kart / POS'],['bank_transfer','Havale / EFT'],['credit','Vadeli'],['check','Çek'],['promissory_note','Senet']];
 
@@ -25,6 +27,10 @@ export default function Payments(){
  // kendisidir ve o backend'dedir.
  const {can}=useAuth();
  const canPurchases=can('purchases');
+ // CS4 — cek/senet secenekleri `payments` iznine baglidir. Sayfanin nav izni
+ // de `payments`tir, yani bugun tasimayan rol zaten buraya giremez; kapi yine
+ // de BURADA duruyor ki secenek listesi kendi basina dogru olsun.
+ const canPayments=can('payments');
  const [searchParams,setSearchParams]=useSearchParams();
  const [rows,setRows]=useState<any[]>([]),[summary,setSummary]=useState<any>({customer_total:0,supplier_total:0,manual_total:0,document_total:0,movement_count:0}),[accounts,setAccounts]=useState<any[]>([]),[accountId,setAccountId]=useState<any>(''),[open,setOpen]=useState(false),[editId,setEditId]=useState<number|null>(null),[type,setType]=useState('customer'),[entities,setEntities]=useState<any[]>([]),[entity,setEntity]=useState<any|null>(null),[amount,setAmount]=useState(0),[date,setDate]=useState(new Date().toISOString().slice(0,10)),[note,setNote]=useState(''),[paymentMethod,setPaymentMethod]=useState('cash'),[error,setError]=useState(''),[q,setQ]=useState(''),[filterType,setFilterType]=useState(''),[dateFrom,setDateFrom]=useState(''),[dateTo,setDateTo]=useState(''),[methodFilter,setMethodFilter]=useState(''),[source,setSource]=useState(''),[sort,setSort]=useState('date_desc'),[loading,setLoading]=useState(false);
  const seq=useRef(0);
@@ -57,8 +63,17 @@ export default function Payments(){
   {field:'note',headerName:'Not',width:220},
   {field:'actions',headerName:'',width:100,sortable:false,renderCell:p=><><Tooltip title={p.row.is_document_payment?'Belge üzerinden düzenlenir':'Düzenle'}><span><IconButton size="small" disabled={!!p.row.is_document_payment} onClick={e=>{e.stopPropagation();startEdit(p.row)}}><EditIcon fontSize="small"/></IconButton></span></Tooltip><Tooltip title={p.row.is_document_payment?'Belge üzerinden silinir':'Sil'}><span><IconButton size="small" color="error" disabled={!!p.row.is_document_payment} onClick={e=>{e.stopPropagation();remove(p.row)}}><DeleteIcon fontSize="small"/></IconButton></span></Tooltip></>}
  ],[]);
- const save=async()=>{try{setError('');if(!entity||amount<=0)throw new Error('Cari ve geçerli tutar girin.');const expected=({cash:'cash',card:'pos',bank_transfer:'bank'} as any)[paymentMethod];if(expected&&accountId){const selected=accounts.find((a:any)=>a.id===Number(accountId));if(!selected||selected.account_type!==expected)throw new Error('Seçilen finans hesabı ödeme yöntemiyle uyumlu değil.')}const payload={entity_type:type,entity_id:entity.id,amount,payment_date:date,note,payment_method:paymentMethod,account_id:accountId?Number(accountId):null};if(editId)await api.put(`/payments/${editId}`,payload);else await api.post('/payments',payload);setOpen(false);load()}catch(e:any){setError(e.response?.data?.detail||e.message)}};
- const [importOpen,setImportOpen]=useState(false);
+ // CS4 — YENI harekette cek/senet yontemi `POST /api/payments` CAGIRMAZ.
+ // CS2 koprusu o yontemlerde evrak alanlarini zorunlu kildi (422); ciplak
+ // odeme artik gecersiz bir istektir. Yerine CS3'un evrak penceresi on
+ // dolgulu acilir ve `payment_olustur:true` ile ODEMEYI DE sunucu yazar.
+ // DUZENLEMEDE (PUT) kapi YOK: bagli odemeyi sunucu 409 `CEK_BAGLI_ODEME` ile
+ // reddeder ve o mesaj burada gosterilir.
+ // Yontem listesi: suzgecte HEPSI durur (gecmis hareketler gorunsun), FORMDA
+ // cek/senet yalniz `payments` ile gelir.
+ const formMethods=useMemo(()=>canPayments?methods:methods.filter(x=>!cekYontemiMi(x[0])),[canPayments]);
+ const save=async()=>{try{setError('');if(!entity||amount<=0)throw new Error('Cari ve geçerli tutar girin.');if(!editId&&cekYontemiMi(paymentMethod)){setCekAcik(true);return}const expected=({cash:'cash',card:'pos',bank_transfer:'bank'} as any)[paymentMethod];if(expected&&accountId){const selected=accounts.find((a:any)=>a.id===Number(accountId));if(!selected||selected.account_type!==expected)throw new Error('Seçilen finans hesabı ödeme yöntemiyle uyumlu değil.')}const payload={entity_type:type,entity_id:entity.id,amount,payment_date:date,note,payment_method:paymentMethod,account_id:accountId?Number(accountId):null};if(editId)await api.put(`/payments/${editId}`,payload);else await api.post('/payments',payload);setOpen(false);load()}catch(e:any){setError(e.response?.data?.detail||e.message)}};
+ const [importOpen,setImportOpen]=useState(false);const [cekAcik,setCekAcik]=useState(false);
  const clearFilters=()=>{setQ('');setFilterType('');setDateFrom('');setDateTo('');setMethodFilter('');setSource('');setSort('date_desc')};
  return <Stack spacing={2}>
   <Stack direction={{xs:'column',sm:'row'}} justifyContent="space-between" gap={1}><Typography variant="h4" fontWeight={900}>Tahsilat / Ödeme</Typography><Stack direction="row" spacing={1}><Button variant="outlined" startIcon={<UploadFileIcon/>} onClick={()=>setImportOpen(true)}>Excel&apos;den Tahsilat</Button><Button variant="contained" startIcon={<AddIcon/>} onClick={()=>startNew()}>Yeni Hareket</Button></Stack></Stack>
@@ -70,6 +85,11 @@ export default function Payments(){
   <Typography variant="body2" color="text.secondary">{summary.movement_count||0} hareket</Typography>
   <ResponsiveTable rows={rows} columns={columns} loading={loading} onRowClick={openEntity} cardTitle={r=>r.entity_name} cardSubtitle={r=>`${r.entity_type==='customer'?'Tahsilat':'Ödeme'} · ${r.payment_date}`} cardFields={[{label:'Tutar',value:r=>money(r.amount)},{label:'Yöntem',value:r=>methods.find(x=>x[0]===r.payment_method)?.[1]||r.payment_method},{label:'Kaynak',value:r=>r.is_document_payment?'Belge':'Manuel'}]}/>
   <ExcelImportDialog open={importOpen} kind="payments" onClose={()=>setImportOpen(false)} onDone={load}/>
-  <Dialog open={open} onClose={()=>setOpen(false)} maxWidth="sm" fullWidth><DialogTitle>{editId?'Hareket Düzenle':'Yeni Tahsilat / Ödeme'}</DialogTitle><DialogContent><Stack spacing={2} mt={1}>{error&&<Alert severity="error">{error}</Alert>}<TextField select label="İşlem Türü" value={type} onChange={e=>{setType(e.target.value);setEntity(null)}}><MenuItem value="customer">Müşteri Tahsilatı</MenuItem>{canPurchases&&<MenuItem value="supplier">Tedarikçi Ödemesi</MenuItem>}</TextField><Autocomplete options={entities} value={entity} isOptionEqualToValue={(a,b)=>a.id===b.id} getOptionLabel={x=>x?.name||''} onChange={(_,v)=>setEntity(v)} renderInput={p=><TextField {...p} label="Cari"/>}/><TextField select label="Ödeme Yöntemi" value={paymentMethod} onChange={e=>{setPaymentMethod(e.target.value);setAccountId('')}}>{methods.map(x=><MenuItem key={x[0]} value={x[0]}>{x[1]}</MenuItem>)}</TextField>{['cash','card','bank_transfer'].includes(paymentMethod)&&<TextField select label="Kasa / Banka / POS Hesabı" value={accountId} onChange={e=>setAccountId(e.target.value)}><MenuItem value="">Varsayılan Hesap</MenuItem>{accounts.filter((a:any)=>a.account_type===({cash:'cash',card:'pos',bank_transfer:'bank'} as any)[paymentMethod]).map((a:any)=><MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}</TextField>}<TextField label="Tutar" type="number" value={amount} onChange={e=>setAmount(Number(e.target.value))}/><TextField label="Tarih" type="date" value={date} onChange={e=>setDate(e.target.value)} slotProps={{inputLabel:{shrink:true}}}/><TextField label="Not" value={note} onChange={e=>setNote(e.target.value)}/></Stack></DialogContent><DialogActions><Button onClick={()=>setOpen(false)}>Vazgeç</Button><Button variant="contained" onClick={save}>Kaydet</Button></DialogActions></Dialog>
+  {entity&&<YeniEvrakDialog open={cekAcik} onClose={()=>setCekAcik(false)}
+   onSaved={()=>{setCekAcik(false);setOpen(false);load()}}
+   musteriler={type==='customer'?[entity]:[]} tedarikciler={type==='supplier'?[entity]:[]}
+   tedarikciGorunur={canPurchases}
+   baslangic={evrakBaslangici({entityType:type as 'customer'|'supplier',cari:entity,yontem:paymentMethod,tutar:amount,tarih:date,not:note})}/>}
+  <Dialog open={open} onClose={()=>setOpen(false)} maxWidth="sm" fullWidth><DialogTitle>{editId?'Hareket Düzenle':'Yeni Tahsilat / Ödeme'}</DialogTitle><DialogContent><Stack spacing={2} mt={1}>{error&&<Alert severity="error">{error}</Alert>}<TextField select label="İşlem Türü" value={type} onChange={e=>{setType(e.target.value);setEntity(null)}}><MenuItem value="customer">Müşteri Tahsilatı</MenuItem>{canPurchases&&<MenuItem value="supplier">Tedarikçi Ödemesi</MenuItem>}</TextField><Autocomplete options={entities} value={entity} isOptionEqualToValue={(a,b)=>a.id===b.id} getOptionLabel={x=>x?.name||''} onChange={(_,v)=>setEntity(v)} renderInput={p=><TextField {...p} label="Cari"/>}/><TextField select label="Ödeme Yöntemi" value={paymentMethod} onChange={e=>{setPaymentMethod(e.target.value);setAccountId('')}}>{formMethods.map(x=><MenuItem key={x[0]} value={x[0]}>{x[1]}</MenuItem>)}</TextField>{!editId&&cekYontemiMi(paymentMethod)&&<Alert severity="info">Çek/senet evrak bilgisi ister; Kaydet portföy penceresini açar.</Alert>}{['cash','card','bank_transfer'].includes(paymentMethod)&&<TextField select label="Kasa / Banka / POS Hesabı" value={accountId} onChange={e=>setAccountId(e.target.value)}><MenuItem value="">Varsayılan Hesap</MenuItem>{accounts.filter((a:any)=>a.account_type===({cash:'cash',card:'pos',bank_transfer:'bank'} as any)[paymentMethod]).map((a:any)=><MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}</TextField>}<TextField label="Tutar" type="number" value={amount} onChange={e=>setAmount(Number(e.target.value))}/><TextField label="Tarih" type="date" value={date} onChange={e=>setDate(e.target.value)} slotProps={{inputLabel:{shrink:true}}}/><TextField label="Not" value={note} onChange={e=>setNote(e.target.value)}/></Stack></DialogContent><DialogActions><Button onClick={()=>setOpen(false)}>Vazgeç</Button><Button variant="contained" onClick={save}>Kaydet</Button></DialogActions></Dialog>
  </Stack>
 }

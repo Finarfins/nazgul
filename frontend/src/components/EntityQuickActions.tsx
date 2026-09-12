@@ -13,6 +13,8 @@ import {api,money} from '../api';
 import {useAuth} from '../AuthContext';
 import EntityDialog from './EntityDialog';
 import TransactionDialog from './TransactionDialog';
+import {YeniEvrakDialog} from '../pages/cek-senet/CekSenetDialoglari';
+import {cekYontemiMi,evrakBaslangici} from '../pages/cek-senet/odemeKoprusu';
 
 type EntityType='customer'|'supplier';
 type Props={open:boolean;type:EntityType;entity:any|null;onClose:()=>void;onChanged:()=>void};
@@ -23,15 +25,21 @@ export default function EntityQuickActions({open,type,entity,onClose,onChanged}:
  const theme=useTheme();const fullScreen=useMediaQuery(theme.breakpoints.down('sm'));const nav=useNavigate();const {can}=useAuth();const canPayments=can('payments');
  const [data,setData]=useState<any|null>(null);const [loading,setLoading]=useState(false);const [error,setError]=useState('');
  const [transactionOpen,setTransactionOpen]=useState(false);const [paymentOpen,setPaymentOpen]=useState(false);const [editOpen,setEditOpen]=useState(false);
- const [documentId,setDocumentId]=useState<number|null>(null);
+ const [documentId,setDocumentId]=useState<number|null>(null);const [cekAcik,setCekAcik]=useState(false);
  const [amount,setAmount]=useState(0);const [date,setDate]=useState(new Date().toISOString().slice(0,10));const [note,setNote]=useState('');const [method,setMethod]=useState('cash');const [accountId,setAccountId]=useState<number|''>('');const [accounts,setAccounts]=useState<any[]>([]);const [paymentError,setPaymentError]=useState('');
  const endpoint=type==='customer'?'/customers':'/suppliers';
  const load=()=>{if(!entity?.id)return;setLoading(true);setError('');api.get(`${endpoint}/${entity.id}`).then(r=>setData(r.data)).catch(e=>setError(e.response?.data?.detail||'Cari detayları yüklenemedi.')).finally(()=>setLoading(false))};
- useEffect(()=>{if(!open)return;setData(null);setAmount(0);setDate(new Date().toISOString().slice(0,10));setNote('');setMethod('cash');setAccountId('');setPaymentError('');load();if(canPayments)api.get('/payments/accounts',{params:{active_only:true}}).then(r=>setAccounts(r.data)).catch(()=>setAccounts([]));else setAccounts([])},[open,entity?.id,type,canPayments]);
+ useEffect(()=>{if(!open)return;setData(null);setAmount(0);setDate(new Date().toISOString().slice(0,10));setNote('');setMethod('cash');setAccountId('');setPaymentError('');setCekAcik(false);load();if(canPayments)api.get('/payments/accounts',{params:{active_only:true}}).then(r=>setAccounts(r.data)).catch(()=>setAccounts([]));else setAccounts([])},[open,entity?.id,type,canPayments]);
  const compatibleAccounts=useMemo(()=>{const expected=accountTypeForMethod[method];return expected?accounts.filter(a=>a.account_type===expected):[]},[accounts,method]);
+ // `payments` tasimayan rolde tahsilat penceresi ZATEN hic acilmiyor; liste
+ // yine de ayni kapiya baglandi ki secenek kaynagi tek olsun.
+ const formMethods=useMemo(()=>Object.entries(paymentLabel).filter(([k])=>canPayments||!cekYontemiMi(k)),[canPayments]);
  const summary=data?.summary||{};
  const documents=(data?.documents||[]).slice(0,6);
- const savePayment=async()=>{try{setPaymentError('');if(amount<=0)throw new Error('Geçerli bir tutar girin.');if(!date)throw new Error('İşlem tarihi zorunludur.');const expected=accountTypeForMethod[method];if(expected&&accountId){const selected=accounts.find(a=>a.id===Number(accountId));if(!selected||selected.account_type!==expected)throw new Error('Seçilen finans hesabı ödeme yöntemiyle uyumlu değil.')}await api.post('/payments',{entity_type:type,entity_id:entity.id,amount,payment_date:date,note:note||null,payment_method:method,account_id:accountId||null});setPaymentOpen(false);load();onChanged()}catch(e:any){setPaymentError(e.response?.data?.detail||e.message)}};
+ // CS4 — cek/senet yontemi `POST /api/payments` CAGIRMAZ: CS2 koprusu o
+ // yontemlerde evrak alanlarini zorunlu kildi (422). Yerine CS3'un evrak
+ // penceresi on dolgulu acilir; odeme satirini ters kopru yazar.
+ const savePayment=async()=>{try{setPaymentError('');if(amount<=0)throw new Error('Geçerli bir tutar girin.');if(!date)throw new Error('İşlem tarihi zorunludur.');if(cekYontemiMi(method)){setCekAcik(true);return}const expected=accountTypeForMethod[method];if(expected&&accountId){const selected=accounts.find(a=>a.id===Number(accountId));if(!selected||selected.account_type!==expected)throw new Error('Seçilen finans hesabı ödeme yöntemiyle uyumlu değil.')}await api.post('/payments',{entity_type:type,entity_id:entity.id,amount,payment_date:date,note:note||null,payment_method:method,account_id:accountId||null});setPaymentOpen(false);load();onChanged()}catch(e:any){setPaymentError(e.response?.data?.detail||e.message)}};
  const openDetail=()=>{onClose();nav(type==='customer'?`/musteriler/${entity.id}`:`/tedarikciler/${entity.id}`)};
  if(!entity)return null;
  return <>
@@ -64,8 +72,14 @@ export default function EntityQuickActions({open,type,entity,onClose,onChanged}:
   <EntityDialog open={editOpen} type={type} id={entity.id} onClose={()=>setEditOpen(false)} onSaved={()=>{setEditOpen(false);load();onChanged()}}/>
   {canPayments&&<Dialog open={paymentOpen} onClose={()=>setPaymentOpen(false)} maxWidth="sm" fullWidth>
    <DialogTitle>{type==='customer'?'Tahsilat Ekle':'Ödeme Ekle'} — {entity.name}</DialogTitle>
-   <DialogContent><Stack spacing={1.5} mt={1}>{paymentError&&<Alert severity="error">{paymentError}</Alert>}<TextField label="Tutar" type="number" value={amount} onChange={e=>setAmount(Number(e.target.value))} inputProps={{min:0,step:0.01}}/><TextField label="Tarih" type="date" value={date} onChange={e=>setDate(e.target.value)} slotProps={{inputLabel:{shrink:true}}}/><TextField select label="Ödeme Yöntemi" value={method} onChange={e=>{setMethod(e.target.value);setAccountId('')}}>{Object.entries(paymentLabel).map(([k,v])=><MenuItem key={k} value={k}>{v}</MenuItem>)}</TextField>{accountTypeForMethod[method]&&<TextField select label="Kasa / Banka / POS" value={accountId} onChange={e=>setAccountId(Number(e.target.value))}><MenuItem value="">Hesap seçme</MenuItem>{compatibleAccounts.map(a=><MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}</TextField>}<TextField label="Not" multiline minRows={2} value={note} onChange={e=>setNote(e.target.value)}/></Stack></DialogContent>
+   <DialogContent><Stack spacing={1.5} mt={1}>{paymentError&&<Alert severity="error">{paymentError}</Alert>}<TextField label="Tutar" type="number" value={amount} onChange={e=>setAmount(Number(e.target.value))} inputProps={{min:0,step:0.01}}/><TextField label="Tarih" type="date" value={date} onChange={e=>setDate(e.target.value)} slotProps={{inputLabel:{shrink:true}}}/><TextField select label="Ödeme Yöntemi" value={method} onChange={e=>{setMethod(e.target.value);setAccountId('')}}>{formMethods.map(([k,v])=><MenuItem key={k} value={k}>{v}</MenuItem>)}</TextField>{cekYontemiMi(method)&&<Alert severity="info">Çek/senet evrak bilgisi ister; Kaydet portföy penceresini açar.</Alert>}{accountTypeForMethod[method]&&<TextField select label="Kasa / Banka / POS" value={accountId} onChange={e=>setAccountId(Number(e.target.value))}><MenuItem value="">Hesap seçme</MenuItem>{compatibleAccounts.map(a=><MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}</TextField>}<TextField label="Not" multiline minRows={2} value={note} onChange={e=>setNote(e.target.value)}/></Stack></DialogContent>
    <DialogActions><Button onClick={()=>setPaymentOpen(false)}>Vazgeç</Button><Button variant="contained" onClick={savePayment}>Kaydet</Button></DialogActions>
   </Dialog>}
+  {canPayments&&<YeniEvrakDialog open={cekAcik} onClose={()=>setCekAcik(false)}
+   onSaved={()=>{setCekAcik(false);setPaymentOpen(false);load();onChanged()}}
+   musteriler={type==='customer'?[{id:entity.id,name:entity.name}]:[]}
+   tedarikciler={type==='supplier'?[{id:entity.id,name:entity.name}]:[]}
+   tedarikciGorunur
+   baslangic={evrakBaslangici({entityType:type,cari:{id:entity.id,name:entity.name},yontem:method,tutar:amount,tarih:date,not:note})}/>}
  </>;
 }

@@ -10,8 +10,8 @@ import {api,money} from '../../api';
 import type {components} from '../../api/types.gen';
 
 import {
- bordroSatirNo,type BordroSonucu,type CekSenet,type CekSenetGirdisi,DURUM_ETIKETI,type Durum,
- type Eylem,hataMesaji,TUR_ETIKETI,yerelTarih,
+ bordroSatirNo,type BordroSonucu,type CekSenet,type CekSenetGirdisi,type CekSenetOlustur,DURUM_ETIKETI,
+ type Durum,type Eylem,hataMesaji,TUR_ETIKETI,yerelTarih,
 } from './cekSenet';
 
 export type Cari={id:number;name:string};
@@ -32,14 +32,38 @@ const tutarGecerli=(tutar:string)=>Number(tutar)>0;
 
 // ------------------------------------------------------------ yeni evrak ---
 
+/**
+ * CS4 — ödeme formlarından gelen ÖN DOLGU. Alan verilmezse CS3'ün kendi
+ * varsayılanı yürür, yani portföy sayfası bu propu HİÇ geçmez ve davranışı
+ * değişmez.
+ */
+export type YeniEvrakBaslangici={
+ tur?:'cek'|'senet';
+ yon?:'alinan'|'verilen';
+ cari?:Cari|null;
+ tutar?:string;
+ vade?:string;
+ notlar?:string;
+ /**
+  * CS2 TERS KÖPRÜSÜ (`payment_olustur`): evrak ve ödeme AYNI işlemde doğar.
+  * Yalnız `true` iken yüke girer — CS3'ün köprüsüz yükü bu anahtarı taşımaz.
+  */
+ odemeOlustur?:boolean;
+ /** `odeme_tarihi`; sunucu onu YALNIZ `payment_olustur:true` ile kabul eder. */
+ odemeTarihi?:string;
+ /** Cari ve yön ödeme formunda seçildi: pencerede DEĞİŞTİRİLEMEZ. */
+ tarafKilitli?:boolean;
+};
+
 type YeniEvrakProps={
  open:boolean;onClose:()=>void;onSaved:()=>void;
  musteriler:Cari[];tedarikciler:Cari[];
  /** `GET /api/suppliers` `purchases` ister; taşımayan rol verilen evrak GİREMEZ. */
  tedarikciGorunur:boolean;
+ baslangic?:YeniEvrakBaslangici;
 };
 
-export function YeniEvrakDialog({open,onClose,onSaved,musteriler,tedarikciler,tedarikciGorunur}:YeniEvrakProps){
+export function YeniEvrakDialog({open,onClose,onSaved,musteriler,tedarikciler,tedarikciGorunur,baslangic}:YeniEvrakProps){
  const [tur,setTur]=useState<'cek'|'senet'>('cek');
  const [yon,setYon]=useState<'alinan'|'verilen'>('alinan');
  const [cari,setCari]=useState<Cari|null>(null);
@@ -55,20 +79,28 @@ export function YeniEvrakDialog({open,onClose,onSaved,musteriler,tedarikciler,te
  const [hata,setHata]=useState('');
  const [kaydediliyor,setKaydediliyor]=useState(false);
 
+ // Ön dolgu yalnız AÇILIŞTA okunur; `baslangic` her render'da yeni bir nesne
+ // olabilir ve bağımlılığa konsaydı pencere kullanıcının yazdığını silerdi.
+ // eslint-disable-next-line react-hooks/exhaustive-deps
  useEffect(()=>{
   if(!open)return;
-  setTur('cek');setYon('alinan');setCari(null);setTutar('');setVade(yerelTarih());setKesideTarihi('');
-  setSeriNo('');setBankaAdi('');setSubeAdi('');setHesapNo('');setKesideci('');setNotlar('');setHata('');
+  setTur(baslangic?.tur??'cek');setYon(baslangic?.yon??'alinan');setCari(baslangic?.cari??null);
+  setTutar(baslangic?.tutar??'');setVade(baslangic?.vade||yerelTarih());setKesideTarihi('');
+  setSeriNo('');setBankaAdi('');setSubeAdi('');setHesapNo('');setKesideci('');
+  setNotlar(baslangic?.notlar??'');setHata('');
  },[open]);
 
  const kaydet=async()=>{
   if(!cari){setHata(yon==='alinan'?'Müşteri seçin.':'Tedarikçi seçin.');return}
   if(!tutarGecerli(tutar)){setHata('Geçerli bir tutar girin.');return}
   if(!seriNo.trim()){setHata('Seri no zorunludur.');return}
-  const govde:CekSenetGirdisi={
+  const govde:CekSenetOlustur={
    tur,yon,tutar:tutar.trim(),vade,seri_no:seriNo.trim(),
    ...(yon==='alinan'?{customer_id:cari.id}:{supplier_id:cari.id}),
    ...secimli({keside_tarihi:kesideTarihi,banka_adi:bankaAdi,sube_adi:subeAdi,hesap_no:hesapNo,kesideci,notlar}),
+   // Köprüsüz girişte İKİSİ DE yüke girmez: `odeme_tarihi`yi tek başına
+   // göndermek sunucuda 422'dir, `payment_olustur:false` ise CS3'ün yükü değil.
+   ...(baslangic?.odemeOlustur?{payment_olustur:true,...secimli({odeme_tarihi:baslangic.odemeTarihi??''})}:{}),
   };
   setKaydediliyor(true);setHata('');
   try{
@@ -82,7 +114,10 @@ export function YeniEvrakDialog({open,onClose,onSaved,musteriler,tedarikciler,te
  };
 
  const secenekler=yon==='alinan'?musteriler:tedarikciler;
- const verilenKapali=yon==='verilen'&&!tedarikciGorunur;
+ const tarafKilitli=Boolean(baslangic?.tarafKilitli);
+ // Kilitli tarafta cari ZATEN elimizde; `/suppliers` listesine hiç bakılmaz,
+ // yani `purchases` taşımayan rol de kendi ödeme formundan evrak girebilir.
+ const verilenKapali=yon==='verilen'&&!tedarikciGorunur&&!tarafKilitli;
  return <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
   <DialogTitle>Yeni Çek / Senet</DialogTitle>
   <DialogContent><Stack spacing={2} mt={1}>
@@ -91,14 +126,15 @@ export function YeniEvrakDialog({open,onClose,onSaved,musteriler,tedarikciler,te
     <TextField select fullWidth label="Evrak Türü" value={tur} onChange={e=>setTur(e.target.value as 'cek'|'senet')}>
      <MenuItem value="cek">Çek</MenuItem><MenuItem value="senet">Senet</MenuItem>
     </TextField>
-    <TextField select fullWidth label="Yön" value={yon} onChange={e=>{setYon(e.target.value as 'alinan'|'verilen');setCari(null)}}>
+    <TextField select fullWidth label="Yön" value={yon} disabled={tarafKilitli}
+     onChange={e=>{setYon(e.target.value as 'alinan'|'verilen');setCari(null)}}>
      <MenuItem value="alinan">Alınan (müşteriden)</MenuItem><MenuItem value="verilen">Verilen (tedarikçiye)</MenuItem>
     </TextField>
    </Stack>
    {verilenKapali
     ?<Alert severity="info">Verilen evrak için tedarikçi listesi gerekir; bu rol tedarikçi listesini göremez.</Alert>
     :<Autocomplete options={secenekler} value={cari} isOptionEqualToValue={(a,b)=>a.id===b.id}
-      getOptionLabel={x=>x?.name||''} onChange={(_,v)=>setCari(v)}
+      disabled={tarafKilitli} getOptionLabel={x=>x?.name||''} onChange={(_,v)=>setCari(v)}
       renderInput={p=><TextField {...p} label={yon==='alinan'?'Müşteri':'Tedarikçi'}/>}/>}
    <Stack direction={{xs:'column',sm:'row'}} spacing={2}>
     <TextField fullWidth label="Tutar" type="number" value={tutar} onChange={e=>setTutar(e.target.value)} slotProps={{htmlInput:{min:0,step:'0.01'}}}/>
