@@ -12,6 +12,12 @@ import type {components} from '../../api/types.gen';
 
 export type CekSenet=components['schemas']['CekSenet'];
 export type CekSenetGirdisi=components['schemas']['CekSenetGirdisi'];
+/**
+ * `POST /api/cek-senetler` gövdesi (CS2). `payment_olustur` ŞEMADA
+ * VARSAYILANLIDIR (false) — üretilen tip onu zorunlu gösterir ama köprüsüz
+ * girişte yüke HİÇ girmemelidir; CS3'ün yük sözleşmesi o anahtarı tanımıyor.
+ */
+export type CekSenetOlustur=Omit<components['schemas']['CekSenetOlustur'],'payment_olustur'>&{payment_olustur?:boolean};
 export type CekSenetListesi=components['schemas']['CekSenetListesi'];
 export type BordroSonucu=components['schemas']['BordroSonucu'];
 
