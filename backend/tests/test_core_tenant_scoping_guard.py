@@ -2056,7 +2056,17 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # 170 -> 171: PP2 Sef karari 4 — `_son_aktif_yonetici_firmalari`in firma
 # basina diger-aktif-admin sorgusu (`app_users` JOIN `memberships`)
 # `memberships.company_id == firma_id` BAGLI yuklemini tasir; lisans GEREKMEZ.
-BEKLENEN_CORE_IFADE_SAYISI = 171
+# 171 -> 175: CS2 CEK/SENET <-> CARI (goc 20260914_0086; TABAN `1ffba60`,
+# PP2 birlestikten SONRA YENIDEN OLCULDU — CS2'nin ilk olcumu de 171 diyordu
+# ama o `697a3be` tabanindaydi ve PP2'nin 171'iyle AYNI SAYI FARKLI KUMEDIR).
+# +3 `app/cek_senet_cari.py` (evrak INSERT'i router'dan BURAYA TASINDI --
+# odeme koprusu de ayni yazimi kullaniyor --, odeme->evrak SELECT'i, tahsil
+# finans hareketi INSERT'i), -1 `routers/cek_senetler.py` (tasinan INSERT),
+# +2 `routers/reports.py` (portfoy toplami + musteri adlari; JOIN yerine iki
+# tek-tablo select). HICBIRI lisans istemedi: her biri `company_id == cid`
+# yuklemini ya da INSERT'te `company_id=cid`i ACIK tasir. `companies` kiraci
+# tablosu DEGIL, ciro anahtari okumasi SAYILMAZ. Kiraci tablolari DEGISMEDI.
+BEKLENEN_CORE_IFADE_SAYISI = 175
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
     # CS1 (goc 20260914_0085): portfoy defteri ve iki taraf dogrulamasi.

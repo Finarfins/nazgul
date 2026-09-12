@@ -7205,6 +7205,36 @@ export interface components {
             /** Warehouse Id */
             warehouse_id?: number | null;
         };
+        /**
+         * CekBilgisi
+         * @description Çek/senet ile tahsilatın EVRAK alanları (CS2 köprüsü).
+         *
+         *     ``POST /api/payments`` yöntemi ``check``/``promissory_note`` ise ZORUNLUDUR
+         *     ve aynı işlemde bir ``cek_senetler`` satırı (``portfoyde``) doğurur. Alan
+         *     sınırları ``routers/cek_senetler.CekSenetGirdisi`` ile AYNIDIR (tek
+         *     tablo, tek sözleşme).
+         */
+        CekBilgisi: {
+            /** Banka Adi */
+            banka_adi?: string | null;
+            /** Hesap No */
+            hesap_no?: string | null;
+            /** Keside Tarihi */
+            keside_tarihi?: string | null;
+            /** Kesideci */
+            kesideci?: string | null;
+            /** Notlar */
+            notlar?: string | null;
+            /** Seri No */
+            seri_no: string;
+            /** Sube Adi */
+            sube_adi?: string | null;
+            /**
+             * Vade
+             * Format: date
+             */
+            vade: string;
+        };
         /** CekSenet */
         CekSenet: {
             /** Banka Adi */
@@ -7314,6 +7344,58 @@ export interface components {
             /** Total */
             total: number;
         };
+        /**
+         * CekSenetOlustur
+         * @description Tek evrak girişi; ``payment_olustur`` CS2 ters köprüsüdür (bordroda YOK).
+         *
+         *     ``true`` ise evrak bir ödemeyle birlikte doğar (alınan: müşteri
+         *     tahsilatı, verilen: tedarikçi ödemesi) ve cari o an düşer. Ödeme tarihi
+         *     ``odeme_tarihi`` > ``keside_tarihi`` > bugün sırasıyla seçilir.
+         */
+        CekSenetOlustur: {
+            /** Banka Adi */
+            banka_adi?: string | null;
+            /** Customer Id */
+            customer_id?: number | null;
+            /** Hesap No */
+            hesap_no?: string | null;
+            /** Keside Tarihi */
+            keside_tarihi?: string | null;
+            /** Kesideci */
+            kesideci?: string | null;
+            /** Notlar */
+            notlar?: string | null;
+            /** Odeme Tarihi */
+            odeme_tarihi?: string | null;
+            /**
+             * Payment Olustur
+             * @default false
+             */
+            payment_olustur: boolean;
+            /** Seri No */
+            seri_no: string;
+            /** Sube Adi */
+            sube_adi?: string | null;
+            /** Supplier Id */
+            supplier_id?: number | null;
+            /**
+             * Tur
+             * @enum {string}
+             */
+            tur: "cek" | "senet";
+            /** Tutar */
+            tutar: number | string;
+            /**
+             * Vade
+             * Format: date
+             */
+            vade: string;
+            /**
+             * Yon
+             * @enum {string}
+             */
+            yon: "alinan" | "verilen";
+        };
         /** ChangePasswordPayload */
         ChangePasswordPayload: {
             /** Current Password */
@@ -7332,6 +7414,8 @@ export interface components {
         };
         /** CompanyPolicyUpdate */
         CompanyPolicyUpdate: {
+            /** Ciro Tedarikci Odemesi */
+            ciro_tedarikci_odemesi?: boolean | null;
             /**
              * Credit Limit Policy
              * @enum {string}
@@ -9503,6 +9587,7 @@ export interface components {
             account_id?: number | null;
             /** Amount */
             amount: number | string;
+            cek_senet?: components["schemas"]["CekBilgisi"] | null;
             /** Entity Id */
             entity_id: number;
             /** Entity Type */
@@ -10281,8 +10366,12 @@ export interface components {
             days_90_plus: string;
             /** Documents */
             documents: components["schemas"]["ReceivableAgingDocument"][];
+            /** Net Risk */
+            net_risk: string;
             /** Not Due */
             not_due: string;
+            /** Portfolio Checks */
+            portfolio_checks: string;
             /** Total */
             total: string;
         };
@@ -10317,8 +10406,12 @@ export interface components {
             days_61_90: string;
             /** Days 90 Plus */
             days_90_plus: string;
+            /** Net Risk */
+            net_risk: string;
             /** Not Due */
             not_due: string;
+            /** Portfolio Checks */
+            portfolio_checks: string;
             /** Total */
             total: string;
         };
@@ -13055,7 +13148,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CekSenetGirdisi"];
+                "application/json": components["schemas"]["CekSenetOlustur"];
             };
         };
         responses: {

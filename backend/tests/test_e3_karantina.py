@@ -202,7 +202,7 @@ assert all(durum().values()), durum()
 # BAŞ TEK: göç 0075 zincire ikinci bir baş EKLEMEDİ.
 from alembic.script import ScriptDirectory
 baslar = ScriptDirectory.from_config(config).get_heads()
-assert tuple(baslar) == ("20260914_0085",), baslar
+assert tuple(baslar) == ("20260914_0086",), baslar
 print("GOC TURU TAMAM")
 """
 

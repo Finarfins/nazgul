@@ -282,6 +282,8 @@ _REFERANS: dict[str, str | None] = {
     "late_fee": "receivable_charge_documents",
     "invoice": "invoices",
     "work_order": "work_orders",
+    # CS2: çek tahsilinin finans hareketi (`cek_senet_cari.tahsil_finans_hareketi`).
+    "cek_senet": "cek_senetler",
     "manual": None,
 }
 _KAYNAK: dict[str, str | None] = {
@@ -328,6 +330,8 @@ _KAYNAK_TIPI: dict[str, str | None] = {
     "animal_quarantine": "animal_quarantines",
     "field_integration_event": "field_integration_events",
     "whatsapp_pending": "whatsapp_pending_actions",
+    # CS1 kaynak tipi (`activity_log.RESOURCE_TYPES`); CS2'de eşlendi.
+    "cek_senet": "cek_senetler",
     "activity_log": "activity_logs",
     "user": None,
     "backup": None,

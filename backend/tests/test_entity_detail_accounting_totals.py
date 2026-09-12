@@ -67,7 +67,25 @@ def _create_auxiliary_tables(db: Session) -> None:
                 due_date_snapshot TEXT,
                 period_end TEXT,
                 revision_no INTEGER DEFAULT 1,
-                work_order_id INTEGER
+                work_order_id INTEGER,
+                cek_senet_id INTEGER,
+                calculation_snapshot TEXT
+            )
+            """
+        )
+    )
+    # CS2 (göç 0086): ekstre çek tahsilatının durumunu ve karşılıksız çek
+    # borç belgesini KOŞULSUZ okur — makbuzla aynı gerekçe (eksik tablo
+    # gürültülü düşmeli).
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS cek_senetler(
+                id INTEGER PRIMARY KEY,
+                company_id INTEGER,
+                payment_id INTEGER,
+                portfoy_durumu TEXT,
+                seri_no TEXT
             )
             """
         )

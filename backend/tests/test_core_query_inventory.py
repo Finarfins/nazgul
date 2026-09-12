@@ -798,7 +798,8 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     # `where(companies.c.id == cid)` aynen duruyor; değişen tek şey OKUNAN
     # SÜTUN kümesidir.
     ("app/routers/companies.py", "get_company_settings", "select",
-     "05b5e87704905deef50c63f449fc945cf4be3784cf18d15052f5a2800f18fd1e"): (1, "companies", "arg0"),  # satır [115]
+     # CS2 (göç 0086): sütun kümesine `ciro_tedarikci_odemesi` eklendi; 05b5e877 -> abe3fed0.
+     "abe3fed0c869b800834e4704b55a9ed08de9042923c237554a2896f905cc5b1c"): (1, "companies", "arg0"),  # satır [115]
     ("app/routers/companies.py", "list_branches", "select",
      "a1e5782db98e816f1960a283e2827acf34c2f7f89add2c976e5c8d680863b69b"): (1, "branches", "arg0"),  # satır [183]
     ("app/routers/companies.py", "list_policy_overrides", "select",
@@ -1142,12 +1143,26 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "5bb413571ccdc6c25bbc70d65cfce5007b5522a7cf85c2e79d9810faedb13fd8"): (1, "finance_accounts", "arg0"),  # satır [223]
     ("app/routers/cek_senetler.py", "_cek_tedarikci_var", "select",
      "98b43b8b5509f9f9201dabeb38435cc2ff459d1c458b7531ad66d3096f99d9a8"): (1, "suppliers", "arg0"),  # satır [217]
+    # CS2: açık sütun kümesine `financial_transaction_id` ve `charge_document_id`
+    # eklendi (geçiş yan etkileri); 9c9379d9 -> bf7f1d58. `_cek_evrak`in
+    # parmak izi `with_for_update()` ile KIMILDAMADI (zincir dışı ekleme).
     ("app/routers/cek_senetler.py", "cek_senet_durum_degistir", "update",
-     "9c9379d98ef04d7795e494628427fc5ea4afff02c89d04d10ddf9ad864a480fb"): (1, "cek_senetler", "arg0"),  # satır [471]
+     "bf7f1d589493da543aefa9a7b3a607a262d5197ac1581b78c25b438c3b7f193f"): (1, "cek_senetler", "arg0"),  # satır [471]
     ("app/routers/cek_senetler.py", "cek_senet_listesi", "select",
      "23d3fe0cbdf1a013537e5f19b5afcbc78843525e0c4260c908a045c6ea128df3"): (1, "cek_senetler", "select_from"),  # satır [316]
     ("app/routers/cek_senetler.py", "cek_senet_listesi", "select",
      "97e0f21430c76373551c6e876af62050631cf1a7b459cbe1dd75f73be779de43"): (1, "cek_senetler", "arg0"),  # satır [335]
+    # --- CS2 ÇEK/SENET <-> CARİ (göç 20260914_0086): +4 select, hepsi kiracı yüklemli.
+    ("app/cek_senet_cari.py", "ciro_anahtari_acik", "select",
+     "8c227a3006b58256a9218ddd2706414b5166bc45887815f07f99d864615106e1"): (1, "companies", "arg0"),
+    ("app/cek_senet_cari.py", "odemenin_evraki", "select",
+     "b9b061d6965f872d9bbaf6445633bc595626578b60743b27c695e68a3ee13aea"): (1, "cek_senetler", "arg0"),
+    # Yaşlandırma "Portföy Çekleri": JOIN yerine İKİ tek-tablo select — tarayıcı
+    # `join(...)` argümanını statik çözemiyor (variable-arg, ölçüldü).
+    ("app/routers/reports.py", "portfoy_evraklari", "select",
+     "cdbab2947ed21cf6c381b108a5533c59edad1f73df254646fe5dc6482a2fd3ed"): (1, "cek_senetler", "arg0"),
+    ("app/routers/reports.py", "portfoy_evraklari", "select",
+     "024dfc030f71a97834def0bb7a189f34fe40f25bfbd8194c49873fc8ba8a6888"): (1, "customers", "arg0"),
 }
 
 # 20260910 5.1c KIRACI GERI YUKLEME (GOC YOK): 176 -> 184, +6 select +2 update,
@@ -1173,8 +1188,14 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # `_son_aktif_yonetici_firmalari` iki select, `platform_hiz_siniri_temizle`
 # `login_attempts` delete'i; `list_untenanted_audit` `actor_id` suzgeciyle
 # DEGISTI (bir stale + bir yeni, sayim degismez).
-TOTAL_CORE_QUERIES = 219
-EXPECTED_OP_COUNTS = {"select": 146, "update": 61, "delete": 12}
+# CS2 ÇEK/SENET <-> CARİ (göç 20260914_0086): 219 -> 223 (TABAN `1ffba60`,
+# PP2/PP3/CS3 birleştikten SONRA YENİDEN ÖLÇÜLDÜ — önceki ölçüm 206 -> 210
+# tabanındaydı ve o taban artık yok), +4 select, HEPSİ ekleme; iki mevcut
+# girdinin parmak izi değişti (companies ayar select'i ve durum-degistir
+# update'i, gerekçeleri girdilerinde). `UNRESOLVED_ALLOWLIST` ve `desteksiz`
+# BÜYÜMEDİ.
+TOTAL_CORE_QUERIES = 223
+EXPECTED_OP_COUNTS = {"select": 150, "update": 61, "delete": 12}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1261,7 +1282,8 @@ EXPECTED_OP_COUNTS = {"select": 146, "update": 61, "delete": 12}
 # app/routers/platform_management.py + `_aktor_deseni`, bir DEGISEN
 # (`list_untenanted_audit` suzgecleri). TABAN develop `697a3be`.
 # c08c5ae1 -> be7f6899.
-INVENTORY_FINGERPRINT = "9a561ea63a40c0b3be952bacb82025e6b02df41bd006864a9735276a44c6f415"
+# CS2 (göç 20260914_0086): 219 -> 223; PP2 sonrası YENİDEN türetildi. be7f6899 -> 72b2110c.
+INVENTORY_FINGERPRINT = "72b2110ccbcda9e8c875fb6b8ceec474adc075f7021e5318da2357a266a7685a"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:

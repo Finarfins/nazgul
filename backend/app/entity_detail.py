@@ -25,7 +25,7 @@ from .business_time import business_today
 from .crm import list_contacts, list_notes, list_tasks
 from .document_engine import SALES_IMPORT_NOTE, accounting_document_status_sql
 from .money import HUNDRED, ZERO_MONEY, money
-from .receivables_engine import charge_due_date_sql
+from .receivables_engine import charge_document_prefix, charge_due_date_sql
 from .tenancy import company_id, istek_rolu
 
 _PREVIEW_LIMIT = 8
@@ -253,7 +253,7 @@ def entity_detail(
                   GROUP BY receivable_charge_id
                 ) a ON a.receivable_charge_id=d.id
                 WHERE d.company_id=:cid AND d.customer_id=:id
-                  AND d.charge_type IN ('late_fee','service_fee')
+                  AND d.charge_type IN ('late_fee','service_fee','bounced_check')
                   AND d.status IN ('posted','reversed')
                   AND d.posted_at IS NOT NULL
                   AND d.period_end<=:as_of"""
@@ -462,7 +462,7 @@ def _charge_documents(
               GROUP BY receivable_charge_id
             ) a ON a.receivable_charge_id=d.id
             WHERE d.company_id=:cid AND d.customer_id=:id
-              AND d.charge_type IN ('late_fee','service_fee')
+              AND d.charge_type IN ('late_fee','service_fee','bounced_check')
               AND d.status='posted' AND d.reversal_of_document_id IS NULL
               AND d.posted_at IS NOT NULL AND d.period_end<=:as_of
               AND d.gross_amount-COALESCE(a.applied,0)>0
@@ -483,7 +483,10 @@ def _charge_documents(
             work_order_no = row["work_order_no"] or f"SE-{row['work_order_id']}"
             document_no = f"{work_order_no}-R{int(row['revision_no'])}"
         else:
-            document_no = f"VF-{int(row['id'])}-R{int(row['revision_no'])}"
+            document_no = (
+                f"{charge_document_prefix(charge_type)}-{int(row['id'])}"
+                f"-R{int(row['revision_no'])}"
+            )
         documents.append(
             {
                 "id": int(row["id"]),

@@ -19,6 +19,14 @@ bakiye ile elden verilen belge çelişir.
 Normal ``draft`` ve bütün ``cancelled`` belgeler hariç tutulur. BizimHesap'tan
 aktarılmış stok-nötr satış taslakları ise cari borcu temsil ettiği için müşteri
 ekstresine, 360 ekranındaki kuralla aynı şekilde, dahil edilir.
+
+ÇEK/SENET (CS2, göç 0086): çekle yapılan tahsilat bir ``payments`` satırıdır
+ve cariyi o an düşürür (Seçenek A); satır ibaresi evrakın durumunu taşır —
+``Tahsilat (Çek - Portföyde)``. Evrak karşılıksız çıkar ya da iade edilirse
+müşteriye ``bounced_check`` borç belgesi açılır ve ekstreye BORÇ satırı olarak
+girer (``Karşılıksız Çek Dekontu``); cari çekten önceki bakiyesine döner.
+Tahsil edilen çek bakiyeyi DEĞİŞTİRMEZ: cari zaten alındığında düşmüştü, para
+yalnız kasaya/bankaya geçer (``finance_transactions``).
 """
 from __future__ import annotations
 
@@ -32,6 +40,7 @@ from sqlalchemy.orm import Session
 
 from .alan_maskeleme import maskele_cari
 from .business_time import business_today
+from .cek_senet_cari import dekont_etiketi, tahsilat_etiketi
 from .document_engine import SALES_IMPORT_NOTE, accounting_document_status_sql
 from .money import ZERO_MONEY, money
 from .pos_contracts import MoneyOut
@@ -199,8 +208,10 @@ def _totals(
         ),
         params,
     ).scalar()
-    debit = money(debit) + _makbuz_borcu(
-        db, cid, entity_type, entity_id, params, date_from, date_to, inclusive_to
+    debit = (
+        money(debit)
+        + _makbuz_borcu(db, cid, entity_type, entity_id, params, date_from, date_to, inclusive_to)
+        + _cek_dekont_borcu(db, cid, entity_type, entity_id, params, date_from, date_to, inclusive_to)
     )
     credit = db.execute(
         text(
@@ -266,6 +277,50 @@ def _makbuz_borcu(
     ).scalar()
     return money(toplam or 0)
 
+
+
+# Borç belgesinin günü: `period_end` bir TARİHTİR, ötekiler GÜN dizgisi —
+# `MAKBUZ_GUNU`nun gerekçesiyle (PG'de UNION tip hatası) metne indirilir.
+DEKONT_GUNU = "SUBSTR(CAST(d.period_end AS TEXT),1,10)"
+
+#: Çek/senet borç belgesinin ekstreye giren satırları. Terslenen belge
+#: (`reversed`) ve onun eksi tutarlı ters kaydı (`posted`) birlikte SIFIRLANIR
+#: — 360 ucunun `charge_total` kuralıyla AYNI.
+DEKONT_KOSULU = (
+    "d.company_id=:cid AND d.customer_id=:id AND d.charge_type='bounced_check' "
+    "AND d.status IN ('posted','reversed') AND d.posted_at IS NOT NULL"
+)
+
+
+def _cek_dekont_borcu(
+    db: Session,
+    cid: int,
+    entity_type: str,
+    entity_id: int,
+    params: dict[str, object],
+    date_from: str | None,
+    date_to: str | None,
+    inclusive_to: bool,
+) -> Decimal:
+    """Karşılıksız/iade çek borç belgelerinin toplamı (yalnız müşteri)."""
+    if entity_type != "customer":
+        return ZERO_MONEY
+    pencere = ""
+    if date_from is not None:
+        pencere += f" AND {DEKONT_GUNU}>=:date_from"
+    if date_to is not None:
+        operator = "<=" if inclusive_to else "<"
+        pencere += f" AND {DEKONT_GUNU}{operator}:date_to"
+    toplam = db.execute(
+        text(
+            f"""SELECT COALESCE(SUM(d.gross_amount),0) total
+            FROM receivable_charge_documents d
+            WHERE {DEKONT_KOSULU}
+              {pencere}"""
+        ),
+        params,
+    ).scalar()
+    return money(toplam or 0)
 
 
 def _baslik_alanlari(row, rol: str) -> dict:
@@ -339,18 +394,29 @@ def build_statement(
     if entity_type == "supplier":
         makbuz_kolu = f"""UNION ALL
             SELECT COALESCE({MAKBUZ_GUNU},''), 'producer_receipt',
-              r.receipt_no, NULL, r.net_payable, r.id
+              r.receipt_no, NULL, r.net_payable, r.id, NULL, NULL
             FROM producer_receipts r
             WHERE r.supplier_id=:id AND r.company_id=:cid
               AND r.status='issued'
               AND COALESCE({MAKBUZ_GUNU},'')>=:date_from
               AND COALESCE({MAKBUZ_GUNU},'')<=:date_to"""
+    elif entity_type == "customer":
+        # Çek/senet borç belgesi (CS2). Belge no = evrakın seri numarası.
+        makbuz_kolu = f"""UNION ALL
+            SELECT {DEKONT_GUNU}, 'cek_dekontu',
+              cs.seri_no, NULL, d.gross_amount, d.id, NULL, d.calculation_snapshot
+            FROM receivable_charge_documents d
+            LEFT JOIN cek_senetler cs
+              ON cs.company_id=d.company_id AND cs.id=d.cek_senet_id
+            WHERE {DEKONT_KOSULU}
+              AND {DEKONT_GUNU}>=:date_from
+              AND {DEKONT_GUNU}<=:date_to"""
 
     rows = db.execute(
         text(
             f"""SELECT COALESCE(d.{settings['date_column']},'') entry_date,
               'document' kind, d.document_no document_no, NULL payment_method,
-              d.final_total amount, d.id reference_id
+              d.final_total amount, d.id reference_id, NULL cek_durumu, NULL anlik
             FROM {settings['documents']} d
             WHERE d.{settings['entity_fk']}=:id AND d.company_id=:cid
                AND {document_status_sql}
@@ -358,7 +424,11 @@ def build_statement(
               AND COALESCE(d.{settings['date_column']},'')<=:date_to
             UNION ALL
             SELECT COALESCE(p.payment_date,''), 'payment', NULL,
-              COALESCE(p.payment_method,'cash'), p.amount, p.id
+              COALESCE(p.payment_method,'cash'), p.amount, p.id,
+              (SELECT cs.portfoy_durumu FROM cek_senetler cs
+               WHERE cs.company_id=p.company_id AND cs.payment_id=p.id
+               ORDER BY cs.id LIMIT 1),
+              NULL
             FROM payments p
             WHERE p.entity_type=:etype AND p.entity_id=:id AND p.company_id=:cid
               AND COALESCE(p.payment_date,'')>=:date_from
@@ -382,18 +452,22 @@ def build_statement(
     lines: list[StatementLine] = []
     balance = opening
     for item in rows[:LINE_LIMIT]:
-        is_document = item["kind"] in ("document", "producer_receipt")
+        is_document = item["kind"] in ("document", "producer_receipt", "cek_dekontu")
         amount = money(item["amount"])
         debit = amount if is_document else ZERO_MONEY
         credit = ZERO_MONEY if is_document else amount
         balance = money(balance + debit - credit)
         if item["kind"] == "producer_receipt":
             label = "Müstahsil makbuzu (net)"
+        elif item["kind"] == "cek_dekontu":
+            label = dekont_etiketi(item["anlik"])
         elif is_document:
             label = settings["document_label"]
         else:
             method = item["payment_method"] or "cash"
-            label = f"{settings['payment_label']} ({PAYMENT_LABELS.get(method, method)})"
+            label = tahsilat_etiketi(
+                settings["payment_label"], PAYMENT_LABELS.get(method, method), item["cek_durumu"]
+            )
         lines.append(
             StatementLine(
                 entry_date=item["entry_date"],

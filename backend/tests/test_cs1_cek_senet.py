@@ -334,8 +334,12 @@ def test_her_izinli_gecis_YESIL(ortam, kaynak, hedef, yuk) -> None:
         assert govde["endorsed_date"] == date.today().isoformat()  # varsayılan bugün
     if "not_metni" in yuk:
         assert yuk["not_metni"] in govde["notlar"]
-    # Muhasebe YOK (karar 1 -> CS2).
-    assert govde["payment_id"] is None and govde["financial_transaction_id"] is None
+    # CS1 evrakı ödemesiz doğar (köprü CS2'de ve isteğe bağlı). CS2'den
+    # sonra TEK muhasebe yan etkisi `tahsil_edildi`nin finans hareketidir;
+    # ödemesiz evrak karşılıksız/iade'de borç belgesi AÇMAZ (cariyi hiç
+    # düşürmemişti). Ayrıntı: `tests/test_cs2_cek_senet_cari.py`.
+    assert govde["payment_id"] is None and govde["charge_document_id"] is None
+    assert (govde["financial_transaction_id"] is not None) == (hedef == "tahsil_edildi")
     kayit = _sql(ortam["engine"], "SELECT action_type, details FROM activity_logs "
                  "WHERE resource_type='cek_senet' AND resource_id=:i ORDER BY id", i=evrak)
     assert kayit[0][0] == "cek_senet.created" and kayit[-1][0] == "cek_senet.durum"

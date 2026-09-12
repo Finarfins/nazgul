@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from pydantic import BaseModel, Field, field_validator, model_validator
 from .business_time import business_today
@@ -261,6 +261,39 @@ class PosSaleCreate(BaseModel):
         return self
 
 
+class CekBilgisi(BaseModel):
+    """Çek/senet ile tahsilatın EVRAK alanları (CS2 köprüsü).
+
+    ``POST /api/payments`` yöntemi ``check``/``promissory_note`` ise ZORUNLUDUR
+    ve aynı işlemde bir ``cek_senetler`` satırı (``portfoyde``) doğurur. Alan
+    sınırları ``routers/cek_senetler.CekSenetGirdisi`` ile AYNIDIR (tek
+    tablo, tek sözleşme).
+    """
+
+    vade: date
+    seri_no: str = Field(min_length=1, max_length=100)
+    keside_tarihi: date | None = None
+    banka_adi: str | None = Field(default=None, max_length=160)
+    sube_adi: str | None = Field(default=None, max_length=120)
+    hesap_no: str | None = Field(default=None, max_length=100)
+    kesideci: str | None = Field(default=None, max_length=200)
+    notlar: str | None = Field(default=None, max_length=2000)
+
+    @field_validator('seri_no')
+    @classmethod
+    def _seri_bos_olamaz(cls, deger: str) -> str:
+        temiz = deger.strip()
+        if not temiz:
+            raise ValueError('Seri no boş olamaz')
+        return temiz
+
+    @model_validator(mode='after')
+    def _keside_vadeden_once(self) -> 'CekBilgisi':
+        if self.keside_tarihi is not None and self.keside_tarihi > self.vade:
+            raise ValueError('Keşide tarihi vadeden sonra olamaz')
+        return self
+
+
 class PaymentCreate(BaseModel):
     entity_type: str
     entity_id: int = Field(gt=0)
@@ -271,6 +304,8 @@ class PaymentCreate(BaseModel):
     account_id: int | None = None
     reference_type: str | None = None
     reference_id: int | None = Field(default=None, gt=0)
+    # CS2: yöntem çek/senet ise ZORUNLU, değilse YASAK (uç doğrular).
+    cek_senet: CekBilgisi | None = None
 
     @field_validator('payment_date')
     @classmethod

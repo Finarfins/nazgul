@@ -736,7 +736,7 @@ async def import_payments(
     db: Session = Depends(get_db),
 ):
     """Cari + tarih + tutar içeren bir Excel'i tahsilat kaydına dönüştürür."""
-    from .finance import add as create_payment
+    from .finance import odeme_kaydet
 
     if not (file.filename or '').lower().endswith(('.xlsx', '.xlsm')):
         raise HTTPException(400, 'Yalnızca .xlsx dosyası yükleyin.')
@@ -789,7 +789,7 @@ async def import_payments(
         raw_method = str(_cell(row, mapping, 'method', '') or '').strip().lower()
         method = PAYMENT_METHODS.get(raw_method, 'cash')
         try:
-            create_payment(
+            odeme_kaydet(
                 PaymentCreate(
                     entity_type='customer',
                     entity_id=entity_id,
@@ -800,6 +800,9 @@ async def import_payments(
                 ),
                 request,
                 db,
+                # Dosyada evrak sütunu YOK: çek/senet satırları CS2 öncesi
+                # gibi evraksız yazılır (finance._cek_bilgisi).
+                cek_zorunlu=False,
             )
             created += 1
         except HTTPException as exc:

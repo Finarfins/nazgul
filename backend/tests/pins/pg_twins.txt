@@ -19,6 +19,7 @@ test_cari_pg_boolean_parity_postgresql.py
 test_charge_document_balance_postgresql.py
 test_cost_rates_postgresql.py
 test_cs1_cek_senet_postgresql.py
+test_cs2_cek_senet_cari_postgresql.py
 test_d2_avans_tescil_postgresql.py
 test_db_baglanti_dayanikliligi_postgresql.py
 test_e1_efatura_sertlestirme_postgresql.py

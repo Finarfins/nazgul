@@ -22,11 +22,20 @@ Başka firmanın kimliği 404'tür, 403 DEĞİL: 403 kaydın VAR olduğunu söyl
 Başvurulan müşteri/tedarikçi/kasa da aynı firmada aranır; bulunamazsa 422
 (yük geçersiz). Veritabanı ayrıca bileşik FK ile aynı şeyi zorlar (göç 0085).
 
---- MUHASEBE YOK (karar 1 -> CS2) -------------------------------------------
+--- MUHASEBE (CS2, göç 0086) ------------------------------------------------
 
-Bu dosya ``payments``a, ``finance_transactions``a ve borç belgelerine
-YAZMAZ. ``payment_id``, ``financial_transaction_id``, ``charge_document_id``
-her yolda NULL kalır.
+CS1'de bu dosya muhasebeye YAZMIYORDU. CS2 (karar 1, Seçenek A) iki yeri
+açar ve yan etkilerin TAMAMI ``app/cek_senet_cari.py``dedir:
+
+* ``POST /api/cek-senetler`` + ``payment_olustur: true``: evrak, ``POST
+  /api/payments`` ile AYNI yoldan (``finance.odeme_kaydet``) bir ödemeyle
+  birlikte doğar; varsayılan ``false`` CS1 davranışıdır. Bordro ödeme
+  YAZMAZ.
+* ``durum-degistir``: ``tahsil_edildi`` finans hareketi, ``karsiliksiz`` /
+  ``iade`` borç belgesi (yalnız köprüden doğmuş alınan evrak), ``ciro_edildi``
+  firma anahtarı açıksa tedarikçi ödemesi. Durum yazımıyla AYNI işlemde;
+  evrak satırı KİLİTLİ okunur (PG ``FOR UPDATE``) ki iki eşzamanlı geçiş iki
+  borç belgesi açamasın.
 
 --- MASKELEME (SEC-3b) ------------------------------------------------------
 
@@ -42,32 +51,44 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import String, Date, Integer, bindparam, func, insert, or_, select, update
+from sqlalchemy import String, Date, Integer, bindparam, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from ..activity_log import log_activity
 from ..alan_maskeleme import maskele_cari
-from ..auth import utcnow
 from ..cek_senet_engine import (
     CIRO_EDILDI,
     DURUMLAR,
     IADE,
     KARSILIKSIZ,
-    PORTFOYDE,
     TAHSIL_EDILDI,
     TAHSIL_HESAP_TIPLERI,
     GecisHatasi,
     gecis_dogrula,
 )
+from ..cek_senet_cari import (
+    TUR_YONTEM,
+    borc_belgesi_gerekir_mi,
+    cek_ekle,
+    ciro_anahtari_acik,
+    ciro_tedarikci_odemesi,
+    karsiliksiz_borc_belgesi,
+    tahsil_finans_hareketi,
+)
 from ..cek_senet_schema import cek_senetler
 from ..core_schema import customers, suppliers
 from ..db import get_db
 from ..finance_engine import finance_accounts
+from ..business_time import business_today
 from ..money import money
+from ..schemas import CekBilgisi, PaymentCreate
 from ..tenancy import company_id, istek_rolu
+from ..idempotency import BASLIK as IDEMPOTENS_BASLIGI
+from .finance import odeme_kaydet
 
 router = APIRouter(prefix="/cek-senetler", tags=["Çek/Senet Portföyü"])
 
@@ -129,6 +150,24 @@ class CekSenetGirdisi(BaseModel):
                 raise ValueError("Verilen evrakta müşteri (customer_id) verilemez")
         if self.keside_tarihi is not None and self.keside_tarihi > self.vade:
             raise ValueError("Keşide tarihi vadeden sonra olamaz")
+        return self
+
+
+class CekSenetOlustur(CekSenetGirdisi):
+    """Tek evrak girişi; ``payment_olustur`` CS2 ters köprüsüdür (bordroda YOK).
+
+    ``true`` ise evrak bir ödemeyle birlikte doğar (alınan: müşteri
+    tahsilatı, verilen: tedarikçi ödemesi) ve cari o an düşer. Ödeme tarihi
+    ``odeme_tarihi`` > ``keside_tarihi`` > bugün sırasıyla seçilir.
+    """
+
+    payment_olustur: bool = False
+    odeme_tarihi: date | None = None
+
+    @model_validator(mode="after")
+    def _odeme_tarihi_yalniz_odemeyle(self) -> "CekSenetOlustur":
+        if self.odeme_tarihi is not None and not self.payment_olustur:
+            raise ValueError("odeme_tarihi yalnız payment_olustur=true ile verilir")
         return self
 
 
@@ -203,12 +242,14 @@ def _cek_gorunum(satir: Any, rol: str) -> dict:
     return maskele_cari(dict(satir), rol)
 
 
-def _cek_evrak(db: Session, cid: int, evrak_id: int) -> dict:
-    satir = db.execute(
-        select(cek_senetler).where(
-            cek_senetler.c.company_id == cid, cek_senetler.c.id == evrak_id
-        )
-    ).mappings().first()
+def _cek_evrak(db: Session, cid: int, evrak_id: int, *, kilit: bool = False) -> dict:
+    sorgu = select(cek_senetler).where(
+        cek_senetler.c.company_id == cid, cek_senetler.c.id == evrak_id
+    )
+    if kilit:
+        # PG'de satır kilidi; SQLite ``FOR UPDATE`` derlemez (yazıcı zaten tek).
+        sorgu = sorgu.with_for_update()
+    satir = db.execute(sorgu).mappings().first()
     if satir is None:
         # 404 — başka firmanın kaydı da buraya düşer; VARLIĞI sızdırılmaz.
         raise HTTPException(404, "Çek/senet bulunamadı")
@@ -247,30 +288,23 @@ def _cek_taraf_dogrula(db: Session, cid: int, girdi: CekSenetGirdisi, *, sira: i
 
 
 def _cek_ekle(db: Session, cid: int, uid: int | None, girdi: CekSenetGirdisi) -> int:
-    yeni_id = db.execute(
-        insert(cek_senetler)
-        .values(
-            company_id=cid,
-            tur=girdi.tur,
-            yon=girdi.yon,
-            portfoy_durumu=PORTFOYDE,
-            customer_id=girdi.customer_id,
-            supplier_id=girdi.supplier_id,
-            tutar=money(girdi.tutar),
-            vade=girdi.vade,
-            keside_tarihi=girdi.keside_tarihi,
-            banka_adi=girdi.banka_adi,
-            sube_adi=girdi.sube_adi,
-            hesap_no=girdi.hesap_no,
-            seri_no=girdi.seri_no,
-            kesideci=girdi.kesideci,
-            notlar=girdi.notlar,
-            created_at=utcnow(),
-            created_by=uid,
-        )
-        .returning(cek_senetler.c.id)
-    ).scalar_one()
-    return int(yeni_id)
+    # Yazım TEK yerde (``cek_senet_cari.cek_ekle``): ödeme köprüsü de oradan yazar.
+    return cek_ekle(
+        db, cid, uid,
+        tur=girdi.tur,
+        yon=girdi.yon,
+        customer_id=girdi.customer_id,
+        supplier_id=girdi.supplier_id,
+        tutar=girdi.tutar,
+        vade=girdi.vade,
+        seri_no=girdi.seri_no,
+        keside_tarihi=girdi.keside_tarihi,
+        banka_adi=girdi.banka_adi,
+        sube_adi=girdi.sube_adi,
+        hesap_no=girdi.hesap_no,
+        kesideci=girdi.kesideci,
+        notlar=girdi.notlar,
+    )
 
 
 def _cek_olusturma_kaydi(
@@ -372,15 +406,56 @@ def cek_senet_listesi(
 
 @router.post("", status_code=201, response_model=CekSenet)
 def cek_senet_olustur(
-    payload: CekSenetGirdisi, request: Request, db: Session = Depends(get_db)
+    payload: CekSenetOlustur, request: Request, db: Session = Depends(get_db)
 ) -> dict:
     cid = company_id(request)
     uid = _cek_kullanici_kimligi(request)
     _cek_taraf_dogrula(db, cid, payload)
+    if payload.payment_olustur:
+        return _cek_odemeyle_olustur(payload, request, db, cid)
     evrak_id = _cek_ekle(db, cid, uid, payload)
     _cek_olusturma_kaydi(db, request, cid, uid, evrak_id, payload, bordro=False)
     db.commit()
     return _cek_gorunum(_cek_evrak(db, cid, evrak_id), istek_rolu(request))
+
+
+def _cek_odemeyle_olustur(
+    payload: CekSenetOlustur, request: Request, db: Session, cid: int
+) -> dict:
+    """Ters köprü: ödeme + evrak, ``POST /api/payments``in AYNI yolundan.
+
+    İDEMPOTENS: bu uçta başlığın sahibi GENEL ara katmandır (``app.idempotency``;
+    uç ``ATLANAN_UCLAR``da DEĞİL). Tekrar eden istek ara katmanda saklanan
+    cevapla döner ve buraya hiç ulaşmaz. Ödeme defteri (``payment_idempotency``)
+    yine de bir anahtar ister; ona başlığın KENDİSİ değil ``cek-senet:`` önekli
+    TÜREVİ verilir — iki defter aynı anahtarı iddia etmez (5.4b kuralı).
+    Başlık yoksa anahtar tek kullanımlıktır: CS1 ucunun başlıksız davranışı.
+    """
+    musteri = payload.yon == "alinan"
+    odeme = PaymentCreate(
+        entity_type="customer" if musteri else "supplier",
+        entity_id=int(payload.customer_id if musteri else payload.supplier_id),
+        amount=payload.tutar,
+        payment_date=(payload.odeme_tarihi or payload.keside_tarihi or business_today()).isoformat(),
+        note=f"{'Çek' if payload.tur == 'cek' else 'Senet'} {payload.seri_no}",
+        payment_method=TUR_YONTEM[payload.tur],
+        cek_senet=CekBilgisi(
+            vade=payload.vade,
+            seri_no=payload.seri_no,
+            keside_tarihi=payload.keside_tarihi,
+            banka_adi=payload.banka_adi,
+            sube_adi=payload.sube_adi,
+            hesap_no=payload.hesap_no,
+            kesideci=payload.kesideci,
+            notlar=payload.notlar,
+        ),
+    )
+    ham = (request.headers.get(IDEMPOTENS_BASLIGI) or "").strip() or uuid4().hex
+    sonuc = odeme_kaydet(odeme, request, db, defter_anahtari=f"cek-senet:{ham}"[:255])
+    evrak_id = sonuc.get("cek_senet_id")
+    if evrak_id is None:
+        raise HTTPException(500, "Ödeme yazıldı ama evrak bağlanamadı")
+    return _cek_gorunum(_cek_evrak(db, cid, int(evrak_id)), istek_rolu(request))
 
 
 @router.post("/bordro", status_code=201, response_model=BordroSonucu)
@@ -444,7 +519,7 @@ def cek_senet_durum_degistir(
     """
     cid = company_id(request)
     uid = _cek_kullanici_kimligi(request)
-    evrak = _cek_evrak(db, cid, evrak_id)
+    evrak = _cek_evrak(db, cid, evrak_id, kilit=True)
     kaynak = str(evrak["portfoy_durumu"])
     hedef = payload.hedef
     try:
@@ -460,6 +535,9 @@ def cek_senet_durum_degistir(
         raise HTTPException(422, f"'{hedef}' geçişinde bu alanlar verilemez: {', '.join(fazla)}")
 
     degerler: dict[str, Any] = {"portfoy_durumu": hedef}
+    # CS2 muhasebe yan etkileri (``cek_senet_cari`` başlığı). Durum yazımıyla
+    # AYNI işlemde; CAS aşağıda reddederse hepsi geri alınır.
+    yan: dict[str, Any] = {}
     if hedef == TAHSIL_EDILDI:
         if payload.tahsil_hesap_id is None or payload.tahsil_tarihi is None:
             raise HTTPException(422, "Tahsil için tahsil_hesap_id ve tahsil_tarihi zorunludur")
@@ -467,6 +545,9 @@ def cek_senet_durum_degistir(
             raise HTTPException(422, "Tahsil hesabı bulunamadı ya da kasa/banka hesabı değil")
         degerler["tahsil_hesap_id"] = payload.tahsil_hesap_id
         degerler["tahsil_tarihi"] = payload.tahsil_tarihi
+        yan["financial_transaction_id"] = tahsil_finans_hareketi(
+            db, cid, evrak, payload.tahsil_hesap_id, payload.tahsil_tarihi
+        )
     elif hedef == CIRO_EDILDI:
         if payload.endorsed_supplier_id is None:
             raise HTTPException(422, "Ciro için endorsed_supplier_id zorunludur")
@@ -474,6 +555,12 @@ def cek_senet_durum_degistir(
             raise HTTPException(422, "Ciro edilen tedarikçi bulunamadı")
         degerler["endorsed_supplier_id"] = payload.endorsed_supplier_id
         degerler["endorsed_date"] = payload.endorsed_date or date.today()
+        if ciro_anahtari_acik(db, cid):
+            yan["ciro_payment_id"] = ciro_tedarikci_odemesi(
+                db, cid, evrak, payload.endorsed_supplier_id, degerler["endorsed_date"]
+            )
+    elif hedef in (KARSILIKSIZ, IADE) and borc_belgesi_gerekir_mi(evrak):
+        yan["charge_document_id"] = karsiliksiz_borc_belgesi(db, cid, uid, evrak, hedef)
     if payload.not_metni:
         onceki = evrak.get("notlar") or ""
         ek = f"[{hedef}] {payload.not_metni.strip()}"
@@ -497,6 +584,10 @@ def cek_senet_durum_degistir(
             endorsed_supplier_id=degerler.get("endorsed_supplier_id", evrak["endorsed_supplier_id"]),
             endorsed_date=degerler.get("endorsed_date", evrak["endorsed_date"]),
             notlar=degerler.get("notlar", evrak["notlar"]),
+            financial_transaction_id=yan.get(
+                "financial_transaction_id", evrak["financial_transaction_id"]
+            ),
+            charge_document_id=yan.get("charge_document_id", evrak["charge_document_id"]),
         )
     )
     if int(sonuc.rowcount or 0) != 1:
@@ -508,7 +599,7 @@ def cek_senet_durum_degistir(
     log_activity(
         db, cid, uid, "cek_senet.durum", "cek_senet", evrak_id,
         f"Çek/senet durumu: {kaynak} -> {hedef} ({evrak['seri_no']})",
-        {"from": kaynak, "to": hedef,
+        {"from": kaynak, "to": hedef, **yan,
          **{k: (v.isoformat() if isinstance(v, date) else v)
             for k, v in degerler.items() if k not in ("portfoy_durumu", "notlar")}},
         correlation_id=getattr(request.state, "request_id", None),

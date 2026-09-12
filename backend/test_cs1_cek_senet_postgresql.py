@@ -40,7 +40,7 @@ pytestmark = pytest.mark.postgresql
 KOSU = uuid4().hex[:8]
 TABLO = "cek_senetler"
 ONCE = "20260914_0084"
-BAS = "20260914_0085"
+BAS = "20260914_0086"  # CS2: baş 0086 (bu dosyanın göçü 0085)
 
 
 def _url() -> str:
