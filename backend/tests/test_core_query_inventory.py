@@ -1163,6 +1163,24 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "cdbab2947ed21cf6c381b108a5533c59edad1f73df254646fe5dc6482a2fd3ed"): (1, "cek_senetler", "arg0"),
     ("app/routers/reports.py", "portfoy_evraklari", "select",
      "024dfc030f71a97834def0bb7a189f34fe40f25bfbd8194c49873fc8ba8a6888"): (1, "customers", "arg0"),
+    # --- E4b-1 KISMI SEVK (goc 20260915_0087). Yedisi `app/routers/despatch_notes.py`,
+    # biri `app/document_engine.py::next_sequence_value`. Her biri `company_id == cid`
+    # yuklemini ACIKCA tasir; numara MAX'i PP1'in sayim sorgulari gibi ACIK
+    # `.select_from(...)` ile yazildi (hedef `select_from` yoluyla cozuluyor).
+    ("app/document_engine.py", "next_sequence_value", "update",
+     "21b2fa1223d3b3bd83b7c10aebef04baa8483b64be169dc0f44d6897d7521a6d"): (1, "document_sequences", "arg0"),  # satır [179]
+    ("app/routers/despatch_notes.py", "_belge_numarasi", "select",
+     "ef031f7c68375a61fe34765c0f4c1f2f185f7664fb2b3b92bc14c98431e114d4"): (1, "despatch_notes", "select_from"),  # satır [305]
+    ("app/routers/despatch_notes.py", "_belge_numarasi", "select",
+     "2c9348589d668c0099ebb2203038dc75989470f30ba99d71f0122f5afe9c59b8"): (1, "despatch_notes", "arg0"),  # satır [321]
+    ("app/routers/despatch_notes.py", "_faturayi_kilitle", "update",
+     "3b85ed393ad3f482083c527d2d586bf63e0d40ee253a0327015c2f2561c6e8ae"): (1, "invoices", "arg0"),  # satır [343]
+    ("app/routers/despatch_notes.py", "_sevk_durumu", "select",
+     "bb8951df7ebd4773d9876861e823cdab1a67c8c8dfa125acafade4266905b11d"): (1, "invoice_items", "arg0"),  # satır [363]
+    ("app/routers/despatch_notes.py", "_sevk_durumu", "select",
+     "495b277cedd88ccca0dc6c2ff5622b70b9aee38459fc4e9670d2da01e3e47deb"): (1, "despatch_lines", "arg0"),  # satır [379]
+    ("app/routers/despatch_notes.py", "_irsaliye_satirlari", "select",
+     "fee6ff82a683c3c2b5c121265d00eef0467d7c71890270e13001acb96cfbaa64"): (1, "despatch_lines", "arg0"),  # satır [474]
 }
 
 # 20260910 5.1c KIRACI GERI YUKLEME (GOC YOK): 176 -> 184, +6 select +2 update,
@@ -1194,8 +1212,12 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # girdinin parmak izi değişti (companies ayar select'i ve durum-degistir
 # update'i, gerekçeleri girdilerinde). `UNRESOLVED_ALLOWLIST` ve `desteksiz`
 # BÜYÜMEDİ.
-TOTAL_CORE_QUERIES = 223
-EXPECTED_OP_COUNTS = {"select": 150, "update": 61, "delete": 12}
+# E4b-1 KISMI SEVK (goc 20260915_0087): 223 -> 230 (TABAN develop `989b735`,
+# CS2 sonrasi YENIDEN OLCULDU; ilk olcum `697a3be` uzerinde 206 -> 213),
+# +5 select +2 update, altisi app/routers/despatch_notes.py, biri
+# app/document_engine.py; HEPSI ekleme. `UNRESOLVED_ALLOWLIST` ve `desteksiz` BUYUMEDI.
+TOTAL_CORE_QUERIES = 230
+EXPECTED_OP_COUNTS = {"select": 155, "update": 63, "delete": 12}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1283,7 +1305,10 @@ EXPECTED_OP_COUNTS = {"select": 150, "update": 61, "delete": 12}
 # (`list_untenanted_audit` suzgecleri). TABAN develop `697a3be`.
 # c08c5ae1 -> be7f6899.
 # CS2 (göç 20260914_0086): 219 -> 223; PP2 sonrası YENİDEN türetildi. be7f6899 -> 72b2110c.
-INVENTORY_FINGERPRINT = "72b2110ccbcda9e8c875fb6b8ceec474adc075f7021e5318da2357a266a7685a"
+# E4b-1 (KISMI SEVK, goc 20260915_0087): 223 -> 230, altisi
+# app/routers/despatch_notes.py, biri app/document_engine.py; TABAN develop
+# `989b735` (CS2 sonrasi YENIDEN turetildi). 72b2110c -> 1c166663.
+INVENTORY_FINGERPRINT = "1c166663895e1ff3b97cfb342d62287ec07fbaf99ec3ac398c2d8110e977ac68"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:

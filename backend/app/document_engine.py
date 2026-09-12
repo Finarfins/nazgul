@@ -35,6 +35,12 @@ DOCUMENT_TABLES = {
     # Müstahsil makbuzu (0070). Numara TASLAKTA atanmaz; yalnız
     # `/producer-receipts/{id}/issue` bu seriden çeker (önek "MM").
     "producer_receipts",
+    # e-İrsaliye (E4b-1). Bu tablo `next_document_no`yu ÇAĞIRMAZ
+    # (`PREFIX-000001` biçimi GİB'in `^[A-Z]{3}[0-9]{13}$` desenine uymaz);
+    # yalnız `next_sequence_value` ile SAYACI paylaşır ve biçimi
+    # `edespatch.belge_numarasi_uret` verir. E4a sırayı fatura kimliğinden
+    # türetiyordu ve bir faturanın N irsaliyesi olunca o türetme ÇAKIŞIR.
+    "despatch_notes",
 }
 DOCUMENT_NUMBER_COLUMNS = {
     "work_orders": "work_order_no",
@@ -43,6 +49,7 @@ DOCUMENT_NUMBER_COLUMNS = {
     # (`next_document_no` içindeki LOWER(...) sorgusu) DOĞRU sütuna bakmasını
     # sağlar. Burada bildirilmeseydi sorgu olmayan `document_no`ya bakardı.
     "producer_receipts": "receipt_no",
+    "despatch_notes": "despatch_number",
 }
 _PREFIX_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 
@@ -149,6 +156,35 @@ def _insert_sequence_if_missing(
             db.execute(document_sequences.insert().values(**values))
     except IntegrityError:
         pass
+
+
+def next_sequence_value(
+    db: Session, table: str, company_id: int, prefix: str, seed: int
+) -> int:
+    """Advance the ``document_sequences`` counter ``"{table}:{prefix}"`` and
+    return the new value — the SAME atomic ``UPDATE ... RETURNING`` counter
+    ``next_document_no`` uses, without its ``PREFIX-000001`` formatting.
+
+    For documents whose number format is dictated elsewhere (GİB's 16-char
+    e-İrsaliye ID). ``seed`` only matters when the counter row does not exist
+    yet; the caller derives it from numbers already issued so the first value
+    cannot collide with them. The row update also serialises concurrent
+    callers of the same key until commit.
+    """
+    _validate_document_identity(table, prefix)
+    sequence_key = f"{table}:{prefix}"
+    _insert_sequence_if_missing(db, company_id, sequence_key, seed)
+    return int(
+        db.execute(
+            update(document_sequences)
+            .where(
+                document_sequences.c.company_id == company_id,
+                document_sequences.c.sequence_key == sequence_key,
+            )
+            .values(current_value=document_sequences.c.current_value + 1)
+            .returning(document_sequences.c.current_value)
+        ).scalar_one()
+    )
 
 
 def next_document_no(db: Session, table: str, company_id: int, prefix: str) -> str:

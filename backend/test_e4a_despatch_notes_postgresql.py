@@ -18,10 +18,13 @@ uçların DAVRANIŞINI ölçüyor. Bu dosya o sözleşmenin GERÇEK diyalekte
    boş bırakan bir satır DÜŞMELİ, her iki dalın da TEK BAŞINA dolu olduğu
    satırlar GEÇMELİ.
 
-3. **`UNIQUE(company_id, invoice_id)` E4a'nın kuralını VERİTABANI
-   SEVİYESİNDE tutuyor.** Uçtaki 409 bir uygulama kararıdır; kısıtın
-   gerçekten var olduğu ve ikinci satırı reddettiği ancak burada ölçülür —
-   ve tam da bu, iki eşzamanlı POST'a karşı TEK gerçek korumadır.
+3. **`UNIQUE(company_id, invoice_id)` ZİNCİRİN BAŞINDA ARTIK YOK.** E4a
+   bu kısıtla "bir fatura bir irsaliye" kuralını veritabanında tutuyordu;
+   E4b-1'in göçü (`20260915_0087`) onu BİLEREK düşürdü — bir faturaya N
+   kısmi sevk açılabilir ve hakem artık faturanın satır kilidi altındaki
+   kalan hesabıdır. Bu dosya BAŞTA ölçtüğü için iddia TERSİNE döndü
+   (`test_BIR_FATURAYA_IKINCI_IRSALIYE_basta_KABUL`); kısıtın 0087
+   geri alınınca GERİ KURULDUĞU `test_e4b1_kismi_sevk_postgresql.py`de.
 
 4. **`TIMESTAMPTZ` offset'i KORUYOR.** SQLite `DateTime(timezone=True)`
    sütununu naive geri verir (sürücü offset saklamaz); PG aynı satırı
@@ -66,7 +69,7 @@ ONCEKI = "20260912_0082"
 #: Bugün ikisi AYNI değerdedir çünkü 0083 zincirin ucudur; tek sabitle
 #: yazılsaydı, başı güncelleyen biri bu dosyanın göç turunu da farkında
 #: olmadan BAŞKA bir göçe çevirirdi.
-BAS = "20260914_0086"
+BAS = "20260915_0087"
 
 IRSALIYE = "despatch_notes"
 
@@ -114,6 +117,17 @@ def _temizle(engine) -> None:
     temizlik, komşu dosyayı kıran artığın ta kendisidir.
     """
     with engine.begin() as baglanti:
+        # E4b-1: sevk satırları irsaliyeye BİLEŞİK FK ile bağlı — ÖNCE onlar.
+        # Bu dosya satır yazmaz ama zincirin başındaki göç eski irsaliyeleri
+        # GERİ DOLDURUR; temizlik o satırları da görmeli.
+        if inspect(baglanti).has_table("despatch_lines"):
+            baglanti.execute(
+                text(
+                    "DELETE FROM despatch_lines WHERE company_id IN"
+                    " (SELECT id FROM companies WHERE name LIKE :onek)"
+                ),
+                {"onek": f"{KOSU}%"},
+            )
         if inspect(baglanti).has_table(IRSALIYE):
             baglanti.execute(
                 text(
@@ -251,7 +265,13 @@ def test_SEMA_BASI_gercekten_0083(motor) -> None:
 
 
 def test_TABLO_ve_KISITLAR_PGde_var(motor) -> None:
-    """24 sütun, 3 UNIQUE, 2 CHECK, biri BİLEŞİK 3 FK, 1 indeks."""
+    """24 sütun, 2 UNIQUE (başta), 2 CHECK, biri BİLEŞİK 3 FK, 1 indeks.
+
+    E4b-1 İLE BİLİNÇLİ OLARAK DEĞİŞTİ: eskiden 3 UNIQUE sayılıyordu ve
+    üçüncüsü `uq_despatch_notes_company_invoice`di. Göç 0087 onu düşürdü;
+    KALAN ikisi (bileşik FK hedefi ve kiracı kapsamlı ETTN) E4b-1'in de
+    DAYANDIĞI kısıtlardır — `despatch_lines` birincisine bağlanıyor.
+    """
     d = inspect(motor)
     assert d.has_table(IRSALIYE)
     sutunlar = {c["name"] for c in d.get_columns(IRSALIYE)}
@@ -259,7 +279,6 @@ def test_TABLO_ve_KISITLAR_PGde_var(motor) -> None:
 
     assert {u["name"] for u in d.get_unique_constraints(IRSALIYE)} == {
         "uq_despatch_notes_company_id",
-        "uq_despatch_notes_company_invoice",
         "uq_despatch_notes_uuid",
     }
     assert {c["name"] for c in d.get_check_constraints(IRSALIYE)} == {
@@ -422,21 +441,31 @@ def test_TASIMA_CHECKi_iki_dali_da_kabul_bosu_RED(motor) -> None:
             )
 
 
-def test_BIR_FATURA_BIR_IRSALIYE_veritabaninda(motor) -> None:
-    """`UNIQUE(company_id, invoice_id)` — uçtaki 409'un ARKASINDAKİ kısıt.
+def test_BIR_FATURAYA_IKINCI_IRSALIYE_basta_KABUL(motor) -> None:
+    """Zincirin BAŞINDA bir faturaya ikinci irsaliye satırı YAZILABİLİR.
 
-    Uygulama katmanındaki bir ön sorgu iki EŞZAMANLI POST'u İKİSİNİ DE
-    geçirirdi. Bu kısıt ikinciyi reddeder ve E4a'nın "bir fatura bir
-    irsaliye" kuralının TEK gerçek koruyucusudur.
+    E4b-1 İLE BİLİNÇLİ OLARAK TERSİNE ÇEVRİLDİ. Eski hâli
+    (`test_BIR_FATURA_BIR_IRSALIYE_veritabaninda`) ikinci satırın
+    `IntegrityError` ile DÜŞTÜĞÜNÜ ölçüyordu: "`UNIQUE(company_id,
+    invoice_id)` — uçtaki 409'un ARKASINDAKİ kısıt". Göç 0087 kısıtı
+    düşürdü, çünkü kısmi sevkte bir faturanın N irsaliyesi OLUR; aşırı
+    sevke karşı koruma artık kalan miktar hesabıdır (uç katmanı, fatura
+    satır kilidi altında).
 
-    MUTASYON: göçten bu kısıtı düşürmek bunu KIRMIZI yapar.
+    MUTASYON: 0087'nin `drop_constraint` adımını silmek bunu KIRMIZI yapar
+    — ve kısmi sevkin ikinci irsaliyesi 500 ile düşerdi.
     """
     firma, fatura = _firma_ve_fatura(motor, f"{KOSU} Tekil")
     with motor.begin() as baglanti:
         baglanti.execute(_EKLE, _irsaliye_degerleri(firma, fatura))
-    with pytest.raises(IntegrityError):
-        with motor.begin() as baglanti:
-            baglanti.execute(_EKLE, _irsaliye_degerleri(firma, fatura))
+        _SAYAC["n"] += 1  # ikinci satır farklı bir belge numarası taşısın
+        baglanti.execute(_EKLE, _irsaliye_degerleri(firma, fatura))
+    with motor.connect() as baglanti:
+        adet = baglanti.execute(
+            text(f"SELECT COUNT(*) FROM {IRSALIYE} WHERE company_id=:c AND invoice_id=:f"),
+            {"c": firma, "f": fatura},
+        ).scalar_one()
+    assert adet == 2
 
 
 def test_ETTN_KIRACI_KAPSAMLI_TEKIL(motor) -> None:

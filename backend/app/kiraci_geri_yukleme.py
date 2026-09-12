@@ -194,6 +194,10 @@ DOGRUDAN_HEDEFLER: dict[tuple[str, str], str] = {
     ("delivery_notes", "customer_id"): "customers",
     ("delivery_notes", "warehouse_id"): "warehouses",
     ("delivery_notes", "converted_order_id"): "orders",
+    # E4b-1 (göç 20260915_0087): sevk satırının ürün kartı FK'SIZ (keşif §1).
+    # `despatch_id` ve `invoice_item_id` (ikisi de bileşik FK) BURADA
+    # YOK: ikisini de `_Plan` yansıtılan FK'lerden kendisi eşliyor.
+    ("despatch_lines", "product_id"): "products",
     ("entity_change_logs", "restored_from_log_id"): "entity_change_logs",
     ("finance_transactions", "account_id"): "finance_accounts",
     ("financial_instruments", "account_id"): "finance_accounts",

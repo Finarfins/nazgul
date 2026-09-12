@@ -411,4 +411,6 @@ def test_TENANT_TABLES_auth_rate_limits_ICERMIYOR() -> None:
     # girer ve her sorgusundan `company_id=:cid` yuklemi istenir.
     # 121 -> 122: CS1 CEK/SENET PORTFOYU (goc 20260914_0085). Tek yeni kiraci
     # tablosu `cek_senetler`; `company_id` tasir, envantere OTOMATIK girer.
-    assert len(TENANT_TABLES) == 122
+    # 122 -> 123: E4b-1 KISMI SEVK (goc 20260915_0087). Tek yeni kiraci
+    # tablosu `despatch_lines`; `company_id` tasir, envantere OTOMATIK girer.
+    assert len(TENANT_TABLES) == 123

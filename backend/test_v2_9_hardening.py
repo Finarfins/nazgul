@@ -222,11 +222,17 @@ def test_numeric_migration_manifest_covers_all_declared_numeric_columns() -> Non
     # GİRMEZ: girseydi `20260712_0000` tabanında olmayan tablo mutabakat
     # anlık görüntüsünde bir VARLIK FARKI üretir ve PG sayısal göç kapısını
     # (`test_numeric_migration_postgresql.py`) kırardı. Tipi burada ölçülür.
-    from app import cek_senet_schema
+    # E4b-1 (göç 20260915_0087): `despatch_lines.quantity` AYNI sınıf —
+    # tablo göçle doğar, Core tanımı `app/despatch_schema.py`nin create_all
+    # edilmeyen metadata'sında.
+    from app import cek_senet_schema, despatch_schema
 
-    sonradan_dogan = {("cek_senetler", "tutar"): (18, 2)}
-    for (tablo, sutun), beklenen in sonradan_dogan.items():
-        tip = cek_senet_schema.metadata.tables[tablo].c[sutun].type
+    sonradan_dogan = {
+        ("cek_senetler", "tutar"): (cek_senet_schema.metadata, (18, 2)),
+        ("despatch_lines", "quantity"): (despatch_schema.metadata, (18, 4)),
+    }
+    for (tablo, sutun), (sema, beklenen) in sonradan_dogan.items():
+        tip = sema.tables[tablo].c[sutun].type
         assert (int(tip.precision), int(tip.scale)) == beklenen, (tablo, sutun, tip)
         assert (tablo, sutun) not in migration_columns, (tablo, sutun)
 

@@ -2852,6 +2852,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/invoices/{invoice_id}/despatchable-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sevk Edilebilir Kalemler
+         * @description Faturanın sevk edilebilir kalemleri: faturalanan / sevk edilen / kalan.
+         *
+         *     YALNIZ OKUR, kilit ALMAZ: gösterilen kalan bir BİLGİDİR, rezervasyon
+         *     değil — hakem yine `POST /api/despatch-notes`in kilidi altındaki
+         *     hesaptır. Hizmet kalemleri (LABOR) listede YOK: sevk edilemeyen bir
+         *     satırı göstermek, arayüzün ona miktar yazdırmasına davetiye olurdu.
+         *     Başka firmanın faturası 404 (`_fatura`, varlık bilgisi sızmaz).
+         *
+         *     Miktarlar METİN: `float` yok ve dört haneli ölçek korunur.
+         */
+        get: operations["sevk_edilebilir_kalemler_api_invoices__invoice_id__despatchable_items_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/invoices/{invoice_id}/einvoice/download": {
         parameters: {
             query?: never;
@@ -8822,6 +8850,8 @@ export interface components {
             invoice_id: number;
             /** Issue Date */
             issue_date?: string | null;
+            /** Lines */
+            lines?: components["schemas"]["SevkSatiri"][] | null;
             /** Trailer Plate */
             trailer_plate?: string | null;
             /** Vehicle Plate */
@@ -10662,6 +10692,20 @@ export interface components {
             status: string;
             /** Work Order Id */
             work_order_id: number;
+        };
+        /**
+         * SevkSatiri
+         * @description Kısmi sevkin bir satırı: HANGİ fatura kaleminden NE KADAR.
+         *
+         *     Ölçek Numeric(18, 4) ile AYNI: dört haneden fazla kesir PG'de sessizce
+         *     yuvarlanır, SQLite'ta olduğu gibi kalırdı — iki diyalekt iki farklı
+         *     kalan hesaplardı. Reddetmek ikisini eşitler.
+         */
+        SevkSatiri: {
+            /** Invoice Item Id */
+            invoice_item_id: number;
+            /** Quantity */
+            quantity: number | string;
         };
         /** SirketDurumu */
         SirketDurumu: {
@@ -17228,6 +17272,37 @@ export interface operations {
                 "application/json": components["schemas"]["InvoiceCancelRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sevk_edilebilir_kalemler_api_invoices__invoice_id__despatchable_items_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invoice_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
