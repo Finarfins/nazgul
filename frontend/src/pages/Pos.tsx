@@ -5,7 +5,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import PointOfSaleIcon from '@mui/icons-material/PointOfSale';
 import TouchAppIcon from '@mui/icons-material/TouchApp';
 import PrintIcon from '@mui/icons-material/Print';
-import {api,errorDetail,money,policyOverrideHeaders,policyOverrideRequired} from '../api';
+import {api,apiDetail,errorDetail,money,policyOverrideHeaders,policyOverrideRequired} from '../api';
 import OnScreenKeyboard,{type OnScreenKeyboardMode} from '../components/OnScreenKeyboard';
 import PolicyOverrideDialog from '../components/PolicyOverrideDialog';
 import ResponsiveTable from '../components/ResponsiveTable';
@@ -166,7 +166,7 @@ export default function Pos(){
   const value=rawValue.trim();if(!value||busy)return;setKeyboard(null);setBusy(true);setError('');setSuccess('');
   if(!activeWarehouseId){setBusy(false);setError('Önce depo seçin.');return}
   try{const {data}=await api.get<Product>('/pos/lookup',{params:{barcode:value,input_source:'barcode_scanner',warehouse_id:activeWarehouseId}});addProduct(data);setBarcode('');syncKeyboardValue('barcode','')}
-  catch(err:any){const detail=err?.response?.data?.detail;setError(detail?.code==='AMBIGUOUS_BARCODE'?`Bu barkod ${detail.candidate_count} aktif ürünle eşleşiyor; ürün kartlarını düzeltin.`:errorDetail(err,'Barkod okunamadı.'))}finally{setBusy(false);focusScanner()}
+  catch(err:any){const detail=apiDetail(err);setError(detail?.code==='AMBIGUOUS_BARCODE'?`Bu barkod ${detail.candidate_count} aktif ürünle eşleşiyor; ürün kartlarını düzeltin.`:errorDetail(err,'Barkod okunamadı.'))}finally{setBusy(false);focusScanner()}
  };
  const manualSearch=async(rawQuery=manualQuery)=>{
   const q=rawQuery.trim();const requestedWarehouseId=activeWarehouseId;if(!q||!requestedWarehouseId)return;setKeyboard(null);setManualBusy(true);setError('');

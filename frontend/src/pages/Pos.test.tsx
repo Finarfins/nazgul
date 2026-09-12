@@ -3,11 +3,17 @@ import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {ThemeProvider} from '@mui/material/styles';
 import Decimal from 'decimal.js';
 
-import {api} from '../api';
+import {AxiosError,AxiosHeaders} from 'axios';
+
+import {api,unwrapApiError} from '../api';
 import {getAppTheme} from '../theme';
 import Pos,{POS_TOUCH_MIN} from './Pos';
 
-vi.mock('../api',()=>({
+vi.mock('../api',async(importOriginal)=>({
+ // Hata gövdesi yardımcıları gerçektir: interceptor'ın ürettiği hata şekli
+ // sayfaya olduğu gibi ulaşmalı (H43).
+ apiDetail:(await importOriginal<typeof import('../api')>()).apiDetail,
+ unwrapApiError:(await importOriginal<typeof import('../api')>()).unwrapApiError,
  api:{get:vi.fn(),post:vi.fn()},
  errorDetail:(error:any,fallback:string)=>error?.response?.data?.detail||fallback,
  money:(value:Decimal.Value)=>`${new Decimal(value||0).toFixed(2)} TL`,
@@ -56,6 +62,15 @@ describe('Hızlı Satış',()=>{afterEach(cleanup);beforeEach(()=>{vi.clearAllMo
  const barcode=screen.getByLabelText('Barkod');fireEvent.change(barcode,{target:{value:'869'}});fireEvent.keyDown(barcode,{key:'Enter'});
  expect(await screen.findByText(/2 aktif ürünle eşleşiyor/)).toBeInTheDocument();
  expect(screen.queryByText('Filtre')).not.toBeInTheDocument();
+});it('belirsiz barkodun aday sayısı interceptor sonrasında da görünür',async()=>{
+ // Gerçek akış: axios interceptor'ı (unwrapApiError) dict detail'i metne
+ // çevirir; aday sayısı korunan yapısal gövdeden okunmalı.
+ const error=new AxiosError('Request failed with status code 409');
+ error.response={status:409,statusText:'',headers:{},config:{headers:new AxiosHeaders()},data:{detail:{code:'AMBIGUOUS_BARCODE',message:'Barkod birden fazla aktif ürünle eşleşiyor',candidate_count:3}}};
+ vi.mocked(api.get).mockImplementation((url)=>url==='/pos/lookup'?Promise.reject(unwrapApiError(error)):Promise.resolve({data:route(url)}) as never);
+ render(<Pos/>);await screen.findByText(/Merkez Depo/);
+ const barcode=screen.getByLabelText('Barkod');fireEvent.change(barcode,{target:{value:'869'}});fireEvent.keyDown(barcode,{key:'Enter'});
+ expect(await screen.findByText(/3 aktif ürünle eşleşiyor/)).toBeInTheDocument();
 });it('sayı fiyatlı hızlı seçim satışı tamamlanır',async()=>{
  vi.mocked(api.post).mockResolvedValue({data:{sale_id:43,final_total:'36.00',paid_amount:'36.00',remaining_amount:'0.00',customer_name:'Perakende Satış'}} as never);
  render(<Pos/>);fireEvent.click(await screen.findByText('Yağ Filtresi · YF-8'));fireEvent.click(await screen.findByRole('button',{name:'Satışı Tamamla'}));
