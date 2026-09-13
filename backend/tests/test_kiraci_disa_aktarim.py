@@ -13,6 +13,10 @@ Bu kapının koruduğu iddialar, hepsi SESSİZCE yanlış veri teslim eder:
 5. **Decimal METİN kalır.** float'a düşen kuruş geri gelmez.
 6. **Diskteki eksik ek dışa aktarımı DÜŞÜRMEZ**, ama manifestte GÖRÜNÜR.
 7. **Boş firma boş dosya verir**, hata değil.
+8. **JSON sütunu GERÇEK JSON yazılır** (H49). Python repr'i (``{'a': True}``)
+   JSON değildir; okuyan taraf değeri metin sanar.
+9. **Manifest e-posta haritası EN AZDIR** (H49): yalnız kiracı satırlarının
+   andığı kimlikler, yalnız ``id`` + ``email``; parola özeti hiçbir yere sızmaz.
 
 ÖLÇÜM YÖNTEMİ
 -------------
@@ -159,6 +163,58 @@ with TestClient(app) as client:
             storage_path=goreli + "/silinmis.bin", kind="other",
             uploaded_by=admin_id, created_at=simdi, deleted_at=simdi))
 
+    # --- H49: KULLANICI E-POSTA HARİTASI -------------------------------
+    # Dört kullanıcı, her biri haritanın BİR kuralını kanıtlar:
+    #   fkkisi       -> YALNIZ bir FK sütunuyla anılır (ekin `uploaded_by`i)
+    #   yumusakkisi  -> YALNIZ FK'siz yumuşak sütunla anılır (A üyeliği)
+    #   yalnizb      -> YALNIZ B firmasında anılır: A haritasında OLMAMALI
+    #   hicanilmayan -> hiçbir yerde anılmaz: haritada OLMAMALI
+    # Parola özeti ayırt edici bir dizgedir; zip'in HİÇBİR üyesinde geçmemeli.
+    kullanicilar = md.tables["app_users"]
+    GIZLI = "H49-GIZLI-PAROLA-OZETI-SIZMAMALI"
+    uyelikler = md.tables["user_company_memberships"]
+
+    def kullanici_ekle(conn, ad):
+        return conn.execute(insert(kullanicilar).values(
+            username=ad, email=ad + "@ornek.invalid", email_verified=False,
+            display_name=ad, password_hash=GIZLI, role="rapor", is_active=True,
+            created_at=datetime.now(timezone.utc), must_change_password=False,
+        )).inserted_primary_key[0]
+
+    with engine.begin() as conn:
+        fk_kisi = kullanici_ekle(conn, "fkkisi")
+        yumusak_kisi = kullanici_ekle(conn, "yumusakkisi")
+        yalniz_b = kullanici_ekle(conn, "yalnizb")
+        hic_anilmayan = kullanici_ekle(conn, "hicanilmayan")
+        conn.execute(insert(uyelikler).values(
+            user_id=yumusak_kisi, company_id=a_id, is_default=False,
+            created_at=datetime.now(timezone.utc)))
+        conn.execute(insert(uyelikler).values(
+            user_id=yalniz_b, company_id=b_id, is_default=False,
+            created_at=datetime.now(timezone.utc)))
+        conn.execute(ekler.update().where(
+            ekler.c.company_id == a_id, ekler.c.file_name == "yok.bin"
+        ).values(uploaded_by=fk_kisi))
+        admin_eposta = conn.execute(
+            select(kullanicilar.c.email).where(kullanicilar.c.id == admin_id)
+        ).scalar_one()
+
+    # --- H49: JSON SÜTUNU ----------------------------------------------
+    # Python repr'inin JSON'dan AYRILDIĞI her şey içeride: bool, null, iç içe
+    # sözlük ve liste. `page_sections` bir LİSTE taşır.
+    JSON_KOLON = {"sku": "A", "fiyat": 3, "aktif": True, "bos": None,
+                  "ic": {"liste": [1, "iki"]}}
+    JSON_SAYFA = [{"sayfa": 1, "baslik": "Fiyat Listesi"}]
+    with engine.begin() as conn:
+        ted = conn.execute(insert(md.tables["suppliers"]).values(
+            company_id=a_id, name="JSON Tedarikcisi")).inserted_primary_key[0]
+        conn.execute(insert(md.tables["supplier_import_profiles"]).values(
+            company_id=a_id, supplier_id=ted, name="H49 Profili",
+            sheet_selector="first", header_row_strategy="auto",
+            column_map=JSON_KOLON, page_sections=JSON_SAYFA,
+            currency_mode="TRY", term_days=0, vat_source="excluded",
+            created_at=simdi, updated_at=simdi))
+
     # --- DIŞA AKTARIM --------------------------------------------------
     r = client.get("/api/company/export", headers=h)
     assert r.status_code == 200, r.text[:800]
@@ -185,6 +241,22 @@ with TestClient(app) as client:
                                    kayitlar.c.action_type == "company.exported")
         ).mappings().all()
 
+    # --- H49: `_seri`nin `str()` dalına düşen sütun tipi SAYIMI -----------
+    # `_seri`nin AÇIKÇA ele aldığı Python tipleri; bunun dışındaki her tip son
+    # çare `str()`e düşer ve kayıplı olabilir.
+    ELE_ALINAN = {"str", "bool", "int", "Decimal", "datetime", "date", "time",
+                  "bytes", "dict", "list"}
+    tip_sayimi, str_dalina = {}, []
+    for ad in sorted(kiraci):
+        for sutun in md.tables[ad].c:
+            try:
+                py = sutun.type.python_type.__name__
+            except NotImplementedError:
+                py = "<python_type yok>"
+            tip_sayimi[py] = tip_sayimi.get(py, 0) + 1
+            if py not in ELE_ALINAN:
+                str_dalina.append(f"{ad}.{sutun.name}:{type(sutun.type).__name__}")
+
     (CIKTI / "sonuc.json").write_text(json.dumps({
         "a_id": a_id, "b_id": b_id, "emir_id": emir_id,
         "kiraci_tablolar": sorted(kiraci),
@@ -196,6 +268,11 @@ with TestClient(app) as client:
              "user_id": x["user_id"], "summary": x["summary"]}
             for x in disa_kayit],
         "a_hareket_miktar": "12.3456", "b_hareket_miktar": "99.9999",
+        "admin_id": admin_id, "admin_eposta": admin_eposta,
+        "fk_kisi": fk_kisi, "yumusak_kisi": yumusak_kisi,
+        "yalniz_b": yalniz_b, "hic_anilmayan": hic_anilmayan, "gizli": GIZLI,
+        "json_kolon": JSON_KOLON, "json_sayfa": JSON_SAYFA,
+        "tip_sayimi": tip_sayimi, "str_dalina": str_dalina,
     }, ensure_ascii=False), encoding="utf-8")
     print("HAZIRLIK TAMAM")
 '''
@@ -322,7 +399,7 @@ def test_manifest_alanlari_ve_sema_seviyesi(hazir) -> None:
     m = hazir["manifest"]
     for alan in ("schema_revision", "exported_at", "company_id", "table_order",
                  "row_counts", "attachment_count", "attachments_include_deleted",
-                 "missing_attachments", "app_version"):
+                 "missing_attachments", "app_version", "user_emails"):
         assert alan in m, alan
     assert m["company_id"] == hazir["sonuc"]["a_id"]
     # Şema seviyesi VERİTABANINDAN gelir: alembic revizyon biçiminde olmalı.
@@ -466,6 +543,65 @@ def test_decimal_metin_datetime_utc_kalir(hazir) -> None:
     for satir in ekler:
         assert isinstance(satir["created_at"], str)
         assert satir["created_at"].endswith("+00:00"), satir["created_at"]
+
+
+def test_json_sutunu_gercek_json_yazilir(hazir) -> None:
+    """H49. MUTASYON: ``_seri``deki ``dict``/``list`` dalını silmek değeri son
+    çare ``str()``e düşürür (Python repr) ve bu test KIRMIZI olur."""
+    ham = hazir["zip"].read("tables/supplier_import_profiles.ndjson").decode("utf-8")
+    satirlar = [s for s in ham.splitlines() if s.strip()]
+    assert len(satirlar) == 1, satirlar
+    # HAM satır `json.loads` ile açılır ve değer METİN değil, YAPI çıkar.
+    satir = json.loads(satirlar[0])
+    assert isinstance(satir["column_map"], dict), satir["column_map"]
+    assert satir["column_map"] == hazir["sonuc"]["json_kolon"]
+    assert isinstance(satir["page_sections"], list), satir["page_sections"]
+    assert satir["page_sections"] == hazir["sonuc"]["json_sayfa"]
+    # Repr izi yok: tek tırnaklı anahtar ya da Python `True`/`None` sözcüğü.
+    assert "'" not in satirlar[0], satirlar[0]
+    for sozcuk in ("True", "None"):
+        assert sozcuk not in satirlar[0], (sozcuk, satirlar[0])
+
+
+def test_str_dalina_dusen_sutun_tipi_yok(hazir) -> None:
+    """H49 ölçüm kapısı: kiracı tablolarında ``_seri``nin AÇIKÇA ele almadığı,
+    yani son çare ``str()``e düşecek bir sütun tipi YOK. 0086 şemasında H49
+    öncesi tek aday ``JSON`` → ``dict``ti (dört sütun). Yeni bir göç başka bir
+    tip (UUID, ARRAY, INTERVAL...) getirdiği anda bu test o sütunu ADIYLA
+    söyleyerek KIRMIZI olur ve tipin kayıpsız biçimi AÇIKÇA kararlaştırılır."""
+    sonuc = hazir["sonuc"]
+    assert sonuc["str_dalina"] == [], sonuc["str_dalina"]
+    # Vakum değil: JSON sütunları gerçekten sayıldı.
+    assert sonuc["tip_sayimi"].get("dict", 0) >= 1, sonuc["tip_sayimi"]
+
+
+def test_manifest_kullanici_eposta_haritasi_en_az(hazir) -> None:
+    """H49. MUTASYONLAR, dördü de KIRMIZI:
+    (a) ``_kullanici_sutunlari``ndan ``KULLANICI_SUTUNLARI`` birleşimini silmek
+        ``yumusakkisi``yi düşürür;
+    (b) ``app_users`` FK dalını silmek ``fkkisi``yi düşürür;
+    (c) ``_kullanici_epostalari``na bir sütun daha eklemek anahtar kümesini bozar;
+    (d) kimlik süzgecini kaldırıp ``app_users``ın tamamını dökmek ``yalnizb``yi
+        ve ``hicanilmayan``ı haritaya sokar."""
+    s = hazir["sonuc"]
+    harita = hazir["manifest"]["user_emails"]
+    assert isinstance(harita, list), harita
+    for giris in harita:
+        assert set(giris) == {"id", "email"}, giris
+    kimlikler = [g["id"] for g in harita]
+    assert kimlikler == sorted(kimlikler), kimlikler
+    assert len(kimlikler) == len(set(kimlikler)), kimlikler
+    assert set(kimlikler) == {s["admin_id"], s["fk_kisi"], s["yumusak_kisi"]}, kimlikler
+    assert s["yalniz_b"] not in kimlikler
+    assert s["hic_anilmayan"] not in kimlikler
+    eposta = {g["id"]: g["email"] for g in harita}
+    assert eposta[s["admin_id"]] == s["admin_eposta"]
+    assert eposta[s["fk_kisi"]] == "fkkisi@ornek.invalid"
+    assert eposta[s["yumusak_kisi"]] == "yumusakkisi@ornek.invalid"
+    # Parola özeti zip'in HİÇBİR üyesinde yok (manifest dahil).
+    gizli = s["gizli"].encode("utf-8")
+    for ad in hazir["adlar"]:
+        assert gizli not in hazir["zip"].read(ad), ad
 
 
 # --------------------------------------------------------------------------
