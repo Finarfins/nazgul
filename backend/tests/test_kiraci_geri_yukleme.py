@@ -662,6 +662,48 @@ with TestClient(app, raise_server_exceptions=False) as client:
             .where(denetim.c.action == "platform.tn_restore")
             .order_by(denetim.c.id)).mappings()]
 
+    # --- H49: ESKİ BİÇİM ARŞİV (JSON sütunu Python repr) HÂLÂ GERİ YÜKLENİR --
+    # H49'dan önce `_seri` JSON sütununu `str(dict)` ile yazıyordu. Aynı zip'in
+    # JSON değerleri o biçime çevrilir ve yeni firmaya geri yüklenir; değerler
+    # yeni biçimle geri yüklenen C firmasınınkilerle BİREBİR aynı olmalı.
+    # EN SONDA koşar: yukarıdaki ölçümlerin hiçbirini kımıldatmaz.
+    json_sutunlari = {ad: [c.name for c in md.tables[ad].c if isinstance(c.type, JSON)]
+                      for ad in sorted(kiraci)}
+    json_sutunlari = {ad: s for ad, s in json_sutunlari.items() if s}
+    cevrilen = {"n": 0}
+
+    def eskiye_cevir(ad, v):
+        tablo = ad[len("tables/"):-len(".ndjson")] if ad.startswith("tables/") else None
+        if tablo not in json_sutunlari:
+            return (ad, v)
+        satirlar = []
+        for s in v.decode("utf-8").splitlines():
+            if not s.strip():
+                continue
+            d = json.loads(s)
+            for c in json_sutunlari[tablo]:
+                if isinstance(d.get(c), (dict, list)):
+                    d[c] = str(d[c])
+                    cevrilen["n"] += 1
+            satirlar.append(json.dumps(d, ensure_ascii=False))
+        return (ad, "".join(x + "\n" for x in satirlar).encode("utf-8"))
+
+    def json_degerleri(cid):
+        with engine.connect() as conn:
+            return {f"{ad}.{c}": sorted(
+                        json.dumps(x, sort_keys=True) for x in conn.execute(
+                            select(md.tables[ad].c[c]).where(md.tables[ad].c.company_id == cid)).scalars())
+                    for ad, s in json_sutunlari.items() for c in s}
+
+    r = yukle(client, h, zip_degistir(zip_bytes, eskiye_cevir), mode="yeni")
+    eski_repr = {"status": r.status_code, "cevrilen": cevrilen["n"],
+                 "json_sutunlari": json_sutunlari}
+    if r.status_code == 200:
+        eski_repr["c"] = json_degerleri(c_id)
+        eski_repr["e"] = json_degerleri(int(r.json()["company_id"]))
+    else:
+        eski_repr["body"] = r.text[:1500]
+
     yaz("sonuc.json", {
         "a_id": a_id, "b_id": b_id, "c_id": c_id, "admin_id": admin_id,
         "silinen_kullanici": int(silinecek),
@@ -677,6 +719,7 @@ with TestClient(app, raise_server_exceptions=False) as client:
         "ustune": ustune, "ustune_oncesi_b": ustune_oncesi_b, "ustune_sonrasi_b": ustune_sonrasi_b,
         "b_aktif_once": b_aktif_once, "b_aktif_sonra": b_aktif_sonra,
         "b_ad": b_ad, "b_ad_once": b_ad_once,
+        "eski_repr": eski_repr,
     })
     print("HAZIRLIK TAMAM")
 '''
@@ -955,6 +998,20 @@ def test_manifest_kurcalama_4xx_ve_sifir_yazma(hazir) -> None:
     assert k["zip_degil"] == {"status": 422, "code": "RESTORE_ZIP_INVALID"}, k
     assert hazir["kurcalama_sonrasi"] == hazir["imha_sonrasi_a"]
     assert hazir["kurcalama_sonrasi"]["__companies__"] == 2
+
+
+def test_eski_repr_arsivi_hala_geri_yuklenir(hazir) -> None:
+    """H49 öncesi arşivler JSON sütununu Python repr taşır ve GERİ YÜKLENEBİLİR
+    kalmalı. MUTASYON: ``_deseri``deki ``ast.literal_eval`` dalını silmek repr'i
+    METİN olarak yazar; değerler yeni biçimle yüklenen firmanınkinden ayrılır
+    → KIRMIZI."""
+    e = hazir["eski_repr"]
+    assert e["status"] == 200, e
+    # Vakum değil: gerçekten repr'e çevrilmiş değer vardı.
+    assert e["cevrilen"] > 0, e
+    assert set(e["json_sutunlari"]) >= {"supplier_import_profiles"}, e["json_sutunlari"]
+    assert e["e"] == e["c"], {"eski_repr": e["e"], "yeni_bicim": e["c"]}
+    assert any(v != "null" for degerler in e["c"].values() for v in degerler), e["c"]
 
 
 def test_islem_ortasinda_hata_tamamini_geri_alir(hazir) -> None:
