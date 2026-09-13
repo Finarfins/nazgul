@@ -9,13 +9,16 @@ o günden beri yazdığı her şeyi de geri sarardı. Bu modül tam tersini yapa
 5.1a'nın ürettiği zip'teki TEK firmanın satırlarını, ÇALIŞAN veritabanına,
 öteki kiracılara dokunmadan yazar.
 
-ÜRÜN KARARI — YENİ FİRMA, ÜSTÜNE YAZMA YOK
-------------------------------------------
-Varsayılan kip ``yeni``: zip'teki firma YENİ bir ``company_id`` ile doğar.
-Var olan aktif bir kiracının üstüne HİÇBİR KOŞULDA yazılmaz. ``yerine`` kipi
-yalnız kaynak firma HALA VAR, KAPALI (``is_active=false``) ve o kimliğe ait
-satır HİÇBİR kiracı tablosunda YOKKEN kimliği yerinde canlandırır; ölçülen
-tek bir artık satır 409 verir.
+ÜRÜN KARARI — TEK KİP, YENİ FİRMA, ÜSTÜNE YAZMA YOK
+---------------------------------------------------
+Tek kip ``yeni``: zip'teki firma HER ZAMAN YENİ bir ``company_id`` ile doğar.
+Var olan bir kiracının — aktif ya da kapalı — üstüne HİÇBİR KOŞULDA
+yazılmaz; manifest var olan bir firmanın kimliğini taşısa bile o kimlik
+yalnız ``source_company_id`` olarak raporlanır, hedef SEÇİLMEZ. Kapalı
+kimliği yerinde canlandıran ikinci kip H23 kararıyla kaldırıldı: gerçek
+akışta erişilemezdi (5.1b imhası satırları silmez; dışa aktarımın kendi
+denetim kaydı bile kimliği dolu gösterirdi) ve tek çağıranı tetikleyici
+düşüren bir test simülasyonuydu.
 
 KİMLİK HARİTALAMA — 120 TABLO, 294 FK SÜTUNU
 --------------------------------------------
@@ -121,9 +124,9 @@ class _KuruKosuBitti(Exception):
         self.rapor = rapor
 
 
-#: Geçerli kipler. ``yeni``: yeni firma; ``yerine``: kapalı kaynak firmayı
-#: kimliğiyle canlandır.
-KIPLER = ("yeni", "yerine")
+#: Tek geçerli kip. Uç ``mode`` alanını bununla kıyaslar (başka değer 422) ve
+#: rapor ile denetim satırı onu ``mode`` olarak taşır.
+KIP = "yeni"
 
 # ---------------------------------------------------------------------------
 # YUMUŞAK REFERANS SÖZLÜĞÜ — ÖLÇÜLDÜ (0082 şeması, 94 sütun), ELLE SINIFLANDI
@@ -551,7 +554,7 @@ class _Plan:
         # KİMLİĞİ VERİTABANI ÜRETMEZ: PostgreSQL yansıması serial/identity
         # olmayan tamsayı PK'yi ``autoincrement=False`` verir (ölçüldü, 0082:
         # yalnız ``notifications_archive``; arşiv satırı özgün bildirimin
-        # kimliğini taşır). Böyle tabloda ``yeni`` kipi kimliği kendisi üretir.
+        # kimliğini taşır). Böyle tabloda geri yükleme kimliği kendisi üretir.
         # SQLite ``"auto"`` verir ve rowid her zaman atanır.
         self.kimlik_uretilir = self.tek_tamsayi_pk and pk[0].autoincrement is False
         self.fk_kiraci: list[tuple[str, str, bool]] = []  # (sütun, hedef, nullable)
@@ -707,28 +710,6 @@ def _firma_satiri(zf: zipfile.ZipFile, cid: int, diyalekt: str) -> dict[str, Any
     return satir
 
 
-def _kaynak_firma_durumu(conn: Connection, cid: int):
-    return (
-        conn.execute(
-            select(companies.c.id, companies.c.is_active).where(companies.c.id == cid)
-        )
-        .mappings()
-        .first()
-    )
-
-
-def _artik_satirlar(conn: Connection, sirali: list[Table], cid: int) -> dict[str, int]:
-    """``yerine`` kipi için: kaynak kimliğe ait satırı olan tablolar."""
-    artik: dict[str, int] = {}
-    for tablo in sirali:
-        satirlar = conn.execute(
-            select(tablo.c.company_id).where(tablo.c.company_id == cid)
-        ).scalars().all()
-        if satirlar:
-            artik[tablo.name] = len(satirlar)
-    return artik
-
-
 def _kuresel_tekil_var(conn: Connection, tablo: Table, sutun: str, deger: Any) -> bool:
     """Firma dışı tekil sütunda ``deger`` zaten var mı (kiracı yüklemi YOK — bilerek).
 
@@ -744,17 +725,14 @@ def _kuresel_tekil_var(conn: Connection, tablo: Table, sutun: str, deger: Any) -
 def geri_yukle(
     zip_yolu: Path,
     *,
-    kip: str = "yeni",
     kuru_kosu: bool = False,
     operator_user_id: int | None = None,
 ) -> dict[str, Any]:
-    """Zip'i çalışan veritabanına TEK işlemde yazar ve rapor döndürür.
+    """Zip'i çalışan veritabanına YENİ firma olarak TEK işlemde yazar.
 
     ``kuru_kosu=True`` aynı yolu sonuna kadar yürüyüp işlemi geri alır; rapor
     "yazılsaydı ne olurdu"yu söyler ve hiçbir satır/dosya kalıcı olmaz.
     """
-    if kip not in KIPLER:
-        raise GeriYuklemeHatasi("RESTORE_MODE_INVALID", 422, f"Geçersiz kip: {kip}")
     if not zipfile.is_zipfile(zip_yolu):
         raise GeriYuklemeHatasi("RESTORE_ZIP_INVALID", 422, "Dosya geçerli bir zip değil")
     basladi = time.perf_counter()
@@ -773,7 +751,7 @@ def geri_yukle(
                 diyalekt = conn.dialect.name
                 eski_cid = int(manifest["company_id"])
 
-                yeni_cid = _firmayi_yaz(conn, zf, kip, eski_cid, sirali, diyalekt)
+                yeni_cid = _firmayi_yaz(conn, zf, eski_cid, diyalekt)
                 haritalar: dict[str, dict[int, int]] = {}
                 mevcut_kullanicilar = {
                     int(u) for u in conn.execute(select(users.c.id)).scalars().all()
@@ -783,18 +761,15 @@ def geri_yukle(
                         # Üyelik ayrı yoldan: var olan kullanıcılar + operatör.
                         continue
                     _tabloyu_yaz(
-                        conn, zf, tablo, planlar[tablo.name], kip, yeni_cid,
+                        conn, zf, tablo, planlar[tablo.name], yeni_cid,
                         haritalar, mevcut_kullanicilar, diyalekt, rapor,
                     )
-                if kip == "yeni":
-                    _ertelenenleri_bagla(conn, md, yeni_cid, haritalar, rapor)
-                _uyelikleri_yaz(conn, zf, kip, yeni_cid, mevcut_kullanicilar, operator_user_id, rapor)
-                if kip == "yerine" and diyalekt == "postgresql":
-                    _sirayi_ilerlet(conn, sirali, planlar)
+                _ertelenenleri_bagla(conn, md, yeni_cid, haritalar, rapor)
+                _uyelikleri_yaz(conn, zf, yeni_cid, mevcut_kullanicilar, operator_user_id, rapor)
                 sonuc = rapor.sozluk()
                 sonuc.update(
                     {
-                        "mode": kip,
+                        "mode": KIP,
                         "dry_run": kuru_kosu,
                         "source_company_id": eski_cid,
                         "company_id": yeni_cid,
@@ -818,32 +793,9 @@ def geri_yukle(
     return sonuc
 
 
-def _firmayi_yaz(conn, zf, kip, eski_cid, sirali, diyalekt) -> int:
+def _firmayi_yaz(conn, zf, eski_cid, diyalekt) -> int:
+    """Firma satırını YENİ kimlikle ekler; zip'teki ``id`` hiçbir zaman hedef değildir."""
     satir = _firma_satiri(zf, eski_cid, diyalekt)
-    kaynak = _kaynak_firma_durumu(conn, eski_cid)
-    if kip == "yerine":
-        if kaynak is None:
-            raise GeriYuklemeHatasi(
-                "RESTORE_SOURCE_MISSING", 404, "Kaynak firma veritabanında yok; 'yeni' kipini kullanın"
-            )
-        if bool(kaynak["is_active"]):
-            raise GeriYuklemeHatasi(
-                "RESTORE_SOURCE_ACTIVE", 409, "Kaynak firma aktif; aktif bir kiracının üstüne yazılmaz"
-            )
-        artik = _artik_satirlar(conn, sirali, eski_cid)
-        if artik:
-            raise GeriYuklemeHatasi(
-                "RESTORE_SOURCE_ROWS_PRESENT",
-                409,
-                "Kaynak firmanın satırları hâlâ duruyor; yerinde geri yükleme yalnız boş kimliğe yapılır",
-                artik,
-            )
-        degerler = {k: v for k, v in satir.items() if k != "id"}
-        degerler["is_active"] = True
-        # SET listesi ÇALIŞTIRMA parametresinden gelir (``values(**)`` DEĞİL):
-        # sütun kümesi zip'ten türer ve Core envanteri ``**`` açılımını göremez.
-        conn.execute(update(companies).where(companies.c.id == eski_cid), degerler)
-        return eski_cid
     degerler = {k: v for k, v in satir.items() if k != "id"}
     degerler["is_active"] = True
     if not degerler.get("created_at"):
@@ -851,7 +803,7 @@ def _firmayi_yaz(conn, zf, kip, eski_cid, sirali, diyalekt) -> int:
     return int(conn.execute(insert(companies), degerler).inserted_primary_key[0])
 
 
-def _tabloyu_yaz(conn, zf, tablo, plan, kip, yeni_cid, haritalar,
+def _tabloyu_yaz(conn, zf, tablo, plan, yeni_cid, haritalar,
                  mevcut_kullanicilar, diyalekt, rapor) -> None:
     ad = tablo.name
     harita: dict[int, int] = {}
@@ -861,7 +813,7 @@ def _tabloyu_yaz(conn, zf, tablo, plan, kip, yeni_cid, haritalar,
     yazilan = 0
     atlanan = 0
     tekil = KURESEL_TEKIL_ATLANIR.get(ad, ())
-    sonraki_kimlik = (_en_buyuk_kimlik(conn, tablo) or 0) + 1 if (kip == "yeni" and plan.kimlik_uretilir) else None
+    sonraki_kimlik = (_en_buyuk_kimlik(conn, tablo) or 0) + 1 if plan.kimlik_uretilir else None
     for ham in _ndjson(zf, ad):
         satir = {k: _deseri(v, tablo.c[k], diyalekt) for k, v in ham.items() if k in tablo.c}
         eski_id = satir.get("id") if plan.tek_tamsayi_pk else None
@@ -869,85 +821,84 @@ def _tabloyu_yaz(conn, zf, tablo, plan, kip, yeni_cid, haritalar,
         # 1) firma
         for sutun in plan.fk_firma:
             satir[sutun] = yeni_cid
-        if kip == "yeni":
-            # 2) kiracı FK'ları
-            for sutun, hedef, bos_olur in plan.fk_kiraci:
-                satir[sutun] = _haritala(
-                    satir.get(sutun), haritalar.get(hedef, {}), ad, sutun, bos_olur, rapor, zorunlu_hata=True
+        # 2) kiracı FK'ları
+        for sutun, hedef, bos_olur in plan.fk_kiraci:
+            satir[sutun] = _haritala(
+                satir.get(sutun), haritalar.get(hedef, {}), ad, sutun, bos_olur, rapor, zorunlu_hata=True
+            )
+            rapor.fk_sutunlari.add((ad, sutun))
+        # 3) kullanıcı FK'ları
+        for sutun, bos_olur in plan.fk_kullanici:
+            deger = satir.get(sutun)
+            if deger is not None and int(deger) not in mevcut_kullanicilar:
+                if not bos_olur:
+                    raise GeriYuklemeHatasi(
+                        "RESTORE_USER_MISSING", 409,
+                        f"{ad}.{sutun} artık var olmayan bir kullanıcıya bağlı (id={deger})",
+                    )
+                satir[sutun] = None
+                rapor.nullanan[(ad, sutun)] = rapor.nullanan.get((ad, sutun), 0) + 1
+        # 4) kendine referans: şimdilik NULL, sonra bağlanır
+        for sutun, bos_olur in plan.fk_kendine:
+            deger = satir.get(sutun)
+            if deger is None:
+                continue
+            rapor.fk_sutunlari.add((ad, sutun))
+            if int(deger) in harita:
+                satir[sutun] = harita[int(deger)]
+            elif bos_olur:
+                satir[sutun] = None
+                bekleyen[sutun] = int(deger)
+            else:
+                raise GeriYuklemeHatasi(
+                    "RESTORE_SELF_REFERENCE_UNRESOLVED", 409,
+                    f"{ad}.{sutun} henüz yazılmamış bir satıra zorunlu olarak bağlı",
                 )
-                rapor.fk_sutunlari.add((ad, sutun))
-            # 3) kullanıcı FK'ları
-            for sutun, bos_olur in plan.fk_kullanici:
-                deger = satir.get(sutun)
-                if deger is not None and int(deger) not in mevcut_kullanicilar:
-                    if not bos_olur:
-                        raise GeriYuklemeHatasi(
-                            "RESTORE_USER_MISSING", 409,
-                            f"{ad}.{sutun} artık var olmayan bir kullanıcıya bağlı (id={deger})",
-                        )
-                    satir[sutun] = None
-                    rapor.nullanan[(ad, sutun)] = rapor.nullanan.get((ad, sutun), 0) + 1
-            # 4) kendine referans: şimdilik NULL, sonra bağlanır
-            for sutun, bos_olur in plan.fk_kendine:
-                deger = satir.get(sutun)
-                if deger is None:
-                    continue
-                rapor.fk_sutunlari.add((ad, sutun))
+        # 5) yumuşak referanslar
+        yumusak_hedefler: list[tuple[str, str, bool]] = list(plan.yumusak_dogrudan)
+        for sutun, ayirt, sozluk, bos_olur in plan.yumusak_ayirt:
+            deger = satir.get(sutun)
+            if deger is None:
+                continue
+            tur = str(satir.get(ayirt) or "")
+            if tur not in sozluk:
+                anahtar = (ad, sutun, tur)
+                rapor.cozulemeyen[anahtar] = rapor.cozulemeyen.get(anahtar, 0) + 1
+                continue
+            hedef = sozluk[tur]
+            if hedef is not None:
+                yumusak_hedefler.append((sutun, hedef, bos_olur))
+        sonraya: list[tuple[str, str, int, bool]] = []
+        for sutun, hedef, bos_olur in yumusak_hedefler:
+            deger = satir.get(sutun)
+            if deger is None:
+                continue
+            rapor.yumusak_sutunlar.add((ad, sutun))
+            if hedef == ad:
                 if int(deger) in harita:
                     satir[sutun] = harita[int(deger)]
-                elif bos_olur:
+                else:
                     satir[sutun] = None
                     bekleyen[sutun] = int(deger)
+                continue
+            if hedef not in haritalar:
+                # HEDEF HENÜZ YAZILMADI (yumuşak kenar döngüde kırıldı).
+                # FK kısıtı yok: nullable ise NULL, değilse ESKİ değer
+                # geçici olarak yazılır; `_ertelenenleri_bagla` düzeltir.
+                if plan.tek_tamsayi_pk:
+                    sonraya.append((sutun, hedef, int(deger), bos_olur))
+                    satir[sutun] = None if bos_olur else int(deger)
                 else:
-                    raise GeriYuklemeHatasi(
-                        "RESTORE_SELF_REFERENCE_UNRESOLVED", 409,
-                        f"{ad}.{sutun} henüz yazılmamış bir satıra zorunlu olarak bağlı",
-                    )
-            # 5) yumuşak referanslar
-            yumusak_hedefler: list[tuple[str, str, bool]] = list(plan.yumusak_dogrudan)
-            for sutun, ayirt, sozluk, bos_olur in plan.yumusak_ayirt:
-                deger = satir.get(sutun)
-                if deger is None:
-                    continue
-                tur = str(satir.get(ayirt) or "")
-                if tur not in sozluk:
-                    anahtar = (ad, sutun, tur)
-                    rapor.cozulemeyen[anahtar] = rapor.cozulemeyen.get(anahtar, 0) + 1
-                    continue
-                hedef = sozluk[tur]
-                if hedef is not None:
-                    yumusak_hedefler.append((sutun, hedef, bos_olur))
-            sonraya: list[tuple[str, str, int, bool]] = []
-            for sutun, hedef, bos_olur in yumusak_hedefler:
-                deger = satir.get(sutun)
-                if deger is None:
-                    continue
-                rapor.yumusak_sutunlar.add((ad, sutun))
-                if hedef == ad:
-                    if int(deger) in harita:
-                        satir[sutun] = harita[int(deger)]
-                    else:
-                        satir[sutun] = None
-                        bekleyen[sutun] = int(deger)
-                    continue
-                if hedef not in haritalar:
-                    # HEDEF HENÜZ YAZILMADI (yumuşak kenar döngüde kırıldı).
-                    # FK kısıtı yok: nullable ise NULL, değilse ESKİ değer
-                    # geçici olarak yazılır; `_ertelenenleri_bagla` düzeltir.
-                    if plan.tek_tamsayi_pk:
-                        sonraya.append((sutun, hedef, int(deger), bos_olur))
-                        satir[sutun] = None if bos_olur else int(deger)
-                    else:
-                        rapor.sarkan[(ad, sutun)] = rapor.sarkan.get((ad, sutun), 0) + 1
-                    continue
-                satir[sutun] = _haritala(
-                    deger, haritalar[hedef], ad, sutun, bos_olur, rapor, zorunlu_hata=False
-                )
-            if plan.tek_tamsayi_pk:
-                satir.pop("id", None)
-            if sonraki_kimlik is not None:
-                satir["id"] = sonraki_kimlik
-                sonraki_kimlik += 1
+                    rapor.sarkan[(ad, sutun)] = rapor.sarkan.get((ad, sutun), 0) + 1
+                continue
+            satir[sutun] = _haritala(
+                deger, haritalar[hedef], ad, sutun, bos_olur, rapor, zorunlu_hata=False
+            )
+        if plan.tek_tamsayi_pk:
+            satir.pop("id", None)
+        if sonraki_kimlik is not None:
+            satir["id"] = sonraki_kimlik
+            sonraki_kimlik += 1
         # 6) ek yolu: yeni firma/iş emri kimliğiyle
         if ad == "work_order_attachments" and satir.get("storage_path"):
             eski_yol = str(satir["storage_path"])
@@ -964,7 +915,7 @@ def _tabloyu_yaz(conn, zf, tablo, plan, kip, yeni_cid, haritalar,
         sonuc = conn.execute(insert(tablo), satir)
         yazilan += 1
         if plan.tek_tamsayi_pk and eski_id is not None:
-            yeni_id = int(sonuc.inserted_primary_key[0]) if kip == "yeni" else int(eski_id)
+            yeni_id = int(sonuc.inserted_primary_key[0])
             harita[int(eski_id)] = yeni_id
             if bekleyen:
                 ertelenen.append((yeni_id, bekleyen))
@@ -1027,7 +978,7 @@ def _haritala(deger, harita, ad, sutun, bos_olur, rapor, *, zorunlu_hata: bool):
     return eski
 
 
-def _uyelikleri_yaz(conn, zf, kip, yeni_cid, mevcut_kullanicilar, operator_user_id, rapor) -> None:
+def _uyelikleri_yaz(conn, zf, yeni_cid, mevcut_kullanicilar, operator_user_id, rapor) -> None:
     """Var olan kullanıcıların üyeliğini geri getirir; operatörü ekler.
 
     ZİP KULLANICI E-POSTASI TAŞIMAZ (5.1a ``app_users``ı dışa aktarmaz, o
@@ -1044,14 +995,10 @@ def _uyelikleri_yaz(conn, zf, kip, yeni_cid, mevcut_kullanicilar, operator_user_
             continue
         if uid in yazilanlar:
             continue
-        # `yerine` kimliği KORUR (PostgreSQL'de ölçüldü: kimlik verilmezse sıra
-        # yeni bir değer üretir; SQLite'ın rowid yeniden kullanımı bunu gizler).
         degerler: dict[str, Any] = {
             "user_id": uid, "company_id": yeni_cid,
             "is_default": bool(ham.get("is_default", False)), "created_at": utcnow(),
         }
-        if kip == "yerine" and ham.get("id") is not None:
-            degerler["id"] = int(ham["id"])
         conn.execute(insert(memberships).values(company_id=yeni_cid), degerler)
         yazilanlar.add(uid)
     if operator_user_id is not None and int(operator_user_id) not in yazilanlar:
@@ -1064,25 +1011,6 @@ def _uyelikleri_yaz(conn, zf, kip, yeni_cid, mevcut_kullanicilar, operator_user_
         yazilanlar.add(int(operator_user_id))
     rapor.uyelik_yazilan = len(yazilanlar)
     rapor.tablolar["user_company_memberships"] = {"rows": len(yazilanlar), "skipped": len(rapor.uyelik_atlanan)}
-
-
-def _sirayi_ilerlet(conn, sirali, planlar) -> None:
-    """``yerine`` kipinde açık kimlikle yazılan serial sütunların sırasını ilerletir.
-
-    PostgreSQL'de açık ``id`` yazmak sıralayıcıyı OYNATMAZ; sonraki normal
-    ekleme aynı kimliği üretip düşerdi. Yalnız ``id`` birincil anahtarlı
-    tablolar; ``setval`` en büyük kimliğe çekilir.
-    """
-    for tablo in sirali:
-        plan = planlar[tablo.name]
-        if not plan.tek_tamsayi_pk or plan.kimlik_uretilir:
-            continue
-        en_buyuk = _en_buyuk_kimlik(conn, tablo)
-        if en_buyuk is None:
-            continue
-        conn.execute(
-            select(func.setval(func.pg_get_serial_sequence(tablo.name, "id"), int(en_buyuk)))
-        )
 
 
 def _en_buyuk_kimlik(conn, tablo) -> int | None:
