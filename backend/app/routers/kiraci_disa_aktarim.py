@@ -71,7 +71,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.schema import sort_tables
 
 from ..activity_log import log_activity
-from ..auth import utcnow
+from ..auth import users, utcnow
 from ..config import settings
 from ..db import SessionLocal, engine
 from ..disa_aktarim_errors import SonluOlmayanSayiError
@@ -87,6 +87,10 @@ _PARCA = 500
 #: Zip'e teslim edilmeden önce biriktirilecek en fazla bayt. Küçük tutulur:
 #: bu tampon, akışın bellek tavanının kendisidir.
 _TAMPON_ESIGI = 256 * 1024
+
+#: E-posta haritası için ``app_users`` bu büyüklükte ``IN (...)`` parçalarıyla
+#: okunur; bağlı parametre sayısı sürücü tavanına çarpmasın.
+_KIMLIK_PARCASI = 500
 
 
 class _AkanTampon:
@@ -122,9 +126,25 @@ def _seri(deger: Any, tablo: str, sutun: str) -> Any:
 
     Kayıplı hiçbir dönüşüm yok: ``Decimal`` METİN olur (float'a düşseydi
     kuruş sessizce kayardı), ``datetime`` UTC ISO-8601 olur, ``bytes`` base64
-    olur.
+    olur, JSON sütununun ``dict``/``list`` değeri OLDUĞU GİBİ kalır.
+
+    H49 — JSON SÜTUNLARI GERÇEK JSON. 5.1a'da ``dict``/``list`` son daldaki
+    ``str()``e düşüyor ve Python repr'i (``{'a': True, 'b': None}``) yazılıyordu:
+    bu JSON DEĞİL, ndjson satırı açılınca değer bir METİN çıkıyordu. Ölçüldü
+    (0086 şeması, yansımadan, SQLite ve PostgreSQL): ``str()`` dalına düşen TEK
+    tip ``JSON`` → ``dict``, dört sütun (``supplier_import_profiles.column_map``
+    ve ``.page_sections``, ``supplier_price_import_lines.raw``,
+    ``supplier_price_imports.error_detail``).
+
+    Geri yükleme ESKİ biçimi okumayı SÜRDÜRÜR (``kiraci_geri_yukleme._deseri``
+    içindeki ``ast.literal_eval`` dalı): H49'dan önce alınmış arşivler repr
+    taşır ve onları reddetmek kiracının yedeğini çöpe atmak olurdu.
     """
     if deger is None or isinstance(deger, (str, bool, int)):
+        return deger
+    if isinstance(deger, (dict, list)):
+        # Sürücü JSON sütununu çözümlenmiş verir; içerik JSON'dan geldiği için
+        # yalnız JSON-yerli tipler taşır ve ``json.dumps`` onu olduğu gibi yazar.
         return deger
     if isinstance(deger, Decimal):
         # SONLULUK DENETİMİ. ``Decimal`` NaN/Infinity taşıyabilir ve
@@ -207,6 +227,58 @@ def _satirlar(conn: Connection, tablo: Table, cid: int) -> Iterator[dict[str, An
             yield dict(satir._mapping)
 
 
+def _kullanici_sutunlari(tablo: Table) -> tuple[str, ...]:
+    """Bir tablonun KULLANICI KİMLİĞİ (``app_users.id``) taşıyan sütunları.
+
+    İki kaynak, ikisi de ölçülmüş: (a) yansıtılan ``app_users`` yabancı
+    anahtarları (0086 şeması: kiracı tablolarında 31 sütun), (b) kısıtı OLMAYAN
+    yumuşak kullanıcı sütunları — ``kiraci_geri_yukleme.KULLANICI_SUTUNLARI``.
+    (b) burada ELLE TEKRARLANMAZ: geri yüklemenin sınıflandırıcısı tek kaynaktır
+    ve ``test_siniflandirilmamis_yumusak_referans_yok`` onu eksiksiz tutar.
+    """
+    # Geç ithal: ``kiraci_geri_yukleme`` bu modülü modül düzeyinde ithal eder.
+    from ..kiraci_geri_yukleme import KULLANICI_SUTUNLARI
+
+    adlar = {e.parent.name for e in tablo.foreign_keys if e.column.table.name == "app_users"}
+    adlar |= {sutun for ad, sutun in KULLANICI_SUTUNLARI if ad == tablo.name}
+    return tuple(sorted(adlar))
+
+
+def _andigi_kullanicilar(satir: dict[str, Any], sutunlar: tuple[str, ...]) -> Iterator[int]:
+    for sutun in sutunlar:
+        deger = satir.get(sutun)
+        if deger is not None:
+            yield int(deger)
+
+
+def _kullanici_epostalari(conn: Connection, kimlikler: set[int]) -> list[dict[str, Any]]:
+    """Dışa aktarılan satırların ANDIĞI kullanıcı kimliklerini e-postaya eşler.
+
+    BİLEREK EN AZ: yalnız ``id`` ve ``email``. Amaç tek — geri yüklemede
+    üyelikleri ve kullanıcı sütunlarını GERÇEK kişilere yeniden eşleyebilmek
+    (5.1a manifesti kimlik taşımıyordu). ``password_hash``, ``username``,
+    ``phone``, ``display_name`` ve öteki hiçbir sütun yazılmaz; ``app_users``
+    tablosunun tamamı da dökülmez, yalnız bu kiracının satırlarında geçen
+    kimlikler. E-posta kişisel veridir; eşleme için gereken en az kimlik odur.
+
+    Satırı olmayan (silinmiş) kimlik haritada YER ALMAZ: eşlenecek kişi yok.
+    ``payment_idempotency.user_id``nin ``0`` nöbetçisi de aynı yoldan düşer.
+    Aynı bağlantıda, dışa aktarımın okuma kesitinde okunur.
+    """
+    sirali = sorted(kimlikler)
+    harita: list[dict[str, Any]] = []
+    for i in range(0, len(sirali), _KIMLIK_PARCASI):
+        parca = sirali[i : i + _KIMLIK_PARCASI]
+        secim = (
+            select(users.c.id, users.c.email)
+            .where(users.c.id.in_(parca))
+            .order_by(users.c.id)
+        )
+        for satir in conn.execute(secim):
+            harita.append({"id": int(satir.id), "email": satir.email})
+    return harita
+
+
 def _depo_koku() -> Path:
     return Path(settings.sungur_data_dir).resolve()
 
@@ -273,6 +345,7 @@ def _uret(request: Request, cid: int) -> Iterator[bytes]:
     satir_sayilari: dict[str, int] = {}
     eksik_ekler: list[dict[str, Any]] = []
     ek_sayisi = 0
+    anilan_kullanicilar: set[int] = set()
 
     with engine.connect() as conn:
         _islem_baslat(conn)
@@ -297,6 +370,9 @@ def _uret(request: Request, cid: int) -> Iterator[bytes]:
             )
             if firma is None:
                 raise HTTPException(404, "Aktif firma bulunamadı")
+            anilan_kullanicilar.update(
+                _andigi_kullanicilar(dict(firma), _kullanici_sutunlari(firmalar))
+            )
             zf.writestr(
                 f"companies/{cid}.json",
                 json.dumps(
@@ -309,8 +385,12 @@ def _uret(request: Request, cid: int) -> Iterator[bytes]:
 
             for tablo in sirali_tablolar:
                 sayi = 0
+                kullanici_sutunlari = _kullanici_sutunlari(tablo)
                 with zf.open(f"tables/{tablo.name}.ndjson", "w") as akis:
                     for satir in _satirlar(conn, tablo, cid):
+                        anilan_kullanicilar.update(
+                            _andigi_kullanicilar(satir, kullanici_sutunlari)
+                        )
                         temiz = {k: _seri(v, tablo.name, k) for k, v in satir.items()}
                         akis.write(
                             (json.dumps(temiz, ensure_ascii=False) + "\n").encode("utf-8")
@@ -365,6 +445,10 @@ def _uret(request: Request, cid: int) -> Iterator[bytes]:
                 "attachments_include_deleted": True,
                 "missing_attachments": eksik_ekler,
                 "app_version": _uygulama_surumu(),
+                # H49: kimlik -> e-posta, YALNIZ bu iki alan (bkz.
+                # ``_kullanici_epostalari``). Geri yükleme bugün kimlikle eşler;
+                # harita başka bir platforma yeniden eşleme için taşınır.
+                "user_emails": _kullanici_epostalari(conn, anilan_kullanicilar),
             }
             zf.writestr(
                 "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2)
