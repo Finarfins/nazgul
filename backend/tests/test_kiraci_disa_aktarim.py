@@ -163,12 +163,16 @@ with TestClient(app) as client:
             storage_path=goreli + "/silinmis.bin", kind="other",
             uploaded_by=admin_id, created_at=simdi, deleted_at=simdi))
 
-    # --- H49: KULLANICI E-POSTA HARİTASI -------------------------------
-    # Dört kullanıcı, her biri haritanın BİR kuralını kanıtlar:
-    #   fkkisi       -> YALNIZ bir FK sütunuyla anılır (ekin `uploaded_by`i)
-    #   yumusakkisi  -> YALNIZ FK'siz yumuşak sütunla anılır (A üyeliği)
-    #   yalnizb      -> YALNIZ B firmasında anılır: A haritasında OLMAMALI
-    #   hicanilmayan -> hiçbir yerde anılmaz: haritada OLMAMALI
+    # --- H49: KULLANICI E-POSTA HARİTASI — KAPSAM KANITI ----------------
+    # `app_users` çekirdek tablodur, FİRMA SINIRI YOK; tek koruma dışa
+    # aktarımın kimlik kümesi (A'nın dışa aktarılan üyelikleri). Dört kişi:
+    #   aktifuye     -> A'nın ÜYESİ: haritada OLMALI
+    #   ayrilmis     -> A'da `uploaded_by` olarak ANILIR ama üyeliği YOK
+    #                   (ayrılmış üye): haritada OLMAMALI, kimliği ndjson'da DURMALI
+    #   ekilib       -> B'nin üyesi; kimliği A'nın İKİ satırına ELLE EKİLİR
+    #                   (`work_orders.created_by`, `work_order_attachments.uploaded_by`):
+    #                   haritada OLMAMALI — asıl kanıt
+    #   hicanilmayan -> hiçbir yerde yok: haritada OLMAMALI
     # Parola özeti ayırt edici bir dizgedir; zip'in HİÇBİR üyesinde geçmemeli.
     kullanicilar = md.tables["app_users"]
     GIZLI = "H49-GIZLI-PAROLA-OZETI-SIZMAMALI"
@@ -182,19 +186,26 @@ with TestClient(app) as client:
         )).inserted_primary_key[0]
 
     with engine.begin() as conn:
-        fk_kisi = kullanici_ekle(conn, "fkkisi")
-        yumusak_kisi = kullanici_ekle(conn, "yumusakkisi")
-        yalniz_b = kullanici_ekle(conn, "yalnizb")
+        aktif_uye = kullanici_ekle(conn, "aktifuye")
+        ayrilmis = kullanici_ekle(conn, "ayrilmis")
+        ekili_b = kullanici_ekle(conn, "ekilib")
         hic_anilmayan = kullanici_ekle(conn, "hicanilmayan")
         conn.execute(insert(uyelikler).values(
-            user_id=yumusak_kisi, company_id=a_id, is_default=False,
+            user_id=aktif_uye, company_id=a_id, is_default=False,
             created_at=datetime.now(timezone.utc)))
         conn.execute(insert(uyelikler).values(
-            user_id=yalniz_b, company_id=b_id, is_default=False,
+            user_id=ekili_b, company_id=b_id, is_default=False,
             created_at=datetime.now(timezone.utc)))
         conn.execute(ekler.update().where(
             ekler.c.company_id == a_id, ekler.c.file_name == "yok.bin"
-        ).values(uploaded_by=fk_kisi))
+        ).values(uploaded_by=ayrilmis))
+        # ELLE EKİM: B kullanıcısının kimliği A'nın satırlarına yazılır.
+        conn.execute(ekler.update().where(
+            ekler.c.company_id == a_id, ekler.c.file_name == "var.bin"
+        ).values(uploaded_by=ekili_b))
+        conn.execute(md.tables["work_orders"].update().where(
+            md.tables["work_orders"].c.id == emir_id
+        ).values(created_by=ekili_b))
         admin_eposta = conn.execute(
             select(kullanicilar.c.email).where(kullanicilar.c.id == admin_id)
         ).scalar_one()
@@ -216,9 +227,28 @@ with TestClient(app) as client:
             created_at=simdi, updated_at=simdi))
 
     # --- DIŞA AKTARIM --------------------------------------------------
-    r = client.get("/api/company/export", headers=h)
+    # `app_users`a giden HER ifade kaydedilir: e-posta okumasının kapsamı
+    # (IN listesi ve seçilen sütunlar) SQL düzeyinde ölçülür.
+    from sqlalchemy import event
+    kullanici_ifadeleri = []
+
+    def ifade_kaydet(conn, cursor, statement, parameters, context, executemany):
+        if "app_users" in statement:
+            kullanici_ifadeleri.append(
+                {"sql": " ".join(statement.split()), "params": list(parameters or ())})
+
+    event.listen(engine, "before_cursor_execute", ifade_kaydet)
+    try:
+        r = client.get("/api/company/export", headers=h)
+    finally:
+        event.remove(engine, "before_cursor_execute", ifade_kaydet)
     assert r.status_code == 200, r.text[:800]
     (CIKTI / "a.zip").write_bytes(r.content)
+    eposta_sorgulari = [x for x in kullanici_ifadeleri
+                        if "app_users.email" in x["sql"] and " IN " in x["sql"]]
+    with engine.connect() as conn:
+        a_uyeleri = sorted(int(x) for x in conn.execute(
+            select(uyelikler.c.user_id).where(uyelikler.c.company_id == a_id)).scalars())
 
     # --- BAĞIMSIZ KAHN SIRASI (testin kendi tanığı) --------------------
     kiraci = {ad for ad, t in md.tables.items() if "company_id" in t.c}
@@ -269,8 +299,9 @@ with TestClient(app) as client:
             for x in disa_kayit],
         "a_hareket_miktar": "12.3456", "b_hareket_miktar": "99.9999",
         "admin_id": admin_id, "admin_eposta": admin_eposta,
-        "fk_kisi": fk_kisi, "yumusak_kisi": yumusak_kisi,
-        "yalniz_b": yalniz_b, "hic_anilmayan": hic_anilmayan, "gizli": GIZLI,
+        "aktif_uye": aktif_uye, "ayrilmis": ayrilmis, "ekili_b": ekili_b,
+        "hic_anilmayan": hic_anilmayan, "gizli": GIZLI, "a_uyeleri": a_uyeleri,
+        "eposta_sorgulari": eposta_sorgulari,
         "json_kolon": JSON_KOLON, "json_sayfa": JSON_SAYFA,
         "tip_sayimi": tip_sayimi, "str_dalina": str_dalina,
     }, ensure_ascii=False), encoding="utf-8")
@@ -575,33 +606,70 @@ def test_str_dalina_dusen_sutun_tipi_yok(hazir) -> None:
     assert sonuc["tip_sayimi"].get("dict", 0) >= 1, sonuc["tip_sayimi"]
 
 
-def test_manifest_kullanici_eposta_haritasi_en_az(hazir) -> None:
-    """H49. MUTASYONLAR, dördü de KIRMIZI:
-    (a) ``_kullanici_sutunlari``ndan ``KULLANICI_SUTUNLARI`` birleşimini silmek
-        ``yumusakkisi``yi düşürür;
-    (b) ``app_users`` FK dalını silmek ``fkkisi``yi düşürür;
-    (c) ``_kullanici_epostalari``na bir sütun daha eklemek anahtar kümesini bozar;
-    (d) kimlik süzgecini kaldırıp ``app_users``ın tamamını dökmek ``yalnizb``yi
-        ve ``hicanilmayan``ı haritaya sokar."""
+def test_manifest_eposta_haritasi_yalniz_firma_uyeleri(hazir) -> None:
+    """H49 KAPSAM KANITI. ``app_users`` çekirdek tablodur ve kiracı kapısının
+    DIŞINDADIR; tek koruma haritanın kimlik kümesidir (A'nın üyelikleri).
+
+    MUTASYONLAR, hepsi KIRMIZI:
+    (a) kümeyi "A'nın satırlarında anılan kimlikler"e genişletmek (H49'un ilk
+        biçimi) ELLE EKİLMİŞ B kullanıcısını ve ayrılmış üyeyi haritaya sokar;
+    (b) ``.where(users.c.id.in_(...))`` süzgecini kaldırmak ``app_users``ın
+        tamamını döker;
+    (c) ``_kullanici_epostalari``na bir sütun eklemek anahtar kümesini bozar."""
     s = hazir["sonuc"]
     harita = hazir["manifest"]["user_emails"]
     assert isinstance(harita, list), harita
+    # Anahtar kümesi AÇIKÇA: yalnız id + email.
     for giris in harita:
         assert set(giris) == {"id", "email"}, giris
     kimlikler = [g["id"] for g in harita]
     assert kimlikler == sorted(kimlikler), kimlikler
     assert len(kimlikler) == len(set(kimlikler)), kimlikler
-    assert set(kimlikler) == {s["admin_id"], s["fk_kisi"], s["yumusak_kisi"]}, kimlikler
-    assert s["yalniz_b"] not in kimlikler
-    assert s["hic_anilmayan"] not in kimlikler
+
+    # Harita = A'nın üyeleri, ne eksik ne fazla.
+    assert set(s["a_uyeleri"]) == {s["admin_id"], s["aktif_uye"]}, s["a_uyeleri"]
+    assert set(kimlikler) == set(s["a_uyeleri"]), kimlikler
     eposta = {g["id"]: g["email"] for g in harita}
     assert eposta[s["admin_id"]] == s["admin_eposta"]
-    assert eposta[s["fk_kisi"]] == "fkkisi@ornek.invalid"
-    assert eposta[s["yumusak_kisi"]] == "yumusakkisi@ornek.invalid"
+    assert eposta[s["aktif_uye"]] == "aktifuye@ornek.invalid"
+
+    # ASIL KANIT: B kullanıcısının kimliği A'nın satırlarına GERÇEKTEN ekildi
+    # (vakum değil) ve yine de haritada YOK.
+    emirler = _ndjson(hazir["zip"], "work_orders")
+    ekler = _ndjson(hazir["zip"], "work_order_attachments")
+    assert s["ekili_b"] in {e["created_by"] for e in emirler}, emirler
+    assert s["ekili_b"] in {e["uploaded_by"] for e in ekler}, ekler
+    assert s["ekili_b"] not in kimlikler
+
+    # Ayrılmış üye: haritada YOK ama kimliği satırda DURUYOR (kimlikle eşleme sürer).
+    assert s["ayrilmis"] in {e["uploaded_by"] for e in ekler}, ekler
+    assert s["ayrilmis"] not in kimlikler
+    assert s["hic_anilmayan"] not in kimlikler
+
+    # SQL DÜZEYİNDE KAPSAM: dışa aktarımda `app_users.email` okuyan TEK ifade
+    # var; IN listesi TAM OLARAK A'nın üyeleri ve parola özeti seçilmiyor.
+    sorgular = s["eposta_sorgulari"]
+    assert len(sorgular) == 1, sorgular
+    assert sorted(sorgular[0]["params"]) == sorted(s["a_uyeleri"]), sorgular[0]
+    assert "password_hash" not in sorgular[0]["sql"], sorgular[0]["sql"]
+
     # Parola özeti zip'in HİÇBİR üyesinde yok (manifest dahil).
     gizli = s["gizli"].encode("utf-8")
     for ad in hazir["adlar"]:
         assert gizli not in hazir["zip"].read(ad), ad
+
+
+def test_bos_kume_eposta_sorgusu_kosturmaz() -> None:
+    """H49: kimlik kümesi boşsa ``app_users``a HİÇ sorgu gitmez. Bağlantının
+    ``execute``u çağrılırsa test düşer."""
+    sys.path.insert(0, str(BACKEND))
+    from app.routers.kiraci_disa_aktarim import _kullanici_epostalari
+
+    class _SorguYasak:
+        def execute(self, *a, **k):
+            raise AssertionError("boş kimlik kümesinde app_users sorgusu koştu")
+
+    assert _kullanici_epostalari(_SorguYasak(), set()) == []
 
 
 # --------------------------------------------------------------------------
