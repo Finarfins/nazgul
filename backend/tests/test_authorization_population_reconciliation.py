@@ -395,7 +395,12 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 #     yazma yollari `read`e DUSMEZ (PP1 kurali yalniz guvenli metot), yani
 #     `require_platform_operator` cagirmalarina ragmen korumali-read kumesine
 #     de GIRMEZLER (o kume yalniz `read`e cozulen islemleri sayar).
-EXPECTED_AUTHENTICATED = 406
+# E4b-1 KISMI SEVK (goc 20260915_0087): BIR yeni GET, kimlik dogrulamali, "sales".
+#   * `EXPECTED_AUTHENTICATED` 406 -> 407 (+1, TABAN develop `989b735`, CS2
+#     sonrasi YENIDEN OLCULDU); `test_route_security_contracts` 419 -> 420 ile AYNI uc.
+#   * `EXPECTED_READ` 87'de SABIT (izin "sales", `read` degil); GUARDED_READ
+#     ve UNDENIABLE de SABIT.
+EXPECTED_AUTHENTICATED = 407
 EXPECTED_READ = 87
 EXPECTED_UNDENIABLE = 97
 

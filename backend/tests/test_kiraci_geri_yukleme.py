@@ -422,6 +422,31 @@ with TestClient(app, raise_server_exceptions=False) as client:
                 "total": tutar, "warranty_percent": Decimal("0"), "customer_payable": tutar,
                 "company_payable": Decimal("0"), "description": f"Kalem {i}", "source_snapshot": "{}"}))
 
+    # E4b-1 (göç 20260915_0087): İKİ satırlı bir kısmi sevk irsaliyesi. Jenerik
+    # tohum tek satır yazar ve üç referansın (bileşik FK `despatch_id`, çıplak
+    # FK `invoice_item_id`, FK'sız `product_id`) HEPSİNİN yeni firmada DOĞRU
+    # satıra gittiğini ayırt edemez: iki satır iki FARKLI kalem ve ürüne bağlı.
+    irsaliyeler = md.tables["despatch_notes"]; sevk_satirlari = md.tables["despatch_lines"]
+    with engine.begin() as conn:
+        kalem_idleri = conn.execute(select(kalemler.c.id).where(
+            kalemler.c.invoice_id == fat_id).order_by(kalemler.c.id)).scalars().all()
+        irs_id = conn.execute(insert(irsaliyeler), zorunlu(irsaliyeler, {
+            "company_id": a_id, "invoice_id": fat_id,
+            "despatch_uuid": "00000000-0000-4000-8000-00000000e4b1",
+            "despatch_number": "IRS2026000000901", "issue_date": date(2026, 9, 15),
+            "actual_shipment_at": datetime(2026, 9, 15, 8, 0), "driver_name": "Sofor",
+            "driver_national_id": "11111111110", "vehicle_plate": "34ABC123",
+            "delivery_address": "Adres", "delivery_postal_code": "34000",
+            "edespatch_status": "NONE", "created_at": datetime(2026, 9, 15),
+            "updated_at": datetime(2026, 9, 15)})).inserted_primary_key[0]
+        for no, (kalem, urun, miktar) in enumerate(
+                ((kalem_idleri[0], u1, Decimal("0.4")), (kalem_idleri[1], u2, Decimal("1"))), 1):
+            conn.execute(insert(sevk_satirlari), zorunlu(sevk_satirlari, {
+                "company_id": a_id, "despatch_id": irs_id, "invoice_item_id": kalem,
+                "line_no": no, "product_id": urun, "item_name": f"Sevk {no}",
+                "quantity": miktar, "unit_code": "C62",
+                "created_at": datetime(2026, 9, 15), "updated_at": datetime(2026, 9, 15)}))
+
     # Ödeme + tahsisler (siparişe): tahsis toplamı ödeme tutarına eşit.
     odemeler = md.tables["payments"]; tahsisler = md.tables["payment_allocations"]
     siparisler = md.tables["orders"]
@@ -566,6 +591,14 @@ with TestClient(app, raise_server_exceptions=False) as client:
         urun_c = {int(u["id"]): u["product_code"] for u in conn.execute(select(urunler.c.id, urunler.c.product_code).where(urunler.c.company_id == c_id)).mappings()}
         anlamsal["parti"] = sorted((p["lot_code"], urun_c.get(int(p["product_id"]))) for p in parti)
         anlamsal["hareket_miktar"] = [str(x) for x in conn.execute(select(hareketler.c.quantity).where(hareketler.c.company_id == c_id, hareketler.c.note == "A hareketi")).scalars()]
+        # E4b-1: sevk satırlarının üç referansı YENİ firmanın satırlarıyla çözülür.
+        irs_c = {int(x["id"]): x["despatch_number"] for x in conn.execute(select(irsaliyeler.c.id, irsaliyeler.c.despatch_number).where(irsaliyeler.c.company_id == c_id)).mappings()}
+        kalem_c = {int(x["id"]): x["description"] for x in conn.execute(select(kalemler.c.id, kalemler.c.description).where(kalemler.c.company_id == c_id)).mappings()}
+        anlamsal["sevk_satirlari"] = sorted(
+            [s["item_name"], irs_c.get(int(s["despatch_id"])), kalem_c.get(int(s["invoice_item_id"])),
+             urun_c.get(int(s["product_id"])) if s["product_id"] is not None else None, str(s["quantity"])]
+            for s in conn.execute(select(sevk_satirlari).where(sevk_satirlari.c.company_id == c_id)).mappings()
+            if s["item_name"].startswith("Sevk "))
         uyelik = md.tables["user_company_memberships"]
         anlamsal["uyeler"] = sorted(int(u) for u in conn.execute(select(uyelik.c.user_id).where(uyelik.c.company_id == c_id)).scalars())
         firma_c = conn.execute(select(md.tables["companies"]).where(md.tables["companies"].c.id == c_id)).mappings().first()
@@ -845,6 +878,21 @@ def test_anlamsal_denetimler(hazir) -> None:
     assert any(Decimal(o["tahsis"]) == Decimal("300.00") == Decimal(o["amount"]) for o in a["odeme"]), a["odeme"]
     assert [p for p in a["parti"] if p[0].startswith("P-")] == [["P-1", "A-1"], ["P-2", "A-1"], ["P-3", "A-2"]], a["parti"]
     assert "12.3456" in a["hareket_miktar"], a["hareket_miktar"]
+
+
+def test_sevk_satirlari_uc_referansla_yeniden_eslendi(hazir) -> None:
+    """E4b-1 (göç 20260915_0087): iki satırlı irsaliye yeni firmaya taşındı ve
+    her satır YENİ firmanın irsaliyesine (bileşik FK), YENİ firmanın fatura
+    kalemine (çıplak FK) ve YENİ firmanın ürününe (FK'SIZ, `DOGRUDAN_HEDEFLER`)
+    işaret ediyor. MUTASYON: ``DOGRUDAN_HEDEFLER``ten
+    ``("despatch_lines", "product_id")``yi silmek ürün sütununu KIRMIZI yapar
+    (kaynak firmanın ürün kimliği kalır, yeni firmada bulunmaz)."""
+    satirlar = [s for s in hazir["anlamsal"]["sevk_satirlari"]]
+    assert [s[:4] for s in satirlar] == [
+        ["Sevk 1", "IRS2026000000901", "Kalem 1", "A-1"],
+        ["Sevk 2", "IRS2026000000901", "Kalem 2", "A-2"],
+    ], satirlar
+    assert [Decimal(s[4]) for s in satirlar] == [Decimal("0.4"), Decimal("1")]
 
 
 def test_kaynak_firma_dokunulmadi(hazir) -> None:

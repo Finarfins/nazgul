@@ -384,7 +384,8 @@ def test_yuz_iki_tablo_dosyasi_tam(hazir) -> None:
     # 120 -> 121: E4a e-IRSALIYE DEFTERI (goc 20260913_0083). `despatch_notes`
     # dosyaya ELLE eklenmedi; `_kiraci_tablolari` kumeyi SEMADAN turetiyor.
     # 121 -> 122: CS1 `cek_senetler` (goc 20260914_0085), semadan turuyor.
-    assert len(gorulen) == 122
+    # 122 -> 123: E4b-1 `despatch_lines` (goc 20260915_0087), semadan turuyor.
+    assert len(gorulen) == 123
     # Uygulamanın ŞEMADAN türettiği küme ile kapının listesi AYNI olmalı.
     assert set(hazir["sonuc"]["kiraci_tablolar"]) == set(TENANT_TABLES)
     assert f"companies/{hazir['sonuc']['a_id']}.json" in hazir["adlar"]
@@ -400,7 +401,8 @@ def test_tablo_sirasi_topolojik_ve_tam(hazir) -> None:
     sonuc = hazir["sonuc"]
     sira = hazir["manifest"]["table_order"]
     # 121 -> 122: CS1 `cek_senetler` (goc 20260914_0085), semadan turuyor.
-    assert len(sira) == 122 and len(set(sira)) == 122
+    # 122 -> 123: E4b-1 `despatch_lines` (goc 20260915_0087), semadan turuyor.
+    assert len(sira) == 123 and len(set(sira)) == 123
     assert set(sira) == set(sonuc["kiraci_tablolar"])
 
     # Testin KENDİ bağımsız Kahn tanığı: her bağımlılık, bağımlıdan ÖNCE.
@@ -533,7 +535,8 @@ with TestClient(app) as client:
     man = json.loads(zf.read("manifest.json"))
     ndjson = [a for a in zf.namelist() if a.startswith("tables/")]
     # 121 -> 122: CS1 `cek_senetler` (goc 20260914_0085), semadan turuyor.
-    assert len(ndjson) == 122, len(ndjson)
+    # 122 -> 123: E4b-1 `despatch_lines` (goc 20260915_0087), semadan turuyor.
+    assert len(ndjson) == 123, len(ndjson)
     # ÖLÇÜLDÜ: "tamamen boş" bir firma dışa AKTARILAMAZ. Dışa aktarımın
     # kendisi ÜYELİK ister ve üyelik satırı `user_company_memberships`
     # tablosundadır — yani erişilebilir HER firmada en az bir satır vardır.

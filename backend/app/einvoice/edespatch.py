@@ -771,9 +771,12 @@ def build_despatch_xml(payload: dict[str, Any], *, xslt: str | None = None) -> b
             f"<cbc:DeliveredQuantity unitCode={quoteattr(birim)}>"
             f"{_m(_miktar(satir.get('quantity')))}</cbc:DeliveredQuantity>"
             # `OrderLineReference/LineID` OASIS'te 1+ (keşif §3.2). Değer
-            # UYDURULMUYOR: düz sevkte irsaliye satırı fatura satırının
-            # birebir karşılığıdır, yani satır sırası REFERANSIN KENDİSİDİR.
-            f"<cac:OrderLineReference><cbc:LineID>{sira}</cbc:LineID>"
+            # UYDURULMUYOR: kısmi sevkte (E4b-1) irsaliye satırı faturanın
+            # BİR satırına işaret eder ve çağıran o satırın fatura içindeki
+            # sırasını `order_line_id` olarak verir; vermezse (düz sevk,
+            # birebir karşılık) irsaliye satır sırası referansın kendisidir.
+            f"<cac:OrderLineReference><cbc:LineID>{_m(satir.get('order_line_id') or sira)}"
+            "</cbc:LineID>"
             "</cac:OrderLineReference>"
             f"<cac:Item><cbc:Name>{_m(satir.get('name'))}</cbc:Name></cac:Item>"
             "</cac:DespatchLine>"

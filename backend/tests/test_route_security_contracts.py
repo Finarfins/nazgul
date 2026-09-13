@@ -695,8 +695,13 @@ DYNAMIC_PERMISSION_CASES = {
 # yedisi de `__admin_only__` (PP1'in `/api/platform/` kurali YALNIZ guvenli
 # metot). `tenant_scope` "platform", yani gerekce ister; KENDI grubuyla
 # `ROUTE_REASONS`a girdi. Parmak izi EN SON turetildi.
-EXPECTED_OPERATION_COUNT = 419
-EXPECTED_PATH_COUNT = 325
+# 20260915 — E4b-1 KISMI SEVK (goc 20260915_0087): BIR yeni GET, BIR yeni yol
+# (`/api/invoices/{invoice_id}/despatchable-items`). Sayim 419/325 -> 420/326
+# (TABAN develop `989b735`). Izin OLCULDU: "sales" — YENI KURAL YOK, SEC-3'un
+# `/api/invoices` guvenli-metot kuralindan. `tenant_scope` "company", izin
+# `read` degil: `ROUTE_REASONS` gerekce ISTEMIYOR ve eklenmedi.
+EXPECTED_OPERATION_COUNT = 420
+EXPECTED_PATH_COUNT = 326
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -897,7 +902,9 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # TABAN 2e35393: parmak izi 62b0e5f8 -> dba1b83e.
     # PP2 (GOC YOK): YEDI platform yonetim eylemi, "__admin_only__", platform
     # gerekce grubu. TABAN 697a3be: parmak izi dba1b83e -> 35f45088.
-    "35f45088f23c8d43fec0e45d0c6c5a938f8ea8c7ada7607da206d86a176b50f2"
+    # E4b-1 (goc 20260915_0087): BIR yeni GET (`despatchable-items`), "sales".
+    # TABAN 989b735 (CS2 sonrasi YENIDEN OLCULDU): parmak izi 35f45088 -> 958a9c0e.
+    "958a9c0e77b9d1ff09487f39d41589e713471c58add09900c0eadcde1a61d178"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

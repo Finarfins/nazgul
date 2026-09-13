@@ -2066,9 +2066,24 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # tek-tablo select). HICBIRI lisans istemedi: her biri `company_id == cid`
 # yuklemini ya da INSERT'te `company_id=cid`i ACIK tasir. `companies` kiraci
 # tablosu DEGIL, ciro anahtari okumasi SAYILMAZ. Kiraci tablolari DEGISMEDI.
-BEKLENEN_CORE_IFADE_SAYISI = 175
+# 175 -> 183: E4b-1 KISMI SEVK (goc 20260915_0087; TABAN develop `989b735`,
+# CS2 birlestikten SONRA YENIDEN OLCULDU; ilk olcum `697a3be` uzerinde 167 -> 175).
+# SEKIZ ifade, HICBIRI lisans istemedi: YEDISI `app/routers/despatch_notes.py`de
+# (numara MAX'i, numara tekrar denetimi, faturanin bos-UPDATE satir kilidi,
+# fatura kalemleri, sevk edilmis satirlar, irsaliye satirlari, satir INSERT'i)
+# ve BIRI `app/document_engine.py::next_sequence_value` (document_sequences
+# sayac UPDATE'i). Her biri `<tablo>.c.company_id == cid` yuklemini ACIKCA
+# tasir; INSERT `company_id=cid`i acik anahtarla yazar. UC tablo Core uzerinden
+# ILK KEZ gorunuyor: `despatch_lines` (yeni kiraci tablosu), `despatch_notes`
+# ve `invoice_items` (ikisi bugune kadar yalniz text() ile okunuyordu).
+BEKLENEN_CORE_IFADE_SAYISI = 183
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
+    # E4b-1 (goc 20260915_0087): sevk satirlari, irsaliye numarasi ve
+    # kalan miktar okumasi.
+    "despatch_lines",
+    "despatch_notes",
+    "invoice_items",
     # CS1 (goc 20260914_0085): portfoy defteri ve iki taraf dogrulamasi.
     "cek_senetler",
     "customers",
