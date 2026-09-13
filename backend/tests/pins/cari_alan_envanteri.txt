@@ -13,6 +13,16 @@ GET /api/auth/verify-email	read	email	H,H,H,H,H
 # yanlis negatif sizar" -- incelendi, satira dokunulmadi.
 GET /api/cek-senetler	payments	hesap_no,phone	F,F,F,D,D
 GET /api/cek-senetler/{evrak_id}	payments	hesap_no,phone	F,F,F,D,D
+# H49 DISA AKTARIM MANIFESTI (goc YOK). Tarayici bu rotayi H49'un `email`
+# metin sabiti (`user_emails` haritasi: `{"id", "email"}`) yuzunden GORMEYE
+# basladi. Harita PLATFORM KULLANICISININ e-postasidir ve YALNIZ firmanin
+# disa aktarilan uyelerini kapsar. MUAFLAR'a KONMADI ve bu bilincli: zip
+# 5.1a'dan beri kiracinin TAMAMINI, `customers`/`suppliers` satirlarinin
+# email/phone/address/tax_number alanlari DAHIL, maskesiz tasiyor -- yani
+# "cari degil" demek yanlis olurdu. Maske YOK ama sizinti da YOK: izin
+# `__admin_only__`, bes rolun BESI de rotayi goremez (D,D,D,D,D; yalniz
+# `admin` jokeri). Maruziyet H49'dan ONCE de vardi; H49 onu gorunur yapti.
+GET /api/company/export	__admin_only__	email	D,D,D,D,D
 GET /api/customers	read	address,email,phone,tax_number	F,F,F,M,M
 GET /api/customers/{customer_id}	read	address,email,phone,tax_number	F,F,F,M,M
 GET /api/customers/{customer_id}/statement	sales	address,email,phone,tax_number	F,F,F,D,D

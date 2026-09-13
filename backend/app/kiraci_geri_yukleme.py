@@ -985,8 +985,9 @@ def _uyelikleri_yaz(conn, zf, yeni_cid, mevcut_kullanicilar, operator_user_id, r
     """Var olan kullanıcıların üyeliğini geri getirir; operatörü ekler.
 
     ``app_users`` zip'e GİRMEZ (platform tablosudur). H49'dan itibaren
-    manifest ``user_emails`` taşır (kiracı satırlarının andığı kimlikler ve
-    YALNIZ e-postaları); H49 öncesi arşivlerde bu anahtar YOKTUR. Eşleme bugün
+    manifest ``user_emails`` taşır (YALNIZ firmanın dışa aktarılan üyeleri ve
+    YALNIZ e-postaları; ayrılmış üye bilerek yoktur); H49 öncesi arşivlerde bu
+    anahtar YOKTUR. Eşleme bugün
     hâlâ KİMLİKLE yapılır — zip aynı platformdan geldiği için kimlik geçerlidir;
     kullanıcı silinmişse üyelik yazılmaz ve kimliği raporda durur. E-postayla
     yeniden eşleme (başka platforma taşıma) ayrı bir karardır.

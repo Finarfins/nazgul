@@ -227,44 +227,35 @@ def _satirlar(conn: Connection, tablo: Table, cid: int) -> Iterator[dict[str, An
             yield dict(satir._mapping)
 
 
-def _kullanici_sutunlari(tablo: Table) -> tuple[str, ...]:
-    """Bir tablonun KULLANICI KİMLİĞİ (``app_users.id``) taşıyan sütunları.
-
-    İki kaynak, ikisi de ölçülmüş: (a) yansıtılan ``app_users`` yabancı
-    anahtarları (0086 şeması: kiracı tablolarında 31 sütun), (b) kısıtı OLMAYAN
-    yumuşak kullanıcı sütunları — ``kiraci_geri_yukleme.KULLANICI_SUTUNLARI``.
-    (b) burada ELLE TEKRARLANMAZ: geri yüklemenin sınıflandırıcısı tek kaynaktır
-    ve ``test_siniflandirilmamis_yumusak_referans_yok`` onu eksiksiz tutar.
-    """
-    # Geç ithal: ``kiraci_geri_yukleme`` bu modülü modül düzeyinde ithal eder.
-    from ..kiraci_geri_yukleme import KULLANICI_SUTUNLARI
-
-    adlar = {e.parent.name for e in tablo.foreign_keys if e.column.table.name == "app_users"}
-    adlar |= {sutun for ad, sutun in KULLANICI_SUTUNLARI if ad == tablo.name}
-    return tuple(sorted(adlar))
-
-
-def _andigi_kullanicilar(satir: dict[str, Any], sutunlar: tuple[str, ...]) -> Iterator[int]:
-    for sutun in sutunlar:
-        deger = satir.get(sutun)
-        if deger is not None:
-            yield int(deger)
-
-
 def _kullanici_epostalari(conn: Connection, kimlikler: set[int]) -> list[dict[str, Any]]:
-    """Dışa aktarılan satırların ANDIĞI kullanıcı kimliklerini e-postaya eşler.
+    """Firmanın ÜYE kimliklerini e-postaya eşler — BİLEREK EN AZ.
 
-    BİLEREK EN AZ: yalnız ``id`` ve ``email``. Amaç tek — geri yüklemede
-    üyelikleri ve kullanıcı sütunlarını GERÇEK kişilere yeniden eşleyebilmek
-    (5.1a manifesti kimlik taşımıyordu). ``password_hash``, ``username``,
-    ``phone``, ``display_name`` ve öteki hiçbir sütun yazılmaz; ``app_users``
-    tablosunun tamamı da dökülmez, yalnız bu kiracının satırlarında geçen
-    kimlikler. E-posta kişisel veridir; eşleme için gereken en az kimlik odur.
+    YALNIZ ``id`` ve ``email`` seçilir; ``app_users``ın başka hiçbir sütunu
+    (parola özeti dahil) okunmaz, tablonun tamamı da dökülmez. Amaç tek: geri
+    yüklemede üyelikleri gerçek kişilere yeniden eşleyebilmek. E-posta kişisel
+    veridir; eşleme için gereken en az kimlik odur.
 
-    Satırı olmayan (silinmiş) kimlik haritada YER ALMAZ: eşlenecek kişi yok.
-    ``payment_idempotency.user_id``nin ``0`` nöbetçisi de aynı yoldan düşer.
-    Aynı bağlantıda, dışa aktarımın okuma kesitinde okunur.
+    KAPSAM SINIRI ÜYELİK KÜMESİDİR (karar #115, H49). ``app_users`` çekirdek bir
+    tablodur ve FİRMA SINIRI YOKTUR; kiracı kapısı onu korumaz, tek koruma bu
+    fonksiyona verilen kimlik kümesidir. Küme "A'nın satırlarında geçen kimlik"
+    olsaydı doğruluğu verinin temizliğine bağlı kalırdı: bozuk ya da hatalı bir
+    satıra düşmüş başka firmanın kullanıcı kimliği o kişinin e-postasını A'nın
+    zip'ine taşırdı. Bu yüzden ``kimlikler`` = dışa aktarılan
+    ``user_company_memberships`` satırlarının ``user_id``leridir (aynı okuma
+    kesiti, ek sorgu yok). Üyelik satırı kendisi de bir kullanıcı referansıdır;
+    yani "anılan ∩ A'nın üyeleri" kesişimi tam olarak bu kümedir.
+
+    BİLİNÇLİ BEDEL — GENİŞLETMEYİN: A'dan AYRILMIŞ (üyeliği silinmiş) ama eski
+    kayıtlarda ``created_by`` vb. olarak duran kişi e-postasız kalır. Bu bir
+    eksik DEĞİL: geri yükleme onu kimlikle eşlemeye devam eder; e-posta kolaylık,
+    anahtar değil. Kümeyi FK/yumuşak kullanıcı sütunlarına genişletmek yukarıdaki
+    sızıntıyı geri getirir.
+
+    Boş kümede sorgu HİÇ KOŞMAZ. Satırı olmayan (silinmiş) kimlik haritada yer
+    almaz: eşlenecek kişi yok.
     """
+    if not kimlikler:
+        return []
     sirali = sorted(kimlikler)
     harita: list[dict[str, Any]] = []
     for i in range(0, len(sirali), _KIMLIK_PARCASI):
@@ -345,7 +336,8 @@ def _uret(request: Request, cid: int) -> Iterator[bytes]:
     satir_sayilari: dict[str, int] = {}
     eksik_ekler: list[dict[str, Any]] = []
     ek_sayisi = 0
-    anilan_kullanicilar: set[int] = set()
+    # H49 e-posta haritasının SINIRI: bu firmanın dışa aktarılan üyelikleri.
+    uye_kimlikleri: set[int] = set()
 
     with engine.connect() as conn:
         _islem_baslat(conn)
@@ -370,9 +362,6 @@ def _uret(request: Request, cid: int) -> Iterator[bytes]:
             )
             if firma is None:
                 raise HTTPException(404, "Aktif firma bulunamadı")
-            anilan_kullanicilar.update(
-                _andigi_kullanicilar(dict(firma), _kullanici_sutunlari(firmalar))
-            )
             zf.writestr(
                 f"companies/{cid}.json",
                 json.dumps(
@@ -385,12 +374,11 @@ def _uret(request: Request, cid: int) -> Iterator[bytes]:
 
             for tablo in sirali_tablolar:
                 sayi = 0
-                kullanici_sutunlari = _kullanici_sutunlari(tablo)
+                uyelik_tablosu = tablo.name == "user_company_memberships"
                 with zf.open(f"tables/{tablo.name}.ndjson", "w") as akis:
                     for satir in _satirlar(conn, tablo, cid):
-                        anilan_kullanicilar.update(
-                            _andigi_kullanicilar(satir, kullanici_sutunlari)
-                        )
+                        if uyelik_tablosu and satir.get("user_id") is not None:
+                            uye_kimlikleri.add(int(satir["user_id"]))
                         temiz = {k: _seri(v, tablo.name, k) for k, v in satir.items()}
                         akis.write(
                             (json.dumps(temiz, ensure_ascii=False) + "\n").encode("utf-8")
@@ -445,10 +433,10 @@ def _uret(request: Request, cid: int) -> Iterator[bytes]:
                 "attachments_include_deleted": True,
                 "missing_attachments": eksik_ekler,
                 "app_version": _uygulama_surumu(),
-                # H49: kimlik -> e-posta, YALNIZ bu iki alan (bkz.
-                # ``_kullanici_epostalari``). Geri yükleme bugün kimlikle eşler;
-                # harita başka bir platforma yeniden eşleme için taşınır.
-                "user_emails": _kullanici_epostalari(conn, anilan_kullanicilar),
+                # H49: kimlik -> e-posta, YALNIZ bu iki alan ve YALNIZ bu
+                # firmanın üyeleri (sınırın gerekçesi ``_kullanici_epostalari``da).
+                # Geri yükleme bugün kimlikle eşler; e-posta kolaylıktır.
+                "user_emails": _kullanici_epostalari(conn, uye_kimlikleri),
             }
             zf.writestr(
                 "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2)
