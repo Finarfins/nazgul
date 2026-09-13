@@ -905,6 +905,12 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "cd50bebcd58d7320694fa287dd30cd8b9bd4599f558d97f225c68932c351763f"): (1, None, "unresolved"),  # satır [225]
     ("app/routers/kiraci_disa_aktarim.py", "_uret", "select",
      "22146e8f2b8865b09df07eb95d99700ca20acb0071dc458f749716f9457560f1"): (1, None, "unresolved"),  # satır [282]
+    # H49: manifestin `user_emails` haritası. Hedef STATİK çözülür (`auth.users`
+    # = `app_users`, platform tablosu, kiracı tablosu DEĞİL); yüklem
+    # `users.c.id.in_(<dışa aktarılan satırların andığı kimlikler>)` ve yalnız
+    # `id` + `email` sütunları seçilir.
+    ("app/routers/kiraci_disa_aktarim.py", "_kullanici_epostalari", "select",
+     "9555ac62fe2b84ed18e4f593953434e268f5259252b8b325b91c91d2017e0d35"): (1, "users", "arg0"),
     # --- app/kiraci_geri_yukleme.py (5.1c KIRACI GERI YUKLEME, GOC YOK)
     # SEKIZ sorgu: UCU cozuldu (`companies` okumasi ve UPDATE'i, `app_users`
     # kimlik listesi), BESI cozulemedi cunku tablo disa aktarimla AYNI
@@ -1194,8 +1200,12 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # girdinin parmak izi değişti (companies ayar select'i ve durum-degistir
 # update'i, gerekçeleri girdilerinde). `UNRESOLVED_ALLOWLIST` ve `desteksiz`
 # BÜYÜMEDİ.
-TOTAL_CORE_QUERIES = 223
-EXPECTED_OP_COUNTS = {"select": 150, "update": 61, "delete": 12}
+# H49 DIŞA AKTARIM MANİFESTİ E-POSTA HARİTASI (GÖÇ YOK): 223 -> 224 (TABAN
+# `989b735`), +1 select, ekleme: `routers/kiraci_disa_aktarim._kullanici_epostalari`.
+# Drift raporu OLCULDU: YALNIZ bu girdi `yeni`; `changed`/`stale` BOŞ.
+# `UNRESOLVED_ALLOWLIST` ve `desteksiz` BÜYÜMEDİ (hedef `arg0` ile çözüldü).
+TOTAL_CORE_QUERIES = 224
+EXPECTED_OP_COUNTS = {"select": 151, "update": 61, "delete": 12}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1283,7 +1293,9 @@ EXPECTED_OP_COUNTS = {"select": 150, "update": 61, "delete": 12}
 # (`list_untenanted_audit` suzgecleri). TABAN develop `697a3be`.
 # c08c5ae1 -> be7f6899.
 # CS2 (göç 20260914_0086): 219 -> 223; PP2 sonrası YENİDEN türetildi. be7f6899 -> 72b2110c.
-INVENTORY_FINGERPRINT = "72b2110ccbcda9e8c875fb6b8ceec474adc075f7021e5318da2357a266a7685a"
+# H49 (GÖÇ YOK): 223 -> 224, TABAN develop `989b735`; envanterin TAMAMINDAN
+# yeniden türetildi. 72b2110c -> 2eb1e8ac.
+INVENTORY_FINGERPRINT = "2eb1e8acde0d2cc9a7ba89148b43af28e5832bb031a650b10b610d74f1f9d2dc"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:

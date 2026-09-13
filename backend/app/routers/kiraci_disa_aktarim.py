@@ -71,7 +71,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.schema import sort_tables
 
 from ..activity_log import log_activity
-from ..auth import utcnow
+from ..auth import users, utcnow
 from ..config import settings
 from ..db import SessionLocal, engine
 from ..disa_aktarim_errors import SonluOlmayanSayiError
@@ -87,6 +87,10 @@ _PARCA = 500
 #: Zip'e teslim edilmeden önce biriktirilecek en fazla bayt. Küçük tutulur:
 #: bu tampon, akışın bellek tavanının kendisidir.
 _TAMPON_ESIGI = 256 * 1024
+
+#: E-posta haritası için ``app_users`` bu büyüklükte ``IN (...)`` parçalarıyla
+#: okunur; bağlı parametre sayısı sürücü tavanına çarpmasın.
+_KIMLIK_PARCASI = 500
 
 
 class _AkanTampon:
@@ -122,9 +126,25 @@ def _seri(deger: Any, tablo: str, sutun: str) -> Any:
 
     Kayıplı hiçbir dönüşüm yok: ``Decimal`` METİN olur (float'a düşseydi
     kuruş sessizce kayardı), ``datetime`` UTC ISO-8601 olur, ``bytes`` base64
-    olur.
+    olur, JSON sütununun ``dict``/``list`` değeri OLDUĞU GİBİ kalır.
+
+    H49 — JSON SÜTUNLARI GERÇEK JSON. 5.1a'da ``dict``/``list`` son daldaki
+    ``str()``e düşüyor ve Python repr'i (``{'a': True, 'b': None}``) yazılıyordu:
+    bu JSON DEĞİL, ndjson satırı açılınca değer bir METİN çıkıyordu. Ölçüldü
+    (0086 şeması, yansımadan, SQLite ve PostgreSQL): ``str()`` dalına düşen TEK
+    tip ``JSON`` → ``dict``, dört sütun (``supplier_import_profiles.column_map``
+    ve ``.page_sections``, ``supplier_price_import_lines.raw``,
+    ``supplier_price_imports.error_detail``).
+
+    Geri yükleme ESKİ biçimi okumayı SÜRDÜRÜR (``kiraci_geri_yukleme._deseri``
+    içindeki ``ast.literal_eval`` dalı): H49'dan önce alınmış arşivler repr
+    taşır ve onları reddetmek kiracının yedeğini çöpe atmak olurdu.
     """
     if deger is None or isinstance(deger, (str, bool, int)):
+        return deger
+    if isinstance(deger, (dict, list)):
+        # Sürücü JSON sütununu çözümlenmiş verir; içerik JSON'dan geldiği için
+        # yalnız JSON-yerli tipler taşır ve ``json.dumps`` onu olduğu gibi yazar.
         return deger
     if isinstance(deger, Decimal):
         # SONLULUK DENETİMİ. ``Decimal`` NaN/Infinity taşıyabilir ve
@@ -207,6 +227,49 @@ def _satirlar(conn: Connection, tablo: Table, cid: int) -> Iterator[dict[str, An
             yield dict(satir._mapping)
 
 
+def _kullanici_epostalari(conn: Connection, kimlikler: set[int]) -> list[dict[str, Any]]:
+    """Firmanın ÜYE kimliklerini e-postaya eşler — BİLEREK EN AZ.
+
+    YALNIZ ``id`` ve ``email`` seçilir; ``app_users``ın başka hiçbir sütunu
+    (parola özeti dahil) okunmaz, tablonun tamamı da dökülmez. Amaç tek: geri
+    yüklemede üyelikleri gerçek kişilere yeniden eşleyebilmek. E-posta kişisel
+    veridir; eşleme için gereken en az kimlik odur.
+
+    KAPSAM SINIRI ÜYELİK KÜMESİDİR (karar #115, H49). ``app_users`` çekirdek bir
+    tablodur ve FİRMA SINIRI YOKTUR; kiracı kapısı onu korumaz, tek koruma bu
+    fonksiyona verilen kimlik kümesidir. Küme "A'nın satırlarında geçen kimlik"
+    olsaydı doğruluğu verinin temizliğine bağlı kalırdı: bozuk ya da hatalı bir
+    satıra düşmüş başka firmanın kullanıcı kimliği o kişinin e-postasını A'nın
+    zip'ine taşırdı. Bu yüzden ``kimlikler`` = dışa aktarılan
+    ``user_company_memberships`` satırlarının ``user_id``leridir (aynı okuma
+    kesiti, ek sorgu yok). Üyelik satırı kendisi de bir kullanıcı referansıdır;
+    yani "anılan ∩ A'nın üyeleri" kesişimi tam olarak bu kümedir.
+
+    BİLİNÇLİ BEDEL — GENİŞLETMEYİN: A'dan AYRILMIŞ (üyeliği silinmiş) ama eski
+    kayıtlarda ``created_by`` vb. olarak duran kişi e-postasız kalır. Bu bir
+    eksik DEĞİL: geri yükleme onu kimlikle eşlemeye devam eder; e-posta kolaylık,
+    anahtar değil. Kümeyi FK/yumuşak kullanıcı sütunlarına genişletmek yukarıdaki
+    sızıntıyı geri getirir.
+
+    Boş kümede sorgu HİÇ KOŞMAZ. Satırı olmayan (silinmiş) kimlik haritada yer
+    almaz: eşlenecek kişi yok.
+    """
+    if not kimlikler:
+        return []
+    sirali = sorted(kimlikler)
+    harita: list[dict[str, Any]] = []
+    for i in range(0, len(sirali), _KIMLIK_PARCASI):
+        parca = sirali[i : i + _KIMLIK_PARCASI]
+        secim = (
+            select(users.c.id, users.c.email)
+            .where(users.c.id.in_(parca))
+            .order_by(users.c.id)
+        )
+        for satir in conn.execute(secim):
+            harita.append({"id": int(satir.id), "email": satir.email})
+    return harita
+
+
 def _depo_koku() -> Path:
     return Path(settings.sungur_data_dir).resolve()
 
@@ -273,6 +336,8 @@ def _uret(request: Request, cid: int) -> Iterator[bytes]:
     satir_sayilari: dict[str, int] = {}
     eksik_ekler: list[dict[str, Any]] = []
     ek_sayisi = 0
+    # H49 e-posta haritasının SINIRI: bu firmanın dışa aktarılan üyelikleri.
+    uye_kimlikleri: set[int] = set()
 
     with engine.connect() as conn:
         _islem_baslat(conn)
@@ -309,8 +374,11 @@ def _uret(request: Request, cid: int) -> Iterator[bytes]:
 
             for tablo in sirali_tablolar:
                 sayi = 0
+                uyelik_tablosu = tablo.name == "user_company_memberships"
                 with zf.open(f"tables/{tablo.name}.ndjson", "w") as akis:
                     for satir in _satirlar(conn, tablo, cid):
+                        if uyelik_tablosu and satir.get("user_id") is not None:
+                            uye_kimlikleri.add(int(satir["user_id"]))
                         temiz = {k: _seri(v, tablo.name, k) for k, v in satir.items()}
                         akis.write(
                             (json.dumps(temiz, ensure_ascii=False) + "\n").encode("utf-8")
@@ -365,6 +433,10 @@ def _uret(request: Request, cid: int) -> Iterator[bytes]:
                 "attachments_include_deleted": True,
                 "missing_attachments": eksik_ekler,
                 "app_version": _uygulama_surumu(),
+                # H49: kimlik -> e-posta, YALNIZ bu iki alan ve YALNIZ bu
+                # firmanın üyeleri (sınırın gerekçesi ``_kullanici_epostalari``da).
+                # Geri yükleme bugün kimlikle eşler; e-posta kolaylıktır.
+                "user_emails": _kullanici_epostalari(conn, uye_kimlikleri),
             }
             zf.writestr(
                 "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2)

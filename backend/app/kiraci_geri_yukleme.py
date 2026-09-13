@@ -438,8 +438,11 @@ def _deseri(deger: Any, sutun, diyalekt: str) -> Any:
         try:
             return json.loads(str(deger))
         except ValueError:
-            # 5.1a ``_seri`` sözlüğü ``str()`` ile (Python repr) yazar; JSON
-            # olarak okunamayan metin repr olarak denenir.
+            # ESKİ BİÇİM — H49'DAN İTİBAREN YALNIZ ESKİ ARŞİVLER İÇİN. 5.1a
+            # ``_seri`` sözlüğü ``str()`` ile (Python repr) yazıyordu; H49 JSON
+            # sütununu gerçek JSON yazar ve yeni bir arşivin değeri yukarıdaki
+            # ``dict``/``list`` dalından çıkar. Dal SİLİNMEZ: H49 öncesi
+            # alınmış arşivler hâlâ repr taşır.
             try:
                 return ast.literal_eval(str(deger))
             except (ValueError, SyntaxError):
@@ -1026,11 +1029,13 @@ def _haritala(deger, harita, ad, sutun, bos_olur, rapor, *, zorunlu_hata: bool):
 def _uyelikleri_yaz(conn, zf, kip, yeni_cid, mevcut_kullanicilar, operator_user_id, rapor) -> None:
     """Var olan kullanıcıların üyeliğini geri getirir; operatörü ekler.
 
-    ZİP KULLANICI E-POSTASI TAŞIMAZ (5.1a ``app_users``ı dışa aktarmaz, o
-    platform tablosudur). Eşleme bu yüzden KİMLİKLE yapılır — zip aynı
-    platformdan geldiği için kimlik geçerlidir; kullanıcı silinmişse üyelik
-    yazılmaz ve kimliği raporda durur. E-postayla eşleme, zip biçimi e-posta
-    taşımaya başlarsa mümkün olur (açık karar).
+    ``app_users`` zip'e GİRMEZ (platform tablosudur). H49'dan itibaren
+    manifest ``user_emails`` taşır (YALNIZ firmanın dışa aktarılan üyeleri ve
+    YALNIZ e-postaları; ayrılmış üye bilerek yoktur); H49 öncesi arşivlerde bu
+    anahtar YOKTUR. Eşleme bugün
+    hâlâ KİMLİKLE yapılır — zip aynı platformdan geldiği için kimlik geçerlidir;
+    kullanıcı silinmişse üyelik yazılmaz ve kimliği raporda durur. E-postayla
+    yeniden eşleme (başka platforma taşıma) ayrı bir karardır.
     """
     yazilanlar: set[int] = set()
     for ham in _ndjson(zf, "user_company_memberships"):
