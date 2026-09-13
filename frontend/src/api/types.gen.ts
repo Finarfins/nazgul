@@ -791,7 +791,7 @@ export interface paths {
         put?: never;
         /**
          * Cek Senet Durum Degistir
-         * @description Durum makinesi. Sıra: 404 -> 409 (geçiş/yön) -> 422 (yük).
+         * @description Durum makinesi. Sıra: 403 (rol/hedef) -> 404 -> 409 (geçiş/yön) -> 422 (yük).
          *
          *     Yazım bir CAS'tır: ``WHERE portfoy_durumu = <okunan>``. Arada başka bir
          *     istek durumu değiştirdiyse satır güncellenmez ve 409 döner — iki
