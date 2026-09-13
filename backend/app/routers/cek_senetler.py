@@ -15,6 +15,11 @@ BÜTÜN metotlar (GET dahil). Ölçülen matris: ``payments``ı ``admin``,
 ``yonetici``, ``muhasebe`` ve ``satis`` taşır; ``depo`` ve ``rapor`` taşımaz
 ve GET'te bile 403 alır (karar 4: ``satis`` bugünkü matrisle YAZAR).
 
+H48 (karar "Çek/senet 4"): ``durum-degistir``in riskli hedefleri
+(``cek_senet_engine.MUHASEBE_HEDEFLERI``: ciro/karşılıksız/iade) uç İÇİNDE
+yalnız ``admin``/``yonetici``/``muhasebe``ye daraltılır; uç izni ve yolu
+değişmez. ``satis`` evrak girer, portföyü okur, tahsile verir ve tahsil eder.
+
 --- KİRACI ------------------------------------------------------------------
 
 Her sorgu ``company_id == request.state.company_id`` yüklemini AÇIKÇA taşır.
@@ -62,6 +67,7 @@ from ..activity_log import log_activity
 from ..alan_maskeleme import maskele_cari
 from ..cek_senet_engine import (
     CIRO_EDILDI,
+    DURUM_ROL_YETKISIZ,
     DURUMLAR,
     IADE,
     KARSILIKSIZ,
@@ -69,6 +75,7 @@ from ..cek_senet_engine import (
     TAHSIL_HESAP_TIPLERI,
     GecisHatasi,
     gecis_dogrula,
+    rol_hedefe_gidebilir_mi,
 )
 from ..cek_senet_cari import (
     TUR_YONTEM,
@@ -511,7 +518,7 @@ def cek_senet_durum_degistir(
     evrak_id: int = Path(ge=1, le=INT4_UST),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Durum makinesi. Sıra: 404 -> 409 (geçiş/yön) -> 422 (yük).
+    """Durum makinesi. Sıra: 403 (rol/hedef) -> 404 -> 409 (geçiş/yön) -> 422 (yük).
 
     Yazım bir CAS'tır: ``WHERE portfoy_durumu = <okunan>``. Arada başka bir
     istek durumu değiştirdiyse satır güncellenmez ve 409 döner — iki
@@ -519,9 +526,16 @@ def cek_senet_durum_degistir(
     """
     cid = company_id(request)
     uid = _cek_kullanici_kimligi(request)
+    hedef = payload.hedef
+    # 403 satır okunmadan ÖNCE (ev kuralı: `work_order_labor_lines` onayı,
+    # `companies`): cevap yalnız rol+hedefe bağlıdır, evrakın varlığını sızdırmaz.
+    if not rol_hedefe_gidebilir_mi(istek_rolu(request), hedef):
+        raise HTTPException(
+            403, {"code": DURUM_ROL_YETKISIZ,
+                  "message": f"'{hedef}' geçişi yalnız admin, yönetici veya muhasebe rolüyle yapılabilir"}
+        )
     evrak = _cek_evrak(db, cid, evrak_id, kilit=True)
     kaynak = str(evrak["portfoy_durumu"])
-    hedef = payload.hedef
     try:
         gecis_dogrula(kaynak, hedef, yon=str(evrak["yon"]))
     except GecisHatasi as exc:
