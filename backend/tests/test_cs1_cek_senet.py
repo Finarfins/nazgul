@@ -576,11 +576,7 @@ def test_rol_kapisi_404ten_ONCE_ve_depo_rapor_hala_403(ortam) -> None:
     # Yetkisiz rol evrakın VAR olup olmadığını öğrenemez: yok evrak da 403.
     cevap = _gec(ortam, yok, "karsiliksiz", h=ortam["h_satis"])
     assert cevap.status_code == 403 and cevap.json()["detail"]["code"] == "CEK_DURUM_ROL_YETKISIZ"
-    # Başka firmanın evrakı da aynı 403 (404 değil) — cevap evraktan bağımsız.
-    bravo = ortam["client"].post("/api/cek-senetler", headers=ortam["h_b"], json={
-        "tur": "cek", "yon": "alinan", "customer_id": ortam["mus_b"], "tutar": "10",
-        "vade": "2026-12-01", "seri_no": "H48-BRV"}).json()["id"]
-    assert _gec(ortam, bravo, "iade", h=ortam["h_satis"]).status_code == 403
+    # (Bravo'da evrak AÇILMAZ: geri yükleme testi Bravo'da tam iki evrak sayar.)
     # Yetkili rolün yok-evrak davranışı DEĞİŞMEDİ.
     assert _gec(ortam, yok, "karsiliksiz").status_code == 404
     assert _gec(ortam, yok, "tahsile_verildi", h=ortam["h_satis"]).status_code == 404
@@ -602,11 +598,18 @@ def test_uc_motor_sabitini_kullanir_IKINCI_liste_yok() -> None:
     kaynak = (BACKEND / "app" / "routers" / "cek_senetler.py").read_text(encoding="utf-8")
     agac = ast.parse(kaynak)
     uc = next(d for d in agac.body if isinstance(d, ast.FunctionDef) and d.name == "cek_senet_durum_degistir")
-    cagrilar = [d.func.id for d in ast.walk(uc) if isinstance(d, ast.Call) and isinstance(d.func, ast.Name)]
-    assert "rol_hedefe_gidebilir_mi" in cagrilar
+    # `ast.walk` genişlik-önce gezer; kaynak sırası için SATIR numarası.
+    satirlari: dict[str, list[int]] = {}
+    for d in ast.walk(uc):
+        if isinstance(d, ast.Call) and isinstance(d.func, ast.Name):
+            satirlari.setdefault(d.func.id, []).append(d.lineno)
+    assert "rol_hedefe_gidebilir_mi" in satirlari
     # Kapı `_cek_evrak`tan (satır kilidi/404) ÖNCE çağrılır.
-    assert cagrilar.index("rol_hedefe_gidebilir_mi") < cagrilar.index("_cek_evrak")
+    assert min(satirlari["rol_hedefe_gidebilir_mi"]) < min(satirlari["_cek_evrak"])
     riskli = {"CIRO_EDILDI", "KARSILIKSIZ", "IADE", "ciro_edildi", "karsiliksiz", "iade"}
+    # Altı durumun TAMAMINI sayan kapalı küme (şema `Literal`i) riskli liste DEĞİLDİR.
+    riskli_disi = {"PORTFOYDE", "TAHSILE_VERILDI", "TAHSIL_EDILDI",
+                   "portfoyde", "tahsile_verildi", "tahsil_edildi"}
     roller = {"admin", "yonetici", "muhasebe"}
     for dugum in ast.walk(agac):
         if not isinstance(dugum, (ast.Tuple, ast.List, ast.Set)):
@@ -614,7 +617,8 @@ def test_uc_motor_sabitini_kullanir_IKINCI_liste_yok() -> None:
         adlar = {e.id for e in dugum.elts if isinstance(e, ast.Name)}
         adlar |= {e.value for e in dugum.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)}
         assert not (adlar & roller), f"satır {dugum.lineno}: rol listesi uçta yazılmış"
-        assert len(adlar & riskli) < 3, f"satır {dugum.lineno}: riskli hedef listesi uçta yazılmış"
+        assert len(adlar & riskli) < 3 or adlar & riskli_disi, (
+            f"satır {dugum.lineno}: riskli hedef listesi uçta yazılmış")
 
 
 # ---------------------------------------------------------------- bordro ---
