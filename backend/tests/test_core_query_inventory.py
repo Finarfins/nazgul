@@ -905,6 +905,12 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "cd50bebcd58d7320694fa287dd30cd8b9bd4599f558d97f225c68932c351763f"): (1, None, "unresolved"),  # satır [225]
     ("app/routers/kiraci_disa_aktarim.py", "_uret", "select",
      "22146e8f2b8865b09df07eb95d99700ca20acb0071dc458f749716f9457560f1"): (1, None, "unresolved"),  # satır [282]
+    # H49: manifestin `user_emails` haritası. Hedef STATİK çözülür (`auth.users`
+    # = `app_users`, platform tablosu, kiracı tablosu DEĞİL); yüklem
+    # `users.c.id.in_(<dışa aktarılan satırların andığı kimlikler>)` ve yalnız
+    # `id` + `email` sütunları seçilir.
+    ("app/routers/kiraci_disa_aktarim.py", "_kullanici_epostalari", "select",
+     "9555ac62fe2b84ed18e4f593953434e268f5259252b8b325b91c91d2017e0d35"): (1, "users", "arg0"),
     # --- app/kiraci_geri_yukleme.py (5.1c KIRACI GERI YUKLEME, GOC YOK)
     # SEKIZ sorgu: UCU cozuldu (`companies` okumasi ve UPDATE'i, `app_users`
     # kimlik listesi), BESI cozulemedi cunku tablo disa aktarimla AYNI
@@ -1219,8 +1225,13 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # SILME: `yerine` kipinin `_artik_satirlar`, `_kaynak_firma_durumu`,
 # `_sirayi_ilerlet` select'leri ve `_firmayi_yaz`in `companies` UPDATE'i.
 # `UNRESOLVED_ALLOWLIST` 8 -> 6 (`_artik_satirlar`, `_sirayi_ilerlet`).
-TOTAL_CORE_QUERIES = 226
-EXPECTED_OP_COUNTS = {"select": 152, "update": 62, "delete": 12}
+# H49 DIS AKTARIM MANIFESTI E-POSTA HARITASI (GOC YOK): 226 -> 227 (TABAN
+# develop `80bf9cf`, H23 sonrasi TARAYICIYLA YENIDEN OLCULDU; ilk olcum
+# `989b735` uzerinde 223 -> 224), +1 select, ekleme:
+# `routers/kiraci_disa_aktarim._kullanici_epostalari`. `UNRESOLVED_ALLOWLIST`
+# ve `desteksiz` BUYUMEDI (hedef `arg0` ile cozuldu).
+TOTAL_CORE_QUERIES = 227
+EXPECTED_OP_COUNTS = {"select": 153, "update": 62, "delete": 12}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1313,6 +1324,8 @@ EXPECTED_OP_COUNTS = {"select": 152, "update": 62, "delete": 12}
 # `989b735` (CS2 sonrasi YENIDEN turetildi). 72b2110c -> 1c166663.
 # H23 (TEK KIP, GOC YOK): 230 -> 226, dordu de SILME; TABAN develop `8675dbe`.
 # Parmak izi tarayicinin ciktisindan alindi, aritmetikle degil. 1c166663 -> c39e5056.
+# H49 (GOC YOK): 226 -> 227, TABAN develop `80bf9cf`; tarayicinin ciktisindan.
+# c39e5056 -> PARMAK.
 INVENTORY_FINGERPRINT = "c39e5056c0240372f8342743703e13f0081effa16e312ade94463dd183f1d82b"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
