@@ -1153,6 +1153,38 @@ def test_LISTE_ve_DETAY(istemci, admin_basliklari, tohum, irsaliye) -> None:
     ).status_code == 404
 
 
+def test_LISTE_SUZGECSIZ_calisir_ve_total_sayfayla_ANLASIR(
+    istemci, admin_basliklari, irsaliye
+) -> None:
+    """H51: `invoice_id` verilmeyen liste. SQLite'ta tabanda da 200'dü; ASIL kanıt
+    PG ikizinde (`test_h51_irsaliye_listesi_postgresql.py`) — tabanda orada 500.
+    Burada ölçülen: süzgeçsiz yol firmanın irsaliyesini taşır ve COUNT ile sayfa
+    aynı kümeyi görür."""
+    yanit = istemci.get("/api/despatch-notes?limit=200", headers=admin_basliklari)
+    assert yanit.status_code == 200, yanit.text
+    govde = yanit.json()
+    assert irsaliye["id"] in {x["id"] for x in govde["items"]}
+    assert govde["total"] == len(govde["items"])
+
+
+def test_LISTE_OFFSET_TAVANI_422_sinirda_200(istemci, admin_basliklari, tohum) -> None:
+    """H51: PG `OFFSET`i `bigint`; 2^63 sürücüde 500 veriyordu. Tavan sorgu
+    kısıtında, taşan değer 422. MUTASYON: `le=OFFSET_TAVANI`yı silmek bunu
+    KIRMIZI yapar."""
+    from app.routers.despatch_notes import OFFSET_TAVANI
+
+    assert OFFSET_TAVANI == 2**63 - 1
+    for on in ("", f"invoice_id={tohum['invoice_id']}&"):
+        tasan = istemci.get(f"/api/despatch-notes?{on}offset={2**63}", headers=admin_basliklari)
+        assert tasan.status_code == 422, tasan.text
+        assert tasan.json()["detail"][0]["loc"] == ["query", "offset"]
+        sinir = istemci.get(
+            f"/api/despatch-notes?{on}offset={OFFSET_TAVANI}", headers=admin_basliklari
+        )
+        assert sinir.status_code == 200, sinir.text
+        assert sinir.json()["items"] == []
+
+
 def test_PDF_501_fail_closed(istemci, admin_basliklari, irsaliye) -> None:
     """Keşif §2.4/§5: PDF sözleşmesi DOĞRULANMADI ⇒ tahmin YOK, 501.
 
