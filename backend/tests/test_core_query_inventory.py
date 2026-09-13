@@ -915,18 +915,14 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     # `select_from(<ad>)` bicimleri BILEREK kullanilmadi: satir sozlugu
     # calistirma parametresi olarak verilir, boylece `VARIABLE_ARG_ALLOWLIST`
     # (4) de BUYUMEDI.
-    ("app/kiraci_geri_yukleme.py", "_artik_satirlar", "select",
-     "987dc305e4bcf7c98f2e64da55ebd1108b6389b3de1f8b07baba37467ef8810a"): (1, None, "unresolved"),
-    ("app/kiraci_geri_yukleme.py", "_firmayi_yaz", "update",
-     "011cc3927d02b1cd12900550c83271350dc3eef78c1a1654f71ed393d95135a1"): (1, "companies", "arg0"),
-    ("app/kiraci_geri_yukleme.py", "_kaynak_firma_durumu", "select",
-     "d66912f3cd06c8c16e1a3214f32d2a990fcb8f59be8bfb3318f12847d50543d5"): (1, "companies", "arg0"),
+    # H23 (GOC YOK): `yerine` kipi kaldirildi; o kipin DORT sorgusu gitti —
+    # `_artik_satirlar` select, `_firmayi_yaz` update (companies),
+    # `_kaynak_firma_durumu` select (companies), `_sirayi_ilerlet` select
+    # (setval). Kalan DORT girdinin parmak izi KIMILDAMADI.
     ("app/kiraci_geri_yukleme.py", "_kuresel_tekil_var", "select",
      "f218bf750f9e746f8df45408c01a510c56666c49fe60fde07d9ac4de08aa62a5"): (1, None, "unresolved"),
     ("app/kiraci_geri_yukleme.py", "_en_buyuk_kimlik", "select",
      "2a66468d335be2d5e2c99f6c07ff62382fb382bf2cae072233963650453e3299"): (1, None, "unresolved"),
-    ("app/kiraci_geri_yukleme.py", "_sirayi_ilerlet", "select",
-     "34249e0784b05aed237059267f1c7fb9a2f96e01a1e570621dfbe1c66b47b887"): (1, None, "unresolved"),
     ("app/kiraci_geri_yukleme.py", "_satiri_guncelle", "update",
      "ca946138a90e4cf669eed7964a504a54ff4dc76fd41b884661890dbdfc8fa208"): (1, None, "unresolved"),
     ("app/kiraci_geri_yukleme.py", "geri_yukle", "select",
@@ -1216,6 +1212,7 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # CS2 sonrasi YENIDEN OLCULDU; ilk olcum `697a3be` uzerinde 206 -> 213),
 # +5 select +2 update, altisi app/routers/despatch_notes.py, biri
 # app/document_engine.py; HEPSI ekleme. `UNRESOLVED_ALLOWLIST` ve `desteksiz` BUYUMEDI.
+# H23 KIRACI GERI YUKLEMEDE TEK KIP (GOC YOK): OLCULECEK (TABAN `8675dbe`).
 TOTAL_CORE_QUERIES = 230
 EXPECTED_OP_COUNTS = {"select": 155, "update": 63, "delete": 12}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
@@ -1308,6 +1305,7 @@ EXPECTED_OP_COUNTS = {"select": 155, "update": 63, "delete": 12}
 # E4b-1 (KISMI SEVK, goc 20260915_0087): 223 -> 230, altisi
 # app/routers/despatch_notes.py, biri app/document_engine.py; TABAN develop
 # `989b735` (CS2 sonrasi YENIDEN turetildi). 72b2110c -> 1c166663.
+# H23 (TEK KIP, GOC YOK): OLCULECEK.
 INVENTORY_FINGERPRINT = "1c166663895e1ff3b97cfb342d62287ec07fbaf99ec3ac398c2d8110e977ac68"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
@@ -1338,12 +1336,6 @@ UNRESOLVED_ALLOWLIST: dict[Kimlik, str] = {
     # AYNI gerekce); kiraci yuklemi calisma zamaninda
     # `tests/test_kiraci_geri_yukleme.py` (yuvarlak yolculuk + kaynak firma
     # dokunulmadi iddiasi) ile olculur.
-    ("app/kiraci_geri_yukleme.py", "_artik_satirlar", "select",
-     "987dc305e4bcf7c98f2e64da55ebd1108b6389b3de1f8b07baba37467ef8810a"):
-        "`yerine` kipinin artik satir sayimi: her kiraci tablosunda "
-        "`.where(tablo.c.company_id == cid)` ile KAYNAK firmanin satirlari. "
-        "Tek bir artik satir 409 verir; yuklem dusse hic kimse yerinde "
-        "geri yukleme yapamazdi (her tablo dolu gorunurdu).",
     ("app/kiraci_geri_yukleme.py", "_kuresel_tekil_var", "select",
      "f218bf750f9e746f8df45408c01a510c56666c49fe60fde07d9ac4de08aa62a5"):
         "Firma DISI tekil sutunda (`KURESEL_TEKIL_ATLANIR`: iki WhatsApp sirri) "
@@ -1352,14 +1344,9 @@ UNRESOLVED_ALLOWLIST: dict[Kimlik, str] = {
         "okunan sey tek bir sutunun VARLIGI, satir icerigi degil.",
     ("app/kiraci_geri_yukleme.py", "_en_buyuk_kimlik", "select",
      "2a66468d335be2d5e2c99f6c07ff62382fb382bf2cae072233963650453e3299"):
-        "`max(id)`: (a) `yerine` kipinde serial sirasini ilerletmek, (b) "
-        "PostgreSQL'de serial olmayan tek tamsayi PK (`notifications_archive`) "
-        "icin `yeni` kipinde kimlik uretmek. Firma suzgeci BILEREK YOK: kimlik "
-        "uzayi kureseldir; satir icerigi okunmaz.",
-    ("app/kiraci_geri_yukleme.py", "_sirayi_ilerlet", "select",
-     "34249e0784b05aed237059267f1c7fb9a2f96e01a1e570621dfbe1c66b47b887"):
-        "PostgreSQL `setval(pg_get_serial_sequence(...), max)`: yukaridakinin "
-        "yazan yarisi. Tablo yoktur; sira nesnesi guncellenir.",
+        "`max(id)`: PostgreSQL'de serial olmayan tek tamsayi PK "
+        "(`notifications_archive`) icin geri yuklemede kimlik uretmek. Firma "
+        "suzgeci BILEREK YOK: kimlik uzayi kureseldir; satir icerigi okunmaz.",
     ("app/kiraci_geri_yukleme.py", "_satiri_guncelle", "update",
      "ca946138a90e4cf669eed7964a504a54ff4dc76fd41b884661890dbdfc8fa208"):
         "Ertelenen referansin (kendine FK ya da donguden kirilan yumusak "

@@ -3,8 +3,8 @@
 NEDEN PLATFORM ÖNEKİ
 --------------------
 Bu uç HİÇBİR kiracının kendi ucu değildir: yazdığı firma istek anında
-YOKTUR (``yeni`` kipi) ya da KAPALIDIR (``yerine`` kipi), yani çağıranın
-üyeliği o firmaya çözülemez. Kapı ``/api/platform/backups`` ile AYNIDIR:
+YOKTUR — tek kip ``yeni``dir ve firma bu işlemde yeni kimlikle doğar —, yani
+çağıranın üyeliği o firmaya çözülemez. Kapı ``/api/platform/backups`` ile AYNIDIR:
 ``require_platform_operator`` (admin rolü + ``SUNGUR_PLATFORM_OPERATORS``
 listesi). Ara katman kimlik ve CSRF ister ama PP1'den beri KİRACI ÇÖZMEZ:
 ``/api/platform/`` öneki ``platform_access.platform_yolu`` ile muaftır,
@@ -35,7 +35,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 
 from ..config import settings
-from ..kiraci_geri_yukleme import KIPLER, geri_yukle
+from ..kiraci_geri_yukleme import KIP, geri_yukle
 from ..platform_access import require_platform_operator
 from ..platform_denetim import platform_olayi_yaz
 
@@ -98,7 +98,10 @@ def kiraciyi_geri_yukle(
     mode: str = Form("yeni"),
     dry_run: bool = Form(False),
 ) -> dict:
-    """5.1a zip'ini yeni bir firma olarak (ya da kapalı kimliğin yerine) yükler.
+    """5.1a zip'ini YENİ bir firma olarak yükler; var olan firmaya yazmaz.
+
+    ``mode`` yalnız ``yeni`` alır (H23: ``yerine`` kaldırıldı); başka her
+    değer sessizce ``yeni``ye dönmez, 422 alır.
 
     ``dry_run=true`` doğrulama + haritalama planını sonuna kadar yürütür,
     işlemi geri alır ve raporu döndürür — hiçbir satır, hiçbir dosya kalmaz.
@@ -107,14 +110,13 @@ def kiraciyi_geri_yukle(
     """
     require_platform_operator(request)
     kip = (mode or "").strip().lower()
-    if kip not in KIPLER:
-        raise HTTPException(422, "mode 'yeni' ya da 'yerine' olmalı")
+    if kip != KIP:
+        raise HTTPException(422, "mode yalnız 'yeni' olabilir")
     kullanici = getattr(request.state, "user", {}) or {}
     yol = _gecici_dosyaya_yaz(file)
     try:
         rapor = geri_yukle(
             yol,
-            kip=kip,
             kuru_kosu=bool(dry_run),
             operator_user_id=int(kullanici["id"]) if kullanici.get("id") is not None else None,
         )
