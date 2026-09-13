@@ -99,5 +99,10 @@ def test_pg_aktif_kiracinin_ustune_yazmaz(hazir) -> None:
     u = hazir["ustune"]
     assert u["status"] == 200, u
     assert u["company_id"] not in (hazir["a_id"], hazir["b_id"]), u
-    assert hazir["ustune_sonrasi_b"] == hazir["ustune_oncesi_b"]
+    # `__companies__` TÜM firmaların sayısıdır: yeni firma onu +1 yapar.
+    once = {k: v for k, v in hazir["ustune_oncesi_b"].items() if k != "__companies__"}
+    sonra = {k: v for k, v in hazir["ustune_sonrasi_b"].items() if k != "__companies__"}
+    assert sonra == once
+    assert hazir["ustune_sonrasi_b"]["__companies__"] == hazir["ustune_oncesi_b"]["__companies__"] + 1
+    assert hazir["b_aktif_sonra"] is True and hazir["b_ad"] == hazir["b_ad_once"]
     assert hazir["eski_kip"]["status"] == 422
