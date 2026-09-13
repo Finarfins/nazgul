@@ -88,7 +88,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, insert, select, text, update
+from sqlalchemy import Integer, bindparam, func, insert, select, text, update
 from sqlalchemy.orm import Session
 
 from ..auth import utcnow
@@ -705,12 +705,18 @@ def irsaliye_olustur(payload: IrsaliyeOlustur, request: Request, db: Session = D
     return _detay_gorunumu(db, cid, yeni_id)
 
 
+#: H51: PostgreSQL `OFFSET`i `bigint` alır; en büyük değer 2^63-1. ÖLÇÜLDÜ:
+#: 2^63-1 boş sayfa (200), 2^63 sürücüde `NumericValueOutOfRange` (500).
+#: Tavan sorgu kısıtında: taşan değer sürücüye hiç ulaşmadan 422 olur.
+OFFSET_TAVANI = 2**63 - 1
+
+
 @router.get("")
 def irsaliye_listesi(
     request: Request,
     invoice_id: int | None = None,
     limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=OFFSET_TAVANI),
     db: Session = Depends(get_db),
 ):
     """Firmanın irsaliyeleri. SABİT METİN — dinamik SQL yok.
@@ -721,13 +727,19 @@ def irsaliye_listesi(
     `DYNAMIC_SQL_FILE_ALLOWLIST`e HİÇ girmiyor — girmeyen bir dosyanın
     parmak izi de kaymaz.
     """
+    # H51: parametre TİPLİ bağlanıyor. psycopg3 `None`ı tipsiz gönderir ve
+    # PG `:invoice_id IS NULL` içindeki `$2`nin tipini çıkaramaz
+    # (`AmbiguousParameter`, süzgeçsiz her istek 500 — SQLite'ta görünmez).
+    # `Integer` tipi psycopg lehçesinde `::INTEGER` dönüşümü olarak basılır;
+    # SQL metni yine TEK bir sabit, dosya allowlist'e girmiyor.
+    tipli_fatura = bindparam("invoice_id", type_=Integer)
     cid = company_id(request)
     ortak = {"cid": cid, "invoice_id": invoice_id}
     toplam = db.execute(
         text(
             "SELECT COUNT(*) FROM despatch_notes WHERE company_id=:cid "
             "AND (:invoice_id IS NULL OR invoice_id=:invoice_id)"
-        ),
+        ).bindparams(tipli_fatura),
         ortak,
     ).scalar_one()
     satirlar = db.execute(
@@ -735,7 +747,7 @@ def irsaliye_listesi(
             "SELECT * FROM despatch_notes WHERE company_id=:cid "
             "AND (:invoice_id IS NULL OR invoice_id=:invoice_id) "
             "ORDER BY issue_date DESC, id DESC LIMIT :limit OFFSET :offset"
-        ),
+        ).bindparams(tipli_fatura),
         {**ortak, "limit": limit, "offset": offset},
     ).mappings().all()
     return {"items": [_gorunum(dict(x)) for x in satirlar], "total": int(toplam)}
