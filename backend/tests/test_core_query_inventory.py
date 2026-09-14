@@ -1212,9 +1212,15 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # CS2 sonrasi YENIDEN OLCULDU; ilk olcum `697a3be` uzerinde 206 -> 213),
 # +5 select +2 update, altisi app/routers/despatch_notes.py, biri
 # app/document_engine.py; HEPSI ekleme. `UNRESOLVED_ALLOWLIST` ve `desteksiz` BUYUMEDI.
-# H23 KIRACI GERI YUKLEMEDE TEK KIP (GOC YOK): OLCULECEK (TABAN `8675dbe`).
-TOTAL_CORE_QUERIES = 230
-EXPECTED_OP_COUNTS = {"select": 155, "update": 63, "delete": 12}
+# H23 KIRACI GERI YUKLEMEDE TEK KIP (GOC YOK): 230 -> 226 (TABAN develop
+# `8675dbe`, #127/E4b-1 birlestikten SONRA TARAYICIYLA YENIDEN OLCULDU; ilk
+# olcum `989b735` uzerinde 223 -> 219 idi ve o taban artik yok), select
+# 155 -> 152, update 63 -> 62. HEPSI app/kiraci_geri_yukleme.py ve HEPSI
+# SILME: `yerine` kipinin `_artik_satirlar`, `_kaynak_firma_durumu`,
+# `_sirayi_ilerlet` select'leri ve `_firmayi_yaz`in `companies` UPDATE'i.
+# `UNRESOLVED_ALLOWLIST` 8 -> 6 (`_artik_satirlar`, `_sirayi_ilerlet`).
+TOTAL_CORE_QUERIES = 226
+EXPECTED_OP_COUNTS = {"select": 152, "update": 62, "delete": 12}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1305,8 +1311,9 @@ EXPECTED_OP_COUNTS = {"select": 155, "update": 63, "delete": 12}
 # E4b-1 (KISMI SEVK, goc 20260915_0087): 223 -> 230, altisi
 # app/routers/despatch_notes.py, biri app/document_engine.py; TABAN develop
 # `989b735` (CS2 sonrasi YENIDEN turetildi). 72b2110c -> 1c166663.
-# H23 (TEK KIP, GOC YOK): OLCULECEK.
-INVENTORY_FINGERPRINT = "1c166663895e1ff3b97cfb342d62287ec07fbaf99ec3ac398c2d8110e977ac68"
+# H23 (TEK KIP, GOC YOK): 230 -> 226, dordu de SILME; TABAN develop `8675dbe`.
+# Parmak izi tarayicinin ciktisindan alindi, aritmetikle degil. 1c166663 -> c39e5056.
+INVENTORY_FINGERPRINT = "c39e5056c0240372f8342743703e13f0081effa16e312ade94463dd183f1d82b"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:
