@@ -15,6 +15,9 @@ Konu: ``alembic/versions/20260914_0085_cek_senet_portfoyu.py``,
   * ``MASKELENEN_ALANLAR``dan ``hesap_no``yu silmek -> MASKELEME KIRMIZI
   * göçten ``uq_finance_accounts_company_id``yi kaldırmak
                         -> SQLite FK ikizi KIRMIZI ("foreign key mismatch")
+  * ``MUHASEBE_HEDEFLERI``nden bir hedef çıkarmak ya da uçtaki rol kapısını
+    silmek          -> H48 ``satis`` 403 testleri KIRMIZI
+  * rol kapısını ``_cek_evrak``tan SONRAYA almak -> H48 403-önce-404 KIRMIZI
 """
 from __future__ import annotations
 
@@ -150,6 +153,7 @@ def ortam(tmp_path_factory):
             "h_satis": _giris(client, "satis1", k["a"]),
             "h_depo": _giris(client, "depo1", k["a"]),
             "h_rapor": _giris(client, "rapor1", k["a"]),
+            "h_yonetici": _giris(client, "yonetici1", k["a"]),
             "h_b": _giris(client, "bravoadmin", k["b"]),
         }
 
@@ -472,6 +476,159 @@ def test_yetki_matrisi(ortam) -> None:
     assert client.post("/api/cek-senetler", headers=ortam["h_satis"],
                        json=_alinan(ortam, seri_no="YTK-S")).status_code == 201
     assert client.get("/api/cek-senetler", headers=ortam["h_satis"]).status_code == 200
+
+
+# ------------------------------------------ H48: riskli geçişler muhasebede ---
+
+#: Hedef -> (kaynak durumu, geçiş yükü). Ödemeli evrak: karşılıksız/iade
+#: bu yolda borç belgesi AÇAR; sayım kontrolü boş bir yan etkiyi saymasın.
+_RISKLI = {
+    "ciro_edildi": ("portfoyde", {"endorsed_supplier_id": "ted_a2"}),
+    "karsiliksiz": ("tahsile_verildi", {}),
+    "iade": ("portfoyde", {}),
+}
+
+
+def _odemeli_evrak(ortam, kaynak: str, seri: str) -> int:
+    cevap = ortam["client"].post("/api/cek-senetler", headers=ortam["h_muh"], json=_alinan(
+        ortam, seri_no=seri, payment_olustur=True, odeme_tarihi="2026-09-01"))
+    assert cevap.status_code == 201, cevap.text
+    evrak = cevap.json()["id"]
+    assert cevap.json()["payment_id"] is not None
+    if kaynak == "tahsile_verildi":
+        assert _gec(ortam, evrak, "tahsile_verildi").status_code == 200
+    return evrak
+
+
+def _muhasebe_izi(engine, evrak: int) -> tuple:
+    """Bir geçişin dokunabileceği HER satır: durum, cari/finans, belge, denetim."""
+    satir = _sql(engine, "SELECT portfoy_durumu, endorsed_supplier_id, charge_document_id, notlar "
+                 "FROM cek_senetler WHERE id=:i", i=evrak)[0]
+    return (
+        tuple(satir),
+        _sql(engine, "SELECT COUNT(*) FROM payments")[0][0],
+        _sql(engine, "SELECT COUNT(*) FROM finance_transactions")[0][0],
+        _sql(engine, "SELECT COUNT(*) FROM receivable_charge_documents")[0][0],
+        _sql(engine, "SELECT COUNT(*) FROM activity_logs WHERE resource_type='cek_senet' "
+             "AND resource_id=:i", i=evrak)[0][0],
+    )
+
+
+def test_MUHASEBE_HEDEFLERI_tam_uc_hedef_tahsil_DISINDA() -> None:
+    from app.cek_senet_engine import (
+        CIRO_EDILDI, DURUMLAR, IADE, KARSILIKSIZ, MUHASEBE_HEDEFLERI, MUHASEBE_ROLLERI,
+        rol_hedefe_gidebilir_mi,
+    )
+
+    assert MUHASEBE_HEDEFLERI == {CIRO_EDILDI, KARSILIKSIZ, IADE}
+    assert MUHASEBE_ROLLERI == {"admin", "yonetici", "muhasebe"}
+    for hedef in DURUMLAR:
+        for rol in ("admin", "yonetici", "muhasebe", "satis", "depo", "rapor", ""):
+            beklenen = hedef not in MUHASEBE_HEDEFLERI or rol in MUHASEBE_ROLLERI
+            assert rol_hedefe_gidebilir_mi(rol, hedef) is beklenen, (rol, hedef)
+    assert rol_hedefe_gidebilir_mi("satis", "tahsil_edildi")
+
+
+@pytest.mark.parametrize("hedef", sorted(_RISKLI))
+def test_satis_riskli_gecis_403_ve_HICBIR_SEY_yazmaz(ortam, hedef) -> None:
+    kaynak, yuk = _RISKLI[hedef]
+    cozulmus = {k: ortam[v] for k, v in yuk.items()}
+    evrak = _odemeli_evrak(ortam, kaynak, f"H48-S-{hedef}")
+    once = _muhasebe_izi(ortam["engine"], evrak)
+    cevap = _gec(ortam, evrak, hedef, h=ortam["h_satis"], not_metni="satis denedi", **cozulmus)
+    assert cevap.status_code == 403, cevap.text
+    detay = cevap.json()["detail"]
+    assert detay["code"] == "CEK_DURUM_ROL_YETKISIZ"
+    assert "muhasebe" in detay["message"] and hedef in detay["message"]
+    assert _muhasebe_izi(ortam["engine"], evrak) == once
+    assert once[0][0] == kaynak
+    # Aynı evrakı muhasebe geçirebilir: 403 evraktan değil rolden geldi.
+    gecti = _gec(ortam, evrak, hedef, **cozulmus)
+    assert gecti.status_code == 200, gecti.text
+    assert gecti.json()["portfoy_durumu"] == hedef
+    if hedef in ("karsiliksiz", "iade"):
+        # Sayım kontrolü canlı: izinli rol aynı geçişte borç belgesi AÇTI.
+        assert _muhasebe_izi(ortam["engine"], evrak)[3] == once[3] + 1
+
+
+@pytest.mark.parametrize("hedef", sorted(_RISKLI))
+@pytest.mark.parametrize("anahtar", ["h_admin", "h_yonetici"])
+def test_admin_ve_yonetici_riskli_gecis_YESIL(ortam, anahtar, hedef) -> None:
+    """Kuralın izin verdiği her muhasebe rolü UÇTAN geçer (muhasebe: satis testinde).
+
+    Yalnız saf fonksiyonla sınanan bir izinli rol, HTTP kapısında sessizce
+    düşebilirdi; ``yonetici`` bu yüzden uç üzerinden koşar.
+    """
+    kaynak, yuk = _RISKLI[hedef]
+    evrak = _duruma_getir(ortam, kaynak, seri_no=f"H48-{anahtar}-{hedef}")
+    cevap = _gec(ortam, evrak, hedef, h=ortam[anahtar], **{k: ortam[v] for k, v in yuk.items()})
+    assert cevap.status_code == 200, (anahtar, cevap.text)
+    assert cevap.json()["portfoy_durumu"] == hedef
+    kayit = _sql(ortam["engine"], "SELECT details FROM activity_logs WHERE resource_type='cek_senet' "
+                 "AND resource_id=:i AND action_type='cek_senet.durum' ORDER BY id DESC", i=evrak)
+    assert f'"to": "{hedef}"' in kayit[0][0]
+
+
+def test_satis_tahsile_verir_ve_TAHSIL_EDER(ortam) -> None:
+    evrak = _olustur(ortam, h=ortam["h_satis"], seri_no="H48-TAHSIL")["id"]
+    assert _gec(ortam, evrak, "tahsile_verildi", h=ortam["h_satis"]).status_code == 200
+    assert _gec(ortam, evrak, "portfoyde", h=ortam["h_satis"]).status_code == 200
+    assert _gec(ortam, evrak, "tahsile_verildi", h=ortam["h_satis"]).status_code == 200
+    cevap = _gec(ortam, evrak, "tahsil_edildi", h=ortam["h_satis"],
+                 tahsil_hesap_id=ortam["kasa_a"], tahsil_tarihi="2026-12-03")
+    assert cevap.status_code == 200, cevap.text
+    assert cevap.json()["portfoy_durumu"] == "tahsil_edildi"
+    assert cevap.json()["financial_transaction_id"] is not None
+
+
+def test_rol_kapisi_404ten_ONCE_ve_depo_rapor_hala_403(ortam) -> None:
+    yok = 99999999
+    # Yetkisiz rol evrakın VAR olup olmadığını öğrenemez: yok evrak da 403.
+    cevap = _gec(ortam, yok, "karsiliksiz", h=ortam["h_satis"])
+    assert cevap.status_code == 403 and cevap.json()["detail"]["code"] == "CEK_DURUM_ROL_YETKISIZ"
+    # (Bravo'da evrak AÇILMAZ: geri yükleme testi Bravo'da tam iki evrak sayar.)
+    # Yetkili rolün yok-evrak davranışı DEĞİŞMEDİ.
+    assert _gec(ortam, yok, "karsiliksiz").status_code == 404
+    assert _gec(ortam, yok, "tahsile_verildi", h=ortam["h_satis"]).status_code == 404
+    # Riskli olmayan hedefte geçiş tablosu hâlâ 409 verir (rol kapısı karışmaz).
+    son = _duruma_getir(ortam, "iade", seri_no="H48-SON")
+    assert _gec(ortam, son, "tahsile_verildi", h=ortam["h_satis"]).status_code == 409
+    # Regresyon: depo/rapor uç izninde (`payments`) düşer, hangi hedef olursa.
+    evrak = _olustur(ortam, seri_no="H48-DEPO")["id"]
+    for anahtar in ("h_depo", "h_rapor"):
+        for hedef in ("tahsile_verildi", "iade"):
+            assert _gec(ortam, evrak, hedef, h=ortam[anahtar]).status_code == 403
+    assert _sql(ortam["engine"], "SELECT portfoy_durumu FROM cek_senetler WHERE id=:i", i=evrak)[0][0] == "portfoyde"
+
+
+def test_uc_motor_sabitini_kullanir_IKINCI_liste_yok() -> None:
+    """Rol/hedef kümesi TEK yerde: uç motoru çağırır, kendi listesini yazmaz."""
+    import ast
+
+    kaynak = (BACKEND / "app" / "routers" / "cek_senetler.py").read_text(encoding="utf-8")
+    agac = ast.parse(kaynak)
+    uc = next(d for d in agac.body if isinstance(d, ast.FunctionDef) and d.name == "cek_senet_durum_degistir")
+    # `ast.walk` genişlik-önce gezer; kaynak sırası için SATIR numarası.
+    satirlari: dict[str, list[int]] = {}
+    for d in ast.walk(uc):
+        if isinstance(d, ast.Call) and isinstance(d.func, ast.Name):
+            satirlari.setdefault(d.func.id, []).append(d.lineno)
+    assert "rol_hedefe_gidebilir_mi" in satirlari
+    # Kapı `_cek_evrak`tan (satır kilidi/404) ÖNCE çağrılır.
+    assert min(satirlari["rol_hedefe_gidebilir_mi"]) < min(satirlari["_cek_evrak"])
+    riskli = {"CIRO_EDILDI", "KARSILIKSIZ", "IADE", "ciro_edildi", "karsiliksiz", "iade"}
+    # Altı durumun TAMAMINI sayan kapalı küme (şema `Literal`i) riskli liste DEĞİLDİR.
+    riskli_disi = {"PORTFOYDE", "TAHSILE_VERILDI", "TAHSIL_EDILDI",
+                   "portfoyde", "tahsile_verildi", "tahsil_edildi"}
+    roller = {"admin", "yonetici", "muhasebe"}
+    for dugum in ast.walk(agac):
+        if not isinstance(dugum, (ast.Tuple, ast.List, ast.Set)):
+            continue
+        adlar = {e.id for e in dugum.elts if isinstance(e, ast.Name)}
+        adlar |= {e.value for e in dugum.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+        assert not (adlar & roller), f"satır {dugum.lineno}: rol listesi uçta yazılmış"
+        assert len(adlar & riskli) < 3 or adlar & riskli_disi, (
+            f"satır {dugum.lineno}: riskli hedef listesi uçta yazılmış")
 
 
 # ---------------------------------------------------------------- bordro ---

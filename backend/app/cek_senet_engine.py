@@ -52,8 +52,39 @@ GECISLER: Final[dict[str, frozenset[str]]] = {
 
 SON_DURUMLAR: Final[frozenset[str]] = frozenset(k for k, v in GECISLER.items() if not v)
 
+MUHASEBE_HEDEFLERI: Final[frozenset[str]] = frozenset({CIRO_EDILDI, KARSILIKSIZ, IADE})
+"""Yalnız :data:`MUHASEBE_ROLLERI`nin gidebildiği hedefler (H48, karar "Çek/senet 4").
+
+Uç izni ``payments``tır ve ``satis`` onu taşır: çekle tahsil edilen satış bir
+satıştır, satış çeki portföye ALIR ve portföyü OKUR. Ama bu üç geçiş bir
+muhasebe kararıdır, tahsilat değil:
+
+* ``ciro_edildi`` — alacak senedini üçüncü kişiye DEVREDER; ciro anahtarı
+  açıksa tedarikçiye ödeme yazar (CS2).
+* ``karsiliksiz`` — çekin ödenmediğini TESCİL eder; ödemeli evrakta müşteriye
+  borç belgesi açar (CS2).
+* ``iade`` — evrakı cariye geri verir; aynı borç belgesi yolunu açar.
+
+``tahsil_edildi`` BİLEREK yok: bankanın ödediğini kaydetmek satışın kapattığı
+tahsilattır, bir değerleme ya da devir kararı değildir. ``tahsile_verildi`` ve
+``portfoyde`` da yok: ikisi de evrakın elde mi bankada mı olduğunu söyler,
+cariye dokunmaz. İleride eklenecek bir silme/iptal hedefi BU kümeye girer.
+"""
+
+MUHASEBE_ROLLERI: Final[frozenset[str]] = frozenset({"admin", "yonetici", "muhasebe"})
+
 GECIS_GECERSIZ: Final = "CEK_GECIS_GECERSIZ"
 CIRO_YALNIZ_ALINAN: Final = "CEK_CIRO_YALNIZ_ALINAN"
+DURUM_ROL_YETKISIZ: Final = "CEK_DURUM_ROL_YETKISIZ"
+
+
+def rol_hedefe_gidebilir_mi(rol: str, hedef: str) -> bool:
+    """``hedef`` riskli bir geçişse yalnız muhasebe rolleri; değilse herkes.
+
+    Uç iznini (``payments``) GEÇMİŞ bir istek için sorulur; bu kural onu
+    DARALTIR, genişletmez. Boş rol (çözülemeyen istek) riskli hedefe gidemez.
+    """
+    return hedef not in MUHASEBE_HEDEFLERI or rol in MUHASEBE_ROLLERI
 
 #: Tahsilatın aktarılabileceği hesap tipleri. ``finance_engine.ACCOUNT_TYPES``
 #: içindeki ``pos`` BİLEREK yok: çek POS'a tahsil edilmez.

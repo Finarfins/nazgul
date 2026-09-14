@@ -1042,6 +1042,8 @@ def required_permission(method: str, path: str) -> str:
     # dar (muhasebe çek giremezdi). GET DAHİL `payments`: portföy bir tahsilat
     # yüzeyidir. Ölçülen sonuç: `admin`, `yonetici`, `muhasebe`, `satis`
     # okur/yazar; `depo`, `rapor` GET'te de 403.
+    # H48: `durum-degistir`in riskli hedefleri (ciro/karşılıksız/iade) uç
+    # İÇİNDE ayrıca daraltılır — `cek_senet_engine.MUHASEBE_HEDEFLERI`.
     if path.startswith("/api/cek-senetler"):
         return "payments"
     if path.startswith("/api/finance"):
