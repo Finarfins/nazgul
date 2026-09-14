@@ -153,6 +153,7 @@ def ortam(tmp_path_factory):
             "h_satis": _giris(client, "satis1", k["a"]),
             "h_depo": _giris(client, "depo1", k["a"]),
             "h_rapor": _giris(client, "rapor1", k["a"]),
+            "h_yonetici": _giris(client, "yonetici1", k["a"]),
             "h_b": _giris(client, "bravoadmin", k["b"]),
         }
 
@@ -551,12 +552,21 @@ def test_satis_riskli_gecis_403_ve_HICBIR_SEY_yazmaz(ortam, hedef) -> None:
 
 
 @pytest.mark.parametrize("hedef", sorted(_RISKLI))
-def test_admin_riskli_gecis_YESIL(ortam, hedef) -> None:
+@pytest.mark.parametrize("anahtar", ["h_admin", "h_yonetici"])
+def test_admin_ve_yonetici_riskli_gecis_YESIL(ortam, anahtar, hedef) -> None:
+    """Kuralın izin verdiği her muhasebe rolü UÇTAN geçer (muhasebe: satis testinde).
+
+    Yalnız saf fonksiyonla sınanan bir izinli rol, HTTP kapısında sessizce
+    düşebilirdi; ``yonetici`` bu yüzden uç üzerinden koşar.
+    """
     kaynak, yuk = _RISKLI[hedef]
-    evrak = _duruma_getir(ortam, kaynak, seri_no=f"H48-A-{hedef}")
-    cevap = _gec(ortam, evrak, hedef, h=ortam["h_admin"], **{k: ortam[v] for k, v in yuk.items()})
-    assert cevap.status_code == 200, cevap.text
+    evrak = _duruma_getir(ortam, kaynak, seri_no=f"H48-{anahtar}-{hedef}")
+    cevap = _gec(ortam, evrak, hedef, h=ortam[anahtar], **{k: ortam[v] for k, v in yuk.items()})
+    assert cevap.status_code == 200, (anahtar, cevap.text)
     assert cevap.json()["portfoy_durumu"] == hedef
+    kayit = _sql(ortam["engine"], "SELECT details FROM activity_logs WHERE resource_type='cek_senet' "
+                 "AND resource_id=:i AND action_type='cek_senet.durum' ORDER BY id DESC", i=evrak)
+    assert f'"to": "{hedef}"' in kayit[0][0]
 
 
 def test_satis_tahsile_verir_ve_TAHSIL_EDER(ortam) -> None:
