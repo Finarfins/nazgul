@@ -330,14 +330,17 @@ describe('rota kapsam sözleşmesi', () => {
     }
   });
 
-  it('PP3 + CS3: rota envanteri 79 rota — 71 + yedi /platform rotası + /cek-senet-portfoyu', () => {
+  it('PP3 + CS3 + 1B-H: rota envanteri 80 rota — 71 + yedi /platform rotası + /cek-senet-portfoyu + /raporlar/parti-mutabakati', () => {
     // Sayı KORUNAN bir taban değil (G1 küme eşitliğidir); bu satır ölçülen
     // sonucu kayda geçirir. PP3: 77 değil 78 — `/yedekler` artık ekran
     // değil `<Navigate>` ama App.tsx'te ADLANDIRILMIŞ bir `<Route>` olarak
     // durur ve ayrıştırıcı onu rota sayar — gizlemek kapının körlüğü olurdu.
     // CS3: 78 → 79, `/cek-senet-portfoyu` (`kapi`, muaf DEĞİL).
-    expect(ROTA_ENVANTERI).toHaveLength(79);
+    // 1B-H: 79 → 80, `/raporlar/parti-mutabakati` (`kapi`, veriden bağımsız
+    // işaretle; muaf DEĞİL).
+    expect(ROTA_ENVANTERI).toHaveLength(80);
     expect(KAPI_GIRDILERI.map(girdi => girdi.rota)).toContain('/cek-senet-portfoyu');
+    expect(KAPI_GIRDILERI.map(girdi => girdi.rota)).toContain('/raporlar/parti-mutabakati');
     expect(ENVANTER_ROTALARI.filter(rota => rota.startsWith('/platform'))).toHaveLength(7);
   });
 

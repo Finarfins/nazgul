@@ -214,6 +214,11 @@ export const ROUTE_PERMISSIONS = {
   // ayrıca backend'de ``purchases`` iznine bağlıdır, sayfa 403'ü açıkça anlatır.
   '/raporlar/satin-alma-panosu': 'reports',
   '/raporlar/emilim-orani': 'reports',
+  // 1B-H: backend ucu (`GET /api/products/lots/mutabakat`) `read`e bağlı
+  // (`test_route_security_contracts.py`); ekran ucu aşmaz. `/raporlar`
+  // önekinde durması izni `reports`a ÇEKMEZ — izin yola göre değil bu satıra
+  // göre okunur.
+  '/raporlar/parti-mutabakati': 'read',
   '/analizler': 'reports',
   '/firmalar': 'users',
   '/kullanicilar': 'users',
@@ -359,6 +364,7 @@ export const NAV_LABELS = {
   reports: 'Raporlar',
   insights: 'Akıllı Analizler',
   absorptionRate: 'Emilim Oranı',
+  lotReconciliation: 'Parti Mutabakatı',
   users: 'Kullanıcılar',
   companies: 'Firma / Şubeler',
   notificationsQueue: 'Bildirimler',
@@ -430,6 +436,9 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       item('/sube-transfer', NAV_LABELS.branchTransfer, <LocalShippingIcon />),
       item('/sezonsal-stok-plani', NAV_LABELS.seasonalPlan, <EventRepeatIcon />),
       item('/parca-supersession', NAV_LABELS.partSupersession, <SwapHorizIcon />),
+      // Rapor, kullanıldığı iş grubunda durur (yukarıdaki ağaç notu): stok
+      // defteri ile parti defterinin karşılaştırması bir STOK işidir.
+      item('/raporlar/parti-mutabakati', NAV_LABELS.lotReconciliation, <FactCheckOutlinedIcon />),
     ],
   },
   {
