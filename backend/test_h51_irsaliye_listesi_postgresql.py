@@ -22,7 +22,10 @@ dosyadır.
    parametreyi taşıyor; biri tipli biri tipsiz kalsaydı biri 500 verirdi).
 3. Kiracı kapsamı: B firmasının irsaliyeleri ne listelenir ne sayılır —
    süzgeçli ve süzgeçsiz iki yolda da.
-4. Offset tavanı: 2^63-1 boş sayfa (200), 2^63 sürücüye ulaşmadan 422.
+4. Uçtaki sınırlar (`INT4_UST`): tipli `::INTEGER` bağı int4 dışındaki
+   `invoice_id`yi `integer out of range` ile 500 yapıyordu (PR'ın ilk
+   hâlinde ÖLÇÜLDÜ: 2147483648, -2147483649, 2^63). Artık `invoice_id`
+   1..INT4_UST, `offset` 0..INT4_UST; dışı 422, sürücüye hiç ulaşmaz.
 
 TEMİZLİK: KENDİ satırlarını önekle siler, tablo SÜPÜRMEZ (paylaşık şemada
 arkada kalan satır komşu dosyayı kırar — ölçülmüş hata sınıfı).
@@ -237,16 +240,44 @@ def test_SUZGECLI_liste_de_calisir_ve_KIRACI_kapsamli(iki_firma, istemci) -> Non
 
 
 @pytest.mark.parametrize("sorgu", ["", "invoice_id={fatura}&"])
-def test_OFFSET_TAVANI_PGde_422_sinirda_200(iki_firma, istemci, sorgu) -> None:
-    """Tabanda 2^63 -> 500 (`bigint out of range`). Tavan ÖLÇÜLDÜ: 2^63-1 PG'nin
-    `OFFSET`ine sığar ve boş sayfa verir. MUTASYON: `le=OFFSET_TAVANI`yı silmek
-    ilk iddiayı KIRMIZI yapar; tavanı 2^63'e çıkarmak da."""
+@pytest.mark.parametrize("tasan_offset", [2**31, 2**63])
+def test_OFFSET_TAVANI_INT4_UST_422_sinirda_200(iki_firma, istemci, sorgu, tasan_offset) -> None:
+    """Tabanda 2^63 -> 500 (`bigint out of range`). Tavan `INT4_UST`: 2^31 ve 2^63
+    422, INT4_UST boş sayfa. MUTASYON: `le=INT4_UST`yi silmek 2^63 dalını 500'e
+    döndürür; tavanı 2^63-1'e geri almak 2^31 dalını 200'e döndürür."""
+    from app.routers.cek_senetler import INT4_UST
+
     a, _ = iki_firma
     on = sorgu.format(fatura=a["fatura"])
-    tasan = istemci.get(f"/api/despatch-notes?{on}offset={2**63}")
+    tasan = istemci.get(f"/api/despatch-notes?{on}offset={tasan_offset}")
+    assert tasan.status_code != 500, tasan.text
     assert tasan.status_code == 422, tasan.text
     assert tasan.json()["detail"][0]["loc"] == ["query", "offset"]
 
-    sinir = istemci.get(f"/api/despatch-notes?{on}offset={2**63 - 1}")
+    sinir = istemci.get(f"/api/despatch-notes?{on}offset={INT4_UST}")
     assert sinir.status_code == 200, sinir.text
     assert sinir.json() == {"items": [], "total": A_ADEDI}
+
+
+@pytest.mark.parametrize("fatura", [2147483648, -2147483649, 2**63, 0])
+def test_INVOICE_ID_int4_DISI_422_500_DEGIL(istemci, fatura) -> None:
+    """PR'ın ilk hâlinde ÖLÇÜLDÜ: tipli `::INTEGER` bağı 2147483648, -2147483649
+    ve 2^63'ü `integer out of range` ile 500 yapıyordu (tabanın tipsiz bağı
+    200 boş sayfa veriyordu). Beklenen artık 422 — ve 500 OLMADIĞI AYRICA
+    iddia ediliyor: yalnız "422 değilse kırmızı" diyen bir iddia, sınır
+    kaldırılınca 500'ü de 200'ü de aynı mesajla boğardı. `0` `ge=1`in dalı.
+    MUTASYON: `invoice_id`nin `Query(ge=1, le=INT4_UST)`sını silmek İLK ÜÇ
+    değeri 500'e, `0`ı 200'e döndürür."""
+    yanit = istemci.get(f"/api/despatch-notes?invoice_id={fatura}")
+    assert yanit.status_code != 500, f"sürücü taşması uca sızdı: {yanit.text}"
+    assert yanit.status_code == 422, yanit.text
+    assert yanit.json()["detail"][0]["loc"] == ["query", "invoice_id"]
+
+
+def test_INVOICE_ID_sinirda_INT4_UST_200(istemci) -> None:
+    """Sınırın kendisi geçerli: yabancı/olmayan fatura boş sayfa, 500 değil."""
+    from app.routers.cek_senetler import INT4_UST
+
+    yanit = istemci.get(f"/api/despatch-notes?invoice_id={INT4_UST}")
+    assert yanit.status_code == 200, yanit.text
+    assert yanit.json() == {"items": [], "total": 0}
