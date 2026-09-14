@@ -1239,6 +1239,7 @@ export interface paths {
          *     invoice_id=:invoice_id)`. Böylece bu dosya
          *     `DYNAMIC_SQL_FILE_ALLOWLIST`e HİÇ girmiyor — girmeyen bir dosyanın
          *     parmak izi de kaymaz.
+         *     Sınırlar uçta (`INT4_UST`), çünkü `::INTEGER` dönüşümü aralık taşmasını 500 yapar.
          */
         get: operations["irsaliye_listesi_api_despatch_notes_get"];
         put?: never;

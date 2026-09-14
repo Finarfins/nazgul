@@ -49,6 +49,7 @@ test_farm_spraying_invariants_postgresql.py
 test_field_status_write_postgresql.py
 test_field_stok_0061_postgresql.py
 test_field_stok_tuketici_postgresql.py
+test_h51_irsaliye_listesi_postgresql.py
 test_harman_v2c_allocation_postgresql.py
 test_harman_vadeli_postgresql.py
 test_harvest_season_admin_postgresql.py
