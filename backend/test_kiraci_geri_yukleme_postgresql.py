@@ -106,3 +106,14 @@ def test_pg_aktif_kiracinin_ustune_yazmaz(hazir) -> None:
     assert hazir["ustune_sonrasi_b"]["__companies__"] == hazir["ustune_oncesi_b"]["__companies__"] + 1
     assert hazir["b_aktif_sonra"] is True and hazir["b_ad"] == hazir["b_ad_once"]
     assert hazir["eski_kip"]["status"] == 422
+
+
+def test_pg_kip_matrisi(hazir) -> None:
+    """H23: alan YOK -> 200 `yeni`; alan VAR ve boş/boşluk/geçersiz -> 422; 500 yok."""
+    m = hazir["kip_matrisi"]
+    assert m["eksik"]["status"] == 200 and m["eksik"]["mode"] == "yeni", m["eksik"]
+    for etiket in ("bos", "bosluk", "yerine", "cop"):
+        assert m[etiket]["status"] == 422, (etiket, m[etiket])
+        assert m[etiket]["detail"] == "mode yalnız 'yeni' olabilir", (etiket, m[etiket])
+    assert all(v["status"] != 500 for v in m.values()), m
+    assert all(v["sonrasi"] == hazir["imha_sonrasi_a"] for v in m.values()), m

@@ -4164,8 +4164,9 @@ export interface paths {
          * Kiraciyi Geri Yukle
          * @description 5.1a zip'ini YENİ bir firma olarak yükler; var olan firmaya yazmaz.
          *
-         *     ``mode`` yalnız ``yeni`` alır (H23: ``yerine`` kaldırıldı); başka her
-         *     değer sessizce ``yeni``ye dönmez, 422 alır.
+         *     ``mode`` yalnız ``yeni`` alır (H23: ``yerine`` kaldırıldı). Alan
+         *     gönderilmezse ``yeni`` varsayılır; gönderilip geçersizse (boş ya da yalnız
+         *     boşluk dahil) 422.
          *
          *     ``dry_run=true`` doğrulama + haritalama planını sonuna kadar yürütür,
          *     işlemi geri alır ve raporu döndürür — hiçbir satır, hiçbir dosya kalmaz.

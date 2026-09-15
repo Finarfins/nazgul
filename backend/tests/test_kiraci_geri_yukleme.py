@@ -547,6 +547,18 @@ with TestClient(app, raise_server_exceptions=False) as client:
                 "detail": (r.json() or {}).get("detail")}
     eski_kip_sonrasi = sayimlar(md, a_id)
 
+    # --- KİP MATRİSİ (H23): alan YOK -> yeni; alan VAR ve geçersiz -> 422 ------
+    # `eksik` kuru koşu (yazması meşru, sayılar yine de aynı kalmalı); öteki
+    # dördü GERÇEK koşu: 422 değil 200 dönerse firma sayısı artar ve görünür.
+    kip_matrisi = {}
+    for etiket, form in (("eksik", {"dry_run": "true"}), ("bos", {"mode": ""}),
+                         ("bosluk", {"mode": " "}), ("yerine", {"mode": "yerine"}),
+                         ("cop", {"mode": "garbage"})):
+        r = yukle(client, h, zip_bytes, **form)
+        govde_k = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        kip_matrisi[etiket] = {"status": r.status_code, "mode": govde_k.get("mode"),
+                               "detail": govde_k.get("detail"), "sonrasi": sayimlar(md, a_id)}
+
     # --- GERÇEK GERİ YÜKLEME ----------------------------------------------------
     r = yukle(client, h, zip_bytes, mode="yeni")
     assert r.status_code == 200, r.text[:1500]
@@ -659,7 +671,7 @@ with TestClient(app, raise_server_exceptions=False) as client:
         "kuru_rapor": kuru_rapor, "kuru_sonrasi": kuru_sonrasi, "ek_dizini_ayni": ek_dizini_once == ek_dizini_sonra,
         "kurcalama": kurcalama, "kurcalama_sonrasi": kurcalama_sonrasi,
         "enjekte_status": enjekte_status, "enjekte_sonrasi": enjekte_sonrasi, "toplam_enjekte": toplam_enjekte,
-        "eski_kip": eski_kip, "eski_kip_sonrasi": eski_kip_sonrasi,
+        "eski_kip": eski_kip, "eski_kip_sonrasi": eski_kip_sonrasi, "kip_matrisi": kip_matrisi,
         "rapor": rapor, "sonraki_a": sonraki_a, "sonraki_c": sonraki_c, "firma_a_aktif": bool(firma_a),
         "fk_ihlal": fk_ihlal, "anlamsal": anlamsal, "me_c": me_c.status_code,
         "ustune": ustune, "ustune_oncesi_b": ustune_oncesi_b, "ustune_sonrasi_b": ustune_sonrasi_b,
@@ -973,6 +985,27 @@ def test_yeni_disindaki_kip_422_ve_sifir_yazma(hazir) -> None:
     assert "yerine" not in str(k["detail"]), k
     assert hazir["eski_kip_sonrasi"] == hazir["imha_sonrasi_a"]
     assert hazir["eski_kip_sonrasi"]["__companies__"] == 2
+
+
+def test_kip_matrisi_alan_yoksa_yeni_varsa_denetlenir(hazir) -> None:
+    """H23 KİP MATRİSİ — dört vaka çivili: alan YOK -> 200 ``yeni``; ``""`` ->
+    422; ``" "`` -> 422; ``yerine``/``garbage`` -> 422; hiçbiri 500 değil ve
+    422 alanlar HİÇBİR şey yazmaz (gerçek koşu, kuru değil).
+    MUTASYON: yönlendiricide ham alan denetimini kaldırıp kararı yeniden
+    ``mode`` parametresine bağlamak ``mode=""``yi FastAPI'nin varsayılanıyla
+    ``yeni``ye çevirir (200, firma +1) ve bunu KIRMIZI yapar."""
+    m = hazir["kip_matrisi"]
+    beklenen = hazir["imha_sonrasi_a"]
+    assert m["eksik"]["status"] == 200, m["eksik"]
+    assert m["eksik"]["mode"] == "yeni", m["eksik"]
+    assert m["eksik"]["sonrasi"] == beklenen, m["eksik"]
+    for etiket in ("bos", "bosluk", "yerine", "cop"):
+        v = m[etiket]
+        assert v["status"] == 422, (etiket, v)
+        assert v["detail"] == "mode yalnız 'yeni' olabilir", (etiket, v)
+        assert v["sonrasi"] == beklenen, (etiket, v)
+        assert v["sonrasi"]["__companies__"] == 2, (etiket, v)
+    assert all(v["status"] != 500 for v in m.values()), m
 
 
 def test_aktif_kiracinin_ustune_yazilmaz(hazir) -> None:
