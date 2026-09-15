@@ -32,7 +32,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
 from ..config import settings
 from ..kiraci_geri_yukleme import KIP, geri_yukle
@@ -91,17 +91,32 @@ def _gunlukle(request: Request, rapor: dict) -> None:
     )
 
 
+async def _gonderilen_mode(request: Request) -> str | None:
+    """``mode`` form alanının HAM değeri; alan hiç gönderilmediyse ``None``.
+
+    NEDEN ``Form`` PARAMETRESİ YETMEZ: FastAPI (0.139.2,
+    ``dependencies/utils.py::_get_multidict_value``) değeri ``""`` olan form
+    alanını GÖNDERİLMEMİŞ sayar ve varsayılanı koyar; ``mode=""`` böylece
+    sessizce ``yeni`` koşusuna dönüyordu (ölçüldü: 200 ve gerçek yazma).
+    Ayrıştırılmış form Starlette'te önbelleklidir; ikinci ayrıştırma olmaz.
+    """
+    form = await request.form()
+    return form["mode"] if "mode" in form else None
+
+
 @router.post("")
 def kiraciyi_geri_yukle(
     request: Request,
     file: UploadFile = File(...),
     mode: str = Form("yeni"),
     dry_run: bool = Form(False),
+    gonderilen_mode: str | None = Depends(_gonderilen_mode),
 ) -> dict:
     """5.1a zip'ini YENİ bir firma olarak yükler; var olan firmaya yazmaz.
 
-    ``mode`` yalnız ``yeni`` alır (H23: ``yerine`` kaldırıldı); başka her
-    değer sessizce ``yeni``ye dönmez, 422 alır.
+    ``mode`` yalnız ``yeni`` alır (H23: ``yerine`` kaldırıldı). Alan
+    gönderilmezse ``yeni`` varsayılır; gönderilip geçersizse (boş ya da yalnız
+    boşluk dahil) 422.
 
     ``dry_run=true`` doğrulama + haritalama planını sonuna kadar yürütür,
     işlemi geri alır ve raporu döndürür — hiçbir satır, hiçbir dosya kalmaz.
@@ -109,7 +124,9 @@ def kiraciyi_geri_yukle(
     yazılmamış bir firma için yalan olurdu.
     """
     require_platform_operator(request)
-    kip = (mode or "").strip().lower()
+    # Karar ``mode`` parametresine DEĞİL ham alana bakar: parametre ``""``yi
+    # varsayılana çevirmiş olur. Alan yoksa ``yeni``; varsa boşluk dahil denetlenir.
+    kip = KIP if gonderilen_mode is None else gonderilen_mode.strip().lower()
     if kip != KIP:
         raise HTTPException(422, "mode yalnız 'yeni' olabilir")
     kullanici = getattr(request.state, "user", {}) or {}
