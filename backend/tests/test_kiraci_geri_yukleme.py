@@ -15,7 +15,9 @@ Bu kapının koruduğu iddialar, hepsi SESSİZCE yanlış veri üretir:
    ortasına enjekte edilen hata işlemin TAMAMINI geri alır.
 5. **Kuru koşu YAZMAZ.** Satır sayıları ve ek dizini aynı kalır.
 6. **Operatör olmayan giremez**, kiracı seçicisi platform ucunda da sızmaz.
-7. **``yerine`` yalnız BOŞ kapalı kimliğe.** Aktif firma 409; artık satır 409.
+7. **Tek kip, üstüne yazma yok.** ``mode`` ``yeni`` dışındaysa 422 ve SIFIR
+   yazma; aktif bir kiracının kimliğini taşıyan zip o kiracıya DOKUNMAZ, yeni
+   firma açar (H23: ``yerine`` kipi kaldırıldı).
 
 ÖLÇÜM YÖNTEMİ
 -------------
@@ -539,12 +541,23 @@ with TestClient(app, raise_server_exceptions=False) as client:
         toplam_enjekte = {ad: int(conn.execute(select(func.count()).select_from(md.tables[ad])).scalar_one())
                           for ad in ("products", "customers", "user_company_memberships")}
 
-    # --- YERİNE: artık satırlı kapalı firma 409, aktif firma 409 ------------
+    # --- KALDIRILAN KİP: `yerine` artık 422, hiçbir şey yazılmaz --------------
     r = yukle(client, h, zip_bytes, mode="yerine")
-    yerine_artik = {"status": r.status_code, "code": (r.json() or {}).get("code")}
-    r = yukle(client, h, firma_kimligi_degistir(zip_bytes, manifest, a_id, b_id), mode="yerine")
-    yerine_aktif = {"status": r.status_code, "code": (r.json() or {}).get("code")}
-    yerine_sonrasi = sayimlar(md, a_id)
+    eski_kip = {"status": r.status_code, "code": (r.json() or {}).get("code"),
+                "detail": (r.json() or {}).get("detail")}
+    eski_kip_sonrasi = sayimlar(md, a_id)
+
+    # --- KİP MATRİSİ (H23): alan YOK -> yeni; alan VAR ve geçersiz -> 422 ------
+    # `eksik` kuru koşu (yazması meşru, sayılar yine de aynı kalmalı); öteki
+    # dördü GERÇEK koşu: 422 değil 200 dönerse firma sayısı artar ve görünür.
+    kip_matrisi = {}
+    for etiket, form in (("eksik", {"dry_run": "true"}), ("bos", {"mode": ""}),
+                         ("bosluk", {"mode": " "}), ("yerine", {"mode": "yerine"}),
+                         ("cop", {"mode": "garbage"})):
+        r = yukle(client, h, zip_bytes, **form)
+        govde_k = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        kip_matrisi[etiket] = {"status": r.status_code, "mode": govde_k.get("mode"),
+                               "detail": govde_k.get("detail"), "sonrasi": sayimlar(md, a_id)}
 
     # --- GERÇEK GERİ YÜKLEME ----------------------------------------------------
     r = yukle(client, h, zip_bytes, mode="yeni")
@@ -615,55 +628,26 @@ with TestClient(app, raise_server_exceptions=False) as client:
     hc = dict(h); hc["X-Company-ID"] = str(c_id)
     me_c = client.get("/api/customers", headers=hc)
 
-    # --- YERİNE, BOŞ KAPALI KİMLİK: kimlikler korunur ---------------------------
-    # Kaynak satırları GERÇEKTEN yok olan bir firma gerekir: D açılır, üyelikle
-    # dışa aktarılır, sonra üyelik satırı silinip firma kapatılır (sert silme
-    # simülasyonu; `activity_logs` D'ye HİÇ yazılmadı çünkü dışa aktarım kaydı
-    # kesitten SONRA düşer ve zip'e girmez). Zip'teki tek satır üyeliktir ve
-    # kimliği bilinir.
-    uyelik = md.tables["user_company_memberships"]
-    with engine.begin() as conn:
-        y_id = conn.execute(insert(md.tables["companies"]).values(
-            name="Yerine Firması", is_active=True,
-            created_at=datetime.now(timezone.utc))).inserted_primary_key[0]
-        y_uyelik = conn.execute(insert(uyelik).values(
-            user_id=admin_id, company_id=y_id, is_default=False,
-            created_at=datetime.now(timezone.utc))).inserted_primary_key[0]
-    hy = dict(h); hy["X-Company-ID"] = str(y_id)
-    r = client.get("/api/company/export", headers=hy)
-    assert r.status_code == 200, r.text[:500]
-    zip_y = r.content
-    manifest_y = json.loads(zipfile.ZipFile(io.BytesIO(zip_y)).read("manifest.json"))
-    with engine.begin() as conn:
-        # D'nin satırları: dışa aktarım kaydı (activity_logs) + üyelik. Kayıt
-        # tetikleyiciyle silinemez; bu yüzden D'nin zip'i ALINDIKTAN SONRA
-        # yazılan o satır "artık" sayılır ve önce 409 ÖLÇÜLÜR, sonra kaydın
-        # firma bağı kesilerek (company_id -> B) boş kimlik senaryosu kurulur.
-        conn.execute(uyelik.delete().where(uyelik.c.company_id == y_id))
-        conn.execute(update(md.tables["companies"]).where(md.tables["companies"].c.id == y_id).values(is_active=False))
-    r = yukle(client, h, zip_y, mode="yerine")
-    yerine_kayit_artik = {"status": r.status_code, "code": (r.json() or {}).get("code"),
-                          "details": (r.json() or {}).get("details")}
+    # --- AKTİF KİRACININ ÜSTÜNE: sıradan yol, GERÇEK koşu -----------------------
+    # Zip'in manifesti ve firma dosyası AKTİF B'nin kimliğini taşır. Tek kip
+    # `yeni` olduğu için hedef kimliği SEÇEN bir yol yoktur; ölçülen şey B'nin
+    # satırlarının ve bayrağının koşudan sonra AYNI kalması ve yazılan firmanın
+    # B OLMAMASIDIR. Kuru koşu değil gerçek koşu: commit sonrası ölçülür.
     kayit = md.tables["activity_logs"]
-    with engine.begin() as conn:
-        # SERT SİLME SİMÜLASYONU (yalnız bu test veritabanında): ürün bugün
-        # aktivite satırını SİLEMEZ (BEFORE DELETE tetikleyicisi) ve bu tam
-        # olarak `yerine`nin gerçek akışta erişilemez olmasının sebebidir.
-        # Tetikleyici kaldırılıp D'nin tek kaydı silinir ki "boş kimlik"
-        # ön koşulu KURULABİLSİN ve kimlik korunumu ÖLÇÜLEBİLSİN.
-        if engine.dialect.name == "postgresql":
-            conn.exec_driver_sql("DROP TRIGGER IF EXISTS trg_activity_logs_no_delete ON activity_logs")
-        else:
-            conn.exec_driver_sql("DROP TRIGGER IF EXISTS trg_activity_logs_no_delete")
-        conn.execute(kayit.delete().where(kayit.c.company_id == y_id))
-    r = yukle(client, h, zip_y, mode="yerine")
-    yerine_bos = {"status": r.status_code, "body": r.json() if r.status_code == 200 else r.text[:500]}
+    firmalar = md.tables["companies"]
+    ustune_oncesi_b = sayimlar(md, b_id)
     with engine.connect() as conn:
-        y_uyelik_sonra = sorted(int(x) for x in conn.execute(select(uyelik.c.id).where(uyelik.c.company_id == y_id)).scalars())
-        y_aktif = bool(conn.execute(select(md.tables["companies"].c.is_active).where(md.tables["companies"].c.id == y_id)).scalar_one())
-    zipteki_urun_kimlikleri = [int(y_uyelik)]
-    y_urun = y_uyelik_sonra
-    manifest_y_uyelik = manifest_y["row_counts"]["user_company_memberships"]
+        b_aktif_once = bool(conn.execute(select(firmalar.c.is_active).where(firmalar.c.id == b_id)).scalar_one())
+        b_ad_once = conn.execute(select(firmalar.c.name).where(firmalar.c.id == b_id)).scalar_one()
+    r = yukle(client, h, firma_kimligi_degistir(zip_bytes, manifest, a_id, b_id), mode="yeni")
+    govde_u = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+    ustune = {"status": r.status_code, "code": govde_u.get("code"),
+              "company_id": govde_u.get("company_id"),
+              "source_company_id": govde_u.get("source_company_id"), "mode": govde_u.get("mode")}
+    ustune_sonrasi_b = sayimlar(md, b_id)
+    with engine.connect() as conn:
+        b_aktif_sonra = bool(conn.execute(select(firmalar.c.is_active).where(firmalar.c.id == b_id)).scalar_one())
+        b_ad = conn.execute(select(firmalar.c.name).where(firmalar.c.id == b_id)).scalar_one()
     # PP1: geri yükleme olayı artık kiracının `activity_logs`una DEĞİL,
     # firmasız `security_audit_logs`a yazılır. İki okuma da tutulur: eskinin
     # BOŞ kaldığı da ölçülür.
@@ -679,7 +663,7 @@ with TestClient(app, raise_server_exceptions=False) as client:
             .order_by(denetim.c.id)).mappings()]
 
     yaz("sonuc.json", {
-        "a_id": a_id, "b_id": b_id, "c_id": c_id, "y_id": y_id, "admin_id": admin_id,
+        "a_id": a_id, "b_id": b_id, "c_id": c_id, "admin_id": admin_id,
         "silinen_kullanici": int(silinecek),
         "tohum_basarisiz": basarisiz, "bos_tablolar": bos_a,
         "manifest_row_counts": manifest["row_counts"], "schema_revision": manifest["schema_revision"],
@@ -687,12 +671,12 @@ with TestClient(app, raise_server_exceptions=False) as client:
         "kuru_rapor": kuru_rapor, "kuru_sonrasi": kuru_sonrasi, "ek_dizini_ayni": ek_dizini_once == ek_dizini_sonra,
         "kurcalama": kurcalama, "kurcalama_sonrasi": kurcalama_sonrasi,
         "enjekte_status": enjekte_status, "enjekte_sonrasi": enjekte_sonrasi, "toplam_enjekte": toplam_enjekte,
-        "yerine_artik": yerine_artik, "yerine_aktif": yerine_aktif, "yerine_sonrasi": yerine_sonrasi,
+        "eski_kip": eski_kip, "eski_kip_sonrasi": eski_kip_sonrasi, "kip_matrisi": kip_matrisi,
         "rapor": rapor, "sonraki_a": sonraki_a, "sonraki_c": sonraki_c, "firma_a_aktif": bool(firma_a),
         "fk_ihlal": fk_ihlal, "anlamsal": anlamsal, "me_c": me_c.status_code,
-        "yerine_bos": yerine_bos, "zipteki_urun_kimlikleri": zipteki_urun_kimlikleri,
-        "y_urun": y_urun, "y_aktif": y_aktif, "yerine_kayit_artik": yerine_kayit_artik,
-        "manifest_y_uyelik": manifest_y_uyelik,
+        "ustune": ustune, "ustune_oncesi_b": ustune_oncesi_b, "ustune_sonrasi_b": ustune_sonrasi_b,
+        "b_aktif_once": b_aktif_once, "b_aktif_sonra": b_aktif_sonra,
+        "b_ad": b_ad, "b_ad_once": b_ad_once,
     })
     print("HAZIRLIK TAMAM")
 '''
@@ -929,7 +913,8 @@ def test_aktivite_kaydi_operatorun_firmasinda(hazir) -> None:
     """
     assert hazir["anlamsal"]["aktivite"] == [], hazir["anlamsal"]["aktivite"]
     kayitlar = hazir["anlamsal"]["platform_denetim"]
-    # Gerçek geri yükleme + `yerine` boş kimlik = İKİ kayıt.
+    # Gerçek geri yükleme + aktif B'nin kimliğini taşıyan zip'in gerçek koşusu
+    # = İKİ kayıt. Kaldırılan kip (422) kayıt YAZMAZ.
     assert len(kayitlar) == 2, kayitlar
     for k in kayitlar:
         # CHECK ck_security_audit_logs_untenanted_only_preauth: firmasız
@@ -941,7 +926,9 @@ def test_aktivite_kaydi_operatorun_firmasinda(hazir) -> None:
     ilk = kayitlar[0]["failure_reason"]
     assert f"kaynak {hazir['a_id']} -> firma {hazir['c_id']}" in ilk, ilk
     assert "kip yeni" in ilk, ilk
-    assert "kip yerine" in kayitlar[1]["failure_reason"], kayitlar[1]
+    ikinci = kayitlar[1]["failure_reason"]
+    assert f"kaynak {hazir['b_id']} -> firma {hazir['ustune']['company_id']}" in ikinci, ikinci
+    assert "kip yeni" in ikinci and "yerine" not in ikinci, ikinci
 
 
 # --------------------------------------------------------------------------
@@ -987,34 +974,67 @@ def test_islem_ortasinda_hata_tamamini_geri_alir(hazir) -> None:
 
 
 # --------------------------------------------------------------------------
-# 4) `yerine` KİPİ
+# 4) TEK KİP (H23)
 # --------------------------------------------------------------------------
-def test_yerine_artik_satirli_kapali_firma_409(hazir) -> None:
-    """Yumuşak imha veriyi SİLMEZ; kaynak kimlik dolu → 409. Bu, gerçek
-    5.1b akışında ``yerine``nin BUGÜN erişilemez olduğunun ölçümüdür."""
-    assert hazir["yerine_artik"] == {"status": 409, "code": "RESTORE_SOURCE_ROWS_PRESENT"}
-    assert hazir["yerine_sonrasi"] == hazir["imha_sonrasi_a"]
+def test_yeni_disindaki_kip_422_ve_sifir_yazma(hazir) -> None:
+    """MUTASYON: yönlendiricideki ``kip != KIP`` kapısını silmek ``yerine``yi
+    sessizce ``yeni`` koşusuna çevirir (200) ve bunu KIRMIZI yapar."""
+    k = hazir["eski_kip"]
+    assert k["status"] == 422, k
+    assert k["detail"] == "mode yalnız 'yeni' olabilir", k
+    assert "yerine" not in str(k["detail"]), k
+    assert hazir["eski_kip_sonrasi"] == hazir["imha_sonrasi_a"]
+    assert hazir["eski_kip_sonrasi"]["__companies__"] == 2
 
 
-def test_yerine_aktif_firma_409(hazir) -> None:
-    assert hazir["yerine_aktif"] == {"status": 409, "code": "RESTORE_SOURCE_ACTIVE"}
+def test_kip_matrisi_alan_yoksa_yeni_varsa_denetlenir(hazir) -> None:
+    """H23 KİP MATRİSİ — dört vaka çivili: alan YOK -> 200 ``yeni``; ``""`` ->
+    422; ``" "`` -> 422; ``yerine``/``garbage`` -> 422; hiçbiri 500 değil ve
+    422 alanlar HİÇBİR şey yazmaz (gerçek koşu, kuru değil).
+    MUTASYON: yönlendiricide ham alan denetimini kaldırıp kararı yeniden
+    ``mode`` parametresine bağlamak ``mode=""``yi FastAPI'nin varsayılanıyla
+    ``yeni``ye çevirir (200, firma +1) ve bunu KIRMIZI yapar."""
+    m = hazir["kip_matrisi"]
+    beklenen = hazir["imha_sonrasi_a"]
+    assert m["eksik"]["status"] == 200, m["eksik"]
+    assert m["eksik"]["mode"] == "yeni", m["eksik"]
+    assert m["eksik"]["sonrasi"] == beklenen, m["eksik"]
+    for etiket in ("bos", "bosluk", "yerine", "cop"):
+        v = m[etiket]
+        assert v["status"] == 422, (etiket, v)
+        assert v["detail"] == "mode yalnız 'yeni' olabilir", (etiket, v)
+        assert v["sonrasi"] == beklenen, (etiket, v)
+        assert v["sonrasi"]["__companies__"] == 2, (etiket, v)
+    assert all(v["status"] != 500 for v in m.values()), m
 
 
-def test_yerine_bos_kapali_kimlik_kimlikleri_korur(hazir) -> None:
-    """Kapalı ve BOŞ kimliğe yerinde geri yükleme: satır kimliği zip'tekiyle
-    AYNI (haritalama yok), firma aktif. ÖNCE ölçülen 409: dışa aktarımın
-    KENDİ aktivite kaydı bile "artık satır" sayılır — yani gerçek akışta
-    ``yerine`` bugün yalnız satırları başka yolla temizlenmiş bir kimliğe
-    uygulanabilir (açık karar, PR gövdesinde)."""
-    k = hazir["yerine_kayit_artik"]
-    assert k["status"] == 409 and k["code"] == "RESTORE_SOURCE_ROWS_PRESENT", k
-    assert k["details"] == {"activity_logs": 1}, k
-    y = hazir["yerine_bos"]
-    assert y["status"] == 200, y
-    assert y["body"]["mode"] == "yerine" and y["body"]["company_id"] == hazir["y_id"]
-    assert y["body"]["tables"]["user_company_memberships"]["rows"] == hazir["manifest_y_uyelik"] == 1
-    assert hazir["y_urun"] == hazir["zipteki_urun_kimlikleri"], (hazir["y_urun"], hazir["zipteki_urun_kimlikleri"])
-    assert hazir["y_aktif"] is True
+def test_aktif_kiracinin_ustune_yazilmaz(hazir) -> None:
+    """Aktif B'nin kimliğini taşıyan zip, sıradan yolda B'ye DOKUNMAZ: yeni
+    firma açılır, B'nin satır sayıları, bayrağı ve adı koşudan sonra AYNI.
+    MUTASYON: ``_firmayi_yaz``ı manifestteki kimliğe UPDATE edecek biçimde
+    kırmak ``company_id``yi B yapar ve bunu KIRMIZI yapar."""
+    u = hazir["ustune"]
+    assert u["status"] == 200, u
+    assert u["mode"] == "yeni" and u["source_company_id"] == hazir["b_id"], u
+    assert u["company_id"] not in (hazir["a_id"], hazir["b_id"], hazir["c_id"]), u
+    once = {k: v for k, v in hazir["ustune_oncesi_b"].items() if k != "__companies__"}
+    sonra = {k: v for k, v in hazir["ustune_sonrasi_b"].items() if k != "__companies__"}
+    assert sonra == once
+    assert hazir["ustune_sonrasi_b"]["__companies__"] == hazir["ustune_oncesi_b"]["__companies__"] + 1
+    assert hazir["b_aktif_once"] is True and hazir["b_aktif_sonra"] is True
+    assert hazir["b_ad"] == hazir["b_ad_once"], (hazir["b_ad"], hazir["b_ad_once"])
+
+
+def test_uygulamada_restore_source_kodu_yok() -> None:
+    """H23 DURAĞAN PİN: kaldırılan kipin üç hata kodu (``RESTORE_SOURCE_*``)
+    ``app/`` altında HİÇBİR dosyada geçmez. MUTASYON: kodlardan birini geri
+    eklemek bunu dosya adıyla KIRMIZI yapar."""
+    bulunan = sorted(
+        yol.relative_to(BACKEND).as_posix()
+        for yol in (BACKEND / "app").rglob("*.py")
+        if "RESTORE_SOURCE_" in yol.read_text(encoding="utf-8")
+    )
+    assert bulunan == [], bulunan
 
 
 # --------------------------------------------------------------------------

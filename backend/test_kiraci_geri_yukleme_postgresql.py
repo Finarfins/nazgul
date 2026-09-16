@@ -2,7 +2,7 @@
 
 SQLite ikizi ``tests/test_kiraci_geri_yukleme.py`` akışın tamamını ölçüyor; bu
 dosya AYNI senaryo betiğini gerçek PostgreSQL 16 üzerinde koşturur ve yalnız
-GELİŞTİRME DİYALEKTİNDE GÖRÜNMEYEN dört şeyi ölçer:
+GELİŞTİRME DİYALEKTİNDE GÖRÜNMEYEN üç şeyi ölçer:
 
 1. **Yabancı anahtarlar GERÇEKTEN uygulanır.** SQLite FK'ları varsayılan
    olarak DENETLEMEZ; yanlış haritalanmış bir kimlik orada sessizce geçer,
@@ -10,10 +10,7 @@ GELİŞTİRME DİYALEKTİNDE GÖRÜNMEYEN dört şeyi ölçer:
    yolculuğun 200 dönmesi bu yüzden burada AYRI bir kanıttır.
 2. **Tek işlem gerçekten tek.** Enjekte edilen hata sonrası hiçbir tablo
    satır kazanmadı — PostgreSQL'de işlem yarıda düşünce geri alma gerçek.
-3. **``yerine`` kipi serial SIRALARI ilerletir.** Açık kimlikle yazılan
-   tabloya sonraki NORMAL ekleme aynı kimliği üretmemeli; SQLite'ta bu sorun
-   HİÇ yoktur (rowid), yani yalnız burada ölçülebilir.
-4. **``timestamptz`` farkındalığı.** Zip'teki UTC damgalar farkında sütuna
+3. **``timestamptz`` farkındalığı.** Zip'teki UTC damgalar farkında sütuna
    farkında, farkındasız sütuna naive UTC yazılır; dönüşüm hatası burada patlar.
 
 Şema TAZE olmalı (CI her ikiz dosyasından önce ``DROP SCHEMA``): uygulama
@@ -27,7 +24,6 @@ import os
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, text
 
 BACKEND = Path(__file__).resolve().parent
 
@@ -98,23 +94,26 @@ def test_pg_kurcalama_ve_kuru_kosu_yazmaz(hazir) -> None:
     assert hazir["kuru_sonrasi"] == hazir["imha_sonrasi_a"]
 
 
-def test_pg_yerine_kimlik_korur_ve_sirayi_ilerletir(hazir) -> None:
-    """MUTASYON: ``_sirayi_ilerlet`` çağrısını silmek bunu KIRMIZI yapar —
-    sonraki normal ekleme ``duplicate key`` ile düşerdi."""
-    y = hazir["yerine_bos"]
-    assert y["status"] == 200, y
-    assert hazir["y_urun"] == hazir["zipteki_urun_kimlikleri"]
-    engine = create_engine(hazir["_url"])
-    try:
-        with engine.begin() as conn:
-            yeni = conn.execute(
-                text(
-                    "INSERT INTO user_company_memberships(user_id, company_id, is_default, created_at) "
-                    "VALUES (:u, :c, false, now()) RETURNING id"
-                ),
-                {"u": hazir["admin_id"], "c": hazir["b_id"]},
-            ).scalar_one()
-            assert int(yeni) > max(hazir["y_urun"]), (yeni, hazir["y_urun"])
-            conn.execute(text("DELETE FROM user_company_memberships WHERE id = :i"), {"i": yeni})
-    finally:
-        engine.dispose()
+def test_pg_aktif_kiracinin_ustune_yazmaz(hazir) -> None:
+    """Gerçek FK'larla da: aktif B'nin kimliğini taşıyan zip B'ye dokunmaz."""
+    u = hazir["ustune"]
+    assert u["status"] == 200, u
+    assert u["company_id"] not in (hazir["a_id"], hazir["b_id"]), u
+    # `__companies__` TÜM firmaların sayısıdır: yeni firma onu +1 yapar.
+    once = {k: v for k, v in hazir["ustune_oncesi_b"].items() if k != "__companies__"}
+    sonra = {k: v for k, v in hazir["ustune_sonrasi_b"].items() if k != "__companies__"}
+    assert sonra == once
+    assert hazir["ustune_sonrasi_b"]["__companies__"] == hazir["ustune_oncesi_b"]["__companies__"] + 1
+    assert hazir["b_aktif_sonra"] is True and hazir["b_ad"] == hazir["b_ad_once"]
+    assert hazir["eski_kip"]["status"] == 422
+
+
+def test_pg_kip_matrisi(hazir) -> None:
+    """H23: alan YOK -> 200 `yeni`; alan VAR ve boş/boşluk/geçersiz -> 422; 500 yok."""
+    m = hazir["kip_matrisi"]
+    assert m["eksik"]["status"] == 200 and m["eksik"]["mode"] == "yeni", m["eksik"]
+    for etiket in ("bos", "bosluk", "yerine", "cop"):
+        assert m[etiket]["status"] == 422, (etiket, m[etiket])
+        assert m[etiket]["detail"] == "mode yalnız 'yeni' olabilir", (etiket, m[etiket])
+    assert all(v["status"] != 500 for v in m.values()), m
+    assert all(v["sonrasi"] == hazir["imha_sonrasi_a"] for v in m.values()), m
