@@ -1325,8 +1325,8 @@ EXPECTED_OP_COUNTS = {"select": 153, "update": 62, "delete": 12}
 # H23 (TEK KIP, GOC YOK): 230 -> 226, dordu de SILME; TABAN develop `8675dbe`.
 # Parmak izi tarayicinin ciktisindan alindi, aritmetikle degil. 1c166663 -> c39e5056.
 # H49 (GOC YOK): 226 -> 227, TABAN develop `80bf9cf`; tarayicinin ciktisindan.
-# c39e5056 -> PARMAK.
-INVENTORY_FINGERPRINT = "c39e5056c0240372f8342743703e13f0081effa16e312ade94463dd183f1d82b"
+# c39e5056 -> 2c4c3e4d.
+INVENTORY_FINGERPRINT = "2c4c3e4de30fe6477a8954bfa397490f4eacc7093d8c1aa5a56e8636e44524af"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:
