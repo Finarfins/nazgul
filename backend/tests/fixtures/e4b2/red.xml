@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SENTETİK BELGE — bir sandbox kaydı DEĞİLDİR.
+  UBL 2.1 ReceiptAdvice şeması ve UBL-TR 1.2.1 yapısına (CustomizationID
+  TR1.2.1) göre elle yazıldı. E4b-2 (`docs/e4b-kismi-sevk-kesif-2026-09-10.md`
+  §3): GetReceiptAdvice ile satırlı yanıt okuma akışı ve KISMI_KABUL kodu
+  DOĞRULANMADI. Kimlikler, VKN'ler ve adlar uydurmadır.
+  Yer tutucular testte doldurulur: {{YANIT_ETTN}}, {{IRSALIYE_NO}},
+  {{IRSALIYE_ETTN}}.
+  Durum: iki satırın da tamamı reddedildi -> RED (teslim sonrası tam RED).
+-->
+<ReceiptAdvice xmlns="urn:oasis:names:specification:ubl:schema:xsd:ReceiptAdvice-2"
+    xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+    xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:UBLVersionID>2.1</cbc:UBLVersionID>
+  <cbc:CustomizationID>TR1.2.1</cbc:CustomizationID>
+  <cbc:ProfileID>TEMELIRSALIYE</cbc:ProfileID>
+  <cbc:ID>ALC2026000000044</cbc:ID>
+  <cbc:CopyIndicator>false</cbc:CopyIndicator>
+  <cbc:UUID>{{YANIT_ETTN}}</cbc:UUID>
+  <cbc:IssueDate>2026-09-16</cbc:IssueDate>
+  <cbc:IssueTime>10:15:00</cbc:IssueTime>
+  <cbc:ReceiptAdviceTypeCode>SEVK</cbc:ReceiptAdviceTypeCode>
+  <cbc:Note>Arpa çuvallarından biri yırtık geldi.</cbc:Note>
+  <cbc:LineCountNumeric>2</cbc:LineCountNumeric>
+  <cac:DespatchDocumentReference>
+    <cbc:ID>{{IRSALIYE_NO}}</cbc:ID>
+    <cbc:UUID>{{IRSALIYE_ETTN}}</cbc:UUID>
+    <cbc:IssueDate>2026-09-15</cbc:IssueDate>
+  </cac:DespatchDocumentReference>
+  <cac:DeliveryCustomerParty>
+    <cac:Party>
+      <cac:PartyIdentification><cbc:ID schemeID="VKN">9876543210</cbc:ID></cac:PartyIdentification>
+      <cac:PartyName><cbc:Name>Sentetik Alıcı A.Ş.</cbc:Name></cac:PartyName>
+    </cac:Party>
+  </cac:DeliveryCustomerParty>
+  <cac:DespatchSupplierParty>
+    <cac:Party>
+      <cac:PartyIdentification><cbc:ID schemeID="VKN">1234567890</cbc:ID></cac:PartyIdentification>
+      <cac:PartyName><cbc:Name>Sentetik Satıcı Ltd.</cbc:Name></cac:PartyName>
+    </cac:Party>
+  </cac:DespatchSupplierParty>
+  <cac:ReceiptLine>
+    <cbc:ID>1</cbc:ID>
+    <cbc:ReceivedQuantity unitCode="C62">0</cbc:ReceivedQuantity>
+    <cbc:RejectedQuantity unitCode="C62">10</cbc:RejectedQuantity>
+    <cbc:RejectReason>Yanlış alıcı</cbc:RejectReason>
+    <cac:DespatchLineReference>
+      <cbc:LineID>1</cbc:LineID>
+      <cac:DocumentReference><cbc:ID>{{IRSALIYE_NO}}</cbc:ID></cac:DocumentReference>
+    </cac:DespatchLineReference>
+    <cac:Item><cbc:Name>Kalem 1</cbc:Name></cac:Item>
+  </cac:ReceiptLine>
+  <cac:ReceiptLine>
+    <cbc:ID>2</cbc:ID>
+    <cbc:ReceivedQuantity unitCode="C62">0</cbc:ReceivedQuantity>
+    <cbc:RejectedQuantity unitCode="C62">5</cbc:RejectedQuantity>
+    <cbc:RejectReason>Yanlış alıcı</cbc:RejectReason>
+    <cac:DespatchLineReference>
+      <cbc:LineID>2</cbc:LineID>
+      <cac:DocumentReference><cbc:ID>{{IRSALIYE_NO}}</cbc:ID></cac:DocumentReference>
+    </cac:DespatchLineReference>
+    <cac:Item><cbc:Name>Kalem 2</cbc:Name></cac:Item>
+  </cac:ReceiptLine>
+</ReceiptAdvice>

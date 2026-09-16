@@ -16,7 +16,8 @@ Her kapı, HANGİ değişikliğin onu kırmızı yapacağını ADIYLA söylüyor
                                     -> `test_100_e_arsivin_anlamini_ALMIYOR` KIRMIZI
   * `"106"`yı herhangi bir duruma eşlemek
                                     -> `test_106_CELISKILI_oldugu_icin_ESLENMIYOR` KIRMIZI
-  * `TERMINAL`e `SENT` eklemek      -> `test_TERMINAL_yalniz_DELIVERED` KIRMIZI
+  * `TERMINAL`e `DELIVERED` geri eklemek (E4b-2 öncesi hâl)
+                                    -> `test_TERMINAL_yalniz_DELIVERED` KIRMIZI
   * `GONDERIM_KAPALI`dan `UNKNOWN`ı çıkarmak
                                     -> `test_ETTN_denemeler_boyunca_SABIT` KIRMIZI
   * `durumu_ilerlet`teki `UNKNOWN` dalını rank karşılaştırmasına indirmek
@@ -99,7 +100,14 @@ def test_goc_ZINCIRE_dogru_yerden_bagli() -> None:
 
 
 def test_DURUM_KUMESI_goc_ile_modul_ayni() -> None:
-    """Göçün CHECK'i ile modülün sözlüğü BİREBİR aynı olmalı.
+    """0083'ün CHECK'i, modülün sözlüğünün yanıt durumları DIŞINDAKİ kısmıdır.
+
+    E4b-2 ÖNCESİ İDDİA (bilinçli yeniden yazıldı): ``set(goc.DURUMLAR) ==
+    set(edespatch.BILINEN)`` ve ikisi de 8. Göç 0089 CHECK'i üç yanıt
+    durumuyla genişletti; BİREBİR eşitlik kapısı artık
+    `tests/test_e4b2_irsaliye_yaniti.py::test_DURUM_KUMESI_goc_ile_modul_ayni`
+    içinde 0089'a karşı duruyor. Burada kalan iddia: 0083'ün sekizi DEĞİŞMEDİ
+    ve fark TAM OLARAK yanıt durumlarıdır.
 
     MUTASYON: modüle yeni bir durum eklemek (göce eklemeden) bunu KIRMIZI
     yapar — ve davranışta çok daha kötüsünü: uygulamanın yazabildiği bir
@@ -113,8 +121,9 @@ def test_DURUM_KUMESI_goc_ile_modul_ayni() -> None:
     spec.loader.exec_module(goc)
     from app.einvoice import edespatch
 
-    assert set(goc.DURUMLAR) == set(edespatch.BILINEN)
-    assert len(goc.DURUMLAR) == len(edespatch.BILINEN) == 8
+    assert len(goc.DURUMLAR) == 8
+    assert set(edespatch.BILINEN) - set(goc.DURUMLAR) == set(edespatch.YANIT_DURUMLARI)
+    assert set(goc.DURUMLAR) <= set(edespatch.BILINEN)
 
 
 def test_ACILIS_DDLi_GOCUN_ONUNE_GECMIYOR() -> None:
@@ -178,8 +187,10 @@ def test_IPTAL_UCU_YOK() -> None:
     assert not [
         ad for ad in dir(wire) if ad.startswith("IZIBIZ_OP_CANCEL_DESPATCH")
     ], "e-İrsaliye iptali için bir operasyon sabiti UYDURULMUŞ"
-    # Ailenin TAM rota kumesi de civili: sessizce bir sekizinci uc eklenemez.
-    assert len(yollar) == 6 and len(despatch_notes.router.routes) == 7
+    # Ailenin TAM rota kumesi de civili: sessizce bir dokuzuncu uc eklenemez.
+    # E4b-2: 6/7 -> 7/8, `GET /{despatch_id}/response` (ticari yanit okumasi).
+    assert len(yollar) == 7 and len(despatch_notes.router.routes) == 8
+    assert "/despatch-notes/{despatch_id}/response" in yollar
 
 
 def test_TARIH_kodda_SABITLENMEMIS() -> None:
@@ -271,14 +282,23 @@ def test_106_CELISKILI_oldugu_icin_ESLENMIYOR() -> None:
 
 
 def test_TERMINAL_yalniz_DELIVERED() -> None:
-    """Tek terminal. `REJECTED` bu kümede YOK ve olmamalı (E4b'nin işi)."""
+    """DELIVERED hiçbir SAĞLAYICI bildirimiyle geri çekilmez.
+
+    E4b-2 ÖNCESİ İDDİA (bilinçli yeniden yazıldı): ``TERMINAL ==
+    frozenset({DELIVERED})`` ve ``"REJECTED" not in BILINEN``. ReceiptAdvice
+    akışı (E4b-2) açıldı: terminaller artık üç yanıt durumudur ve DELIVERED
+    "yanıt bekliyor"dur — tam çift tablosu
+    `tests/test_e4b2_irsaliye_yaniti.py::test_DURUM_MAKINESI_her_cift`te.
+    E4a'nın bu testte koruduğu davranış AYNEN geçerli: E4a'nın sekiz
+    durumundan hiçbiri DELIVERED'ı kımıldatmaz.
+    """
     from app.einvoice import edespatch
 
-    assert edespatch.TERMINAL == frozenset({edespatch.DELIVERED})
-    assert "REJECTED" not in edespatch.BILINEN
-    # Terminal gerçekten terminal: hiçbir bildirim onu kımıldatmaz.
+    assert edespatch.DELIVERED not in edespatch.TERMINAL
+    assert edespatch.TERMINAL == edespatch.YANIT_DURUMLARI
     for gelen in (
-        edespatch.QUEUED, edespatch.SENT, edespatch.FAILED, edespatch.UNKNOWN,
+        edespatch.NONE, edespatch.QUEUED, edespatch.PROCESSING, edespatch.SIGNED,
+        edespatch.SENT, edespatch.FAILED, edespatch.UNKNOWN,
     ):
         assert edespatch.durumu_ilerlet(edespatch.DELIVERED, gelen) == edespatch.DELIVERED
 

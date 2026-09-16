@@ -999,7 +999,7 @@ def _metin(eleman: ElementTree.Element | None, ad: str) -> str | None:
 
 def _yanit_miktari(ham: str | None, alan: str, satir_no: Any) -> Decimal:
     if ham is None:
-        return Decimal(0)
+        return Decimal(0).quantize(_YANIT_OLCEGI)
     try:
         miktar = Decimal(ham)
     except (InvalidOperation, ValueError):
