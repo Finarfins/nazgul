@@ -69,8 +69,12 @@ def musteri_satirlari(db: Session, cid: int, *, q: str = '', sort: str = 'name_a
     eşleşme, yani `q` bir DOĞRULAMA değil TAM ÇIKARMA orakülüydü. Maskeli
     rol için süzgeç ada indirildiğinde ilk adım (`q=<rakam>596`) sıfır
     eşleşme verir ve yürütme başlayamaz. Bakiye formülü ve kiracı yüklemi
-    (`c.company_id=:cid`) iki dalda BİREBİR aynıdır; maskesiz dalın süzgeç
-    metni önceki sürümle karakteri karakterine aynı kaldı. Öntanımlı False:
+    (`c.company_id=:cid`) iki dalda BİREBİR aynıdır. H27: maskesiz dal da
+    `owner_name` üzerinde eşleşir -- önceden eşleşmiyordu ve aynı `q` maskeli
+    rolde (`depo`) bir cari bulurken maskesiz rolde (`yonetici`) bulamıyordu.
+    Maskesiz dal maskeli dalın ÜST KÜMESİDİR: iki rol aynı `q` ile en az
+    aynı carileri görür, maskesiz rol ek olarak iletişim/VKN eşleşmelerini.
+    Öntanımlı False:
     rol bilgisi olmayan çağıran (WhatsApp) eski davranışı alır ve o kararın
     gerekçesi `yurutucu.cari_durum` içinde yazılıdır.
     """
@@ -89,7 +93,8 @@ def musteri_satirlari(db: Session, cid: int, *, q: str = '', sort: str = 'name_a
     arama_sql = (
         "(LOWER(c.name) LIKE LOWER(:q) OR LOWER(COALESCE(c.owner_name,'')) LIKE LOWER(:q))"
         if maskeli else
-        """(LOWER(c.name) LIKE LOWER(:q) OR COALESCE(c.phone,'') LIKE :q
+        """(LOWER(c.name) LIKE LOWER(:q) OR LOWER(COALESCE(c.owner_name,'')) LIKE LOWER(:q)
+       OR COALESCE(c.phone,'') LIKE :q
        OR LOWER(COALESCE(c.email,'')) LIKE LOWER(:q) OR COALESCE(c.tax_number,'') LIKE :q)"""
     )
     rows=db.execute(
