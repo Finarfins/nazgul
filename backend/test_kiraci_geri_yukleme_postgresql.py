@@ -83,6 +83,12 @@ def test_pg_sevk_satirlari_uc_referansla_yeniden_eslendi(hazir) -> None:
     _sqlite_ikizi().test_sevk_satirlari_uc_referansla_yeniden_eslendi(hazir)
 
 
+def test_pg_yanit_satirlari_iki_bilesik_referansla_yeniden_eslendi(hazir) -> None:
+    """E4b-2 (göç 20260915_0089): SQLite ikiziyle AYNI iddia, GERÇEK bileşik
+    FK altında — yanlış eşlenen `response_id`/`despatch_line_id` burada 500 olurdu."""
+    _sqlite_ikizi().test_yanit_satirlari_iki_bilesik_referansla_yeniden_eslendi(hazir)
+
+
 def test_pg_enjekte_hata_hicbir_sey_birakmaz(hazir) -> None:
     assert hazir["enjekte_status"] == 500
     assert hazir["enjekte_sonrasi"] == hazir["imha_sonrasi_a"]

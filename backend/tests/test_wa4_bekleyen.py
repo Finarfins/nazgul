@@ -246,7 +246,9 @@ def test_KIRACI_ENVANTERI_120_ve_TABLOYU_ICERIYOR() -> None:
     # tablosu `cek_senetler`; `company_id` tasir, envantere OTOMATIK girer.
     # 122 -> 123: E4b-1 KISMI SEVK (goc 20260915_0087). Tek yeni kiraci
     # tablosu `despatch_lines`; `company_id` tasir, envantere OTOMATIK girer.
-    assert len(TENANT_TABLES) == 123, len(TENANT_TABLES)
+    # 123 -> 125: E4b-2 e-IRSALIYE YANITI (goc 20260915_0089). Iki yeni kiraci
+    # tablosu: `despatch_responses`, `despatch_response_lines`.
+    assert len(TENANT_TABLES) == 125, len(TENANT_TABLES)
 
 
 def test_CLAIM_JETONU_SABIT_SURELI_KARSILASTIRILIYOR() -> None:

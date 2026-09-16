@@ -230,6 +230,10 @@ def test_numeric_migration_manifest_covers_all_declared_numeric_columns() -> Non
     sonradan_dogan = {
         ("cek_senetler", "tutar"): (cek_senet_schema.metadata, (18, 2)),
         ("despatch_lines", "quantity"): (despatch_schema.metadata, (18, 4)),
+        # E4b-2 (göç 20260915_0089): yanıt satırının iki miktarı AYNI sınıf —
+        # tablo göçle doğar, Core tanımı `app/despatch_schema.py`de.
+        ("despatch_response_lines", "received_quantity"): (despatch_schema.metadata, (18, 4)),
+        ("despatch_response_lines", "rejected_quantity"): (despatch_schema.metadata, (18, 4)),
     }
     for (tablo, sutun), (sema, beklenen) in sonradan_dogan.items():
         tip = sema.tables[tablo].c[sutun].type

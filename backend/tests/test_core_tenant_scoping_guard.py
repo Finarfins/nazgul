@@ -2076,9 +2076,20 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # tasir; INSERT `company_id=cid`i acik anahtarla yazar. UC tablo Core uzerinden
 # ILK KEZ gorunuyor: `despatch_lines` (yeni kiraci tablosu), `despatch_notes`
 # ve `invoice_items` (ikisi bugune kadar yalniz text() ile okunuyordu).
-BEKLENEN_CORE_IFADE_SAYISI = 183
+# 183 -> 191: E4b-2 e-IRSALIYE YANITI (goc 20260915_0089; TABAN develop `0885616`).
+# SEKIZ ifade, HICBIRI lisans istemedi, HEPSI `app/routers/despatch_notes.py`de:
+# sevk satiri haritasi (select), yanitin ETTN ile on okumasi ve yaris sonrasi
+# yeniden okumasi (iki select), yanit basligi ve yanit satiri INSERT'leri,
+# sync'in bos-UPDATE satir kilidi, yanit ucunun iki okumasi. Her biri
+# `<tablo>.c.company_id == cid` yuklemini ACIKCA tasir; INSERT'ler
+# `company_id=cid`i acik anahtarla yazar. IKI tablo Core uzerinden ILK KEZ
+# gorunuyor: `despatch_responses` ve `despatch_response_lines` (yeni kiraci tablolari).
+BEKLENEN_CORE_IFADE_SAYISI = 191
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
+    # E4b-2 (goc 20260915_0089): ticari yanit belgesi ve satirlari.
+    "despatch_responses",
+    "despatch_response_lines",
     # E4b-1 (goc 20260915_0087): sevk satirlari, irsaliye numarasi ve
     # kalan miktar okumasi.
     "despatch_lines",

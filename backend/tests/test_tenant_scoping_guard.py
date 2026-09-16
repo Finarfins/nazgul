@@ -63,6 +63,16 @@ TENANT_TABLES = frozenset({
     # katmani Core ile yazilir (`app/despatch_schema.py`), her ifade
     # `despatch_lines.c.company_id == cid` tasir. Sayim 122 -> 123.
     "despatch_lines",
+    # e-IRSALIYE TICARI YANITI (E4b-2, goc 20260915_0089). IKISI de `company_id`
+    # TASIR ve BUTUN baglari BILESIK FK'dir: yanit -> irsaliye
+    # ((company_id, despatch_id) -> despatch_notes(company_id, id)), yanit
+    # satiri -> yanit ((company_id, response_id) -> despatch_responses(
+    # company_id, id)) ve yanit satiri -> sevk satiri ((company_id,
+    # despatch_line_id) -> despatch_lines(company_id, id)). Uc katmani Core
+    # ile yazilir (`app/despatch_schema.py`), her ifade
+    # `<tablo>.c.company_id == cid` tasir. Sayim 123 -> 125.
+    "despatch_responses",
+    "despatch_response_lines",
     # CEK/SENET PORTFOYU (CS1, goc 20260914_0085). `company_id` TASIR; bes
     # bagi (musteri, tedarikci, ciro tedarikcisi, tahsil hesabi, odeme)
     # BILESIK yabanci anahtardir (0044/0062 kurali). Uc katmani

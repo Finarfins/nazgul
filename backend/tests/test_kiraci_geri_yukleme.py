@@ -441,13 +441,34 @@ with TestClient(app, raise_server_exceptions=False) as client:
             "delivery_address": "Adres", "delivery_postal_code": "34000",
             "edespatch_status": "NONE", "created_at": datetime(2026, 9, 15),
             "updated_at": datetime(2026, 9, 15)})).inserted_primary_key[0]
+        sevk_satir_idleri = []
         for no, (kalem, urun, miktar) in enumerate(
                 ((kalem_idleri[0], u1, Decimal("0.4")), (kalem_idleri[1], u2, Decimal("1"))), 1):
-            conn.execute(insert(sevk_satirlari), zorunlu(sevk_satirlari, {
+            sevk_satir_idleri.append(conn.execute(insert(sevk_satirlari), zorunlu(sevk_satirlari, {
                 "company_id": a_id, "despatch_id": irs_id, "invoice_item_id": kalem,
                 "line_no": no, "product_id": urun, "item_name": f"Sevk {no}",
                 "quantity": miktar, "unit_code": "C62",
-                "created_at": datetime(2026, 9, 15), "updated_at": datetime(2026, 9, 15)}))
+                "created_at": datetime(2026, 9, 15), "updated_at": datetime(2026, 9, 15)})).inserted_primary_key[0])
+
+    # E4b-2 (göç 20260915_0089): İKİ satırlı bir ticari yanıt. Jenerik tohum
+    # `despatch_response_lines`i yazamaz — CHECK `received + rejected > 0`
+    # sıfırlı bir denemeyi reddeder (ÖLÇÜLDÜ) — ve tek satır, iki bileşik FK'nin
+    # (`response_id`, `despatch_line_id`) yeni firmada DOĞRU satıra gittiğini
+    # ayırt edemezdi: iki satır iki FARKLI sevk satırına bağlı.
+    yanitlar = md.tables["despatch_responses"]; yanit_satirlari = md.tables["despatch_response_lines"]
+    with engine.begin() as conn:
+        yanit_id = conn.execute(insert(yanitlar), zorunlu(yanitlar, {
+            "company_id": a_id, "despatch_id": irs_id,
+            "response_uuid": "00000000-0000-4000-8000-00000000e4b2",
+            "response_number": "ALC2026000000901", "response_type": "KISMI_KABUL",
+            "issue_date": date(2026, 9, 16), "raw_xml": "<ReceiptAdvice/>",
+            "created_at": datetime(2026, 9, 16)})).inserted_primary_key[0]
+        for sevk_satiri, alinan, reddedilen in (
+                (sevk_satir_idleri[0], Decimal("0.4"), Decimal("0")),
+                (sevk_satir_idleri[1], Decimal("0.25"), Decimal("0.75"))):
+            conn.execute(insert(yanit_satirlari), zorunlu(yanit_satirlari, {
+                "company_id": a_id, "response_id": yanit_id, "despatch_line_id": sevk_satiri,
+                "received_quantity": alinan, "rejected_quantity": reddedilen}))
 
     # Ödeme + tahsisler (siparişe): tahsis toplamı ödeme tutarına eşit.
     odemeler = md.tables["payments"]; tahsisler = md.tables["payment_allocations"]
@@ -612,6 +633,13 @@ with TestClient(app, raise_server_exceptions=False) as client:
              urun_c.get(int(s["product_id"])) if s["product_id"] is not None else None, str(s["quantity"])]
             for s in conn.execute(select(sevk_satirlari).where(sevk_satirlari.c.company_id == c_id)).mappings()
             if s["item_name"].startswith("Sevk "))
+        # E4b-2: yanıt satırlarının iki bileşik referansı YENİ firmanın satırlarıyla çözülür.
+        yanitlar_c = {int(x["id"]): x["response_number"] for x in conn.execute(select(yanitlar.c.id, yanitlar.c.response_number).where(yanitlar.c.company_id == c_id)).mappings()}
+        sevk_c = {int(x["id"]): x["item_name"] for x in conn.execute(select(sevk_satirlari.c.id, sevk_satirlari.c.item_name).where(sevk_satirlari.c.company_id == c_id)).mappings()}
+        anlamsal["yanit_satirlari"] = sorted(
+            [yanitlar_c.get(int(s["response_id"])), sevk_c.get(int(s["despatch_line_id"])),
+             str(s["received_quantity"]), str(s["rejected_quantity"])]
+            for s in conn.execute(select(yanit_satirlari).where(yanit_satirlari.c.company_id == c_id)).mappings())
         uyelik = md.tables["user_company_memberships"]
         anlamsal["uyeler"] = sorted(int(u) for u in conn.execute(select(uyelik.c.user_id).where(uyelik.c.company_id == c_id)).scalars())
         firma_c = conn.execute(select(md.tables["companies"]).where(md.tables["companies"].c.id == c_id)).mappings().first()
@@ -920,6 +948,22 @@ def test_sevk_satirlari_uc_referansla_yeniden_eslendi(hazir) -> None:
         ["Sevk 2", "IRS2026000000901", "Kalem 2", "A-2"],
     ], satirlar
     assert [Decimal(s[4]) for s in satirlar] == [Decimal("0.4"), Decimal("1")]
+
+
+def test_yanit_satirlari_iki_bilesik_referansla_yeniden_eslendi(hazir) -> None:
+    """E4b-2 (göç 20260915_0089): iki satırlı ticari yanıt yeni firmaya taşındı;
+    her satır YENİ firmanın yanıtına ve YENİ firmanın sevk satırına işaret ediyor.
+    İki bağ da bileşik FK — `_Plan` onları yansıtılan FK'lerden eşliyor,
+    `DOGRUDAN_HEDEFLER`e kayıt GEREKMEDİ. Yanlış eşlenen bir kimlik ya yabancı
+    firmanın satırını gösterirdi (burada `None`) ya da bileşik FK'yi kırardı."""
+    satirlar = hazir["anlamsal"]["yanit_satirlari"]
+    assert [s[:2] for s in satirlar] == [
+        ["ALC2026000000901", "Sevk 1"],
+        ["ALC2026000000901", "Sevk 2"],
+    ], satirlar
+    assert [(Decimal(s[2]), Decimal(s[3])) for s in satirlar] == [
+        (Decimal("0.4"), Decimal("0")), (Decimal("0.25"), Decimal("0.75")),
+    ]
 
 
 def test_kaynak_firma_dokunulmadi(hazir) -> None:

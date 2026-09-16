@@ -44,7 +44,7 @@ KOSU = uuid4().hex[:8]
 GOC = "20260915_0087"
 ONCEKI = "20260914_0086"
 #: ZİNCİRİN BAŞI — `GOC`tan AYRI (gerekçe `test_e1_efatura_sertlestirme_postgresql.py`).
-BAS = "20260915_0088"  # H17: baş 0088 (bu dosyanın göçü GOC=0087)
+BAS = "20260915_0089"  # E4b-2: baş 0089 (bu dosyanın göçü GOC=0087)
 
 SATIR = "despatch_lines"
 IRSALIYE = "despatch_notes"
