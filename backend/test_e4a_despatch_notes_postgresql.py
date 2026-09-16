@@ -265,7 +265,12 @@ def test_SEMA_BASI_gercekten_0083(motor) -> None:
 
 
 def test_TABLO_ve_KISITLAR_PGde_var(motor) -> None:
-    """24 sütun, 2 UNIQUE (başta), 2 CHECK, biri BİLEŞİK 3 FK, 1 indeks.
+    """26 sütun, 2 UNIQUE (başta), 3 CHECK, biri BİLEŞİK 3 FK, 1 indeks.
+
+    E4b-2 İLE BİLİNÇLİ OLARAK DEĞİŞTİ: eskiden 24 sütun ve 2 CHECK
+    sayılıyordu. Göç 0089 iki yanıt özeti sütunu (`response_status`,
+    `response_received_at`) ve `ck_despatch_notes_response_status`ı ekledi;
+    0083'ün iki CHECK'i batch yeniden inşasından SONRA da yerinde.
 
     E4b-1 İLE BİLİNÇLİ OLARAK DEĞİŞTİ: eskiden 3 UNIQUE sayılıyordu ve
     üçüncüsü `uq_despatch_notes_company_invoice`di. Göç 0087 onu düşürdü;
@@ -275,7 +280,8 @@ def test_TABLO_ve_KISITLAR_PGde_var(motor) -> None:
     d = inspect(motor)
     assert d.has_table(IRSALIYE)
     sutunlar = {c["name"] for c in d.get_columns(IRSALIYE)}
-    assert len(sutunlar) == 24, sorted(sutunlar)
+    assert len(sutunlar) == 26, sorted(sutunlar)
+    assert {"response_status", "response_received_at"} <= sutunlar
 
     assert {u["name"] for u in d.get_unique_constraints(IRSALIYE)} == {
         "uq_despatch_notes_company_id",
@@ -284,6 +290,7 @@ def test_TABLO_ve_KISITLAR_PGde_var(motor) -> None:
     assert {c["name"] for c in d.get_check_constraints(IRSALIYE)} == {
         "ck_despatch_notes_tasima",
         "ck_despatch_notes_durum",
+        "ck_despatch_notes_response_status",
     }
     # BİLEŞİK yabancı anahtar (0062'nin kuralı): teslim müşterisi AYNI
     # firmanın müşterisi olmak ZORUNDA ve bu veritabanı seviyesinde.
@@ -301,7 +308,8 @@ def test_TABLO_ve_KISITLAR_PGde_var(motor) -> None:
 
 
 def test_ZAMAN_sutunlari_TIMESTAMPTZ(motor) -> None:
-    """Beş zaman sütununun BEŞİ de tz-farkındalı olmalı.
+    """Altı zaman sütununun ALTISI da tz-farkındalı olmalı (E4b-2: beşten
+    altıya, `response_received_at` göç 0089'dan).
 
     `actual_shipment_at` naive olsaydı UBL'in `ActualDespatchTime`ı sunucu
     saat dilimine göre kayardı ve fiili sevk saati YANLIŞ beyan edilirdi.
@@ -318,6 +326,7 @@ def test_ZAMAN_sutunlari_TIMESTAMPTZ(motor) -> None:
         "updated_at",
         "edespatch_submitted_at",
         "edespatch_synced_at",
+        "response_received_at",
     }, tzli
 
 
