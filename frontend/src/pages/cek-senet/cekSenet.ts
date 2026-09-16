@@ -76,6 +76,21 @@ export const EYLEMLER:readonly Eylem[]=[
  {anahtar:'portfoye_geri',hedef:'portfoyde',etiket:'Portföye Geri Al',baslik:'Portföye Geri Al'},
 ];
 
+/**
+ * Rol kapısı (H48/H50). TEK doğru kaynak backend'dedir:
+ * `backend/app/cek_senet_engine.py::MUHASEBE_HEDEFLERI` / `MUHASEBE_ROLLERI` /
+ * `rol_hedefe_gidebilir_mi`. Buradaki kopya yalnız bu rolün HİÇBİR ZAMAN
+ * kullanamayacağı eylemleri gizlemek içindir; bir sapma HATADIR. Sunucu yine
+ * 403 `CEK_DURUM_ROL_YETKISIZ` döndürebilir (oturum ortasında rol değişti,
+ * bayat sekme) ve pencere o mesajı gösterir. `can(...)` izin kapısının
+ * yerine geçmez, üstüne eklenir.
+ */
+export const MUHASEBE_HEDEFLERI:ReadonlySet<Durum>=new Set<Durum>(['ciro_edildi','karsiliksiz','iade']);
+export const MUHASEBE_ROLLERI:ReadonlySet<string>=new Set(['admin','yonetici','muhasebe']);
+
+export const rolHedefeGidebilirMi=(rol:string,hedef:Durum):boolean=>
+ !MUHASEBE_HEDEFLERI.has(hedef)||MUHASEBE_ROLLERI.has(rol);
+
 export const izinliMi=(kaynak:string,hedef:Durum)=>(GECISLER[kaynak as Durum]||[]).includes(hedef);
 
 /** Ciro yalnız ALINAN evrakta vardır: verilen evrakta eylem hiç gösterilmez. */
