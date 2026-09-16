@@ -449,6 +449,7 @@ def test_saglayici_GetReceiptAdvice_istegi_ve_ICERIK_cozumu() -> None:
         "<ERROR_CODE>10008</ERROR_CODE><ERROR_SHORT_DES>Kayit yok</ERROR_SHORT_DES>"
         "</ERROR_TYPE></GetReceiptAdviceResponse></s:Body></s:Envelope>",
     ],
+    ids=["RECEIPTADVICE_yok", "10008_kayit_yok"],
 )
 def test_saglayici_YANIT_YOK_bos_liste(govde) -> None:
     saglayici, _ = _saglayici([_login(), _yanit(govde)])
