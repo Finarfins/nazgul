@@ -249,6 +249,11 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/despatch-notes/{despatch_id}"): "sales",
     ("GET", "/api/despatch-notes/{despatch_id}/edespatch/download"): "sales",
     ("GET", "/api/despatch-notes/{despatch_id}/edespatch/status"): "sales",
+    # E4b-2 e-IRSALIYE YANITI (goc 20260915_0089): ticari yanit okumasi. YENI
+    # KURAL YAZILMADI — izin `/api/despatch-notes` onek kuralindan ve OLCULDU
+    # ("sales"): satirlar urun adi, sevk/alinan/reddedilen miktar ve ret
+    # gerekcesi tasiyor; irsaliyenin kendisiyle ayni ticari veri.
+    ("GET", "/api/despatch-notes/{despatch_id}/response"): "sales",
     ("GET", "/api/documents/{kind}/{document_id}/pdf"): "read",
     ("GET", "/api/documents/{kind}/{document_id}/xlsx"): "read",
     ("GET", "/api/exchange-rates"): "read",
@@ -587,7 +592,10 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # E4b-1 (KISMI SEVK, goc 20260915_0087): sayim 199 -> 200 (TABAN `697a3be`). BIR
 # yeni GET, "sales"; hicbir mevcut ucun izni DEGISMEDI (drift raporu OLCULDU:
 # yalniz `missing`, `stale`/`changed` BOS).
-GET_INVENTORY_COUNT = 200
+# E4b-2 (e-IRSALIYE YANITI, goc 20260915_0089): sayim 200 -> 201 (TABAN `0885616`). BIR
+# yeni GET, "sales"; hicbir mevcut ucun izni DEGISMEDI (drift raporu OLCULDU:
+# yalniz `missing`, `stale`/`changed` BOS).
+GET_INVENTORY_COUNT = 201
 GET_INVENTORY_FINGERPRINT = (
     # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
     # sonra `auth.py`ye `/api/push/` önek kuralı eklendi, sonra izin
@@ -637,7 +645,10 @@ GET_INVENTORY_FINGERPRINT = (
     # E4b-1 (goc 20260915_0087): faturanin sevk edilebilir kalemleri. Sira: uc
     # yazildi, izin kural YAZILMADAN olculdu ("sales", SEC-3 `/api/invoices`
     # kuralindan), envantere girdi, EN SON parmak izi. ab2cf865 -> 088b3c51 (TABAN `697a3be`).
-    "088b3c51e7edf5c0d21e3a65a7a12a726e321d6d1cb33e80fcc4db83fd5aa10e"
+    # E4b-2 (goc 20260915_0089): irsaliyenin ticari yaniti. Sira: uc yazildi,
+    # izin kural YAZILMADAN olculdu ("sales", `/api/despatch-notes` onek
+    # kuralindan), envantere girdi, EN SON parmak izi. 088b3c51 -> 6fbfbcad (TABAN `0885616`).
+    "6fbfbcad55dff006565bbabca0227190c641edb490929b9183e289839b257f53"
 )
 
 

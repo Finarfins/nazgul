@@ -115,6 +115,10 @@ _NOT_CONFIGURED = "e-Fatura sağlayıcısı yapılandırılmamış"
 #: reddeder; "sağlayıcı yok" ile "sağlayıcı var ama bu belgeyi bilmiyor"
 #: FARKLI iki durumdur ve operatörün yapacağı iş de farklıdır.
 _EDESPATCH_UNSUPPORTED = "Bu e-belge sağlayıcısında e-İrsaliye desteklenmiyor"
+#: E4b-2 `GetReceiptAdvice` `SEARCH_KEY/LIMIT`. Bir irsaliyeye birkaç yanıt
+#: gelebilir (düzeltilmiş belge); on, o sayının meşru üst sınırının çok
+#: üstünde ve yanıt boyutunu `MAX_BINARY_RESPONSE_BYTES` zaten keser.
+RECEIPT_ADVICE_LIMIT = 10
 
 #: ZIP bombasına karşı sınırlar. Gövde SAĞLAYICIDAN gelir; PDF taşıyan bir
 #: e-Arşiv paketi pratikte tek üyelidir ve birkaç MB'dir, o yüzden bu tavanlar
@@ -255,6 +259,17 @@ class EInvoiceProvider(ABC):
 
         ``fetch_pdf`` ile aynı sözleşme: boş ``bytes`` DÖNMEZ, fırlatır —
         boş bir gövde çağıran tarafta boş bir belgeden ayırt edilemezdi.
+        """
+        raise EInvoiceError(UNKNOWN, _EDESPATCH_UNSUPPORTED)
+
+    def get_receipt_advice(self, despatch_uuid: str) -> list[bytes]:
+        """E4b-2: alıcının BİZİM irsaliyemize gönderdiği ReceiptAdvice belgeleri.
+
+        HAM XML listesi döner (0+); ayrıştırmaz, süzmez — ikisi de
+        :mod:`app.einvoice.edespatch`in ve ucun işidir. ``fetch_despatch_xml``
+        ile aynı sözleşme: sorulamayan bir soru BOŞ LİSTE DÖNMEZ, fırlatır.
+        Boş liste YALNIZ "sağlayıcıya soruldu ve yanıt yok" demektir; bir
+        hatayı onunla karıştırmak, gelmiş bir reddi sessizce yok saymak olurdu.
         """
         raise EInvoiceError(UNKNOWN, _EDESPATCH_UNSUPPORTED)
 
@@ -709,6 +724,8 @@ class _HttpEInvoiceProvider(EInvoiceProvider):
             "check_taxpayer",
             "despatch_status",
             "fetch_despatch_xml",
+            # E4b-2: salt okuma, idempotent.
+            "get_receipt_advice",
         }
     )
 
@@ -1723,6 +1740,37 @@ class IzibizEInvoiceProvider(_HttpEInvoiceProvider):
                 max_bytes=wire.MAX_BINARY_RESPONSE_BYTES,
             )
 
+        if operation == "get_receipt_advice":
+            ettn = str(kwargs.get("uuid") or "").strip()
+            if not ettn:
+                raise self._raise("get_receipt_advice", VALIDATION, provider_code="ETTN_GEREKLI")
+            # E4b-2. `SEARCH_KEY` çocukları XSD SIRASIYLA (keşif §2.2: LIMIT,
+            # ID, UUID, FROM, TO, START_DATE, END_DATE, READ_INCLUDED,
+            # DIRECTION, ...). `DIRECTION=IN`: yanıt bize GELEN belgedir.
+            # `READ_INCLUDED=true`: daha önce okunmuş yanıt da dönsün — sync
+            # idempotenttir ve ikinci çağrı ilkinin okuduğunu görmelidir.
+            #
+            # `UUID`e BİZİM irsaliye ETTN'imiz yazılıyor (Şef, E4b-2 brifingi)
+            # ve bu **DOĞRULANMADI**: şemada o alan yanıt belgesinin KENDİ
+            # ETTN'ini süzüyor olabilir. Yanlışsa sonuç GÜVENLİ tarafta kalır
+            # — ya boş liste (hiçbir şey yazılmaz) ya da uç tarafında
+            # `DespatchDocumentReference` eşleşmesinde elenen yabancı belgeler.
+            return self._post(
+                wire.IZIBIZ_OP_GET_RECEIPT_ADVICE,
+                _soap_envelope(
+                    wire.IZIBIZ_OP_GET_RECEIPT_ADVICE,
+                    _request_header(session)
+                    + "<SEARCH_KEY>"
+                    + f"<LIMIT>{RECEIPT_ADVICE_LIMIT}</LIMIT>"
+                    + f"<UUID>{xml_escape(ettn)}</UUID>"
+                    + "<READ_INCLUDED>true</READ_INCLUDED>"
+                    + "<DIRECTION>IN</DIRECTION>"
+                    + "</SEARCH_KEY>"
+                    + "<HEADER_ONLY>N</HEADER_ONLY>",
+                ),
+                max_bytes=wire.MAX_BINARY_RESPONSE_BYTES,
+            )
+
         # check_taxpayer
         return self._post(
             wire.IZIBIZ_OP_TAXPAYER,
@@ -1951,6 +1999,59 @@ class IzibizEInvoiceProvider(_HttpEInvoiceProvider):
         # tavanlarını uygular ve tek üyeyi verir; ZIP değilse ham baytlar
         # olduğu gibi döner.
         return _decode_despatch_xml(icerik.encode("utf-8"))
+
+    def get_receipt_advice(self, despatch_uuid: str) -> list[bytes]:
+        """``GetReceiptAdvice`` — irsaliyemize gelen yanıt belgeleri (ham XML).
+
+        ÜÇ CEVAP, ÜÇÜ AYRI:
+
+        * ``RECEIPTADVICE`` yok ya da ``10008`` "kayıt bulunamadı" -> ``[]``.
+          Yanıt henüz gelmemiş; bu bir hata DEĞİL, olağan durum.
+        * Her ``RECEIPTADVICE/CONTENT`` çözülür (ham XML, base64 XML ya da
+          base64 ZIP — :func:`_decode_despatch_xml`, ZIP bomba tavanları
+          dâhil). ÇÖZÜLEMEYEN tek bir içerik bile TÜM çağrıyı düşürür:
+          okuyamadığımız bir belgeyi atlayıp kalanını yazmak, gelmiş bir
+          reddi görmezden gelmek olabilirdi.
+        * Taşıma/HTTP/iş hatası -> :class:`EInvoiceError` (uç 502 der).
+        """
+        ettn = str(despatch_uuid or "").strip()
+        if not ettn:
+            raise self._raise("get_receipt_advice", VALIDATION, provider_code="ETTN_YOK")
+        if not self._configured():
+            raise EInvoiceError(UNKNOWN, self._unconfigured_message())
+        try:
+            response = self._call_with_session("get_receipt_advice", retryable=True, uuid=ettn)
+        except TransportError as exc:
+            raise self._raise("get_receipt_advice", NETWORK) from exc
+        if not response.ok:
+            code = classify_http(response.status_code, self._body_text(response))
+            raise self._raise(
+                "get_receipt_advice",
+                code,
+                provider_code=response.status_code,
+                raw=self._summary(response),
+            )
+        business = self._business_failure(response)
+        if business is not None:
+            code, message = business
+            if code == NOT_FOUND:
+                return []
+            raise _is_hatasi(code, scrub(message, self._secrets), self._summary(response))
+        root = _parse_xml(response.body[: wire.MAX_BINARY_RESPONSE_BYTES])
+        if root is None:
+            raise self._raise("get_receipt_advice", UNKNOWN, provider_code="YANIT_AYRISTIRILAMADI")
+        belgeler: list[bytes] = []
+        for eleman in root.iter():
+            if _local_name(eleman.tag) != "RECEIPTADVICE":
+                continue
+            icerik = _child_text(eleman, "CONTENT")
+            xml = _decode_despatch_xml(icerik.encode("utf-8")) if icerik else b""
+            if not xml:
+                raise self._raise(
+                    "get_receipt_advice", UNKNOWN, provider_code="YANIT_ICERIGI_OKUNAMADI"
+                )
+            belgeler.append(xml)
+        return belgeler
 
 
     def _business_failure(self, response: HttpResponse) -> tuple[str, str] | None:

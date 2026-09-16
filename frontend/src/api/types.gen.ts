@@ -1382,8 +1382,61 @@ export interface paths {
          *     veriliyor: yerel durumu değiştirmek uç katmanının işidir, ve
          *     adaptörün "bulamadım"ı ile ucun "gönderim inmemiş" sonucu AYNI ŞEY
          *     DEĞİLDİR — ikincisi birincisinden ÇIKARILIR.
+         *
+         *     E4b-2 — TİCARİ YANIT. Durum ``DELIVERED`` ya da daha ilerisiyse
+         *     ``get_receipt_advice`` da sorulur ve bizim irsaliyemize ait her yanıt
+         *     belgesi ``(company_id, response_uuid)`` ile BİR KEZ yazılır
+         *     (:func:`yaniti_kaydet`). Üç kural:
+         *
+         *     1. ÖNCE AĞ, SONRA YAZIM. İki sağlayıcı çağrısı da hiçbir şey yazmadan
+         *        yapılır. Yanıt sorgusu düşerse 502 ve HİÇBİR ŞEY yazılmaz — durum
+         *        sorgusunun sonucu da.
+         *     2. AYRIŞTIR VE EŞLE, SONRA YAZ. Okunamayan ya da eşlenemeyen bir belge
+         *        422 (adı konmuş kod) döner; hata ``edespatch_last_error``a YAZILIR,
+         *        durum sorgusunun sonucu saklanır, hiçbir yanıt satırı yazılmaz. 500
+         *        DEĞİL: kusur bizde değil belgede.
+         *     3. TEK İŞLEM, SATIR KİLİDİ ALTINDA. Kilit alındıktan sonra satır YENİDEN
+         *        okunur ve geçiş o güncel değere uygulanır — eş zamanlı iki sync
+         *        birbirinin yazdığı yanıt durumunu eski bir değerle EZEMEZ.
+         *
+         *     Yanıt türü durumu :func:`~app.einvoice.edespatch.durumu_ilerlet` ile
+         *     ilerletir; terminal bir belge kımıldamaz. İkinci sync aynı belgeyle
+         *     ``changed: false`` döner.
          */
         post: operations["edespatch_sync_api_despatch_notes__despatch_id__edespatch_sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/despatch-notes/{despatch_id}/response": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Irsaliye Yaniti
+         * @description İrsaliyenin ticari yanıtı: başlık + sevk satırlarıyla birleşmiş satırlar.
+         *
+         *     YALNIZ OKUR, ağa çıkmaz. İzin ``sales`` — `/api/despatch-notes` önek
+         *     kuralından (`app/auth.py`), YENİ KURAL YOK: yanıt satırları ürün adı ve
+         *     miktarı taşır, irsaliyenin kendisiyle aynı ticari veridir. Başka firmanın
+         *     irsaliyesi 404 (`_irsaliye`, varlık bilgisi sızmaz).
+         *
+         *     ETKİLİ YANIT İLK KAYDEDİLENDİR (kimlik sırası): durumu o belirledi ve
+         *     durum makinesi terminalden kımıldamaz. Sonraki belgeler saklanır;
+         *     ``responses_count`` onların varlığını söyler.
+         *
+         *     ``raw_xml`` DÖNMEZ (göç 0089 başlığı). Yanıt yoksa ``response`` ``null``
+         *     ve ``lines`` boş — 404 DEĞİL: irsaliye var, yanıtı henüz yok.
+         *     Miktarlar METİN (`float` yok).
+         */
+        get: operations["irsaliye_yaniti_api_despatch_notes__despatch_id__response_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -14508,6 +14561,37 @@ export interface operations {
         };
     };
     edespatch_sync_api_despatch_notes__despatch_id__edespatch_sync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                despatch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    irsaliye_yaniti_api_despatch_notes__despatch_id__response_get: {
         parameters: {
             query?: never;
             header?: never;

@@ -82,21 +82,29 @@ from __future__ import annotations
 import json
 import logging
 import uuid as uuid_modulu
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, insert, select, text, update
+from sqlalchemy import and_, func, insert, select, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..auth import utcnow
 from ..config import settings
 from ..db import get_db
-from ..despatch_schema import despatch_lines, despatch_notes, invoice_items, invoices
+from ..despatch_schema import (
+    despatch_lines,
+    despatch_notes,
+    despatch_response_lines,
+    despatch_responses,
+    invoice_items,
+    invoices,
+)
 from ..document_engine import next_sequence_value
-from ..einvoice import UblBuildError, einvoice_configuration, get_einvoice_provider
+from ..einvoice import EInvoiceError, UblBuildError, einvoice_configuration, get_einvoice_provider
 from ..einvoice import edespatch
 from ..einvoice.endpoints import IZIBIZ_EDESPATCH_PDF_UNVERIFIED
 from ..invoice_service import log_invoice_action
@@ -135,6 +143,10 @@ GORUNEN_ALANLAR = (
     "edespatch_last_error",
     "edespatch_submitted_at",
     "edespatch_synced_at",
+    # E4b-2 (göç 0089): ticari yanıt özeti. `raw_xml` gibi yanıt gövdesi
+    # BURADA YOK — yanıtın kendisi `GET .../response`tadır.
+    "response_status",
+    "response_received_at",
     "created_at",
     "updated_at",
 )
@@ -744,8 +756,11 @@ def irsaliye_listesi(
 def _detay_gorunumu(db: Session, cid: int, irsaliye_id: int) -> dict:
     """Tek irsaliye + SATIRLARI. Liste ucu satır taşımaz (sayfa başına N+1
     sorgu olurdu); satırlar detayda ve oluşturma yanıtında."""
-    govde = _gorunum(_irsaliye(db, cid, irsaliye_id))
+    satir = _irsaliye(db, cid, irsaliye_id)
+    govde = _gorunum(satir)
     govde["lines"] = _satir_gorunumu(_irsaliye_satirlari(db, cid, irsaliye_id))
+    # E4b-2: 7 gün zımni kabul — GÖSTERİLİR, uygulanmaz (`_zimni_kabul_tarihi`).
+    govde["implicit_accept_due_at"] = _zimni_kabul_tarihi(satir)
     return govde
 
 
@@ -863,6 +878,202 @@ def edespatch_status(despatch_id: int, request: Request, db: Session = Depends(g
     return _gorunum(_irsaliye(db, company_id(request), despatch_id))
 
 
+#: Yanıtı okunacak durumlar: teslim edilmiş ya da zaten yanıt almış belge.
+#: `DELIVERED`dan önce alıcı yanıtı gelemez (`edespatch` başlığı) ve
+#: sağlayıcıya sormak boşa bir çağrı olurdu.
+YANIT_SORULAN_DURUMLAR = frozenset({edespatch.DELIVERED}) | edespatch.YANIT_DURUMLARI
+
+#: Zımni kabul süresi (keşif §3, 2020 GİB kılavuzu §12; güncel sürümde
+#: değişmezliği DOĞRULANMADI). OTOMATİK UYGULANMAZ — yalnız gösterilir.
+ZIMNI_KABUL_SURESI = timedelta(days=7)
+
+#: Eşleme hataları — `edespatch.ReceiptAdviceError` kodlarına ek, ucun
+#: kendi karşılaştırmasından doğanlar.
+YANIT_SATIRI_ESLESMEDI = "YANIT_SATIRI_ESLESMEDI"
+YANIT_BELGE_REFERANSI_UYUSMUYOR = "YANIT_BELGE_REFERANSI_UYUSMUYOR"
+
+
+def _utc(deger) -> datetime | None:
+    """SQLite naive döndürür (yazarken UTC'ye normalleştirilmişti), PG oturum
+    diliminde döndürür; ikisi de UTC'ye çekilir."""
+    if deger is None:
+        return None
+    if not isinstance(deger, datetime):
+        deger = datetime.fromisoformat(str(deger).replace("Z", "+00:00"))
+    if deger.tzinfo is None:
+        deger = deger.replace(tzinfo=timezone.utc)
+    return deger.astimezone(timezone.utc)
+
+
+def _zimni_kabul_tarihi(irsaliye: dict) -> str | None:
+    """`actual_shipment_at + 7 gün`, YALNIZ yanıt beklenirken (`DELIVERED`).
+
+    TABAN FİİLİ SEVK ANIDIR, "teslim anı" DEĞİL: şemada teslim anı sütunu yok
+    ve keşif §3'ün aktardığı kural süreyi "fiili sevkten itibaren" sayar.
+    Yanıt gelmişse (terminal) ya da belge henüz teslim edilmemişse sürenin
+    bir anlamı yoktur; `None`.
+    """
+    if str(irsaliye.get("edespatch_status") or "").upper() != edespatch.DELIVERED:
+        return None
+    an = _utc(irsaliye.get("actual_shipment_at"))
+    return (an + ZIMNI_KABUL_SURESI).isoformat() if an else None
+
+
+def _bizim_irsaliyemiz_mi(belge: edespatch.YanitBelgesi, irsaliye: dict) -> bool:
+    """Yanıt belgesinin kök `DespatchDocumentReference`ı bu irsaliye mi?
+
+    ETTN varsa ETTN karşılaştırılır (tekildir), yoksa belge numarası. İkisi
+    de yoksa belge BİZİM DEĞİL sayılır ve ATLANIR: `GetReceiptAdvice`in
+    `SEARCH_KEY/UUID` süzgeci DOĞRULANMADI (`endpoints.py`), yani sağlayıcının
+    döndürdüğü her belge bu irsaliyeye ait olmayabilir. Referanssız bir
+    yanıtı bir irsaliyeye yazmak, başka bir sevkin reddini bu sevke asmak
+    olabilirdi. Atlanan belgeler sync yanıtında `skipped` olarak sayılır.
+    """
+    if belge.irsaliye_uuid:
+        return (
+            belge.irsaliye_uuid.strip().lower()
+            == str(irsaliye.get("despatch_uuid") or "").strip().lower()
+        )
+    if belge.irsaliye_no:
+        return (
+            belge.irsaliye_no.strip().upper()
+            == str(irsaliye.get("despatch_number") or "").strip().upper()
+        )
+    return False
+
+
+def _sevk_satiri_haritasi(db: Session, cid: int, irsaliye_id: int) -> dict[int, int]:
+    """`line_no -> despatch_lines.id` — yanıt satırının eşleme anahtarı
+    (`edespatch` bölüm 3 başlığı: `DespatchLineReference/LineID`)."""
+    return {
+        int(r["line_no"]): int(r["id"])
+        for r in db.execute(
+            select(despatch_lines.c.id, despatch_lines.c.line_no).where(
+                despatch_lines.c.company_id == cid,
+                despatch_lines.c.despatch_id == irsaliye_id,
+            )
+        ).mappings()
+    }
+
+
+def _yaniti_esle(
+    belge: edespatch.YanitBelgesi, harita: dict[int, int], irsaliye: dict
+) -> list[tuple[edespatch.YanitSatiri, int]]:
+    """Her yanıt satırını bir sevk satırına bağla; bağlanamayan her satır HATA.
+
+    Kısmen eşleşen bir belgeyi kısmen yazmak YOK: eşleşmeyen satır bir reddi
+    taşıyor olabilir ve onu düşürüp kalanını `KABUL` diye yazmak tam olarak
+    yanlış olurdu.
+    """
+    numara = str(irsaliye.get("despatch_number") or "").strip().upper()
+    eslesen = []
+    for satir in belge.satirlar:
+        if satir.belge_no and satir.belge_no.strip().upper() != numara:
+            raise edespatch.ReceiptAdviceError(
+                YANIT_BELGE_REFERANSI_UYUSMUYOR,
+                "Yanıt satırı başka bir irsaliyeyi gösteriyor",
+                line=satir.satir_no,
+            )
+        kimlik = harita.get(satir.satir_no)
+        if kimlik is None:
+            raise edespatch.ReceiptAdviceError(
+                YANIT_SATIRI_ESLESMEDI,
+                "Yanıt satırı bu irsaliyenin hiçbir satırına karşılık gelmiyor",
+                line=satir.satir_no,
+            )
+        eslesen.append((satir, kimlik))
+    return eslesen
+
+
+def yaniti_kaydet(
+    db: Session,
+    cid: int,
+    irsaliye_id: int,
+    belge: edespatch.YanitBelgesi,
+    ham_xml: bytes | str,
+    eslesen: list[tuple[edespatch.YanitSatiri, int]],
+    simdi: datetime,
+    *,
+    ek_not: str | None = None,
+) -> bool:
+    """Yanıt belgesini BİR KEZ yaz. Yazdıysa `True`, zaten varsa `False`.
+
+    İDEMPOTENS İKİ KATLI ve ikisi de gerekli:
+
+    1. ÖNCE OKU. Aynı belge her sync'te yeniden gelir; ikinci çağrı satırı
+       görür ve hiçbir şey yazmaz.
+    2. YARIŞI UNIQUE ÇÖZER. İki eş zamanlı çağrı ikisi de "yok" okuyabilir;
+       ikincinin INSERT'i `uq_despatch_responses_uuid`e çarpar. İhlal bir
+       KAYIT NOKTASI içinde yakalanır, yalnız o yazım geri alınır ve cevap
+       `False`tur — çağıranın işlemi (durum güncellemesi) ayakta kalır. PG
+       ikizi bunu iki oturumla ölçer.
+
+    Başlık ve satırlar AYNI kayıt noktasındadır: satırsız bir başlık kalamaz.
+    """
+    mevcut = db.execute(
+        select(despatch_responses.c.id).where(
+            despatch_responses.c.company_id == cid,
+            despatch_responses.c.response_uuid == belge.uuid,
+        )
+    ).first()
+    if mevcut:
+        return False
+    notlar = "\n".join(n for n in (ek_not, belge.notlar) if n) or None
+    ham = ham_xml.decode("utf-8", errors="replace") if isinstance(ham_xml, bytes) else str(ham_xml)
+    try:
+        with db.begin_nested():
+            yanit_id = db.execute(
+                insert(despatch_responses)
+                .values(
+                    company_id=cid,
+                    despatch_id=irsaliye_id,
+                    response_uuid=belge.uuid,
+                    response_number=belge.numara,
+                    response_type=belge.tur,
+                    issue_date=belge.duzenleme,
+                    notes=notlar,
+                    raw_xml=ham,
+                    created_at=simdi,
+                )
+                .returning(despatch_responses.c.id)
+            ).scalar_one()
+            for satir, sevk_satiri_id in eslesen:
+                db.execute(
+                    insert(despatch_response_lines).values(
+                        company_id=cid,
+                        response_id=yanit_id,
+                        despatch_line_id=sevk_satiri_id,
+                        received_quantity=satir.alinan,
+                        rejected_quantity=satir.reddedilen,
+                        reject_reason=satir.gerekce,
+                    )
+                )
+    except IntegrityError:
+        tekrar = db.execute(
+            select(despatch_responses.c.id).where(
+                despatch_responses.c.company_id == cid,
+                despatch_responses.c.response_uuid == belge.uuid,
+            )
+        ).first()
+        if tekrar is None:
+            # Çarpılan kısıt ETTN değil — bu bir yarış değil bir KUSURDUR ve
+            # yutulmamalı (E4a'nın "tanımadığımız ihlali çevirme" dersi).
+            raise
+        return False
+    return True
+
+
+def _irsaliyeyi_kilitle(db: Session, cid: int, irsaliye_id: int) -> None:
+    """Sync'in yazım bölümünü SERİLEŞTİR: boş bir UPDATE (`_faturayi_kilitle`
+    ile aynı gerekçe ve aynı diyalekt kararı). Ağ çağrıları kilitten ÖNCE
+    yapılır; kilit yalnız yazım süresince tutulur."""
+    db.execute(
+        update(despatch_notes)
+        .where(despatch_notes.c.id == irsaliye_id, despatch_notes.c.company_id == cid)
+        .values(updated_at=despatch_notes.c.updated_at)
+    )
+
+
 @router.post("/{despatch_id}/edespatch/sync")
 def edespatch_sync(despatch_id: int, request: Request, db: Session = Depends(get_db)):
     """Sağlayıcıya SOR ve yerel durumu tazele. Göndermez.
@@ -874,6 +1085,26 @@ def edespatch_sync(despatch_id: int, request: Request, db: Session = Depends(get
     veriliyor: yerel durumu değiştirmek uç katmanının işidir, ve
     adaptörün "bulamadım"ı ile ucun "gönderim inmemiş" sonucu AYNI ŞEY
     DEĞİLDİR — ikincisi birincisinden ÇIKARILIR.
+
+    E4b-2 — TİCARİ YANIT. Durum ``DELIVERED`` ya da daha ilerisiyse
+    ``get_receipt_advice`` da sorulur ve bizim irsaliyemize ait her yanıt
+    belgesi ``(company_id, response_uuid)`` ile BİR KEZ yazılır
+    (:func:`yaniti_kaydet`). Üç kural:
+
+    1. ÖNCE AĞ, SONRA YAZIM. İki sağlayıcı çağrısı da hiçbir şey yazmadan
+       yapılır. Yanıt sorgusu düşerse 502 ve HİÇBİR ŞEY yazılmaz — durum
+       sorgusunun sonucu da.
+    2. AYRIŞTIR VE EŞLE, SONRA YAZ. Okunamayan ya da eşlenemeyen bir belge
+       422 (adı konmuş kod) döner; hata ``edespatch_last_error``a YAZILIR,
+       durum sorgusunun sonucu saklanır, hiçbir yanıt satırı yazılmaz. 500
+       DEĞİL: kusur bizde değil belgede.
+    3. TEK İŞLEM, SATIR KİLİDİ ALTINDA. Kilit alındıktan sonra satır YENİDEN
+       okunur ve geçiş o güncel değere uygulanır — eş zamanlı iki sync
+       birbirinin yazdığı yanıt durumunu eski bir değerle EZEMEZ.
+
+    Yanıt türü durumu :func:`~app.einvoice.edespatch.durumu_ilerlet` ile
+    ilerletir; terminal bir belge kımıldamaz. İkinci sync aynı belgeyle
+    ``changed: false`` döner.
     """
     cid = company_id(request)
     irsaliye = _irsaliye(db, cid, despatch_id)
@@ -885,31 +1116,226 @@ def edespatch_sync(despatch_id: int, request: Request, db: Session = Depends(get
         # okunur — sessiz yanlış yerine gürültülü hata.
         raise HTTPException(409, "İrsaliye henüz gönderilmedi; sorgulanacak durum yok.")
     saglayici = get_einvoice_provider(settings, company_id=cid)
+
+    # --- 1. AĞ: durum, sonra (gerekirse) yanıtlar. Hiçbir şey yazılmıyor. ---
     sonuc = saglayici.despatch_status(ettn)
-    if (sonuc.raw or {}).get("belge_yok"):
-        yeni_durum = edespatch.bilinmeyeni_yok_say(irsaliye.get("edespatch_status"))
+    belge_yok = bool((sonuc.raw or {}).get("belge_yok"))
+    if belge_yok:
+        ag_durumu = edespatch.bilinmeyeni_yok_say(irsaliye.get("edespatch_status"))
     else:
-        yeni_durum = edespatch.durumu_ilerlet(irsaliye.get("edespatch_status"), sonuc.status)
+        ag_durumu = edespatch.durumu_ilerlet(irsaliye.get("edespatch_status"), sonuc.status)
+    belgeler: list[bytes] = []
+    yanit_soruldu = ag_durumu in YANIT_SORULAN_DURUMLAR
+    if yanit_soruldu:
+        try:
+            belgeler = list(saglayici.get_receipt_advice(ettn))
+        except EInvoiceError as exc:
+            # `get_receipt_advice` boş liste ile hatayı KARIŞTIRMAZ; burada da
+            # karıştırılmaz. `fetch_pdf`in 502 kalıbı: hata BİZDE değil.
+            # `EInvoiceError.message` sağlayıcı katmanında temizlenmiş SABİT
+            # cümledir, yansıtılabilir.
+            db.rollback()
+            logger.warning("e-İrsaliye yanıt sorgusu başarısız (sınıf=%s)", exc.code)
+            raise HTTPException(502, f"e-İrsaliye yanıtı alınamadı: {exc.message[:400]}") from None
+        except Exception as exc:
+            # Sağlayıcı katmanının HİÇ görmediği bir istisna: metni temizlenmemiş,
+            # istemciye GİTMEZ.
+            db.rollback()
+            logger.warning("e-İrsaliye yanıt sorgusu istisnayla düştü: %s", type(exc).__name__)
+            raise HTTPException(502, "e-İrsaliye yanıtı alınamadı") from None
+
+    # --- 2. AYRIŞTIR + EŞLE (saf; hata olursa hiçbir yanıt yazılmaz) --------
+    harita = _sevk_satiri_haritasi(db, cid, despatch_id) if belgeler else {}
+    cozulen: list[tuple[edespatch.YanitBelgesi, bytes, list]] = []
+    atlanan = 0
+    esleme_hatasi: edespatch.ReceiptAdviceError | None = None
+    try:
+        for ham in belgeler:
+            belge = edespatch.receipt_advice_coz(ham)
+            if not _bizim_irsaliyemiz_mi(belge, irsaliye):
+                atlanan += 1
+                continue
+            cozulen.append((belge, ham, _yaniti_esle(belge, harita, irsaliye)))
+    except edespatch.ReceiptAdviceError as exc:
+        esleme_hatasi = exc
+        cozulen = []
+    # En eski belge önce: durumu İLK yanıt belirler, sonrakiler kayıt içindir.
+    cozulen.sort(key=lambda x: (x[0].duzenleme, x[0].numara, x[0].uuid))
+
+    # --- 3. YAZIM — satır kilidi altında, güncel değer üzerinden ------------
+    _irsaliyeyi_kilitle(db, cid, despatch_id)
+    guncel = _irsaliye(db, cid, despatch_id)
+    onceki_durum = str(guncel.get("edespatch_status") or edespatch.NONE).upper()
+    if belge_yok:
+        durum = edespatch.bilinmeyeni_yok_say(onceki_durum)
+    else:
+        durum = edespatch.durumu_ilerlet(onceki_durum, sonuc.status)
+    yanit_ozeti = guncel.get("response_status")
+    yanit_ani = guncel.get("response_received_at")
     simdi = utcnow()
+    kaydedilen = 0
+    for belge, ham, eslesen in cozulen:
+        hedef = edespatch.yanit_durumu(belge.tur)
+        ek_not = (
+            edespatch.TESLIM_SONRASI_RED_NOTU
+            if belge.tur == edespatch.RED and durum == edespatch.DELIVERED
+            else None
+        )
+        if not yaniti_kaydet(db, cid, despatch_id, belge, ham, eslesen, simdi, ek_not=ek_not):
+            continue
+        kaydedilen += 1
+        yeni = edespatch.durumu_ilerlet(durum, hedef)
+        if yeni != durum and yeni == hedef:
+            durum = yeni
+            yanit_ozeti = belge.tur
+            yanit_ani = simdi
+
+    son_hata = (
+        f"{esleme_hatasi.code}: {esleme_hatasi.message}"
+        if esleme_hatasi is not None
+        else (sonuc.error or None)
+    )
     db.execute(
         text(
             "UPDATE despatch_notes SET edespatch_status=:s,edespatch_gib_status_code=:gsc,"
-            "edespatch_last_error=:err,edespatch_synced_at=:now,updated_at=:now "
+            "edespatch_last_error=:err,edespatch_synced_at=:now,updated_at=:now,"
+            "response_status=:rs,response_received_at=:ra "
             "WHERE id=:id AND company_id=:cid"
         ),
         {
-            "s": yeni_durum,
-            "gsc": sonuc.gib_status_code or irsaliye.get("edespatch_gib_status_code"),
-            "err": (sonuc.error or None), "now": simdi,
+            "s": durum,
+            # Ham sağlayıcı kodu KORUNUR: yanıt durumu onun yerine geçmez
+            # (teslim sonrası RED dahil — Şef kararı).
+            "gsc": sonuc.gib_status_code or guncel.get("edespatch_gib_status_code"),
+            "err": son_hata, "now": simdi,
+            "rs": yanit_ozeti, "ra": yanit_ani,
             "id": despatch_id, "cid": cid,
         },
     )
+    degisti = (
+        kaydedilen > 0
+        or durum != onceki_durum
+        or yanit_ozeti != guncel.get("response_status")
+    )
+    ozet = {
+        "asked": yanit_soruldu,
+        "found": len(belgeler),
+        "recorded": kaydedilen,
+        "skipped": atlanan,
+    }
     log_invoice_action(
         db, request, cid, int(irsaliye["invoice_id"]), "EDESPATCH_SYNC",
-        metadata={"despatch_id": despatch_id, "status": yeni_durum},
+        metadata={
+            "despatch_id": despatch_id, "status": durum, "receipt_advice": ozet,
+            **({"error_code": esleme_hatasi.code} if esleme_hatasi is not None else {}),
+        },
     )
     db.commit()
-    return _gorunum(_irsaliye(db, cid, despatch_id))
+    if esleme_hatasi is not None:
+        raise _hata(422, esleme_hatasi.code, esleme_hatasi.message, **esleme_hatasi.ek)
+    govde = _gorunum(_irsaliye(db, cid, despatch_id))
+    govde["changed"] = degisti
+    govde["receipt_advice"] = ozet
+    return govde
+
+
+@router.get("/{despatch_id}/response")
+def irsaliye_yaniti(despatch_id: int, request: Request, db: Session = Depends(get_db)):
+    """İrsaliyenin ticari yanıtı: başlık + sevk satırlarıyla birleşmiş satırlar.
+
+    YALNIZ OKUR, ağa çıkmaz. İzin ``sales`` — `/api/despatch-notes` önek
+    kuralından (`app/auth.py`), YENİ KURAL YOK: yanıt satırları ürün adı ve
+    miktarı taşır, irsaliyenin kendisiyle aynı ticari veridir. Başka firmanın
+    irsaliyesi 404 (`_irsaliye`, varlık bilgisi sızmaz).
+
+    ETKİLİ YANIT İLK KAYDEDİLENDİR (kimlik sırası): durumu o belirledi ve
+    durum makinesi terminalden kımıldamaz. Sonraki belgeler saklanır;
+    ``responses_count`` onların varlığını söyler.
+
+    ``raw_xml`` DÖNMEZ (göç 0089 başlığı). Yanıt yoksa ``response`` ``null``
+    ve ``lines`` boş — 404 DEĞİL: irsaliye var, yanıtı henüz yok.
+    Miktarlar METİN (`float` yok).
+    """
+    cid = company_id(request)
+    irsaliye = _irsaliye(db, cid, despatch_id)
+    yanitlar = db.execute(
+        select(
+            despatch_responses.c.id,
+            despatch_responses.c.response_uuid,
+            despatch_responses.c.response_number,
+            despatch_responses.c.response_type,
+            despatch_responses.c.issue_date,
+            despatch_responses.c.notes,
+            despatch_responses.c.created_at,
+        )
+        .where(
+            despatch_responses.c.company_id == cid,
+            despatch_responses.c.despatch_id == despatch_id,
+        )
+        .order_by(despatch_responses.c.id)
+    ).mappings().all()
+    alindi = _utc(irsaliye.get("response_received_at"))
+    govde: dict = {
+        "despatch_id": despatch_id,
+        "edespatch_status": irsaliye.get("edespatch_status"),
+        "response_status": irsaliye.get("response_status"),
+        "response_received_at": alindi.isoformat() if alindi else None,
+        "implicit_accept_due_at": _zimni_kabul_tarihi(irsaliye),
+        "responses_count": len(yanitlar),
+        "response": None,
+        "lines": [],
+    }
+    if not yanitlar:
+        return govde
+    etkili = yanitlar[0]
+    govde["response"] = {
+        "response_uuid": etkili["response_uuid"],
+        "response_number": etkili["response_number"],
+        "response_type": etkili["response_type"],
+        "issue_date": str(etkili["issue_date"])[:10],
+        "notes": etkili["notes"],
+        "created_at": _utc(etkili["created_at"]).isoformat(),
+    }
+    satirlar = db.execute(
+        select(
+            despatch_response_lines.c.despatch_line_id,
+            despatch_lines.c.line_no,
+            despatch_lines.c.product_id,
+            despatch_lines.c.item_name,
+            despatch_lines.c.quantity,
+            despatch_response_lines.c.received_quantity,
+            despatch_response_lines.c.rejected_quantity,
+            despatch_response_lines.c.reject_reason,
+        )
+        .select_from(
+            despatch_response_lines.join(
+                despatch_lines,
+                and_(
+                    despatch_lines.c.company_id == despatch_response_lines.c.company_id,
+                    despatch_lines.c.id == despatch_response_lines.c.despatch_line_id,
+                ),
+            )
+        )
+        .where(
+            despatch_response_lines.c.company_id == cid,
+            despatch_response_lines.c.response_id == etkili["id"],
+        )
+        .order_by(despatch_lines.c.line_no)
+    ).mappings().all()
+    govde["lines"] = [
+        {
+            "despatch_line_id": int(s["despatch_line_id"]),
+            "line_no": int(s["line_no"]),
+            "product_id": s["product_id"],
+            "item_name": s["item_name"],
+            "despatched_quantity": str(_miktar(s["quantity"])),
+            "received_quantity": str(_miktar(s["received_quantity"])),
+            "rejected_quantity": str(_miktar(s["rejected_quantity"])),
+            "reject_reason": s["reject_reason"],
+        }
+        for s in satirlar
+    ]
+    return govde
 
 
 @router.get("/{despatch_id}/edespatch/download")

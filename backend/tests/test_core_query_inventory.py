@@ -1183,6 +1183,22 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "495b277cedd88ccca0dc6c2ff5622b70b9aee38459fc4e9670d2da01e3e47deb"): (1, "despatch_lines", "arg0"),  # satır [379]
     ("app/routers/despatch_notes.py", "_irsaliye_satirlari", "select",
      "fee6ff82a683c3c2b5c121265d00eef0467d7c71890270e13001acb96cfbaa64"): (1, "despatch_lines", "arg0"),  # satır [474]
+    # --- E4b-2 e-IRSALIYE YANITI (goc 20260915_0089). Altisi de
+    # `app/routers/despatch_notes.py`: sevk satiri haritasi, yanitin ETTN ile ON
+    # OKUMASI (iki kez: once, sonra yaris halinde UNIQUE ihlalinden sonra),
+    # sync'in bos-UPDATE satir kilidi, yanit ucunun iki okumasi. Her biri
+    # `<tablo>.c.company_id == cid` yuklemini ACIKCA tasir; yanit satirlari
+    # okumasi `despatch_lines`e (company_id, id) ile birlesir.
+    ("app/routers/despatch_notes.py", "_sevk_satiri_haritasi", "select",
+     "dda3e81f357495949624b293a526c54a6531db82bd828a80c9a182cf4563f41c"): (1, "despatch_lines", "arg0"),  # satır [951]
+    ("app/routers/despatch_notes.py", "yaniti_kaydet", "select",
+     "302813e8554e7f1d46e666e94f627d2eee4759156b743a15b05c49691819217a"): (2, "despatch_responses", "arg0"),  # satır [1014, 1053]
+    ("app/routers/despatch_notes.py", "_irsaliyeyi_kilitle", "update",
+     "3b8898b31ecf68aac4e40233b2b2398b1ab53467accc6f17b08eb05fdc91062f"): (1, "despatch_notes", "arg0"),  # satır [1071]
+    ("app/routers/despatch_notes.py", "irsaliye_yaniti", "select",
+     "975e57efba2a91dd8ba68c7e652bbbb9de230daaf77cc24c766859b1bda20479"): (1, "despatch_responses", "arg0"),  # satır [1262]
+    ("app/routers/despatch_notes.py", "irsaliye_yaniti", "select",
+     "f3d6c280c6691faccc5465ac9c183d5b44af807f1561d7c2d87627b980e6ecf6"): (1, "despatch_response_lines", "arg0"),  # satır [1300]
 }
 
 # 20260910 5.1c KIRACI GERI YUKLEME (GOC YOK): 176 -> 184, +6 select +2 update,
@@ -1230,8 +1246,14 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # `989b735` uzerinde 223 -> 224), +1 select, ekleme:
 # `routers/kiraci_disa_aktarim._kullanici_epostalari`. `UNRESOLVED_ALLOWLIST`
 # ve `desteksiz` BUYUMEDI (hedef `arg0` ile cozuldu).
-TOTAL_CORE_QUERIES = 227
-EXPECTED_OP_COUNTS = {"select": 153, "update": 62, "delete": 12}
+# E4b-2 e-IRSALIYE YANITI (goc 20260915_0089): 227 -> 233 (TABAN develop
+# `2dd542b`, #137/H49 birlestikten SONRA TARAYICIYLA YENIDEN OLCULDU; onceki
+# olcumler `80bf9cf` uzerinde 226 -> 232, `0885616` uzerinde 230 -> 236),
+# +5 select +1 update, altisi de app/routers/despatch_notes.py; HEPSI ekleme.
+# `UNRESOLVED_ALLOWLIST` ve `desteksiz` BUYUMEDI. (INSERT'ler bu envanterde
+# sayilmaz; kiraci kapisi `test_core_tenant_scoping_guard` onlari sayar.)
+TOTAL_CORE_QUERIES = 233
+EXPECTED_OP_COUNTS = {"select": 158, "update": 63, "delete": 12}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1326,7 +1348,10 @@ EXPECTED_OP_COUNTS = {"select": 153, "update": 62, "delete": 12}
 # Parmak izi tarayicinin ciktisindan alindi, aritmetikle degil. 1c166663 -> c39e5056.
 # H49 (GOC YOK): 226 -> 227, TABAN develop `80bf9cf`; tarayicinin ciktisindan.
 # c39e5056 -> 2c4c3e4d.
-INVENTORY_FINGERPRINT = "2c4c3e4de30fe6477a8954bfa397490f4eacc7093d8c1aa5a56e8636e44524af"
+# E4b-2 (e-IRSALIYE YANITI, goc 20260915_0089): 227 -> 233, altisi
+# app/routers/despatch_notes.py; TABAN develop `2dd542b`. Tarayicinin
+# ciktisindan alindi. 2c4c3e4d -> 494f7b8b.
+INVENTORY_FINGERPRINT = "494f7b8b7bd3b9b8d9899fe141fd04f65f35072965a868f2a401d6448463dd12"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:

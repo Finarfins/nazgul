@@ -17,27 +17,40 @@ O tabloyu ödünç almak, hiçbir şey olmamış bir belgeyi "kuyruğa alındı"
 diye göstermek olurdu. Bu yüzden bu modülün kendi tablosu
 (:data:`SAGLAYICI_KODLARI`) var ve `map_provider_status` HİÇ çağrılmıyor.
 
---- SEKİZ DURUM, TEK TERMİNAL --------------------------------------------
+--- ON BİR DURUM, ÜÇ TERMİNAL (E4b-2) -----------------------------------
 
 ::
 
-     (yok)                                          gönderim reddi
-       │                                                  │
-       │  submit()                                        ▼
-       ├──────────► QUEUED ──► PROCESSING ──► SIGNED ──► SENT ──► DELIVERED
-       │  (101)       (102/103/104)  (107)     (137)      (133)   ★terminal
-       │                                                  │
-       │  TIMEOUT / anlaşılmayan kod                      └──► FAILED (105/136)
-       └──────────► UNKNOWN                                     ▲
-                       │  status sorgusu "böyle bir belge yok"  │
-                       └────────────────────────────────────────┘
+     (yok)                                                          ┌─► ACCEPTED ★
+       │  submit()                                                  │
+       ├──► QUEUED ──► PROCESSING ──► SIGNED ──► SENT ──► DELIVERED ─┼─► PARTIALLY_ACCEPTED ★
+       │    (101)    (102/103/104)    (107)     (137)     (133)     │
+       │                                          │    yanıt bekler └─► REJECTED ★
+       │  TIMEOUT / anlaşılmayan kod              └──► FAILED (105/136)
+       └──► UNKNOWN                                        ▲
+              │  status sorgusu "böyle bir belge yok"      │
+              └────────────────────────────────────────────┘
 
-``DELIVERED`` TEK terminaldir. ``REJECTED`` bu kümede **yoktur** ve bu
-bir unutma değil: e-İrsaliye'de ret, alıcının gönderdiği bir
-**ReceiptAdvice**'tan doğar ve o akış E4b'nin kapsamıdır (keşif §2.2:
-`SendDespatchResponse` / `GetReceiptAdvice`). Bugün hiçbir sağlayıcı kodu
-``REJECTED`` üretemez; üretemeyen bir durumu sözlüğe yazmak, gelecekte
-birinin oraya rastgele bir kod eşlemesini kolaylaştırırdı.
+E4a'da ``DELIVERED`` TEK terminaldi ve ``REJECTED`` kümede bilerek YOKTU:
+ret alıcının gönderdiği bir **ReceiptAdvice**'tan doğar ve o akış E4b'nin
+kapsamıydı. E4b-2 o akışı açtı. ``DELIVERED`` artık "alıcının yanıtını
+bekliyor" durumudur; terminaller ticari yanıttan doğan üç durumdur.
+
+YANIT DURUMLARINA **YALNIZ ``DELIVERED``DAN** GİRİLİR. Rank sırası tek başına
+``QUEUED -> ACCEPTED``a izin verirdi; oysa teslim edilmemiş bir belgeye
+alıcı yanıtı gelemez ve gelmiş gibi görünüyorsa elimizdeki bir kusurdur,
+bir geçiş değil. Sağlayıcı DURUM KODLARI (:data:`SAGLAYICI_KODLARI`) bu
+üçünü HİÇBİR ZAMAN üretmez; tek kaynakları :func:`yanit_durumu`dur.
+
+``DELIVERED -> REJECTED`` TEKNİK OLARAK AÇIK (Şef kararı, E4b-2 brifingi).
+Keşif §3 bunu DOĞRULANMADI diye işaretledi: 2020 GİB kılavuzuna göre fiili
+teslimden sonra tam RED düzenlenemez. Biz alıcının gönderdiğini SAKLARIZ;
+belgenin mevzuata uygunluğu alıcının sorumluluğudur. Uç o yanıtın notuna
+:data:`TESLIM_SONRASI_RED_NOTU` satırını yazar ve sağlayıcının ham durum
+kodunu (``edespatch_gib_status_code``) ezmez.
+
+7 GÜN ZIMNİ KABUL OTOMATİK DEĞİL: zamanlayıcı yok. Uç yalnız
+``implicit_accept_due_at``ı gösterir (açık iş).
 
 --- ``UNKNOWN``: BİR CEVAP DEĞİL, BİR İTİRAF -----------------------------
 
@@ -71,11 +84,16 @@ from __future__ import annotations
 
 import base64
 import re
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
+from xml.etree import ElementTree
 from xml.sax.saxutils import escape as xml_escape
 from xml.sax.saxutils import quoteattr
+
+from defusedxml.common import DefusedXmlException
+from defusedxml.ElementTree import fromstring as defused_fromstring
 
 from .errors import UblBuildError
 
@@ -94,23 +112,30 @@ FAILED = "FAILED"
 #: "Bilmiyorum." Bir belge durumu değil, bilgimizin yokluğu — ama SAKLANIR,
 #: çünkü bir TIMEOUT'tan sonra elimizde olan tam olarak budur.
 UNKNOWN = "UNKNOWN"
+#: E4b-2: alıcının ticari yanıtından (ReceiptAdvice) doğan üç durum.
+ACCEPTED = "ACCEPTED"
+PARTIALLY_ACCEPTED = "PARTIALLY_ACCEPTED"
+REJECTED = "REJECTED"
 
-#: Göç `20260913_0083`in `DURUMLAR` demetiyle BİREBİR aynı olmak zorunda;
+#: Göç `20260915_0089`un `DURUMLAR` demetiyle BİREBİR aynı olmak zorunda;
 #: eşitlik bir kapıdır (`test_DURUM_KUMESI_goc_ile_modul_ayni`). Ayrılırsa
 #: CHECK kısıtı, uygulamanın yazabildiği bir değeri reddeder.
 BILINEN: frozenset[str] = frozenset(
-    {NONE, QUEUED, PROCESSING, SIGNED, SENT, DELIVERED, FAILED, UNKNOWN}
+    {
+        NONE, QUEUED, PROCESSING, SIGNED, SENT, DELIVERED, FAILED, UNKNOWN,
+        ACCEPTED, PARTIALLY_ACCEPTED, REJECTED,
+    }
 )
 
-#: TEK terminal. Gerekçe modül başlığında: ret (`REJECTED`) ReceiptAdvice
-#: akışından doğar ve o akış E4b'dir.
-TERMINAL: frozenset[str] = frozenset({DELIVERED})
+#: Ticari yanıt durumları — ve TERMİNALLER. Gerekçe modül başlığında.
+YANIT_DURUMLARI: frozenset[str] = frozenset({ACCEPTED, PARTIALLY_ACCEPTED, REJECTED})
+TERMINAL: frozenset[str] = YANIT_DURUMLARI
 
 #: Bu durumlardayken YENİDEN GÖNDERİM YAPILMAZ. `UNKNOWN` buradadır ve
 #: gerekçesi başlıkta: bilmediğimiz bir belgeyi tekrar göndermek, ilki
 #: inmişse ikinci bir irsaliye keser.
 GONDERIM_KAPALI: frozenset[str] = frozenset(
-    {QUEUED, PROCESSING, SIGNED, SENT, DELIVERED, UNKNOWN}
+    {QUEUED, PROCESSING, SIGNED, SENT, DELIVERED, UNKNOWN} | YANIT_DURUMLARI
 )
 
 #: İleri-yönlü sıralama. `NONE` ve `FAILED` rank 0'ı PAYLAŞIR: ikisi de
@@ -126,6 +151,11 @@ _RANK: dict[str, int] = {
     SIGNED: 4,
     SENT: 5,
     DELIVERED: 6,
+    # Üçü AYNI rank: biri ötekini ezemez. Terminal oldukları için zaten
+    # kımıldamazlar; ortak rank bunu ikinci kez söyler.
+    ACCEPTED: 7,
+    PARTIALLY_ACCEPTED: 7,
+    REJECTED: 7,
 }
 
 #: İzibiz'in e-İrsaliye durum kodları (keşif §5 tablosu). e-Arşiv/e-Fatura
@@ -176,11 +206,17 @@ def kodu_coz(deger: Any) -> str:
 
     İç durum adlarının kendisi de kabul edilir (``"QUEUED"`` → ``QUEUED``):
     bir yeniden okuma yolu, saklanmış değeri buradan geçirebilsin.
+
+    İSTİSNA — YANIT DURUMLARI (E4b-2): ``"ACCEPTED"`` gibi bir metin
+    ``UNKNOWN`` verir. Bir DURUM SORGUSU ticari yanıt taşımaz; o üç durumun
+    tek kaynağı ayrıştırılmış bir ReceiptAdvice'tır (:func:`yanit_durumu`).
     """
     if deger is None:
         return UNKNOWN
     jeton = str(deger).strip().translate(_NORMALIZE).upper()
     if not jeton:
+        return UNKNOWN
+    if jeton in YANIT_DURUMLARI:
         return UNKNOWN
     if jeton in BILINEN:
         return jeton
@@ -192,12 +228,14 @@ def durumu_ilerlet(mevcut: Any, gelen: Any) -> str:
 
     Kurallar, sırayla:
 
-    1. Terminal (``DELIVERED``) hiçbir şeyle değişmez.
-    2. ``UNKNOWN`` GELEN olarak: canlı bir belge biliyorsak bu bir GEÇİŞ
+    1. Terminal (üç yanıt durumu) hiçbir şeyle değişmez.
+    2. Yanıt durumuna YALNIZ ``DELIVERED``dan girilir; başka her yerden
+       gelen bir yanıt durumu GEÇİŞ DEĞİLDİR (gerekçe modül başlığında).
+    3. ``UNKNOWN`` GELEN olarak: canlı bir belge biliyorsak bu bir GEÇİŞ
        DEĞİLDİR (cevaplanamayan sorgu belgeyi olduğu yerde bırakır);
        hiçbir şey bilmiyorsak (``NONE``/``FAILED``) SAKLANIR, çünkü
        gönderim TIMEOUT'u tam olarak o boşluğu doldurur.
-    3. Geri kalan her şey rank karşılaştırmasıdır: düşük rank yüksek
+    4. Geri kalan her şey rank karşılaştırmasıdır: düşük rank yüksek
        rankı ezemez. Geç gelen bir ``QUEUED``, ``SENT`` olmuş bir belgeyi
        kuyruğa geri koyamaz.
     """
@@ -210,6 +248,8 @@ def durumu_ilerlet(mevcut: Any, gelen: Any) -> str:
 
     if mevcut_durum in TERMINAL:
         return mevcut_durum
+    if gelen_durum in YANIT_DURUMLARI:
+        return gelen_durum if mevcut_durum == DELIVERED else mevcut_durum
     if gelen_durum == UNKNOWN:
         return UNKNOWN if _RANK[mevcut_durum] == 0 else mevcut_durum
     if _RANK[gelen_durum] < _RANK[mevcut_durum]:
@@ -807,3 +847,258 @@ def package_despatch(payload: dict[str, Any], *, xslt: str | None = None) -> byt
 
     xml = build_despatch_xml(payload, xslt=xslt)
     return zip_single(f"{payload.get('despatch_number')}.xml", xml)
+
+
+# =========================================================================
+# 3. GELEN YANIT — UBL-TR ReceiptAdvice (E4b-2)
+# =========================================================================
+#
+# **DOĞRULANMADI** (keşif §3 ve §5): `GetReceiptAdvice` ile satırlı yanıt
+# okuma akışı sandbox'ta ÖLÇÜLMEDİ ve `KISMI_KABUL` kodu sağlayıcı XSD'sinde
+# YOK. Aşağıdaki ayrıştırıcı UBL 2.1 `ReceiptAdvice` şemasına ve UBL-TR 1.2.1
+# yapısına göre yazıldı; test belgeleri SENTETİKTİR
+# (`tests/fixtures/e4b2/`), bir sandbox kaydı DEĞİL.
+#
+# TOLERANS NEREDE, KATILIK NEREDE — ikisi de bilinçli:
+#
+# * TOLERANSLI: eksik ``RejectedQuantity`` (ve eksik ``ReceivedQuantity``)
+#   SIFIR sayılır. Tam kabul eden bir alıcı ret miktarı yazmayabilir.
+# * KATI: kimlik (``UUID``, ``ID``, ``IssueDate``), satır referansı ve
+#   miktarın SAYI olması. Bunlar tahmin edilirse yanıt YANLIŞ SEVK SATIRINA
+#   yazılır — alınmamış bir malı alınmış göstermek. Katı dal adı konmuş bir
+#   :class:`ReceiptAdviceError` fırlatır; uç onu 422 olarak yansıtır, 500
+#   DEĞİL.
+#
+# SATIR EŞLEME ANAHTARI — ``cac:DespatchLineReference/cbc:LineID``.
+# Bizim DespatchAdvice'ımız her satırın ``cbc:ID``sine
+# ``despatch_lines.line_no``yu yazar (:func:`build_despatch_xml`,
+# ``satir.get('id')`` = ``line_no``). UBL'de ReceiptLine'ın irsaliye satırına
+# işareti ``DespatchLineReference/LineID``dir ve o değer bizim ``DespatchLine/
+# ID``mizdir, yani ``line_no``. ``OrderLineReference/LineID`` DEĞİL: o bizim
+# belgemizde faturanın SATIR SIRASIdır (E4b-1) ve bir faturanın iki kısmi
+# irsaliyesinde AYNI değeri taşır — onunla eşlemek yanıtı yanlış irsaliyenin
+# satırına bağlayabilirdi. Kapı:
+# `tests/test_e4b2_irsaliye_yaniti.py::test_ESLEME_ANAHTARI_bizim_DespatchLine_IDmiz`.
+
+#: Uç bu satırı, teslimden sonra gelen TAM RED'in notuna yazar (modül başlığı).
+TESLIM_SONRASI_RED_NOTU = "sevk sonrası tam RED — mevzuat kontrolü"
+
+KABUL = "KABUL"
+RED = "RED"
+#: DOĞRULANMADI: sağlayıcı XSD'si yalnız KABUL/RED tanımlar. Bu değer bizim
+#: türetmemizdir (satırlardan), sağlayıcıdan okunan bir kod DEĞİL.
+KISMI_KABUL = "KISMI_KABUL"
+#: Göç `20260915_0089`un `YANIT_TURLERI` demetiyle BİREBİR aynı.
+YANIT_TURLERI: tuple[str, ...] = (KABUL, RED, KISMI_KABUL)
+
+_YANIT_TURU_DURUMU: dict[str, str] = {
+    KABUL: ACCEPTED,
+    RED: REJECTED,
+    KISMI_KABUL: PARTIALLY_ACCEPTED,
+}
+
+#: Sütun genişlikleri — göç 0089. Aşan kimlik REDDEDİLİR (kırpılmış bir ETTN
+#: başka bir belgenin ETTN'i olabilir); aşan ret gerekçesi KIRPILIR, çünkü
+#: bir açıklamadır ve tam metni `raw_xml`de durur.
+YANIT_UUID_UZUNLUGU = 36
+YANIT_NO_UZUNLUGU = 16
+RET_GEREKCESI_UZUNLUGU = 200
+
+_YANIT_OLCEGI = Decimal("0.0001")
+#: Numeric(18, 4): tam kısım en çok 14 hane.
+_YANIT_TAVANI = Decimal("1e14")
+
+
+class ReceiptAdviceError(ValueError):
+    """Yanıt belgesi okunamıyor ya da BİZİM irsaliyemize eşlenemiyor.
+
+    ``code`` istemcinin baktığı SABİT addır; ``message`` Türkçe ve BİZİM
+    cümlemizdir — belge gövdesinden kopyalanmış metin taşımaz.
+    """
+
+    def __init__(self, code: str, message: str, **ek: Any) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.ek = ek
+
+
+@dataclass(frozen=True)
+class YanitSatiri:
+    #: `DespatchLineReference/LineID` — bizim `despatch_lines.line_no`muz.
+    satir_no: int
+    #: `DespatchLineReference/DocumentReference/ID`, varsa (irsaliye numarası).
+    belge_no: str | None
+    alinan: Decimal
+    reddedilen: Decimal
+    gerekce: str | None
+
+
+@dataclass(frozen=True)
+class YanitBelgesi:
+    uuid: str
+    numara: str
+    duzenleme: date
+    notlar: str | None
+    #: Kök `DespatchDocumentReference`: hangi irsaliyeye yanıt.
+    irsaliye_no: str | None
+    irsaliye_uuid: str | None
+    satirlar: tuple[YanitSatiri, ...]
+    tur: str
+
+
+def yanit_durumu(yanit_turu: str) -> str:
+    """Yanıt türünü (KABUL/RED/KISMI_KABUL) irsaliye durumuna çevir."""
+    try:
+        return _YANIT_TURU_DURUMU[yanit_turu]
+    except KeyError:
+        raise ReceiptAdviceError(
+            "YANIT_TURU_GECERSIZ", f"Bilinmeyen yanıt türü: {str(yanit_turu)[:20]}"
+        ) from None
+
+
+def yanit_turu_hesapla(satirlar: tuple[YanitSatiri, ...] | list[YanitSatiri]) -> str:
+    """Satırlardan yanıt türü. Keşif §3 / Şef kuralı:
+
+    * her satır alındı ve HİÇBİRİNDE ret yok  -> ``KABUL``
+    * her satırın TAMAMI reddedildi           -> ``RED``
+    * geri kalan her şey                      -> ``KISMI_KABUL``
+
+    Satırsız bir yanıtın türü YOKTUR; ayrıştırıcı onu zaten reddeder.
+    """
+    if not satirlar:
+        raise ReceiptAdviceError("YANIT_SATIRSIZ", "Yanıt belgesinde satır yok")
+    if all(s.reddedilen == 0 for s in satirlar):
+        return KABUL
+    if all(s.alinan == 0 for s in satirlar):
+        return RED
+    return KISMI_KABUL
+
+
+def _yerel(etiket: str) -> str:
+    return etiket.rsplit("}", 1)[-1]
+
+
+def _cocuklar(eleman: ElementTree.Element, ad: str) -> list[ElementTree.Element]:
+    """DOĞRUDAN çocuklar, yerel ada göre. Ad alanı öneki belgeden belgeye
+    değişebilir (`cbc:` / `ns2:`); eşleme yerel adla yapılır, ama YALNIZ bir
+    seviye — `iter()` bir satırın içindeki `Item/ID`yi satırın `ID`si
+    sanardı."""
+    return [c for c in eleman if _yerel(c.tag) == ad]
+
+
+def _metin(eleman: ElementTree.Element | None, ad: str) -> str | None:
+    if eleman is None:
+        return None
+    for cocuk in _cocuklar(eleman, ad):
+        deger = (cocuk.text or "").strip()
+        if deger:
+            return deger
+    return None
+
+
+def _yanit_miktari(ham: str | None, alan: str, satir_no: Any) -> Decimal:
+    if ham is None:
+        return Decimal(0).quantize(_YANIT_OLCEGI)
+    try:
+        miktar = Decimal(ham)
+    except (InvalidOperation, ValueError):
+        raise ReceiptAdviceError(
+            "YANIT_MIKTAR_GECERSIZ", f"{alan} sayı değil", line=satir_no
+        ) from None
+    if not miktar.is_finite() or miktar < 0 or miktar >= _YANIT_TAVANI:
+        raise ReceiptAdviceError(
+            "YANIT_MIKTAR_GECERSIZ", f"{alan} geçersiz", line=satir_no
+        )
+    if miktar.quantize(_YANIT_OLCEGI) != miktar:
+        # Dört haneden fazla kesir PG'de sessizce yuvarlanır, SQLite'ta
+        # kalırdı — iki diyalekt iki farklı alınan miktar saklardı.
+        raise ReceiptAdviceError(
+            "YANIT_MIKTAR_GECERSIZ", f"{alan} dört ondalık haneyi aşıyor", line=satir_no
+        )
+    return miktar.quantize(_YANIT_OLCEGI)
+
+
+def receipt_advice_coz(xml: bytes | str) -> YanitBelgesi:
+    """Bir UBL ReceiptAdvice belgesini ayrıştır. Yan etkisi yok, ağa çıkmaz.
+
+    DOĞRULANMADI — bölüm başlığındaki not. Ayrıştırıcı ``defusedxml``
+    kullanır: belge alıcıdan, sağlayıcı üzerinden gelir ve GÜVENİLMEZ
+    girdidir (``provider._parse_xml`` ile aynı gerekçe).
+    """
+    ham = xml.encode("utf-8") if isinstance(xml, str) else bytes(xml or b"")
+    try:
+        kok = defused_fromstring(ham.lstrip(b"\xef\xbb\xbf").decode("utf-8", errors="replace"))
+    except (ElementTree.ParseError, DefusedXmlException, ValueError):
+        raise ReceiptAdviceError("YANIT_AYRISTIRILAMADI", "Yanıt belgesi XML olarak okunamadı") from None
+    if _yerel(kok.tag) != "ReceiptAdvice":
+        raise ReceiptAdviceError("YANIT_AYRISTIRILAMADI", "Belge bir ReceiptAdvice değil")
+
+    ettn = _metin(kok, "UUID")
+    numara = _metin(kok, "ID")
+    gun = _metin(kok, "IssueDate")
+    if not ettn or not numara or not gun:
+        raise ReceiptAdviceError(
+            "YANIT_KIMLIK_EKSIK", "Yanıt belgesinde UUID, ID ve IssueDate zorunlu"
+        )
+    if len(ettn) > YANIT_UUID_UZUNLUGU or len(numara) > YANIT_NO_UZUNLUGU:
+        raise ReceiptAdviceError("YANIT_KIMLIK_EKSIK", "Yanıt belgesi kimliği çok uzun")
+    try:
+        duzenleme = date.fromisoformat(gun[:10])
+    except ValueError:
+        raise ReceiptAdviceError("YANIT_KIMLIK_EKSIK", "Yanıt belgesi tarihi okunamadı") from None
+
+    notlar = [
+        (n.text or "").strip() for n in _cocuklar(kok, "Note") if (n.text or "").strip()
+    ]
+    referans = next(iter(_cocuklar(kok, "DespatchDocumentReference")), None)
+
+    satirlar: list[YanitSatiri] = []
+    gorulen: set[int] = set()
+    for sira, eleman in enumerate(_cocuklar(kok, "ReceiptLine"), start=1):
+        satir_ref = next(iter(_cocuklar(eleman, "DespatchLineReference")), None)
+        ham_no = _metin(satir_ref, "LineID")
+        try:
+            satir_no = int(str(ham_no).strip()) if ham_no is not None else None
+        except ValueError:
+            satir_no = None
+        if satir_no is None or satir_no < 1:
+            raise ReceiptAdviceError(
+                "YANIT_SATIR_REFERANSI_YOK",
+                "Yanıt satırı DespatchLineReference/LineID ile irsaliye satırını göstermiyor",
+                receipt_line=sira,
+            )
+        if satir_no in gorulen:
+            raise ReceiptAdviceError(
+                "YANIT_SATIR_TEKRAR", "Aynı irsaliye satırı yanıtta iki kez geçiyor", line=satir_no
+            )
+        gorulen.add(satir_no)
+        belge_ref = next(iter(_cocuklar(satir_ref, "DocumentReference")), None)
+        alinan = _yanit_miktari(_metin(eleman, "ReceivedQuantity"), "ReceivedQuantity", satir_no)
+        reddedilen = _yanit_miktari(_metin(eleman, "RejectedQuantity"), "RejectedQuantity", satir_no)
+        if alinan + reddedilen <= 0:
+            raise ReceiptAdviceError(
+                "YANIT_SATIR_BOS", "Yanıt satırında alınan ve reddedilen miktar ikisi de sıfır",
+                line=satir_no,
+            )
+        gerekce = _metin(eleman, "RejectReason")
+        satirlar.append(
+            YanitSatiri(
+                satir_no=satir_no,
+                belge_no=_metin(belge_ref, "ID"),
+                alinan=alinan,
+                reddedilen=reddedilen,
+                gerekce=gerekce[:RET_GEREKCESI_UZUNLUGU] if gerekce else None,
+            )
+        )
+    satir_demeti = tuple(satirlar)
+    return YanitBelgesi(
+        uuid=ettn,
+        numara=numara,
+        duzenleme=duzenleme,
+        notlar="\n".join(notlar) or None,
+        irsaliye_no=_metin(referans, "ID"),
+        irsaliye_uuid=_metin(referans, "UUID"),
+        satirlar=satir_demeti,
+        tur=yanit_turu_hesapla(satir_demeti),
+    )

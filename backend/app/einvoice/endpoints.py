@@ -236,8 +236,8 @@ IZIBIZ_OP_STATUS_EARCHIVE = "GetEArchiveInvoiceStatus"
 IZIBIZ_OP_PDF_EARCHIVE = "GetEArchiveInvoiceList"
 
 # --- e-İrsaliye (EIrsaliyeWS) --------------------------------------------
-#: Test WSDL'inde ON İKİ operasyon var (keşif §2.2). Buraya YALNIZ ÜÇÜ
-#: yazıldı ve dokuzunun yokluğu bir eksiklik değil bir KAPSAM kararıdır:
+#: Test WSDL'inde ON İKİ operasyon var (keşif §2.2). Buraya E4a'da YALNIZ ÜÇÜ
+#: yazıldı (E4b-2 dördüncüyü, `GetReceiptAdvice`ı ekledi) ve dokuzunun yokluğu bir eksiklik değil bir KAPSAM kararıdır:
 #: `SendReceiptAdvice` / `GetReceiptAdvice` / `GetReceiptAdviceStatus` /
 #: `SendDespatchResponse` ticari YANIT akışıdır (E4b), `LoadDespatchAdvice`
 #: / `LoadReceiptAdvice` gelen belge yüklemesidir, `MarkDespatchAdvice` /
@@ -257,6 +257,13 @@ IZIBIZ_OP_STATUS_DESPATCH = "GetDespatchAdviceStatus"
 #: `PDF` değerinin desteklendiği YALNIZ şemadan çıkarılamaz. Bu yüzden uç
 #: `format=pdf`i 501 ile REDDEDER; tahminle bir PDF çağrısı kurmaz.
 IZIBIZ_OP_GET_DESPATCH = "GetDespatchAdvice"
+#: E4b-2: alıcının BİZİM irsaliyemize gönderdiği ticari yanıt (UBL
+#: `ReceiptAdvice`). Şema (keşif §2.2): istek `SEARCH_KEY` 1, yanıt
+#: `RECEIPTADVICE` 0+ (`CONTENT` xmlmime base64). SATIRLI YANIT OKUMA AKIŞI
+#: ve `SEARCH_KEY/UUID`in hangi ETTN'i süzdüğü **DOĞRULANMADI** — adaptör
+#: dönen belgeleri kendisi süzmez, uç her belgenin `DespatchDocumentReference`ını
+#: bizim irsaliyemizle karşılaştırır.
+IZIBIZ_OP_GET_RECEIPT_ADVICE = "GetReceiptAdvice"
 
 #: e-İrsaliye durum sorgusunun ön koşulu. `GetDespatchAdviceStatus` şemada
 #: `UUID` 1+ ister (keşif §2.2) — sağlayıcı belge kimliği oraya YAZILAMAZ.
@@ -333,6 +340,7 @@ IZIBIZ_REQUEST_ELEMENT: dict[str, str] = {
     IZIBIZ_OP_SUBMIT_DESPATCH: "SendDespatchAdviceRequest",
     IZIBIZ_OP_STATUS_DESPATCH: "GetDespatchAdviceStatusRequest",
     IZIBIZ_OP_GET_DESPATCH: "GetDespatchAdviceRequest",
+    IZIBIZ_OP_GET_RECEIPT_ADVICE: "GetReceiptAdviceRequest",
 }
 
 #: Hangi operasyon hangi servise gider. Kalanı EInvoiceWS'e.
@@ -353,6 +361,7 @@ IZIBIZ_EDESPATCH_OPERATIONS: frozenset[str] = frozenset(
         IZIBIZ_OP_SUBMIT_DESPATCH,
         IZIBIZ_OP_STATUS_DESPATCH,
         IZIBIZ_OP_GET_DESPATCH,
+        IZIBIZ_OP_GET_RECEIPT_ADVICE,
     }
 )
 

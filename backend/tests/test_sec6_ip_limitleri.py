@@ -413,4 +413,6 @@ def test_TENANT_TABLES_auth_rate_limits_ICERMIYOR() -> None:
     # tablosu `cek_senetler`; `company_id` tasir, envantere OTOMATIK girer.
     # 122 -> 123: E4b-1 KISMI SEVK (goc 20260915_0087). Tek yeni kiraci
     # tablosu `despatch_lines`; `company_id` tasir, envantere OTOMATIK girer.
-    assert len(TENANT_TABLES) == 123
+    # 123 -> 125: E4b-2 e-IRSALIYE YANITI (goc 20260915_0089). Iki yeni kiraci
+    # tablosu: `despatch_responses`, `despatch_response_lines`.
+    assert len(TENANT_TABLES) == 125
