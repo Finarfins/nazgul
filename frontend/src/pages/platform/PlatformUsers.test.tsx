@@ -5,10 +5,14 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import type {components} from '../../api/types.gen';
 
 const get=vi.fn();
+const post=vi.fn();
 vi.mock('../../api',()=>({
- api:{get:(...args:unknown[])=>get(...args)},
+ api:{get:(...args:unknown[])=>get(...args),post:(...args:unknown[])=>post(...args),delete:(...args:unknown[])=>post(...args)},
  errorDetail:(_error:unknown,fallback:string)=>fallback,
 }));
+
+let operator=true;
+vi.mock('../../AuthContext',()=>({useAuth:()=>({can:(izin:string)=>izin==='platform'?operator:true})}));
 
 import PlatformUsers from './PlatformUsers';
 
@@ -32,7 +36,7 @@ const yanit=(yol:string,params:{offset:number})=>
  Promise.resolve({data:yol==='/platform/verifications'?DOGRULAMALAR:KULLANICILAR(params.offset)});
 
 beforeEach(()=>{get.mockReset();get.mockImplementation((yol:string,{params}:{params:{offset:number}})=>yanit(yol,params))});
-afterEach(cleanup);
+afterEach(()=>{cleanup();operator=true;post.mockReset()});
 
 const kullaniciCagrilari=()=>get.mock.calls.filter(cagri=>cagri[0]==='/platform/users');
 
@@ -59,12 +63,12 @@ it('sonraki sayfa offset=50, doğrulama süzgeci verified=true gönderir',async(
  await waitFor(()=>expect(kullaniciCagrilari().at(-1)![1].params).toEqual({verified:true,limit:50,offset:0}));
 });
 
-it('PP2 eylemleri devre dışı',async()=>{
+it('operatör değilse eylem düğmeleri hiç çizilmez',async()=>{
+ operator=false;
  render(<PlatformUsers/>);
  const satir=await screen.findByTestId('kullanici-1');
- for(const ad of ['Şifre sıfırla','Doğrulama gönder']){
-  expect((within(satir).getByRole('button',{name:ad}) as HTMLButtonElement).disabled).toBe(true);
- }
+ for(const ad of ['Kilitle','Kilidi aç','Şifre sıfırlat','Doğrulama gönder'])expect(within(satir).queryByRole('button',{name:ad})).toBeNull();
+ expect(post).not.toHaveBeenCalled();
 });
 
 it('403 → yetki yok paneli',async()=>{

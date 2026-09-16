@@ -1,5 +1,5 @@
 /**
- * Platform yönetim paneli ekranlarının ORTAK parçaları (PP3, salt-okunur).
+ * Platform yönetim paneli ekranlarının ORTAK parçaları (PP3 okuma, PP4 eylemler).
  *
  * Altı ekran da aynı üç durumu aynı biçimde çizmek zorunda: yükleniyor,
  * 403 (operatör değil) ve ağ/sunucu hatası. 403 BOŞ SAYFA DEĞİLDİR — rota
@@ -10,10 +10,11 @@
  * yönetimi var.
  */
 import React,{useCallback,useEffect,useRef,useState} from 'react';
-import {Alert,Box,Button,Paper,Stack,TablePagination,Tooltip,Typography} from '@mui/material';
+import {Alert,Box,Button,Dialog,DialogActions,DialogContent,DialogTitle,Paper,Snackbar,Stack,TablePagination,Typography} from '@mui/material';
 import LockIcon from '@mui/icons-material/Lock';
 
 import {api,errorDetail} from '../../api';
+import {useAuth} from '../../AuthContext';
 
 export type YuklemeHatasi={tur:'yetki'}|{tur:'hata';mesaj:string};
 
@@ -88,12 +89,78 @@ export function PlatformBaslik({baslik,aciklama,sag}:{baslik:string;aciklama:str
  </Stack>;
 }
 
+export type EylemBildirimi={tur:'basari'|'bilgi'|'hata';mesaj:string};
+
 /**
- * PP2 yer tutucusu. TODO(PP2): yazma uçları ana makinede yapılıyor; uç yokken
- * düğme HİÇBİR çağrı yapmaz ve devre dışı kalır.
+ * Sayfa düzeyinde TEK bildirim alanı. Düğmenin içinde tutulmaz: başarıdan
+ * sonra liste yeniden çekilir ve satır (süzgece göre) kaybolabilir; bildirim
+ * onunla birlikte kaybolmamalı.
  */
-export function PP2Dugmesi({etiket,ikon}:{etiket:string;ikon?:React.ReactNode}){
- return <Tooltip title="PP2 ile gelecek"><span><Button size="small" disabled startIcon={ikon}>{etiket}</Button></span></Tooltip>;
+export function useEylemBildirimi(){
+ const [bildirim,setBildirim]=useState<EylemBildirimi|null>(null);
+ const kapat=()=>setBildirim(null);
+ const alan=<Snackbar open={!!bildirim} autoHideDuration={6000} onClose={kapat} anchorOrigin={{vertical:'bottom',horizontal:'center'}}>
+  {bildirim?<Alert severity={bildirim.tur==='basari'?'success':bildirim.tur==='bilgi'?'info':'error'} onClose={kapat} data-testid="eylem-bildirimi">{bildirim.mesaj}</Alert>:undefined}
+ </Snackbar>;
+ return {bildir:setBildirim,bildirimAlani:alan};
+}
+
+/** PP2 yazma uçlarının ortak yanıt çekirdeği (`EylemSonucu`). */
+type DegisimYaniti={changed:boolean};
+
+/** `changed:false` hata DEĞİLDİR (Şef kararı): bilgi bildirimi. */
+export const ZATEN_BU_DURUMDA='Zaten bu durumda';
+
+/**
+ * Platform yazma eylemi düğmesi (PP4).
+ *
+ * - `can('platform')` yoksa HİÇ çizilmez (rota koruması tek savunma değil).
+ * - `onay` verilirse çağrıdan önce hedefi adıyla anan bir onay penceresi açar;
+ *   yıkıcı eylemlerin hepsi (askıya alma, kilitleme, şifre sıfırlatma, hız
+ *   sınırı temizliği, kuyruk yeniden deneme) `onay` ile kullanılır.
+ * - Başarı + `changed:true` → başarı bildirimi ve `yenile()`;
+ *   `changed:false` → "Zaten bu durumda" bilgi bildirimi ve `yenile()`;
+ *   hata (409/429/404…) → sunucunun cümlesi (`errorDetail`), liste yenilenmez.
+ */
+export function EylemDugmesi<T extends DegisimYaniti>({etiket,ikon,renk,onay,istek,basariMetni,yenile,bildir,testId}:{
+ etiket:string;
+ ikon?:React.ReactNode;
+ renk?:'primary'|'error'|'warning';
+ onay?:{baslik:string;icerik:React.ReactNode;onayEtiketi?:string};
+ istek:()=>Promise<{data:T}>;
+ basariMetni:(veri:T)=>string;
+ yenile:()=>void;
+ bildir:(bildirim:EylemBildirimi)=>void;
+ testId?:string;
+}){
+ const {can}=useAuth();
+ const [acik,setAcik]=useState(false);
+ const [calisiyor,setCalisiyor]=useState(false);
+ if(!can('platform'))return null;
+ const calistir=async()=>{
+  setCalisiyor(true);
+  try{
+   const {data}=await istek();
+   bildir(data.changed?{tur:'basari',mesaj:basariMetni(data)}:{tur:'bilgi',mesaj:ZATEN_BU_DURUMDA});
+   setAcik(false);
+   yenile();
+  }catch(error){
+   bildir({tur:'hata',mesaj:errorDetail(error,'İşlem tamamlanamadı; yeniden deneyin.')});
+   setAcik(false);
+  }finally{setCalisiyor(false)}
+ };
+ return <>
+  <Button size="small" color={renk} startIcon={ikon} disabled={calisiyor} data-testid={testId}
+   onClick={()=>{if(onay)setAcik(true);else void calistir()}}>{etiket}</Button>
+  {onay&&<Dialog open={acik} onClose={()=>{if(!calisiyor)setAcik(false)}} maxWidth="xs" fullWidth>
+   <DialogTitle>{onay.baslik}</DialogTitle>
+   <DialogContent><Box data-testid="eylem-onay-metni">{onay.icerik}</Box></DialogContent>
+   <DialogActions>
+    <Button onClick={()=>setAcik(false)} disabled={calisiyor}>Vazgeç</Button>
+    <Button variant="contained" color={renk??'primary'} onClick={()=>void calistir()} disabled={calisiyor}>{onay.onayEtiketi??etiket}</Button>
+   </DialogActions>
+  </Dialog>}
+ </>;
 }
 
 export const tarihSaat=(deger:string|null|undefined)=>deger?new Date(deger).toLocaleString('tr-TR'):'—';

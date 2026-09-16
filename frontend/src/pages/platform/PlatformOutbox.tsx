@@ -5,16 +5,22 @@ import {
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ReplayIcon from '@mui/icons-material/Replay';
 
+import {api} from '../../api';
 import type {components} from '../../api/types.gen';
 
-import {HataPaneli,PP2Dugmesi,PlatformBaslik,usePlatformVerisi,yasMetni} from './ortak';
+import {EylemDugmesi,HataPaneli,PlatformBaslik,useEylemBildirimi,usePlatformVerisi,yasMetni} from './ortak';
 
 type KuyrukSagligi=components['schemas']['KuyrukSagligi'];
+type KuyrukYenidenSonucu=components['schemas']['KuyrukYenidenSonucu'];
+
+const yenidenMetni=(kanal:string,sonuc:KuyrukYenidenSonucu)=>
+ `${kanal}: ${sonuc.requeued} bildirim yeniden kuyruğa alındı · kalan ${sonuc.remaining} · yeniden denenemez ${sonuc.not_retryable}`;
 
 const evetHayir=(deger:unknown)=>deger===undefined||deger===null?'—':typeof deger==='boolean'?(deger?'evet':'hayır'):String(deger);
 
 export default function PlatformOutbox(){
  const {veri,hata,yukleniyor,yenile}=usePlatformVerisi<KuyrukSagligi>('/platform/outbox/health');
+ const {bildir,bildirimAlani}=useEylemBildirimi();
  const baslik=<PlatformBaslik baslik="Kuyruk Sağlığı" aciklama="Bildirim kuyruğu kanal başına · saha stok zamanlayıcısı"
   sag={<Button startIcon={<RefreshIcon/>} onClick={yenile} disabled={yukleniyor}>Yenile</Button>}/>;
  if(hata?.tur==='yetki')return <Stack spacing={2.5}>{baslik}<HataPaneli hata={hata} yenile={yenile}/></Stack>;
@@ -38,8 +44,9 @@ export default function PlatformOutbox(){
        <TableCell align="right">{kanal.failed>0?<Chip size="small" color="error" label={kanal.failed}/>:0}</TableCell>
        <TableCell align="right">{kanal.sent_last_24h}</TableCell>
        <TableCell>{yasMetni(kanal.oldest_pending_age_seconds)}</TableCell>
-       {/* TODO(PP2): başarısızları yeniden deneme ucu PP2'de; şimdilik çağrı yok. */}
-       <TableCell align="right"><PP2Dugmesi etiket="Yeniden dene" ikon={<ReplayIcon/>}/></TableCell>
+       <TableCell align="right">{kanal.failed>0&&<EylemDugmesi<KuyrukYenidenSonucu> etiket="Yeniden dene" renk="warning" ikon={<ReplayIcon/>} testId={`yeniden-${kanal.channel}`}
+        onay={{baslik:'Başarısız bildirimleri yeniden dene',icerik:<><b>{kanal.channel}</b> kanalındaki <b>{kanal.failed}</b> başarısız bildirimden uygun olanlar (onaylı, rıza engeli olmayan) yeniden kuyruğa alınacak.</>}}
+        istek={()=>api.post('/platform/outbox/retry',{channel:kanal.channel})} basariMetni={sonuc=>yenidenMetni(kanal.channel,sonuc)} yenile={yenile} bildir={bildir}/>}</TableCell>
       </TableRow>)}
      </TableBody>
     </Table></TableContainer>
@@ -52,5 +59,6 @@ export default function PlatformOutbox(){
      </Box>}
    </Paper>
   </>}
+  {bildirimAlani}
  </Stack>;
 }

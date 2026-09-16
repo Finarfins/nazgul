@@ -5,10 +5,14 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import type {components} from '../../api/types.gen';
 
 const get=vi.fn();
+const post=vi.fn();
 vi.mock('../../api',()=>({
- api:{get:(...args:unknown[])=>get(...args)},
+ api:{get:(...args:unknown[])=>get(...args),post:(...args:unknown[])=>post(...args),delete:(...args:unknown[])=>post(...args)},
  errorDetail:(_error:unknown,fallback:string)=>fallback,
 }));
+
+let operator=true;
+vi.mock('../../AuthContext',()=>({useAuth:()=>({can:(izin:string)=>izin==='platform'?operator:true})}));
 
 import PlatformOutbox from './PlatformOutbox';
 
@@ -21,7 +25,7 @@ const SAGLIK:components['schemas']['KuyrukSagligi']={
 };
 
 beforeEach(()=>{get.mockReset()});
-afterEach(cleanup);
+afterEach(()=>{cleanup();operator=true;post.mockReset()});
 
 it('kanal başına durum sayılarını ve en eski bekleyen yaşını çizer',async()=>{
  get.mockResolvedValue({data:SAGLIK});
@@ -38,11 +42,19 @@ it('kanal başına durum sayılarını ve en eski bekleyen yaşını çizer',asy
  expect(screen.getByText('hayır')).toBeTruthy();
 });
 
-it('yeniden dene düğmesi PP2 yer tutucusu ve devre dışı',async()=>{
+it('operatör değilse yeniden dene düğmesi hiç çizilmez',async()=>{
+ operator=false;
  get.mockResolvedValue({data:SAGLIK});
  render(<PlatformOutbox/>);
- const satir=await screen.findByTestId('kanal-whatsapp');
- expect((within(satir).getByRole('button',{name:'Yeniden dene'}) as HTMLButtonElement).disabled).toBe(true);
+ const whatsapp=await screen.findByTestId('kanal-whatsapp');
+ expect(within(whatsapp).queryByRole('button',{name:'Yeniden dene'})).toBeNull();
+});
+
+it('başarısızı olmayan kanalda yeniden dene düğmesi yok',async()=>{
+ get.mockResolvedValue({data:SAGLIK});
+ render(<PlatformOutbox/>);
+ expect(within(await screen.findByTestId('kanal-whatsapp')).getByRole('button',{name:'Yeniden dene'})).toBeTruthy();
+ expect(within(screen.getByTestId('kanal-email')).queryByRole('button',{name:'Yeniden dene'})).toBeNull();
 });
 
 it('403 → yetki yok paneli',async()=>{
