@@ -2,18 +2,24 @@ import React,{useState} from 'react';
 import {
  Box,Chip,LinearProgress,MenuItem,Paper,Stack,Table,TableBody,TableCell,TableContainer,TableHead,TableRow,TextField,Typography,
 } from '@mui/material';
+import LockIcon from '@mui/icons-material/Lock';
+import LockOpenIcon from '@mui/icons-material/LockOpen';
 import LockResetIcon from '@mui/icons-material/LockReset';
 import MarkEmailReadIcon from '@mui/icons-material/MarkEmailRead';
 
+import {api} from '../../api';
 import type {components} from '../../api/types.gen';
 
-import {HataPaneli,PP2Dugmesi,PlatformBaslik,Sayfalama,tarihSaat,useGecikmeliDeger,usePlatformVerisi} from './ortak';
+import {EylemDugmesi,HataPaneli,PlatformBaslik,Sayfalama,tarihSaat,useGecikmeliDeger,useEylemBildirimi,usePlatformVerisi} from './ortak';
 
 type KullaniciListesi=components['schemas']['PlatformKullaniciListesi'];
 type DogrulamaListesi=components['schemas']['BekleyenDogrulamaListesi'];
 type DogrulamaSuzgeci='tum'|'evet'|'hayir';
+type KullaniciDurumu=components['schemas']['KullaniciDurumu'];
+type DogrulamaGonderimi=components['schemas']['DogrulamaGonderimi'];
+type ParolaSifirlama=components['schemas']['ParolaSifirlama'];
 
-/** Bekleyen doğrulamaların ilk sayfası; tam liste PP2'nin işi değil, burada yalnız görünürlük. */
+/** Bekleyen doğrulamaların ilk sayfası; tam liste bu ekranın işi değil, burada yalnız görünürlük. */
 const DOGRULAMA_LIMITI=20;
 
 function BekleyenDogrulamalar(){
@@ -45,6 +51,7 @@ export default function PlatformUsers(){
   limit:boyut,
   offset:sayfa*boyut,
  });
+ const {bildir,bildirimAlani}=useEylemBildirimi();
  const baslik=<PlatformBaslik baslik="Platform Kullanıcıları" aciklama="Bütün hesaplar ve firma üyelikleri · rol hesap düzeyindedir"/>;
  if(hata?.tur==='yetki')return <Stack spacing={2.5}>{baslik}<HataPaneli hata={hata} yenile={yenile}/></Stack>;
  return <Stack spacing={2.5}>
@@ -80,10 +87,18 @@ export default function PlatformUsers(){
          label={`${uyelik.company_name}${uyelik.is_default?' ★':''}${uyelik.company_is_active?'':' (pasif)'}`}/>)}
       </Box></TableCell>
       <TableCell>{tarihSaat(kullanici.last_login_at)}</TableCell>
-      {/* TODO(PP2): şifre sıfırlama ve doğrulamayı yeniden gönderme uçları PP2'de. */}
-      <TableCell align="right"><Stack direction="row" justifyContent="flex-end" gap={0.5}>
-       <PP2Dugmesi etiket="Şifre sıfırla" ikon={<LockResetIcon/>}/>
-       <PP2Dugmesi etiket="Doğrulama gönder" ikon={<MarkEmailReadIcon/>}/>
+      <TableCell align="right"><Stack direction="row" justifyContent="flex-end" flexWrap="wrap" gap={0.5}>
+       {kullanici.is_active?
+        <EylemDugmesi<KullaniciDurumu> etiket="Kilitle" renk="error" ikon={<LockIcon/>} testId={`kilitle-${kullanici.id}`}
+         onay={{baslik:'Hesabı kilitle',icerik:<><b>{kullanici.username}</b> kilitlenecek. Açık oturumları hemen kapanır ve kilit açılana kadar hiçbir firmada giriş yapamaz.</>}}
+         istek={()=>api.post(`/platform/users/${kullanici.id}/status`,{locked:true})} basariMetni={()=>`${kullanici.username} kilitlendi`} yenile={yenile} bildir={bildir}/>:
+        <EylemDugmesi<KullaniciDurumu> etiket="Kilidi aç" ikon={<LockOpenIcon/>} testId={`kilit-ac-${kullanici.id}`}
+         istek={()=>api.post(`/platform/users/${kullanici.id}/status`,{locked:false})} basariMetni={()=>`${kullanici.username} kilidi açıldı`} yenile={yenile} bildir={bildir}/>}
+       <EylemDugmesi<ParolaSifirlama> etiket="Şifre sıfırlat" renk="warning" ikon={<LockResetIcon/>} testId={`sifre-${kullanici.id}`}
+        onay={{baslik:'Şifre değişimini zorla',icerik:<><b>{kullanici.username}</b> bir sonraki girişte şifresini değiştirmek zorunda kalacak.</>}}
+        istek={()=>api.post(`/platform/users/${kullanici.id}/force-password-reset`)} basariMetni={()=>`${kullanici.username} için şifre değişimi zorunlu kılındı`} yenile={yenile} bildir={bildir}/>
+       {!kullanici.email_verified&&<EylemDugmesi<DogrulamaGonderimi> etiket="Doğrulama gönder" ikon={<MarkEmailReadIcon/>} testId={`dogrulama-${kullanici.id}`}
+        istek={()=>api.post(`/platform/users/${kullanici.id}/resend-verification`)} basariMetni={()=>`${kullanici.username} için doğrulama postası kuyruğa alındı`} yenile={yenile} bildir={bildir}/>}
       </Stack></TableCell>
      </TableRow>)}
     </TableBody>
@@ -91,5 +106,6 @@ export default function PlatformUsers(){
    <Sayfalama toplam={veri?.total??0} sayfa={sayfa} boyut={boyut} sayfaDegisti={setSayfa} boyutDegisti={yeni=>{setBoyut(yeni);setSayfa(0)}}/>
   </Paper>
   <BekleyenDogrulamalar/>
+  {bildirimAlani}
  </Stack>;
 }

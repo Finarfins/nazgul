@@ -3,12 +3,15 @@ import {
  Chip,LinearProgress,MenuItem,Paper,Stack,Table,TableBody,TableCell,TableContainer,TableHead,TableRow,TextField,
 } from '@mui/material';
 import BlockIcon from '@mui/icons-material/Block';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 
+import {api} from '../../api';
 import type {components} from '../../api/types.gen';
 
-import {HataPaneli,PP2Dugmesi,PlatformBaslik,Sayfalama,tarihSaat,useGecikmeliDeger,usePlatformVerisi} from './ortak';
+import {EylemDugmesi,HataPaneli,PlatformBaslik,Sayfalama,tarihSaat,useGecikmeliDeger,useEylemBildirimi,usePlatformVerisi} from './ortak';
 
 type SirketListesi=components['schemas']['PlatformSirketListesi'];
+type SirketDurumu=components['schemas']['SirketDurumu'];
 type DurumSuzgeci='tum'|'aktif'|'pasif';
 
 export default function PlatformCompanies(){
@@ -23,6 +26,7 @@ export default function PlatformCompanies(){
   limit:boyut,
   offset:sayfa*boyut,
  });
+ const {bildir,bildirimAlani}=useEylemBildirimi();
  const baslik=<PlatformBaslik baslik="Şirketler" aciklama="Platformdaki bütün firmalar · üye sayısı ve son hareket"/>;
  if(hata?.tur==='yetki')return <Stack spacing={2.5}>{baslik}<HataPaneli hata={hata} yenile={yenile}/></Stack>;
  return <Stack spacing={2.5}>
@@ -51,12 +55,18 @@ export default function PlatformCompanies(){
       <TableCell align="right">{sirket.member_count}</TableCell>
       <TableCell>{tarihSaat(sirket.last_activity_at)}</TableCell>
       <TableCell>{tarihSaat(sirket.created_at)}</TableCell>
-      {/* TODO(PP2): askıya alma / yeniden açma uçları PP2'de; şimdilik çağrı yok. */}
-      <TableCell align="right"><PP2Dugmesi etiket={sirket.is_active?'Askıya al':'Aç'} ikon={<BlockIcon/>}/></TableCell>
+      <TableCell align="right">{sirket.is_active?
+       <EylemDugmesi<SirketDurumu> etiket="Askıya al" renk="error" ikon={<BlockIcon/>} testId={`askiya-al-${sirket.id}`}
+        onay={{baslik:'Firmayı askıya al',icerik:<><b>{sirket.name}</b> askıya alınacak. Firmanın bütün üyeleri bu firmada oturum açamaz ve işlem yapamaz; veriler silinmez.</>}}
+        istek={()=>api.post(`/platform/companies/${sirket.id}/deactivate`)} basariMetni={()=>`${sirket.name} askıya alındı`} yenile={yenile} bildir={bildir}/>:
+       <EylemDugmesi<SirketDurumu> etiket="Aç" ikon={<CheckCircleIcon/>} testId={`ac-${sirket.id}`}
+        istek={()=>api.post(`/platform/companies/${sirket.id}/activate`)} basariMetni={()=>`${sirket.name} yeniden açıldı`} yenile={yenile} bildir={bildir}/>}
+      </TableCell>
      </TableRow>)}
     </TableBody>
    </Table></TableContainer>
    <Sayfalama toplam={veri?.total??0} sayfa={sayfa} boyut={boyut} sayfaDegisti={setSayfa} boyutDegisti={yeni=>{setBoyut(yeni);setSayfa(0)}}/>
   </Paper>
+  {bildirimAlani}
  </Stack>;
 }

@@ -6,10 +6,14 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import type {components} from '../../api/types.gen';
 
 const get=vi.fn();
+const post=vi.fn();
 vi.mock('../../api',()=>({
- api:{get:(...args:unknown[])=>get(...args)},
+ api:{get:(...args:unknown[])=>get(...args),post:(...args:unknown[])=>post(...args),delete:(...args:unknown[])=>post(...args)},
  errorDetail:(_error:unknown,fallback:string)=>fallback,
 }));
+
+let operator=true;
+vi.mock('../../AuthContext',()=>({useAuth:()=>({can:(izin:string)=>izin==='platform'?operator:true})}));
 
 import PlatformCompanies from './PlatformCompanies';
 
@@ -22,7 +26,7 @@ const sayfa=(offset:number,total=120):components['schemas']['PlatformSirketListe
 });
 
 beforeEach(()=>{get.mockReset();get.mockImplementation((_yol:string,{params}:{params:{offset:number}})=>Promise.resolve({data:sayfa(params.offset)}))});
-afterEach(cleanup);
+afterEach(()=>{cleanup();operator=true;post.mockReset()});
 
 const sonParametreler=()=>get.mock.calls[get.mock.calls.length-1][1].params;
 
@@ -58,12 +62,13 @@ it('arama ve durum süzgeci sunucuya q/active olarak gider, sayfa başa döner',
  await waitFor(()=>expect(sonParametreler()).toEqual({q:'tarım',active:false,limit:50,offset:0}));
 });
 
-it('eylem düğmesi PP2 yer tutucusu: devre dışı ve çağrı yapmaz',async()=>{
+it('operatör değilse eylem düğmesi hiç çizilmez',async()=>{
+ operator=false;
  render(<PlatformCompanies/>);
  const satir=await screen.findByTestId('sirket-1');
- const dugme=within(satir).getByRole('button',{name:'Askıya al'}) as HTMLButtonElement;
- expect(dugme.disabled).toBe(true);
- expect(get.mock.calls.every(cagri=>cagri[0]==='/platform/companies')).toBe(true);
+ expect(within(satir).queryByRole('button')).toBeNull();
+ expect(within(screen.getByTestId('sirket-2')).queryByRole('button')).toBeNull();
+ expect(post).not.toHaveBeenCalled();
 });
 
 it('403 → yetki yok paneli, tablo çizilmez',async()=>{

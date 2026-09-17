@@ -5,10 +5,14 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import type {components} from '../../api/types.gen';
 
 const get=vi.fn();
+const post=vi.fn();
 vi.mock('../../api',()=>({
- api:{get:(...args:unknown[])=>get(...args)},
+ api:{get:(...args:unknown[])=>get(...args),post:(...args:unknown[])=>post(...args),delete:(...args:unknown[])=>post(...args)},
  errorDetail:(_error:unknown,fallback:string)=>fallback,
 }));
+
+let operator=true;
+vi.mock('../../AuthContext',()=>({useAuth:()=>({can:(izin:string)=>izin==='platform'?operator:true})}));
 
 import PlatformSecurity,{PENCERELER} from './PlatformSecurity';
 
@@ -26,7 +30,7 @@ beforeEach(()=>{
  get.mockImplementation((yol:string,{params}:{params:{window_hours:number}})=>
   Promise.resolve({data:yol==='/platform/rate-limits'?HIZ(params.window_hours):DENETIM}));
 });
-afterEach(cleanup);
+afterEach(()=>{cleanup();operator=true;post.mockReset()});
 
 const cagrilar=(yol:string)=>get.mock.calls.filter(cagri=>cagri[0]===yol);
 
@@ -51,7 +55,7 @@ it('pencere seçici en fazla 168 saat sunar ve window_hours gönderir',async()=>
  await waitFor(()=>expect(cagrilar('/platform/rate-limits').at(-1)![1]).toEqual({params:{window_hours:168}}));
 });
 
-it('denetim süzgeci ucun desteklediği tek parametre olan limit ile gider',async()=>{
+it('limit seçici yalnız limit gönderir; boş süzgeçler gönderilmez',async()=>{
  render(<PlatformSecurity/>);
  await screen.findByTestId('denetim-501');
  fireEvent.mouseDown(screen.getByRole('combobox',{name:/Son kayıt/}));
