@@ -5,7 +5,7 @@ import {ThemeProvider,createTheme} from '@mui/material/styles';
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 
 import CekSenetPortfoyu from './CekSenetPortfoyu';
-import {type CekSenet,type Durum,gunEkle,yerelTarih} from './cekSenet';
+import {type CekSenet,type Durum,EYLEMLER,GECISLER,gunEkle,yerelTarih} from './cekSenet';
 
 const get=vi.fn();
 const post=vi.fn();
@@ -17,8 +17,9 @@ vi.mock('../../api',()=>({
 // İzinler testten TAK EDİLİR (Payments.test.tsx deseni): gerçek AuthProvider
 // bir `/api/auth/me` turu ister ve bu dosyanın ölçtüğü şey o değil.
 let izinler:string[]=[];
+let rol='admin';
 vi.mock('../../AuthContext',()=>({
- useAuth:()=>({can:(izin:string)=>izinler.includes(izin)}),
+ useAuth:()=>({can:(izin:string)=>izinler.includes(izin),user:{role:rol}}),
 }));
 
 // DataGrid jsdom'da sütun sanallaştırması yapar; tablo, satır başına sütunların
@@ -54,6 +55,7 @@ const sonListeParams=()=>listeCagrilari().at(-1);
 
 beforeEach(()=>{
  izinler=['read','sales','purchases','payments'];
+ rol='admin';
  liste={items:[evrak(11,'portfoyde')],total:1};
  takvim={portfoyde:[],tahsile_verildi:[]};
  listeHatasi=null;
@@ -273,13 +275,60 @@ describe('Durum geçişi eylemleri',()=>{
   expect(within(menu).getByRole('menuitem',{name:'Tahsile Ver'})).not.toHaveAttribute('aria-disabled');
  });
 
- it('satis (purchases yok): tedarikçi listesi istenmez, Ciro Et devre dışıdır',async()=>{
+ it('purchases yok (rol muhasebe): tedarikçi listesi istenmez, Ciro Et devre dışıdır',async()=>{
   izinler=['read','sales','payments'];
+  rol='muhasebe';
   mount();
   const menu=await menuAc('S-11');
   expect(within(menu).getByRole('menuitem',{name:'Ciro Et'})).toHaveAttribute('aria-disabled','true');
   expect(within(menu).getByRole('menuitem',{name:'Tahsile Ver'})).not.toHaveAttribute('aria-disabled');
   expect(get).not.toHaveBeenCalledWith('/suppliers');
+ });
+
+ describe('rol kapısı (H50)',()=>{
+  const RISKLI=['Ciro Et','Karşılıksız','İade'];
+  const etiketler=(menu:HTMLElement)=>within(menu).queryAllByRole('menuitem').map(o=>o.textContent);
+
+  it.each(['portfoyde','tahsile_verildi','karsiliksiz'] as Durum[])('satis (%s): Tahsil/Tahsile Ver görünür, Ciro/Karşılıksız/İade HİÇ yok',async durum=>{
+   izinler=['read','sales','payments'];
+   rol='satis';
+   liste={items:[evrak(1,durum)],total:1};
+   mount();
+   const menu=await menuAc('S-1');
+   expect(etiketler(menu)).toEqual(['Tahsile Ver','Bankadan Tahsil','Portföye Geri Al']);
+   for(const etiket of RISKLI)expect(within(menu).queryByRole('menuitem',{name:etiket})).toBeNull();
+   const etkin=within(menu).queryAllByRole('menuitem').filter(o=>o.getAttribute('aria-disabled')!=='true').map(o=>o.textContent);
+   const yasal=EYLEMLER.filter(e=>GECISLER[durum].includes(e.hedef)).map(e=>e.etiket);
+   // Etkin hedefler HER ZAMAN haritanın alt kümesidir; satis riskli olanları kaybeder.
+   expect(etkin).toEqual(yasal.filter(e=>!RISKLI.includes(e)));
+  });
+
+  it.each(['admin','yonetici','muhasebe'])('%s: her durumda bütün yasal hedefler etkin, eylem gizlenmez',async r=>{
+   rol=r;
+   const durumlar:Durum[]=['portfoyde','tahsile_verildi','karsiliksiz','tahsil_edildi','ciro_edildi','iade'];
+   liste={items:durumlar.map((d,i)=>evrak(i+1,d)),total:durumlar.length};
+   mount();
+   for(const [i,durum] of durumlar.entries()){
+    const menu=await menuAc(`S-${i+1}`);
+    expect(etiketler(menu)).toEqual(EYLEMLER.map(e=>e.etiket));
+    const etkinHedefler=EYLEMLER.filter(e=>within(menu).getByRole('menuitem',{name:e.etiket}).getAttribute('aria-disabled')!=='true').map(e=>e.hedef);
+    expect(etkinHedefler.sort()).toEqual([...GECISLER[durum]].sort());
+    fireEvent.keyDown(menu,{key:'Escape'});
+    await waitFor(()=>expect(screen.queryByRole('menu')).toBeNull());
+   }
+  });
+
+  it('403 CEK_DURUM_ROL_YETKISIZ (rol oturum ortasında değişti): mesaj pencerede gösterilir',async()=>{
+   rol='muhasebe';
+   post.mockRejectedValueOnce({response:{status:403,data:{detail:{code:'CEK_DURUM_ROL_YETKISIZ',message:'Bu durum geçişi için rolünüz yetkili değil.'}}}});
+   mount();
+   const menu=await menuAc('S-11');
+   fireEvent.click(within(menu).getByRole('menuitem',{name:'İade'}));
+   const pencere=await screen.findByRole('dialog');
+   fireEvent.click(within(pencere).getByRole('button',{name:'İade'}));
+   expect(await within(pencere).findByText('Bu durum geçişi için rolünüz yetkili değil.')).toBeInTheDocument();
+   expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
  });
 
  const eylemYap=async(seriNo:string,etiket:string)=>{

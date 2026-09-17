@@ -2,6 +2,7 @@ import {describe,expect,it} from 'vitest';
 
 import {
  bordroSatirNo,DURUMLAR,EYLEMLER,eylemEtkinMi,eylemGorunurMu,GECISLER,gunEkle,hataMesaji,izinliMi,kurusToplami,
+ MUHASEBE_HEDEFLERI,MUHASEBE_ROLLERI,rolHedefeGidebilirMi,
  type Durum,type EylemAnahtari,
 } from './cekSenet';
 
@@ -64,6 +65,38 @@ describe('çek/senet durum makinesi aynası',()=>{
   expect(eylemGorunurMu(ciro,{yon:'verilen'})).toBe(false);
   expect(eylemGorunurMu(ciro,{yon:'alinan'})).toBe(true);
   for(const eylem of EYLEMLER.filter(e=>e.anahtar!=='ciro'))expect(eylemGorunurMu(eylem,{yon:'verilen'})).toBe(true);
+ });
+});
+
+/**
+ * Backend `cek_senet_engine.rol_hedefe_gidebilir_mi` doğruluk tablosunun ELLE
+ * kopyası (H48): hedef -> rol -> gidebilir mi. Türetilmedi.
+ */
+const ROL_TABLOSU:Record<Durum,Record<'admin'|'yonetici'|'muhasebe'|'satis',boolean>>={
+ portfoyde:{admin:true,yonetici:true,muhasebe:true,satis:true},
+ tahsile_verildi:{admin:true,yonetici:true,muhasebe:true,satis:true},
+ tahsil_edildi:{admin:true,yonetici:true,muhasebe:true,satis:true},
+ ciro_edildi:{admin:true,yonetici:true,muhasebe:true,satis:false},
+ karsiliksiz:{admin:true,yonetici:true,muhasebe:true,satis:false},
+ iade:{admin:true,yonetici:true,muhasebe:true,satis:false},
+};
+
+describe('rol kapısı aynası (H50)',()=>{
+ it('sabitler backend MUHASEBE_HEDEFLERI / MUHASEBE_ROLLERI ile birebir',()=>{
+  expect([...MUHASEBE_HEDEFLERI].sort()).toEqual(['ciro_edildi','iade','karsiliksiz']);
+  expect([...MUHASEBE_ROLLERI].sort()).toEqual(['admin','muhasebe','yonetici']);
+ });
+ for(const hedef of DURUMLAR){
+  for(const [rol,beklenen] of Object.entries(ROL_TABLOSU[hedef])){
+   it(`${rol} -> ${hedef}: ${beklenen}`,()=>{
+    expect(rolHedefeGidebilirMi(rol,hedef)).toBe(beklenen);
+   });
+  }
+ }
+ it('bilinmeyen ya da boş rol riskli hedeflere gidemez, diğerlerine gidebilir',()=>{
+  for(const rol of ['','depo','rapor','ADMIN']){
+   expect(DURUMLAR.filter(h=>rolHedefeGidebilirMi(rol,h))).toEqual(['portfoyde','tahsile_verildi','tahsil_edildi']);
+  }
  });
 });
 

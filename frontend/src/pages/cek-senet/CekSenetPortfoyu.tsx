@@ -13,7 +13,7 @@ import ResponsiveTable from '../../components/ResponsiveTable';
 
 import {
  type CekSenet,type CekSenetListesi,DURUM_ETIKETI,DURUM_RENGI,DURUMLAR,type Durum,type Eylem,EYLEMLER,
- ACIK_DURUMLAR,eylemEtkinMi,eylemGorunurMu,hataMesaji,kurusToplami,TUR_ETIKETI,YON_ETIKETI,yerelTarih,
+ ACIK_DURUMLAR,eylemEtkinMi,eylemGorunurMu,hataMesaji,kurusToplami,rolHedefeGidebilirMi,TUR_ETIKETI,YON_ETIKETI,yerelTarih,
 } from './cekSenet';
 import {BordroDialog,type Cari,DurumDialog,type Hesap,YeniEvrakDialog} from './CekSenetDialoglari';
 import VadeTakvimi,{type VadeAraligi} from './VadeTakvimi';
@@ -35,7 +35,7 @@ type CariSecimi=Cari&{tip:'customer'|'supplier'};
  * `hesap_no` maskeli rollerde son 4 haneyle gelebilir: OLDUĞU GİBİ çizilir.
  */
 export default function CekSenetPortfoyu(){
- const {can}=useAuth();
+ const {can,user}=useAuth();
  // Tedarikçi listesi (`GET /api/suppliers`) `purchases` ister; `satis` taşımaz
  // (Payments.tsx ile aynı görünürlük kararı). Bu rolde tedarikçi seçicileri
  // hiç çizilmez, ciro devre dışıdır; asıl kapı backend'dedir.
@@ -130,6 +130,11 @@ export default function CekSenetPortfoyu(){
  const sayfaToplami=kurusToplami(evraklar.map(e=>e.tutar));
  const tekSayfa=toplam<=evraklar.length;
 
+ // Rol kapısı (H50): muhasebe kararı olan hedefler (ciro/karşılıksız/iade)
+ // `satis` gibi rollere hiç GÖSTERİLMEZ — devre dışı düğme destek çağrısı
+ // doğurur. Durum yüzünden şimdilik kapalı olanlar ise görünür ve devre dışıdır.
+ const rol=user?.role??'';
+ const gorunur=(eylem:Eylem,evrak:CekSenet)=>eylemGorunurMu(eylem,evrak)&&rolHedefeGidebilirMi(rol,eylem.hedef);
  const ciroKapali=(eylem:Eylem)=>eylem.hedef==='ciro_edildi'&&!tedarikciGorunur;
  const eylemAc=(eylem:Eylem,evrak:CekSenet)=>{setMenu(null);setBilgi('');setEylemHedefi({eylem,evrak})};
  const degisti=(mesaj:string)=>{setBilgi(mesaj);setTakvimSurumu(s=>s+1);void yukle()};
@@ -156,7 +161,7 @@ export default function CekSenetPortfoyu(){
 
  const kartEylemleri=EYLEMLER.map(eylem=>({
   label:eylem.etiket,
-  hidden:(evrak:CekSenet)=>!eylemGorunurMu(eylem,evrak),
+  hidden:(evrak:CekSenet)=>!gorunur(eylem,evrak),
   disabled:(evrak:CekSenet)=>!eylemEtkinMi(eylem,evrak)||ciroKapali(eylem),
   onClick:(evrak:CekSenet)=>eylemAc(eylem,evrak),
  }));
@@ -240,7 +245,7 @@ export default function CekSenetPortfoyu(){
   </>}
 
   <Menu anchorEl={menu?.el} open={Boolean(menu)} onClose={()=>setMenu(null)}>
-   {menu&&EYLEMLER.filter(eylem=>eylemGorunurMu(eylem,menu.evrak)).map(eylem=>{
+   {menu&&EYLEMLER.filter(eylem=>gorunur(eylem,menu.evrak)).map(eylem=>{
     const kapali=!eylemEtkinMi(eylem,menu.evrak)||ciroKapali(eylem);
     const oge=<MenuItem key={eylem.anahtar} disabled={kapali} onClick={()=>eylemAc(eylem,menu.evrak)}>{eylem.etiket}</MenuItem>;
     return ciroKapali(eylem)
