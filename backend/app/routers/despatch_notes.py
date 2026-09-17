@@ -88,7 +88,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, insert, select, text, update
+from sqlalchemy import Integer, and_, bindparam, func, insert, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -109,6 +109,7 @@ from ..einvoice import edespatch
 from ..einvoice.endpoints import IZIBIZ_EDESPATCH_PDF_UNVERIFIED
 from ..invoice_service import log_invoice_action
 from ..tenancy import company_id
+from .cek_senetler import INT4_UST
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/despatch-notes", tags=["despatch-notes"])
@@ -717,12 +718,17 @@ def irsaliye_olustur(payload: IrsaliyeOlustur, request: Request, db: Session = D
     return _detay_gorunumu(db, cid, yeni_id)
 
 
+#: H51: `invoice_id` ve `offset` tavanı `INT4_UST` — tek tavan, her yerde (H54
+#: kararı); 2^63-1 sürücünün sınırıydı, ürünün değil. ÖLÇÜLDÜ (PG 16): tipli
+#: `::INTEGER` bağı int4 dışındaki `invoice_id`yi (2147483648, -2147483649,
+#: 2^63) `NumericValueOutOfRange: integer out of range` ile 500 yapıyordu.
+#: `ge=1`: kimlikler 1'den başlar; kardeş uçların 404'üyle aynı ret, daha erken.
 @router.get("")
 def irsaliye_listesi(
     request: Request,
-    invoice_id: int | None = None,
+    invoice_id: int | None = Query(None, ge=1, le=INT4_UST),
     limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=INT4_UST),
     db: Session = Depends(get_db),
 ):
     """Firmanın irsaliyeleri. SABİT METİN — dinamik SQL yok.
@@ -732,14 +738,21 @@ def irsaliye_listesi(
     invoice_id=:invoice_id)`. Böylece bu dosya
     `DYNAMIC_SQL_FILE_ALLOWLIST`e HİÇ girmiyor — girmeyen bir dosyanın
     parmak izi de kaymaz.
+    Sınırlar uçta (`INT4_UST`), çünkü `::INTEGER` dönüşümü aralık taşmasını 500 yapar.
     """
+    # H51: parametre TİPLİ bağlanıyor. psycopg3 `None`ı tipsiz gönderir ve
+    # PG `:invoice_id IS NULL` içindeki `$2`nin tipini çıkaramaz
+    # (`AmbiguousParameter`, süzgeçsiz her istek 500 — SQLite'ta görünmez).
+    # `Integer` tipi psycopg lehçesinde `::INTEGER` dönüşümü olarak basılır;
+    # SQL metni yine TEK bir sabit, dosya allowlist'e girmiyor.
+    tipli_fatura = bindparam("invoice_id", type_=Integer)
     cid = company_id(request)
     ortak = {"cid": cid, "invoice_id": invoice_id}
     toplam = db.execute(
         text(
             "SELECT COUNT(*) FROM despatch_notes WHERE company_id=:cid "
             "AND (:invoice_id IS NULL OR invoice_id=:invoice_id)"
-        ),
+        ).bindparams(tipli_fatura),
         ortak,
     ).scalar_one()
     satirlar = db.execute(
@@ -747,7 +760,7 @@ def irsaliye_listesi(
             "SELECT * FROM despatch_notes WHERE company_id=:cid "
             "AND (:invoice_id IS NULL OR invoice_id=:invoice_id) "
             "ORDER BY issue_date DESC, id DESC LIMIT :limit OFFSET :offset"
-        ),
+        ).bindparams(tipli_fatura),
         {**ortak, "limit": limit, "offset": offset},
     ).mappings().all()
     return {"items": [_gorunum(dict(x)) for x in satirlar], "total": int(toplam)}

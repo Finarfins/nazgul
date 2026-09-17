@@ -1173,6 +1173,52 @@ def test_LISTE_ve_DETAY(istemci, admin_basliklari, tohum, irsaliye) -> None:
     ).status_code == 404
 
 
+def test_LISTE_SUZGECSIZ_calisir_ve_total_sayfayla_ANLASIR(
+    istemci, admin_basliklari, irsaliye
+) -> None:
+    """H51: `invoice_id` verilmeyen liste. SQLite'ta tabanda da 200'dü; ASIL kanıt
+    PG ikizinde (`test_h51_irsaliye_listesi_postgresql.py`) — tabanda orada 500.
+    Burada ölçülen: süzgeçsiz yol firmanın irsaliyesini taşır ve COUNT ile sayfa
+    aynı kümeyi görür."""
+    yanit = istemci.get("/api/despatch-notes?limit=200", headers=admin_basliklari)
+    assert yanit.status_code == 200, yanit.text
+    govde = yanit.json()
+    assert irsaliye["id"] in {x["id"] for x in govde["items"]}
+    assert govde["total"] == len(govde["items"])
+
+
+def test_LISTE_OFFSET_TAVANI_INT4_UST_422_sinirda_200(istemci, admin_basliklari, tohum) -> None:
+    """H51: `offset` tavanı `INT4_UST` (H54: tek tavan). 2^31 ve 2^63 422, sınır
+    200. SQLite'ta tavansız 2^31 200 verirdi — MUTASYON: `le=INT4_UST`yi silmek
+    ya da 2^63-1'e geri almak bunu KIRMIZI yapar."""
+    from app.routers.cek_senetler import INT4_UST
+
+    assert INT4_UST == 2**31 - 1
+    for on in ("", f"invoice_id={tohum['invoice_id']}&"):
+        for tasan_offset in (2**31, 2**63):
+            tasan = istemci.get(
+                f"/api/despatch-notes?{on}offset={tasan_offset}", headers=admin_basliklari
+            )
+            assert tasan.status_code == 422, tasan.text
+            assert tasan.json()["detail"][0]["loc"] == ["query", "offset"]
+        sinir = istemci.get(
+            f"/api/despatch-notes?{on}offset={INT4_UST}", headers=admin_basliklari
+        )
+        assert sinir.status_code == 200, sinir.text
+        assert sinir.json()["items"] == []
+
+
+@pytest.mark.parametrize("fatura", [2147483648, -2147483649, 2**63, 0, -1])
+def test_LISTE_INVOICE_ID_1_ile_INT4_UST_disi_422(istemci, admin_basliklari, fatura) -> None:
+    """H51: `invoice_id` uçta 1..INT4_UST. SQLite tipsiz karşılaştırır ve bu
+    değerlerin hepsinde sınırsız uç 200 verirdi (PG'de ilk üçü 500 — ASIL kanıt
+    `test_h51_irsaliye_listesi_postgresql.py`). MUTASYON: `Query(ge=1,
+    le=INT4_UST)`yi silmek bunu KIRMIZI yapar."""
+    yanit = istemci.get(f"/api/despatch-notes?invoice_id={fatura}", headers=admin_basliklari)
+    assert yanit.status_code == 422, yanit.text
+    assert yanit.json()["detail"][0]["loc"] == ["query", "invoice_id"]
+
+
 def test_PDF_501_fail_closed(istemci, admin_basliklari, irsaliye) -> None:
     """Keşif §2.4/§5: PDF sözleşmesi DOĞRULANMADI ⇒ tahmin YOK, 501.
 
