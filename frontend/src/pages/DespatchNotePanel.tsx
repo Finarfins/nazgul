@@ -91,7 +91,7 @@ export type DespatchResponseView={
 
 type ChipColor='default'|'info'|'success'|'error'|'warning';
 
-const STATUS_VIEW:Record<EDespatchStatus,{label:string;color:ChipColor}>={
+export const STATUS_VIEW:Record<EDespatchStatus,{label:string;color:ChipColor}>={
  NONE:{label:'e-İrsaliye: gönderilmedi',color:'default'},
  QUEUED:{label:'e-İrsaliye: kuyrukta',color:'info'},
  PROCESSING:{label:'e-İrsaliye: işleniyor',color:'info'},
@@ -221,7 +221,7 @@ function YanitBolmesi({despatchId,yenile}:{despatchId:number;yenile:number}){
     {/* ETKİLİ YANIT İLK KAYDEDİLENDİR (sunucu: kimlik sırası). Sonrakiler
         saklanır ama durumu DEĞİŞTİRMEZ; sayı onların varlığını söyler. */}
     {veri.responses_count>1&&<Typography variant="caption" color="text.secondary">
-     {`${veri.responses_count} yanıt, sonuncusu gösteriliyor`}
+     {`${veri.responses_count} yanıt, ilki (geçerli olan) gösteriliyor`}
     </Typography>}
     {veri.lines.length>0&&<Table size="small">
      <TableHead><TableRow>
@@ -359,10 +359,18 @@ export function DespatchNotePanel({invoiceId}:{invoiceId:number}){
     setToast(TAMAMLANDI_MESAJI);dialogKapat();load(true);
    }else if(code==='SEVK_KALEMI_YOK'){
     setDialogHata(SEVK_KALEMI_YOK_MESAJI);
-   }else if(code&&SATIR_HATALARI[code]&&kalem!==null){
+   }else if(code&&SATIR_HATALARI[code]){
     const ek=code==='SEVK_MIKTAR_ASIMI'&&detail?.remaining!==undefined
      ?` Kalan: ${miktar(String(detail.remaining))}.`:'';
-    setSatirHatalari({[kalem]:`${SATIR_HATALARI[code]}${ek}`});
+    const mesaj=`${SATIR_HATALARI[code]}${ek}`;
+    // SATIRI OLMAYAN KOD DİYALOGA DÜŞER. `FATURA_KALEMI_YOK`un kimliği
+    // TANIMI GEREĞİ bu faturanın değil; o satır tabloda YOKTUR ve mesaj
+    // hiç görünmezdi — kullanıcı sessizce başarısız bir "Oluştur"la kalır.
+    // Kural kodun kendisine değil KİMLİĞİN EŞLEŞMESİNE bakıyor: sunucu
+    // yarın başka bir koda da tanınmayan kimlik koyarsa aynı yere düşer.
+    if(kalem!==null&&items.some(item=>item.invoice_item_id===kalem))
+     setSatirHatalari({[kalem]:mesaj});
+    else setDialogHata(mesaj);
    }else{
     setDialogHata(errorDetail(err,'e-İrsaliye oluşturulamadı.'));
    }
