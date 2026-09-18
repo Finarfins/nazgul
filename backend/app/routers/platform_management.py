@@ -76,6 +76,7 @@ from ..notifications.service import assert_transition, platform_kanal_sayaclari
 from ..platform_access import require_platform_operator
 from ..platform_denetim import platform_olayi_yaz
 from ..push_devices import kullanicinin_cihazlarini_dusur
+from ..sinirlar import INT4_UST
 from ..tenancy import companies, memberships, user_companies
 from .auth import LEGACY_EMAIL_DOMAIN, _consume_ip_limit
 
@@ -433,7 +434,7 @@ def platform_sirketleri(
     q: str | None = Query(None, max_length=200),
     active: bool | None = None,
     limit: int = Query(50, ge=1, le=SAYFA_TAVANI),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=INT4_UST),
     db: Session = Depends(get_db),
 ) -> dict:
     """Firmalar: durum, üye sayısı, son hareket zamanı."""
@@ -492,7 +493,7 @@ def platform_kullanicilari(
     q: str | None = Query(None, max_length=200),
     verified: bool | None = None,
     limit: int = Query(50, ge=1, le=SAYFA_TAVANI),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=INT4_UST),
     db: Session = Depends(get_db),
 ) -> dict:
     """Platform kullanıcıları ve firma üyelikleri.
@@ -565,7 +566,7 @@ def platform_kullanicilari(
 def platform_dogrulamalari(
     request: Request,
     limit: int = Query(50, ge=1, le=SAYFA_TAVANI),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=INT4_UST),
     db: Session = Depends(get_db),
 ) -> dict:
     """Kullanılmamış ve süresi dolmamış doğrulama belirteçleri.

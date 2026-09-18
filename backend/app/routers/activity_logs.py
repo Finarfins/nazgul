@@ -34,6 +34,7 @@ from ..activity_log import (
     unarchive_log,
 )
 from ..db import get_db
+from ..sinirlar import INT4_UST
 from ..tenancy import company_id
 
 router = APIRouter(prefix="/activity-logs", tags=["activity-logs"])
@@ -75,7 +76,7 @@ def list_logs(
     date_to: str | None = None,
     include_archived: bool = False,
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=INT4_UST),
     db: Session = Depends(get_db),
 ):
     if action_type and action_type not in ACTION_TYPES:
