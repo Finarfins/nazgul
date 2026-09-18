@@ -177,6 +177,12 @@ HIZMET_SATIRI_SEVK_EDILMEZ = "HIZMET_SATIRI_SEVK_EDILMEZ"
 SEVK_KALEMI_YOK = "SEVK_KALEMI_YOK"
 FATURA_KALEMI_YOK = "FATURA_KALEMI_YOK"
 SEVK_SATIRI_TEKRAR = "SEVK_SATIRI_TEKRAR"
+#: Belge numarası hataları (H52/H53). TÜKENDİ ve TEKRAR 409: istek biçimce
+#: geçerli, firmanın mevcut numaraları izin vermiyor. YIL_UYUMSUZ 422: istek
+#: KENDİ İÇİNDE çelişkili (numaranın yılı ≠ `issue_date`in yılı).
+IRSALIYE_NUMARA_TUKENDI = "IRSALIYE_NUMARA_TUKENDI"
+IRSALIYE_NO_TEKRAR = "IRSALIYE_NO_TEKRAR"
+IRSALIYE_NO_YIL_UYUMSUZ = "IRSALIYE_NO_YIL_UYUMSUZ"
 
 #: `UNKNOWN` durumundaki bir belge yeniden GÖNDERİLMEZ; önce sorulur.
 #: Cümle uca özeldir çünkü operatörün yapacağı iş burada BELLİDİR.
@@ -233,18 +239,26 @@ class IrsaliyeOlustur(BaseModel):
 
 
 def _gorunum(satir: dict) -> dict:
-    """Satırı yanıt gövdesine çevir; zaman/tarih alanları METİN olur.
+    """Satırı yanıt gövdesine çevir; zaman/tarih alanları ISO-8601 METİN olur.
 
-    `str()` KASITLI: `invoices.py::_einvoice_view` ile aynı davranış, ve
-    iki diyalekt arasındaki farkı yüzeyde eşitliyor (PG offset'li verir,
-    SQLite naive) — istemci her iki durumda da bir dize görür.
+    H66: `*_at` alanları UTC'ye çekilip `isoformat()` ile yazılır
+    (`2026-09-16T10:00:00+00:00`) — `GET .../response`un
+    `response_received_at`i ve `implicit_accept_due_at` ile AYNI biçim. Eski
+    `str()` iki lehçede iki ayrı dize veriyordu: PG `datetime` döndürür
+    (`"2026-09-16 10:00:00+00:00"`, boşluklu), SQLite ham `text()` okumasında
+    naive bir METİN (`"2026-09-16 10:00:00"`, offset'siz). `_utc` ikisini de
+    kabul eder, ikisini de aynı ana çevirir. Tarih (`issue_date`) `YYYY-MM-DD`
+    kalır. `invoices.py::_einvoice_view` hâlâ `str()` kullanıyor; o fatura
+    sözleşmesi bu dilimin kapsamında değil.
     """
     cikti: dict = {}
     for ad in GORUNEN_ALANLAR:
         deger = satir.get(ad)
-        cikti[ad] = (
-            str(deger) if deger is not None and isinstance(deger, (datetime, date)) else deger
-        )
+        if deger is not None and ad.endswith("_at"):
+            deger = _utc(deger).isoformat()
+        elif isinstance(deger, date):
+            deger = deger.isoformat()
+        cikti[ad] = deger
     cikti["edespatch_configured"] = einvoice_configuration(settings).configured
     return cikti
 
@@ -303,6 +317,20 @@ def _belge_numarasi(db: Session, cid: int, yil: int, verilen: str | None) -> str
 
     Operatörün verdiği değer de AYNI desenden geçer — geçmezse 400. Kendi
     numarasını veren biri onu geçerli bir belge sanmamalı.
+
+    H53 — ELLE NUMARA: büyük harfe çevrilmiş hâli (a) `issue_date`in yılını
+    taşımalı, yoksa 422 `IRSALIYE_NO_YIL_UYUMSUZ` (GİB numarası yılı taşır;
+    2027 tarihli bir belgeye `IRS2026...` vermek iki yılın sırasını karıştırır),
+    (b) firmada TEKİL olmalı, yoksa 409 `IRSALIYE_NO_TEKRAR`. Şemada
+    `(company_id, despatch_number)` UNIQUE'i YOK (0083/0087 ölçüldü; yalnız
+    `uq_despatch_notes_uuid` ve `uq_despatch_notes_company_id`), yani hakem bu
+    ön okumadır; karşılaştırma `UPPER()` ile — eski bir küçük harfli kayıt da
+    çakışma sayılır.
+
+    H52 — TÜKENME: o yılın `IRS<yıl>999999999`u verilmişse sayaç 9 haneyi
+    aşar ve `belge_numarasi_uret` `UblBuildError` atar. Bu bir kusur değil,
+    firmanın durumudur: 409 `IRSALIYE_NUMARA_TUKENDI` (eskiden yakalanmayan
+    istisna, 500). İstek düştüğü için sayacın ilerlemesi de geri alınır.
     """
     elle = (verilen or "").strip().upper()
     if elle:
@@ -311,6 +339,25 @@ def _belge_numarasi(db: Session, cid: int, yil: int, verilen: str | None) -> str
                 400,
                 "Belge numarası GİB biçimine uymalı: 3 harf + 4 haneli yıl + "
                 "9 hane (örn. IRS2026000000001)",
+            )
+        if int(elle[3:7]) != int(yil):
+            raise _hata(
+                422, IRSALIYE_NO_YIL_UYUMSUZ,
+                f"Belge numarasının yılı ({elle[3:7]}) düzenleme tarihinin yılıyla "
+                f"({int(yil):04d}) uyuşmuyor",
+                despatch_number=elle,
+            )
+        tekrar = db.execute(
+            select(despatch_notes.c.id).where(
+                despatch_notes.c.company_id == cid,
+                func.upper(despatch_notes.c.despatch_number) == elle,
+            )
+        ).first()
+        if tekrar:
+            raise _hata(
+                409, IRSALIYE_NO_TEKRAR,
+                f"{elle} numaralı bir irsaliye bu firmada zaten var",
+                despatch_number=elle,
             )
         return elle
     onek = f"{edespatch.BELGE_SERI_ONEKI}{int(yil):04d}"
@@ -329,7 +376,14 @@ def _belge_numarasi(db: Session, cid: int, yil: int, verilen: str | None) -> str
     )
     for _ in range(1000):
         sira = next_sequence_value(db, "despatch_notes", cid, onek, tohum)
-        numara = edespatch.belge_numarasi_uret(yil, sira)
+        try:
+            numara = edespatch.belge_numarasi_uret(yil, sira)
+        except UblBuildError:
+            raise _hata(
+                409, IRSALIYE_NUMARA_TUKENDI,
+                f"{int(yil):04d} yılı için otomatik irsaliye numarası tükendi "
+                f"({onek}999999999 kullanılmış); numarayı elle verin",
+            ) from None
         alinmis = db.execute(
             select(despatch_notes.c.id).where(
                 despatch_notes.c.company_id == cid,
@@ -739,6 +793,10 @@ def irsaliye_listesi(
     `DYNAMIC_SQL_FILE_ALLOWLIST`e HİÇ girmiyor — girmeyen bir dosyanın
     parmak izi de kaymaz.
     Sınırlar uçta (`INT4_UST`), çünkü `::INTEGER` dönüşümü aralık taşmasını 500 yapar.
+
+    Her öğe `lines_count` taşır (H68): irsaliyenin sevk satırı sayısı. Satırların
+    kendisi detaydadır; liste yalnız sayıyı verir, ekranın irsaliye başına detay
+    isteği atmasına gerek kalmaz.
     """
     # H51: parametre TİPLİ bağlanıyor. psycopg3 `None`ı tipsiz gönderir ve
     # PG `:invoice_id IS NULL` içindeki `$2`nin tipini çıkaramaz
@@ -755,15 +813,25 @@ def irsaliye_listesi(
         ).bindparams(tipli_fatura),
         ortak,
     ).scalar_one()
+    # H68: `lines_count` AYNI sorgudan, ilişkili bir alt sorguyla — sayfa
+    # başına tek sorgu, irsaliye başına ikinci bir okuma (N+1) YOK. Alt sorgu
+    # `company_id`yi de eşler: satırın kiracısı irsaliyeninkiyle aynı olmalı.
     satirlar = db.execute(
         text(
-            "SELECT * FROM despatch_notes WHERE company_id=:cid "
-            "AND (:invoice_id IS NULL OR invoice_id=:invoice_id) "
-            "ORDER BY issue_date DESC, id DESC LIMIT :limit OFFSET :offset"
+            "SELECT d.*, (SELECT COUNT(*) FROM despatch_lines l "
+            "WHERE l.company_id=d.company_id AND l.despatch_id=d.id) AS lines_count "
+            "FROM despatch_notes d WHERE d.company_id=:cid "
+            "AND (:invoice_id IS NULL OR d.invoice_id=:invoice_id) "
+            "ORDER BY d.issue_date DESC, d.id DESC LIMIT :limit OFFSET :offset"
         ).bindparams(tipli_fatura),
         {**ortak, "limit": limit, "offset": offset},
     ).mappings().all()
-    return {"items": [_gorunum(dict(x)) for x in satirlar], "total": int(toplam)}
+    return {
+        "items": [
+            {**_gorunum(dict(x)), "lines_count": int(x["lines_count"])} for x in satirlar
+        ],
+        "total": int(toplam),
+    }
 
 
 def _detay_gorunumu(db: Session, cid: int, irsaliye_id: int) -> dict:
