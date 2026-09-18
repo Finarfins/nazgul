@@ -1183,7 +1183,7 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     ("app/routers/despatch_notes.py", "_belge_numarasi", "select",
      "ef031f7c68375a61fe34765c0f4c1f2f185f7664fb2b3b92bc14c98431e114d4"): (1, "despatch_notes", "select_from"),  # satır [305]
     ("app/routers/despatch_notes.py", "_belge_numarasi", "select",
-     "2c9348589d668c0099ebb2203038dc75989470f30ba99d71f0122f5afe9c59b8"): (1, "despatch_notes", "arg0"),  # satır [321]
+     "82af0cacc31dca62cdc79d22d5bff8430dbf97ce9ef21e3847ddc539645bb3c7"): (1, "despatch_notes", "arg0"),  # satır [383] H53: UPPER(), elle+oto ORTAK
     ("app/routers/despatch_notes.py", "_faturayi_kilitle", "update",
      "3b85ed393ad3f482083c527d2d586bf63e0d40ee253a0327015c2f2561c6e8ae"): (1, "invoices", "arg0"),  # satır [343]
     ("app/routers/despatch_notes.py", "_sevk_durumu", "select",
@@ -1382,7 +1382,11 @@ EXPECTED_OP_COUNTS = {"select": 160, "update": 63, "delete": 12}
 # `odemenin_evrak_satiri`ye tasindi (tum satir, PUT'un evrak karsilastirmasi).
 # TABAN develop `5b79584` (H49b sonrasi YENIDEN turetildi); tarayicinin
 # ciktisindan. c0d8dccc -> c7c1b164.
-INVENTORY_FINGERPRINT = "c7c1b1642a1ffeb8764b9b0fa785e475a97978a658e58d6b2d551d50f5995876"
+# H52/H53 (GOC YOK): 235 -> 235, `_belge_numarasi`nin "alinmis mi" okumasi
+# `UPPER()` ile ve elle numarayla ORTAK (yeni sorgu YOK, bir parmak izi
+# DEGISTI); TABAN develop `6ad974f` (H46 sonrasi YENIDEN turetildi);
+# tarayicinin ciktisindan. c7c1b164 -> ff03df02.
+INVENTORY_FINGERPRINT = "ff03df02f7a6a78ef6e3da7bfb5f9897127466f97453fe774000b18343d91801"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:
