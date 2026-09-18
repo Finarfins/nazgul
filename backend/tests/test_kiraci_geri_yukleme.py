@@ -732,7 +732,97 @@ with TestClient(app, raise_server_exceptions=False) as client:
     else:
         eski_repr["body"] = r.text[:1500]
 
+    # --- H49b: KİMLİĞİ HEDEFTE OLMAYAN ÜYE E-POSTAYLA EŞLENİR -----------------
+    # Silinen `gidici`nin üyeliği zip'te, e-postası manifestin `user_emails`inde.
+    # Her koşu GERÇEK (yeni firma açar); EN SONDA: yukarıdaki ölçümlere dokunmaz.
+    kullanicilar = md.tables["app_users"]
+    denetim = md.tables["security_audit_logs"]
+    kayit = md.tables["activity_logs"]
+
+    def kullanici_ekle(ad, eposta, aktif=True):
+        # Kimlik AÇIKÇA verilir: SQLite silinen en büyük kimliği (`gidici`)
+        # yeniden kullanır ve üyelik e-postaya hiç gelmeden kimlikle eşlenirdi
+        # (ÖLÇÜLDÜ). PG dizisi yeniden kullanmaz; açık kimlik iki diyalektte aynı.
+        kimlik = max(son_kimlik(kullanicilar), int(silinecek)) + 100
+        with engine.begin() as conn:
+            return int(conn.execute(insert(kullanicilar), zorunlu(kullanicilar, {
+                "id": kimlik,
+                "username": ad, "email": eposta, "email_verified": True,
+                "display_name": ad, "password_hash": "x", "role": "rapor", "is_active": aktif,
+                "created_at": datetime.now(timezone.utc), "must_change_password": False,
+            })).inserted_primary_key[0])
+
+    def kullanici_durumu():
+        with engine.connect() as conn:
+            return sorted([int(u["id"]), u["email"], bool(u["is_active"])] for u in conn.execute(
+                select(kullanicilar.c.id, kullanicilar.c.email, kullanicilar.c.is_active)).mappings())
+
+    def son_kimlik(t):
+        with engine.connect() as conn:
+            return int(conn.execute(select(func.max(t.c.id))).scalar() or 0)
+
+    def eposta_kosusu(kaynak, m):
+        """Manifesti `m` olan zip'i geri yükler; üyeleri, raporu ve izleri ölçer."""
+        z = zip_degistir(kaynak, lambda ad, v: (ad, json.dumps(m)) if ad == "manifest.json" else (ad, v))
+        once_kullanici = kullanici_durumu()
+        once_denetim, once_kayit = son_kimlik(denetim), son_kimlik(kayit)
+        r = yukle(client, h, z, mode="yeni")
+        govde_e = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        sonuc_e = {"status": r.status_code, "code": govde_e.get("code"),
+                   "memberships": govde_e.get("memberships"),
+                   "yanitta_eposta": "ornek.invalid" in r.text.lower(),
+                   "kullanicilar_ayni": kullanici_durumu() == once_kullanici}
+        with engine.connect() as conn:
+            izler = [dict(x) for x in conn.execute(select(denetim).where(denetim.c.id > once_denetim)).mappings()]
+            izler += [dict(x) for x in conn.execute(select(kayit).where(kayit.c.id > once_kayit)).mappings()]
+            sonuc_e["izlerde_eposta"] = "ornek.invalid" in json.dumps(izler, default=str).lower()
+            if r.status_code == 200:
+                uyelik = md.tables["user_company_memberships"]
+                sonuc_e["uyeler"] = sorted(int(u) for u in conn.execute(select(uyelik.c.user_id).where(
+                    uyelik.c.company_id == int(govde_e["company_id"]))).scalars())
+        return sonuc_e
+
+    eposta = {"manifest_kimlikleri": sorted(int(o["id"]) for o in manifest.get("user_emails", []))}
+    # Hedef satır büyük/küçük harf karışık; manifest değeri boşluklu ve büyük
+    # harfli: iki taraf da giriş yolunun biçimine (`normalize_email`) iner.
+    donen = kullanici_ekle("donen", "Gidici@Ornek.Invalid")
+    m_bicim = dict(manifest)
+    m_bicim["user_emails"] = [dict(o, email="  GIDICI@ornek.INVALID ") if int(o["id"]) == int(silinecek) else o
+                              for o in manifest["user_emails"]]
+    eposta["tek"] = eposta_kosusu(zip_bytes, m_bicim)
+    # Kurcalanmış zip: İKİ eksik üye AYNI e-postayı ister -> belirsiz, ikisi de
+    # atlanır (şemada `LOWER(email)` tekil; iki aktif satır kurulamaz, ÖLÇÜLDÜ).
+    hayalet = 987654321
+    uye_dosyasi = "tables/user_company_memberships.ndjson"
+    zf_k = zipfile.ZipFile(io.BytesIO(zip_bytes))
+    uye_satirlari = [json.loads(x) for x in zf_k.read(uye_dosyasi).decode("utf-8").splitlines() if x.strip()]
+    kopya = dict(next(u for u in uye_satirlari if int(u["user_id"]) == int(silinecek)), user_id=hayalet)
+    if "id" in kopya:
+        kopya["id"] = max(int(u["id"]) for u in uye_satirlari) + 1
+    m_cift = dict(manifest)
+    m_cift["row_counts"] = dict(manifest["row_counts"])
+    m_cift["row_counts"]["user_company_memberships"] += 1
+    m_cift["user_emails"] = list(manifest["user_emails"]) + [{"id": hayalet, "email": "gidici@ornek.invalid"}]
+    cift_zip = zip_degistir(zip_bytes, lambda ad, v: (ad, v + (json.dumps(kopya) + "\n").encode("utf-8"))
+                            if ad == uye_dosyasi else (ad, v))
+    eposta["belirsiz"] = eposta_kosusu(cift_zip, m_cift)
+    eposta["hayalet"] = hayalet
+    # H49 öncesi arşiv: `user_emails` anahtarı YOK -> eşleyecek aktif kullanıcı
+    # varken bile yalnız kimlik, eşleme yok.
+    m_eski = {k: v for k, v in manifest.items() if k != "user_emails"}
+    eposta["eski_arsiv"] = eposta_kosusu(zip_bytes, m_eski)
+    # Tek eşleşen satır PASİF: yalnız AKTİF satırlar sayılır -> atlanır.
+    with engine.begin() as conn:
+        conn.execute(update(kullanicilar).where(kullanicilar.c.id == donen).values(is_active=False))
+    eposta["pasif"] = eposta_kosusu(zip_bytes, manifest)
+    # Biçimi bozuk `user_emails` -> 422, yazma yok.
+    firma_sayisi_once = sayimlar(md, a_id)["__companies__"]
+    eposta["gecersiz"] = eposta_kosusu(zip_bytes, dict(manifest, user_emails=[{"id": "x", "email": 1}]))
+    eposta["gecersiz"]["firma_sayisi_ayni"] = sayimlar(md, a_id)["__companies__"] == firma_sayisi_once
+    eposta["donen"] = donen
+
     yaz("sonuc.json", {
+        "eposta": eposta,
         "a_id": a_id, "b_id": b_id, "c_id": c_id, "admin_id": admin_id,
         "silinen_kullanici": int(silinecek),
         "tohum_basarisiz": basarisiz, "bos_tablolar": bos_a,
@@ -907,9 +997,130 @@ def test_uyelikler_var_olan_kullanicilara_ve_operatore(hazir) -> None:
     assert hazir["anlamsal"]["uyeler"] == [hazir["admin_id"]]
     assert uye["restored"] == 1
     assert uye["skipped_user_ids"] == [hazir["silinen_kullanici"]]
+    # H49b: e-postası manifestte, ama o e-postayla aktif kullanıcı YOK -> atlanır.
+    assert uye["mapped_by_email"] == []
     # Operatör yeni firmaya GERÇEKTEN girebiliyor (üyelik + is_active).
     assert hazir["me_c"] == 200, hazir["me_c"]
     assert hazir["anlamsal"]["firma"]["is_active"] is True
+
+
+# --------------------------------------------------------------------------
+# H49b) E-POSTAYLA ÜYELİK EŞLEME
+# --------------------------------------------------------------------------
+def test_uyelik_epostayla_tek_aktif_kullaniciya_eslenir(hazir) -> None:
+    """Kimliği hedefte olmayan üye, manifestteki e-postayı taşıyan TEK aktif
+    kullanıcıya eşlenir; rapor yalnız kimlik taşır. MUTASYON: sütun tarafındaki
+    ``func.lower``ı ya da değer tarafındaki ``normalize_email``i kaldırmak
+    (hedef ``Gidici@Ornek.Invalid``, manifest ``"  GIDICI@ornek.INVALID "``)
+    KIRMIZI; e-posta aramasını atlamak KIRMIZI."""
+    e = hazir["eposta"]
+    silinen = hazir["silinen_kullanici"]
+    assert silinen in e["manifest_kimlikleri"], e["manifest_kimlikleri"]
+    t = e["tek"]
+    assert t["status"] == 200, t
+    assert t["memberships"]["mapped_by_email"] == [{"from_id": silinen, "to_id": e["donen"]}], t
+    assert t["memberships"]["skipped_user_ids"] == [], t
+    assert t["memberships"]["restored"] == 2, t
+    assert t["uyeler"] == sorted([hazir["admin_id"], e["donen"]]), t
+
+
+def test_uyelik_eposta_belirsizse_atlanir(hazir) -> None:
+    """Kurcalanmış zip'te İKİ eksik üye aynı e-postayı ister: belirsiz, ikisi de
+    atlanır — tek kişiye iki üyelik yığılmaz. MUTASYON: ``talep[eposta] == 1``
+    koşulunu silmek KIRMIZI (ikisi de ``donen``e eşlenirdi)."""
+    e = hazir["eposta"]
+    b = e["belirsiz"]
+    assert b["status"] == 200, b
+    assert b["memberships"]["mapped_by_email"] == [], b
+    assert b["memberships"]["skipped_user_ids"] == sorted([hazir["silinen_kullanici"], e["hayalet"]]), b
+    assert b["uyeler"] == [hazir["admin_id"]], b
+
+
+def test_uyelik_eposta_pasif_kullanici_sayilmaz(hazir) -> None:
+    """Tek eşleşen satır pasif: aktif eşleşme SIFIR -> atlanır. MUTASYON:
+    ``is_active`` süzgecini silmek KIRMIZI."""
+    p = hazir["eposta"]["pasif"]
+    assert p["status"] == 200, p
+    assert p["memberships"]["mapped_by_email"] == [], p
+    assert p["memberships"]["skipped_user_ids"] == [hazir["silinen_kullanici"]], p
+    assert p["uyeler"] == [hazir["admin_id"]], p
+
+
+def test_eposta_esleme_iki_aktif_satir_belirsiz() -> None:
+    """Şema (``uq_app_users_email_lower``) iki satırı önler; kapı ona YASLANMAZ.
+    Sahte bağlantı aynı e-postaya iki aktif satır döndürür -> eşleme yok.
+    MUTASYON: ``len(adaylar) == 1``i ``>= 1`` yapmak KIRMIZI."""
+    sys.path.insert(0, str(BACKEND))
+    from types import SimpleNamespace
+    from app.kiraci_geri_yukleme import _epostayla_esle
+
+    class _IkiSatir:
+        def execute(self, *a, **k):
+            return [SimpleNamespace(id=5, eposta="a@b.invalid"), SimpleNamespace(id=6, eposta="a@b.invalid"),
+                    SimpleNamespace(id=7, eposta="c@d.invalid")]
+
+    assert _epostayla_esle(_IkiSatir(), {1: "a@b.invalid", 2: "c@d.invalid"}) == {2: 7}
+
+
+def test_eski_arsiv_user_emails_yoksa_yalniz_kimlik(hazir) -> None:
+    """H49 öncesi zip (anahtar YOK): eşleyecek aktif kullanıcı varken bile yol
+    değişmez — üyelik atlanır. MUTASYON: anahtar yokken e-postayı başka
+    kaynaktan aramak KIRMIZI."""
+    e = hazir["eposta"]["eski_arsiv"]
+    assert e["status"] == 200, e
+    assert e["memberships"]["mapped_by_email"] == [], e
+    assert e["memberships"]["skipped_user_ids"] == [hazir["silinen_kullanici"]], e
+    assert e["uyeler"] == [hazir["admin_id"]], e
+
+
+def test_manifest_epostasi_yanita_izlere_veritabanina_yazilmaz(hazir) -> None:
+    """E-posta YALNIZ arama anahtarıdır: yanıtta, ``security_audit_logs`` /
+    ``activity_logs``un yeni satırlarında yok; ``app_users`` koşu boyunca AYNI
+    (yeni kullanıcı yok, e-posta güncellenmedi). MUTASYON: rapora ``email``
+    eklemek ya da hedef satırın e-postasını manifestinkiyle güncellemek KIRMIZI."""
+    for etiket in ("tek", "belirsiz", "eski_arsiv", "pasif", "gecersiz"):
+        k = hazir["eposta"][etiket]
+        assert k["yanitta_eposta"] is False, (etiket, k)
+        assert k["izlerde_eposta"] is False, (etiket, k)
+        assert k["kullanicilar_ayni"] is True, (etiket, k)
+
+
+def test_gecersiz_user_emails_422_ve_sifir_yazma(hazir) -> None:
+    """MUTASYON: ``_eposta_listesi_gecerli`` kapısını kaldırmak 422'yi 500 yapar."""
+    g = hazir["eposta"]["gecersiz"]
+    assert g["status"] == 422 and g["code"] == "RESTORE_MANIFEST_INVALID", g
+    assert g["firma_sayisi_ayni"] is True, g
+
+
+def test_eposta_esleme_bos_kumede_sorgu_kosmaz() -> None:
+    """Kapsam sınırı: aranacak e-posta yoksa ``app_users``a HİÇ gidilmez."""
+    sys.path.insert(0, str(BACKEND))
+    from app.kiraci_geri_yukleme import _epostayla_esle
+
+    class _SorguYasak:
+        def execute(self, *a, **k):
+            raise AssertionError("boş kümede sorgu koştu")
+
+    assert _epostayla_esle(_SorguYasak(), {}) == {}
+
+
+def test_aranacak_eposta_kumesi_yalniz_eksik_uyeler() -> None:
+    """Kapsam sınırı: yalnız ÜYELİK satırı olup hedefte kimliği OLMAYANLARIN
+    e-postası aranır; var olan kullanıcı, üyeliği olmayan kimlik ve boş e-posta
+    DIŞARIDA; değer ``normalize_email`` biçiminde. MUTASYON: ``in eksik``
+    koşulunu kaldırmak KIRMIZI."""
+    sys.path.insert(0, str(BACKEND))
+    from app.kiraci_geri_yukleme import _aranacak_epostalar
+
+    satirlar = [{"user_id": 1}, {"user_id": 7}, {"user_id": 8}]
+    haritasi = [
+        {"id": 1, "email": "var@ornek.invalid"},      # hedefte var: aranmaz
+        {"id": 7, "email": "  Eksik@Ornek.INVALID "},  # eksik üye: aranır
+        {"id": 8, "email": "   "},                     # boş: aranmaz
+        {"id": 9, "email": "uye.degil@ornek.invalid"},  # üyelik satırı yok: aranmaz
+    ]
+    assert _aranacak_epostalar(satirlar, {1}, haritasi) == {7: "eksik@ornek.invalid"}
+    assert _aranacak_epostalar(satirlar, {1}, None) == {}
 
 
 def test_yabanci_anahtarlar_yeni_firmanin_icinde(hazir) -> None:

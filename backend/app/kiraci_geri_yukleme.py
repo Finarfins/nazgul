@@ -86,7 +86,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.engine import Connection
 
-from .auth import users, utcnow
+from .auth import normalize_email, users, utcnow
 from .db import engine
 from .routers.kiraci_disa_aktarim import (
     _depo_koku,
@@ -516,6 +516,11 @@ def manifest_dogrula(zf: zipfile.ZipFile, conn: Connection, md) -> dict[str, Any
             "Zip'teki tablo kümesi şemanın kiracı tablolarıyla aynı değil",
             {"only_in_zip": sorted(zipte - kiraci), "only_in_schema": sorted(kiraci - zipte)},
         )
+    if "user_emails" in manifest and not _eposta_listesi_gecerli(manifest["user_emails"]):
+        # Ayrıntı BİLEREK yok: değer kişisel veri taşıyabilir.
+        raise GeriYuklemeHatasi(
+            "RESTORE_MANIFEST_INVALID", 422, "manifest.json alanı geçersiz: user_emails"
+        )
     sayilar = manifest["row_counts"]
     sapma: dict[str, dict[str, int]] = {}
     for tablo in manifest["table_order"]:
@@ -539,6 +544,21 @@ def manifest_dogrula(zf: zipfile.ZipFile, conn: Connection, md) -> dict[str, Any
             "RESTORE_COMPANY_FILE_MISSING", 422, "Zip'te firma satırı yok"
         )
     return manifest
+
+
+def _eposta_listesi_gecerli(deger: Any) -> bool:
+    """``user_emails`` = ``[{"id": int, "email": str}, ...]`` (H49 biçimi)."""
+    if not isinstance(deger, list):
+        return False
+    for oge in deger:
+        if not isinstance(oge, dict):
+            return False
+        kimlik, eposta = oge.get("id"), oge.get("email")
+        if isinstance(kimlik, bool) or not isinstance(kimlik, int):
+            return False
+        if not isinstance(eposta, str):
+            return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -675,6 +695,8 @@ class _Rapor:
         #: (tablo adı, yeni id, sütun, hedef tablo, eski hedef id, nullable)
         self.yumusak_bekleyen: list[tuple[str, int, str, str, int, bool]] = []
         self.uyelik_atlanan: list[int] = []
+        #: (manifest kimliği, e-postayla bulunan hedef kimlik) — e-posta YOK.
+        self.uyelik_eposta: list[tuple[int, int]] = []
         self.uyelik_yazilan: int = 0
         self.ek_plani: list[tuple[str, str]] = []  # (zip üyesi, yeni göreli yol)
 
@@ -700,6 +722,9 @@ class _Rapor:
             "memberships": {
                 "restored": self.uyelik_yazilan,
                 "skipped_user_ids": sorted(self.uyelik_atlanan),
+                "mapped_by_email": [
+                    {"from_id": e, "to_id": y} for e, y in sorted(self.uyelik_eposta)
+                ],
             },
         }
 
@@ -768,7 +793,10 @@ def geri_yukle(
                         haritalar, mevcut_kullanicilar, diyalekt, rapor,
                     )
                 _ertelenenleri_bagla(conn, md, yeni_cid, haritalar, rapor)
-                _uyelikleri_yaz(conn, zf, yeni_cid, mevcut_kullanicilar, operator_user_id, rapor)
+                _uyelikleri_yaz(
+                    conn, zf, yeni_cid, mevcut_kullanicilar, operator_user_id, rapor,
+                    manifest.get("user_emails"),
+                )
                 sonuc = rapor.sozluk()
                 sonuc.update(
                     {
@@ -981,23 +1009,108 @@ def _haritala(deger, harita, ad, sutun, bos_olur, rapor, *, zorunlu_hata: bool):
     return eski
 
 
-def _uyelikleri_yaz(conn, zf, yeni_cid, mevcut_kullanicilar, operator_user_id, rapor) -> None:
+#: E-posta araması ``IN`` listesinin parça boyu (dışa aktarımın kimlik
+#: parçasıyla aynı ölçek; SQLite değişken tavanının çok altında).
+_EPOSTA_PARCASI = 500
+
+
+def _aranacak_epostalar(
+    satirlar: list[dict[str, Any]], mevcut_kullanicilar: set[int], user_emails: Any,
+) -> dict[int, str]:
+    """E-postayla ARANACAK küme: zip'te üyelik satırı olup hedefte kimliği
+    OLMAYAN kimlikler ∩ manifestin ``user_emails`` haritası (boş e-posta yok).
+
+    Kapsam sınırı BURADADIR: var olan kullanıcının ya da üyelik satırı olmayan
+    bir kimliğin e-postası ``app_users``a HİÇ sorulmaz. ``user_emails`` yoksa
+    (H49 öncesi arşiv) küme boştur.
+    """
+    if not user_emails:
+        return {}
+    eksik = {int(h["user_id"]) for h in satirlar} - mevcut_kullanicilar
+    return {
+        oge["id"]: normalize_email(oge["email"])
+        for oge in user_emails
+        if oge["id"] in eksik and oge["email"].strip()
+    }
+
+
+def _epostayla_esle(conn: Connection, epostalar: dict[int, str]) -> dict[int, int]:
+    """Hedefte OLMAYAN manifest kimliklerini e-postayla var olan kullanıcıya eşler.
+
+    ``epostalar``: eksik kimlik -> ``normalize_email`` ile biçimlenmiş e-posta.
+    Aynı e-postayı taşıyan TAM OLARAK BİR aktif ``app_users`` satırı varsa eşler;
+    sıfır ya da birden çok eşleşme belirsizdir ve eşlenmez (çağıran atlar).
+    Şemada ``uq_app_users_email_lower`` (göç 0040) iki satırı zaten önler; bu
+    denetim ona YASLANMAZ, bağımsız ikinci kapıdır. Karşılaştırma büyük/küçük harf duyarsız: sütun ``lower()``, değer
+    ``normalize_email`` (giriş ve kayıt yolunun biçimi).
+
+    KAPSAM SINIRI MANİFESTİN KÜMESİDİR. ``app_users`` çekirdek bir tablodur ve
+    FİRMA SINIRI YOKTUR; kiracı kapısı onu korumaz. Tek koruma burada: arama
+    YALNIZ manifestin ``user_emails`` haritasında olup hedefte kimliği BULUNMAYAN
+    üyelerin e-postalarıyla yapılır (dışa aktarımda o harita zaten firmanın
+    üyeleriyle sınırlıdır, bkz. ``_kullanici_epostalari``). Yalnız ``id`` ve
+    ``lower(email)`` okunur; parola özeti vb. hiçbir sütun seçilmez, tablo
+    dökülmez. ``IN`` listesi parçalıdır. Boş kümede sorgu HİÇ KOŞMAZ.
+
+    E-posta DÖNMEZ: sonuç yalnız kimlik -> kimlik; rapora, günlüğe ya da
+    veritabanına e-posta yazılmaz.
+    """
+    if not epostalar:
+        return {}
+    aranan = sorted(set(epostalar.values()))
+    bulunan: dict[str, list[int]] = {}
+    kucuk = func.lower(users.c.email)
+    for i in range(0, len(aranan), _EPOSTA_PARCASI):
+        parca = aranan[i : i + _EPOSTA_PARCASI]
+        secim = (
+            select(users.c.id, kucuk.label("eposta"))
+            .where(kucuk.in_(parca), users.c.is_active.is_(True))
+            .order_by(users.c.id)
+        )
+        for satir in conn.execute(secim):
+            bulunan.setdefault(satir.eposta, []).append(int(satir.id))
+    # Aynı e-postayı İKİ manifest kimliği isterse de belirsizdir: gerçek bir
+    # dışa aktarımda olmaz (``LOWER(email)`` küresel tekil), kurcalanmış zip'te
+    # olur ve iki üyeliği tek kişiye yığmak yerine ikisi de atlanır.
+    talep: dict[str, int] = {}
+    for eposta in epostalar.values():
+        talep[eposta] = talep.get(eposta, 0) + 1
+    harita: dict[int, int] = {}
+    for eski, eposta in epostalar.items():
+        adaylar = bulunan.get(eposta, [])
+        if len(adaylar) == 1 and talep[eposta] == 1:
+            harita[eski] = adaylar[0]
+    return harita
+
+
+def _uyelikleri_yaz(
+    conn, zf, yeni_cid, mevcut_kullanicilar, operator_user_id, rapor, user_emails=None,
+) -> None:
     """Var olan kullanıcıların üyeliğini geri getirir; operatörü ekler.
 
-    ``app_users`` zip'e GİRMEZ (platform tablosudur). H49'dan itibaren
-    manifest ``user_emails`` taşır (YALNIZ firmanın dışa aktarılan üyeleri ve
-    YALNIZ e-postaları; ayrılmış üye bilerek yoktur); H49 öncesi arşivlerde bu
-    anahtar YOKTUR. Eşleme bugün
-    hâlâ KİMLİKLE yapılır — zip aynı platformdan geldiği için kimlik geçerlidir;
-    kullanıcı silinmişse üyelik yazılmaz ve kimliği raporda durur. E-postayla
-    yeniden eşleme (başka platforma taşıma) ayrı bir karardır.
+    ``app_users`` zip'e GİRMEZ (platform tablosudur). Eşleme önce KİMLİKLE
+    yapılır — zip aynı platformdan geldiyse kimlik geçerlidir. Kimliği hedefte
+    OLMAYAN üye için (H49b) manifestin ``user_emails`` haritasına bakılır: o
+    e-postayı taşıyan TAM BİR aktif kullanıcı varsa üyelik ona yazılır ve
+    ``memberships.mapped_by_email``de ``{from_id, to_id}`` olarak (e-postasız)
+    raporlanır; sıfır ya da birden çok eşleşmede üyelik yazılmaz ve kimlik
+    ``skipped_user_ids``de durur. H49 öncesi arşivlerde ``user_emails`` YOKTUR;
+    o zaman yol H49b öncesiyle AYNIDIR (yalnız kimlik).
     """
+    satirlar = list(_ndjson(zf, "user_company_memberships"))
+    esleme = _epostayla_esle(
+        conn, _aranacak_epostalar(satirlar, mevcut_kullanicilar, user_emails)
+    )
+
     yazilanlar: set[int] = set()
-    for ham in _ndjson(zf, "user_company_memberships"):
+    for ham in satirlar:
         uid = int(ham["user_id"])
         if uid not in mevcut_kullanicilar:
-            rapor.uyelik_atlanan.append(uid)
-            continue
+            if uid not in esleme:
+                rapor.uyelik_atlanan.append(uid)
+                continue
+            rapor.uyelik_eposta.append((uid, esleme[uid]))
+            uid = esleme[uid]
         if uid in yazilanlar:
             continue
         degerler: dict[str, Any] = {
