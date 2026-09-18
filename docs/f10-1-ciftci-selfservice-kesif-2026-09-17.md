@@ -99,13 +99,13 @@ Sıra, satır numaralarıyla:
 2. Boş metin + medya yok → `IGNORED` (`service.py:434`)
 3. `e164` kapısı → `IGNORED` (`service.py:443`)
 4. **`BAĞLA <KOD>`** — kimlik çözülmeden ÖNCE (`service.py:456`)
-5. `FİRMA LİSTELE` / `FİRMA SEÇ` (`service.py:464`)
-6. `baglam.kimlik_secimi` (`service.py:466`):
-   * `firma_secimi_gerekli` → `FIRMA_SECIN_MESAJI`
+5. `FİRMA LİSTELE` / `FİRMA SEÇ` — `baglam.firma_komutu` (`service.py:465`)
+6. `baglam.kimlik_secimi` (`service.py:467`):
+   * `firma_secimi_gerekli` → `FIRMA_SECIN_MESAJI` (`service.py:468-469`)
    * **`kimlik is None` → `_bagsiz_cevap`** ← *ikinci kimlik türünün gireceği
-     TEK yer (`service.py:469`)*
-   * medya → `fatura.medya_ozeti`
-   * aksi → `cevap_uret(db, secim.kimlik, metin)`
+     TEK yer (`service.py:470-471`)*
+   * medya → `fatura.medya_ozeti` (`service.py:484`)
+   * aksi → `cevap_uret(db, secim.kimlik, metin)` (`service.py:486`)
 
 `cevap_uret` (`service.py:260-308`) önce YAZMA niyetini dener
 (`niyet.tahsilat_coz`), sonra okuma niyetini (`niyet.coz`).
@@ -143,7 +143,7 @@ hedefidir. Dış rollback'i aşan ikinci bir kalıcılaştırma
 ### 1.6 Idempotency
 
 `UniqueConstraint("wamid", name="uq_whatsapp_inbound_wamid")` (`schema.py`).
-Modül başlığından alıntı: *"UNIQUE kısıt idempotency'nin KENDİSİDİR … Hakem
+`wamid` sütununun satır içi yorumundan alıntı (`schema.py:112-114`): *"UNIQUE kısıt idempotency'nin KENDİSİDİR … Hakem
 uygulama değil, veritabanıdır — 'önce SELECT sonra INSERT' yarışı yoktur."*
 Yazma tarafında ikinci bir kök: `uq_wpa_islem_anahtari` (küresel tekil).
 
@@ -178,8 +178,8 @@ Yazma tarafında ikinci bir kök: `uq_wpa_islem_anahtari` (küresel tekil).
 
 | Sütun | Tip | Doğrulama |
 |---|---|---|
-| `customers.phone` | `String(60)` (`app/core_schema.py:33`) | **YOK** — serbest metin |
-| `suppliers.phone` | `String(60)` (`app/core_schema.py:52`) | **YOK** — serbest metin |
+| `customers.phone` | `String(60)` (`app/core_schema.py:34`) | **YOK** — serbest metin |
+| `suppliers.phone` | `String(60)` (`app/core_schema.py:53`) | **YOK** — serbest metin |
 | `whatsapp_links.phone` | `String(20)` | `normalize_phone` çıktısı |
 | `whatsapp_inbound.sender_phone` | `String(20)` | `normalize_phone` çıktısı |
 | `whatsapp_pairing_codes.target_phone` | `String(20)` | `normalize_phone` çıktısı |
@@ -210,7 +210,11 @@ telefon.e164              : +9053155011001     -> KABUL
 consents.normalize_msisdn : None               -> RED
 ```
 
-Tedarikçi tarafı da aynı (`+90 212 44xx 20xx` → 13 rakam).
+Tedarikçi tarafı da aynı (`seed_demo_data.py:116`, `+90 212 44xx 20xx` → 13
+rakam) — ama tedarikçide kusur İKİ katlıdır: `212` bir SABİT HAT alan
+kodudur ve `normalize_msisdn` aboneyi `5` ile başlamaya zorlar
+(`consents.py:87`). Yani hane sayısını 12'ye düzeltmek tedarikçi tohumunu
+GEÇİRMEZ; tohum ayrıca `5xx` cep önekine çevrilmelidir.
 
 > **Demo veri kümesinin %100'ünde iki normalleştirici ayrışıyor.** Ayrıca
 > üretilen 13 haneli numara geçerli bir TR cep numarası DEĞİLDİR; `e164`'ün
@@ -310,13 +314,18 @@ Yanında `whatsapp_party_pairing_codes` (0079'un yedi CHECK'i ve
 * `+` Personel tarafına SIFIR risk: ONBİR `kimlik.user_id` çözümünün hiçbiri,
   `whatsapp_pending_actions`in bileşik FK'si ve WA2/WA4 kapılarının hiçbiri
   değişmez.
-* `+` **Bileşik FK için ön koşul YOK.** `uq_customers_company_id` ZATEN VAR
-  (`20260726_0026_harman_season_scheduling.py:146`); `20260914_0085`in başlığı
-  bunu ayrıca yazıyor: *"`customers` → `uq_customers_company_id` (0026) VAR"*.
-  E4b-1'in `invoice_items` için açmak zorunda kaldığı ön koşul BURADA YOK.
-  ⚠ `suppliers` tarafının `uq_suppliers_company_id`si **DOĞRULANMADI** (Ek) —
-  F10-1a'nın ilk işi bunu `inspect` ile ölçmek olmalı; yoksa göç `0090` onu
-  da açar.
+* `+` **Bileşik FK için ön koşul YOK — İKİ tarafta da.**
+  `uq_customers_company_id` ZATEN VAR
+  (`20260726_0026_harman_season_scheduling.py:146`).
+  `uq_suppliers_company_id` de ZATEN VAR: göç
+  `20260905_0070_mustahsil_makbuzu.py:103` (`UQ_TEDARIKCI`) ve `:133-136`
+  (`inspect` korumalı `create_unique_constraint(UQ_TEDARIKCI, ["company_id",
+  "id"])`); `supplier_advances` ona bugün bileşik FK ile asılı
+  (`20260906_0071_avans_tescil_vergi.py:199`,
+  `fk_supplier_advances_supplier_same_company`). `20260914_0085`in başlığı
+  ikisini birlikte sayıyor (`customers` → 0026, `suppliers` → 0070).
+  E4b-1'in `invoice_items` için açmak zorunda kaldığı ön koşul BURADA YOK;
+  göç `0090` hiçbir tedarikçi/müşteri kısıtı AÇMAZ.
   *Not:* polimorfik `party_id` gerçek bir FK ALAMAZ — `notification_consents`
   ile AYNI durumdur ve aynı çözüm kullanılır (CHECK + geri-yükleme
   sınıflandırıcısı).
@@ -382,7 +391,7 @@ Ortak kural: **çiftçi YALNIZ kendi satırını görür.** Araç, `Kimlik`ten d
 
 * **Eklenecek kökler:** `EKSTRE`, `HESAP OZETI`.
   ⚠ `HESAP` tek başına EKLENMEZ — `SORU_SOZLUGU`nda zaten durak kelimedir
-  (`niyet.py:87`) ve eklemek onu hem durak hem kök yapardı.
+  (`niyet.py:80`) ve eklemek onu hem durak hem kök yapardı.
   `CARI_KOKLER` (`BORC`, `BAKIYE`, `CARI`, `VERESIYE`, `niyet.py:132`) YENİDEN
   KULLANILIR ama çiftçi dalında **terim aranmaz**.
 
@@ -470,7 +479,7 @@ DIŞINDADIR: zincir beş JOIN'dir, `farms.customer_id` nullable'dır ve
   ```
 
 * **Eklenecek kökler:** `MAKBUZ`, `MUSTAHSIL`.
-  ⚠ `FATURA` EKLENMEZ — `SORU_SOZLUGU`nda durak kelimedir (`niyet.py:87`).
+  ⚠ `FATURA` EKLENMEZ — `SORU_SOZLUGU`nda durak kelimedir (`niyet.py:80`).
 
 ### (e) FİYAT SORUSU — KARAR
 
@@ -486,7 +495,7 @@ satış fiyatı HİÇBİR cevapta geçmez (çiftçi araçlarının hiçbiri
 
 ### 5.1 Çiftçi personel araçlarına ASLA ULAŞAMAZ — kapı yeri
 
-Dağıtım `service.py:466-479`da kimlik TÜRÜNE göre dallanır. Önerilen biçim:
+Dağıtım `service.py:467-486`da kimlik TÜRÜNE göre dallanır. Önerilen biçim:
 
 ```
 secim = baglam.kimlik_secimi(db, telefon, simdi=an)      # PERSONEL (bugünkü)
@@ -604,25 +613,58 @@ YAZILMAZ."*).
 | Kimlik doğrulamalı | **408** | `tests/test_authorization_population_reconciliation.py:408` |
 | `read` | **87** | aynı dosya `:409` |
 | `undeniable` | **97** | aynı dosya `:410` |
-| `TENANT_TABLES` | **125** | **DÖRT dosya** (aşağıda) |
-| `pg_twins.txt` | **134** satır | `tests/pins/pg_twins.txt` |
+| `TENANT_TABLES` | **125** | **BEŞ dosyada YEDİ çivi** + tanım dosyası = ALTI dosya (aşağıda) |
+| `pg_twins.txt` | **134** satır (f0e3918'de) | `tests/pins/pg_twins.txt` |
 | `alt_surec_sql.txt` | **137** satır | `tests/pins/alt_surec_sql.txt` |
 | `cari_alan_envanteri.txt` | **56** satır | `tests/pins/cari_alan_envanteri.txt` |
-| Alembic başı | **`20260915_0089`** | **BEŞ dosya** (aşağıda) |
-| Core sorgu envanteri | **233** (select 158 / update 63 / delete 12) | `tests/test_core_query_inventory.py:1253-1254` |
-| Envanter parmak izi | **`494f7b8b…`** | aynı dosya `:1358` |
+| Alembic başı | **`20260915_0089`** | **ON ÜÇ dosyada ON DÖRT çivi** (aşağıda) |
+| Core sorgu envanteri | **233** (select 158 / update 63 / delete 12) | `tests/test_core_query_inventory.py:1255-1256` |
+| Envanter parmak izi | **`494f7b8b…`** | aynı dosya `:1354` |
 | Core kiracı ifadesi | **191** | `tests/test_core_tenant_scoping_guard.py:2087` |
 | Kiracı istisnası | **14** girdi | aynı dosya `:1723` |
 
-**`TENANT_TABLES` == 125 DÖRT yerde çivili** (grep'le bulundu, sayılmadı):
-`tests/test_sec6_ip_limitleri.py:418`, `tests/test_wa1_ingress.py:289`,
-`tests/test_wa2_eslestirme.py:319`, `tests/test_wa4_bekleyen.py:251`.
-Tablonun kendisi `tests/test_tenant_scoping_guard.py:41`de donmuş bir
-frozenset'tir — yeni tenant tablosu **BEŞ** dosyaya dokunur.
+Bu bölümdeki HER sayı **`f0e3918` üzerinde ölçüldü** (`git grep … f0e3918 --
+backend`; `tests/` değil, `backend/`in TAMAMI). `origin/develop` o günden beri
+ilerledi — ör. `pg_twins.txt` `bf8e73f`de (#138) zaten **135**'tir ve bugün
+inecek PR'larla 136+ olacaktır.
 
-**Alembic başı BEŞ dosyada:** `test_e1b_plantback.py:117`,
-`test_e2_tedavi_arinma.py:152`, `test_e3_karantina.py:205`,
-`test_e4b2_irsaliye_yaniti.py:95`, `test_goc_zinciri.py:424`.
+**`TENANT_TABLES` == 125 — BEŞ dosyada YEDİ donmuş sayım** (`\b125\b` ve
+`TENANT_TABLES` ile grep'le bulundu, sayılmadı):
+
+* `len(TENANT_TABLES) == 125` DÖRT kez: `tests/test_sec6_ip_limitleri.py:418`,
+  `tests/test_wa1_ingress.py:289`, `tests/test_wa2_eslestirme.py:319`,
+  `tests/test_wa4_bekleyen.py:251`.
+* Dışa aktarım sayımları ÜÇ kez, tek dosyada:
+  `tests/test_kiraci_disa_aktarim.py:497` (`len(gorulen) == 125`), `:515`
+  (`len(sira) == 125 and len(set(sira)) == 125`), `:746`
+  (`len(ndjson) == 125`). Bunlar `TENANT_TABLES` adını ANMAZ, şemadan türer —
+  yalnız ad grep'i onları KAÇIRIR.
+
+Tablonun kendisi `tests/test_tenant_scoping_guard.py:41`de donmuş bir
+frozenset'tir. Yeni tenant tablosu toplam **ALTI** dosyaya dokunur (5 çivi
+dosyası + tanım). `backend/` kökündeki PG ikizlerinde (`test_wa1_ingress_
+postgresql.py`, `test_wa2_eslestirme_postgresql.py`) ad geçer ama 125 çivisi
+YOKTUR.
+
+**Alembic başı `20260915_0089` — ON ÜÇ dosyada ON DÖRT çivi:**
+
+* `backend/` kökündeki PG ikizleri (DOKUZ; SQLite hattı bunları ATLAR):
+  `test_1b_a_alis_lot_postgresql.py:401`, `test_cs1_cek_senet_postgresql.py:43`,
+  `test_cs2_cek_senet_cari_postgresql.py:45`,
+  `test_e1_efatura_sertlestirme_postgresql.py:52`,
+  `test_e4a_despatch_notes_postgresql.py:72`,
+  `test_e4b1_kismi_sevk_postgresql.py:47`,
+  `test_e4b2_irsaliye_yaniti_postgresql.py:54` (`BAS`; aynı dosyanın `:51`
+  `GOC`u kendi göçüdür, baş DEĞİL), `test_h17_auth_rate_limits_index_postgresql.py:36`,
+  `test_wa3_worker_postgresql.py:471`.
+* `tests/` altında (DÖRT dosya, BEŞ çivi): `test_e1b_plantback.py:117`,
+  `test_e2_tedavi_arinma.py:152`, `test_e3_karantina.py:205`,
+  `test_goc_zinciri.py:424` ve `:511`.
+
+Çivi OLMAYANLAR: `tests/test_e4b2_irsaliye_yaniti.py:95` 0089 göç DOSYASININ
+metnini denetler (`'revision = "20260915_0089"' in kaynak`), başı değil;
+`test_goc_zinciri.py:449` (`0057`nin atalarında `"20260915_0089"` YOK
+iddiası) baş değişince de doğru kalır.
 
 > ⚠ **PARALEL PR UYARISI:** bu sayılar `f10-1` yazılırken başka PR'lar
 > birleştikçe ÇÜRÜR. Her dilim, dalını kestiği andaki `origin/develop`
@@ -632,7 +674,8 @@ frozenset'tir — yeni tenant tablosu **BEŞ** dosyaya dokunur.
 
 * Göç `20260918_0090_whatsapp_taraf_baglantisi`: `whatsapp_party_links` +
   `whatsapp_party_pairing_codes`; her ikisi `UNIQUE(company_id, id)` taşır.
-  İlk iş: `uq_suppliers_company_id` var mı — `inspect` ile ÖLÇ, yoksa AÇ.
+  Müşteri/tedarikçi tarafında AÇILACAK kısıt YOK (`uq_customers_company_id`
+  0026, `uq_suppliers_company_id` 0070 — §3.2).
 * `app/whatsapp/schema.py`: iki tablonun Core tanımı, CHECK'ler göçle birebir.
 * `app/whatsapp/taraf.py` (yeni): `kod_uret` / `kod_kullan` / `taraf_coz` —
   `eslestirme.py`nin desenini izler, gövdesini KOPYALAMAZ.
@@ -647,11 +690,11 @@ frozenset'tir — yeni tenant tablosu **BEŞ** dosyaya dokunur.
 | Rota işlemi / yolu | 421 → **425** / 327 → **331** |
 | GET envanteri | 201 → **202** |
 | Kimlik doğrulamalı | 408 → **412** |
-| `TENANT_TABLES` | 125 → **127** (BEŞ dosya) |
-| Alembic başı | `0089` → `20260918_0090` (BEŞ dosya) |
+| `TENANT_TABLES` | 125 → **127** (ALTI dosya: tanım + beş dosyada yedi çivi) |
+| Alembic başı | `0089` → `20260918_0090` (ON ÜÇ dosyada ON DÖRT çivi; dokuzu PG ikizi) |
 | Core envanteri | +~8 (ölçülecek), parmak izi YENİDEN TÜRETİLİR |
 | Core kiracı ifadesi | 191 → +~8 |
-| `pg_twins.txt` | 134 → **135** |
+| `pg_twins.txt` | **+1** (f0e3918'de 134 → 135; `bf8e73f`de zaten 135 — dilim kendi tabanında ölçer) |
 | Kiracı geri yükleme | `notification_consents` girdisiyle aynı biçimde taraf girdisi (§3.2) |
 | `cari_alan_envanteri.txt` | ⚠ yeni uç `phone` döndürüyorsa büyür |
 
@@ -671,7 +714,8 @@ lehçede ayrı üretilir.
 **Pin deltası:** yeni ROTA YOK (yüzey WhatsApp'tır) → 421/327/201/408
 DEĞİŞMEZ. `TENANT_TABLES` DEĞİŞMEZ (yeni tablo PLATFORM). Core envanteri +~10,
 kiracı ifadesi +~10, parmak izi yeniden. Alembic başı `0090` → `0091`
-(BEŞ dosya).
+(ON ÜÇ dosyada ON DÖRT çivi — F10-1a'nın PG ikizi de başı çivilerse ON DÖRT
+dosya).
 
 **Testler:** `test_f10_1b_ciftci_ekstre_avans.py` + PG ikizi. En az üç kapı:
 (1) çiftçi kimliği personel aracına ULAŞAMAZ; (2) komşu firmanın aynı adlı
@@ -718,15 +762,17 @@ sözlüğüyle birebir.** Yalnız-müşteri tasarım dört niyetin üçünü ç�
 (sıkı) olsun; SAKLANAN biçim `telefon.normalize_phone` kalsın** (çünkü
 `whatsapp_inbound.sender_phone` o biçimdedir ve karşılaştırma oradan geçer).
 Ayrıca `seed_demo_data.py:94` ve `:116` düzeltilsin — bugünkü demo verisiyle
-F10-1 uçtan uca DENENEMEZ.
+F10-1 uçtan uca DENENEMEZ. Müşteri tohumu (`:94`) için hane sayısı yeter;
+tedarikçi tohumu (`:116`) `212` sabit hat önekini taşıdığı için ayrıca `5xx`
+cep önekine çevrilmelidir (§2.2).
 
 **K3 — Çiftçi kendi fiyatını görsün mü?**
 → **Tavsiye: EVET** (§4e). Rakam zaten elindeki kağıtta yazılı.
 
 **K4 — Çiftçi eşleştirme ucu hangi izinden geçsin?**
 Ölçüm: `app/auth.py:977` `/api/whatsapp/` ÖNEKİNİN TAMAMINI `"users"` iznine
-bağlıyor ve gerekçesi orada yazılı (*"'kime WhatsApp'tan ulaşılabilir' listesi
-bir KULLANICI YÖNETİMİ yüzeyidir"*). Çiftçi bağlantısı bir kullanıcı yönetimi
+bağlıyor ve gerekçesi hemen üstünde, ASCII yazımıyla (`auth.py:970-971`):
+*"kime WhatsApp'tan ulasilabilir" listesi bir KULLANICI YONETIMI yuzeyidir*. Çiftçi bağlantısı bir kullanıcı yönetimi
 işi DEĞİLDİR; `"users"` izni olmayan satış/alım personeli cari kartındaki
 düğmeyi kullanamaz.
 → **Tavsiye: `/api/whatsapp/party-` öneki için AYRI bir kural — `CUSTOMER`
@@ -758,19 +804,22 @@ eklemek, yürürlükteki eşleştirme sınırını bir göç boyunca zayıflatı
    `target_phone` karşılaştırması TUTMAZ ve hata mesajı — ayırt edilemezlik
    sözleşmesi gereği — nedeni SÖYLEMEZ (`eslestirme.RED_MESAJI`). Arıza
    üretimde teşhis edilemez. K2 bu yüzden F10-1a'dan ÖNCE kapanmalıdır.
-3. **Pin deltaları paralel PR'larla çürür.** `TENANT_TABLES` BEŞ, alembic başı
-   BEŞ, Core envanteri parmak iziyle birlikte çivili. F10-1a hem bir göç hem
-   iki tenant tablosu hem dört rota getiriyor — yani aynı anda EN AZ ON DÖRT
-   pin noktasına dokunuyor. Aynı pencerede inen başka bir PR, çakışmasız ama
-   kırmızı bir CI üretir.
+3. **Pin deltaları paralel PR'larla çürür.** `TENANT_TABLES` ALTI dosyada
+   (tanım + beş dosyada yedi çivi), alembic başı ON ÜÇ dosyada ON DÖRT çivi,
+   Core envanteri parmak iziyle birlikte çivili. F10-1a hem bir göç hem iki
+   tenant tablosu hem dört rota getiriyor — `f0e3918` üzerinde sayıldığında
+   aynı anda EN AZ OTUZ pin noktasına dokunuyor: `TENANT_TABLES` 8 (tanım +
+   7), alembic başı 14, rota işlemi/yolu 2, GET envanteri 1, kimlik
+   doğrulamalı ≥1, Core envanteri 2 (sayım + parmak izi), Core kiracı ifadesi
+   1, `pg_twins.txt` 1. Başın dokuz çivisi `backend/` kökündeki PG
+   ikizlerindedir ve SQLite hattı onları HİÇ koşmaz — yerel yeşil bunları
+   görmez. Aynı pencerede inen başka bir PR, çakışmasız ama kırmızı bir CI
+   üretir.
 
 ---
 
 ## EK — ÖLÇÜLEMEYENLER (DOĞRULANMADI)
 
-* **`uq_suppliers_company_id` var mı.** `uq_customers_company_id` göç
-  `20260726_0026`da ölçüldü ve VAR; tedarikçi tarafının bileşik anahtarı bu
-  turda ölçülmedi. F10-1a'nın ilk ölçümü olmalı.
 * **Üretim verisinde aynı numaranın kaç caride tekrarlandığı.** Elimde yalnız
   `seed_demo_data.py` var; canlı veri tabanına erişmedim.
 * **Çiftçilerin gerçekte kaçının hem `customers` hem `suppliers` satırı
