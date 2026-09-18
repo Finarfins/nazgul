@@ -153,6 +153,17 @@ def odemenin_evraki(db: Session, cid: int, payment_id: int) -> int | None:
     return int(satir[0]) if satir else None
 
 
+def odemenin_evrak_satiri(db: Session, cid: int, payment_id: int) -> dict[str, Any] | None:
+    """Ödemeye bağlı evrakın satırı (H46: PUT'un evrak alanı karşılaştırması)."""
+    satir = db.execute(
+        select(cek_senetler)
+        .where(cek_senetler.c.company_id == cid, cek_senetler.c.payment_id == payment_id)
+        .order_by(cek_senetler.c.id)
+        .limit(1)
+    ).mappings().first()
+    return dict(satir) if satir else None
+
+
 def ciro_anahtari_acik(db: Session, cid: int) -> bool:
     deger = db.execute(
         select(companies.c.ciro_tedarikci_odemesi).where(companies.c.id == cid)
