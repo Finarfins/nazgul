@@ -15,6 +15,7 @@ from ..document_engine import PAYMENT_METHODS
 from ..finance_engine import finance_accounts, finance_transactions, financial_instruments, ACCOUNT_TYPES, sync_payment_finance, remove_payment_finance, validate_payment_account, utcnow
 from ..crm import add_contact, add_note, add_task, delete_contact, delete_note, delete_task, set_task_status
 from ..alan_maskeleme import maskelenecek_mi, maskeyi_geri_al
+from ..arama import arama_deseni, katli_sql
 from ..entity_detail import cari_liste_satirlari, entity_detail, entity_documents
 from ..config import settings
 from ..payment_allocation_engine import (
@@ -127,6 +128,12 @@ def _validate_payment(payload: PaymentCreate):
         raise HTTPException(422, 'Ödeme ile belge türü uyuşmuyor')
 
 
+# H57/H58: odeme ve hareket listelerinin arama kolonlari, `app/arama.py`nin
+# katlamasindan gecmis SABIT ifadeler. Kullanici metni yalniz `:q` ile baglanir.
+_ODEME_CARI_KATLI = katli_sql("COALESCE(CASE WHEN p.entity_type='customer' THEN c.name ELSE s.name END,'')")
+_HAREKET_ACIKLAMA_KATLI = katli_sql("COALESCE(t.description,'')")
+
+
 @router.get('/suppliers')
 def suppliers(request: Request, q: str = '', sort: str = 'name_asc', active: str = 'active', db: Session = Depends(get_db)):
     from datetime import date
@@ -138,12 +145,15 @@ def suppliers(request: Request, q: str = '', sort: str = 'name_asc', active: str
     # telefon/e-posta/VKN suzgecten CIKAR. Ayni orakul, ayni care: gerekce ve
     # olcum `customers.musteri_satirlari` docstring'inde. H27: maskesiz dal da
     # `owner_name`de eslesir; maskeli dalin UST KUMESIDIR.
+    # H57/H58: katlama + kacis ortak dikisten (`app/arama.py`).
+    ad, yetkili, eposta = (katli_sql('s.name'), katli_sql("COALESCE(s.owner_name,'')"),
+                           katli_sql("COALESCE(s.email,'')"))
     arama_sql=(
-        "(LOWER(s.name) LIKE LOWER(:q) OR LOWER(COALESCE(s.owner_name,'')) LIKE LOWER(:q))"
+        f"({ad} LIKE :q ESCAPE '\\' OR {yetkili} LIKE :q ESCAPE '\\')"
         if maskelenecek_mi(istek_rolu(request)) else
-        """(LOWER(s.name) LIKE LOWER(:q) OR LOWER(COALESCE(s.owner_name,'')) LIKE LOWER(:q)
-       OR COALESCE(s.phone,'') LIKE :q
-       OR LOWER(COALESCE(s.email,'')) LIKE LOWER(:q) OR COALESCE(s.tax_number,'') LIKE :q)"""
+        f"""({ad} LIKE :q ESCAPE '\\' OR {yetkili} LIKE :q ESCAPE '\\'
+       OR COALESCE(s.phone,'') LIKE :q ESCAPE '\\'
+       OR {eposta} LIKE :q ESCAPE '\\' OR COALESCE(s.tax_number,'') LIKE :q ESCAPE '\\')"""
     )
     rows = db.execute(text(f'''SELECT s.id,s.name,s.owner_name,s.phone,s.email,s.address,s.tax_number,s.opening_balance,
       COALESCE(s.risk_limit,0) risk_limit,COALESCE(s.payment_term_days,0) payment_term_days,CASE WHEN COALESCE(s.is_active, TRUE) THEN 1 ELSE 0 END is_active,
@@ -170,7 +180,7 @@ def suppliers(request: Request, q: str = '', sort: str = 'name_asc', active: str
         WHERE company_id=:cid AND status='issued' GROUP BY supplier_id
       ) mm ON mm.supplier_id=s.id
       WHERE s.company_id=:cid {active_sql} AND {arama_sql}
-      GROUP BY s.id,pay.total_paid,mm.total_receipts ORDER BY {order} LIMIT 1000'''), {'cid': cid, 'q': f'%{q}%', 'today':today}).mappings().all()
+      GROUP BY s.id,pay.total_paid,mm.total_receipts ORDER BY {order} LIMIT 1000'''), {'cid': cid, 'q': arama_deseni(q), 'today':today}).mappings().all()
     # Risk hesabi + SEC-3b maskelemesi musteri listesiyle ORTAK dikistedir;
     # gerekce `entity_detail.cari_liste_satirlari` docstring'inde. Bu uc
     # `purchases` iznine baglidir (SEC-3), yani `satis` ve `rapor` buraya HIC
@@ -201,15 +211,15 @@ def payments(
         'entity_asc': 'LOWER(entity_name) ASC,p.id DESC',
         'entity_desc': 'LOWER(entity_name) DESC,p.id DESC',
     }.get(sort, 'p.payment_date DESC,p.id DESC')
-    sql = """SELECT p.id,p.entity_type,p.entity_id,p.amount,p.payment_date,p.note,
+    sql = f"""SELECT p.id,p.entity_type,p.entity_id,p.amount,p.payment_date,p.note,
       COALESCE(p.payment_method,'cash') payment_method,p.reference_type,p.reference_id,p.account_id,p.financial_transaction_id,
       CASE WHEN p.entity_type='customer' THEN c.name ELSE s.name END entity_name,
       CASE WHEN p.reference_type IS NULL THEN 0 ELSE 1 END is_document_payment
       FROM payments p
       LEFT JOIN customers c ON p.entity_type='customer' AND c.id=p.entity_id AND c.company_id=:cid
       LEFT JOIN suppliers s ON p.entity_type='supplier' AND s.id=p.entity_id AND s.company_id=:cid
-      WHERE p.company_id=:cid AND LOWER(COALESCE(CASE WHEN p.entity_type='customer' THEN c.name ELSE s.name END,'')) LIKE LOWER(:q)"""
-    params = {'cid': cid, 'q': f'%{q}%', 'limit': limit}
+      WHERE p.company_id=:cid AND {_ODEME_CARI_KATLI} LIKE :q ESCAPE '\\'"""
+    params = {'cid': cid, 'q': arama_deseni(q), 'limit': limit}
     if entity_type:
         sql += ' AND p.entity_type=:t'
         params['t'] = entity_type
@@ -829,8 +839,8 @@ def delete_account(account_id:int,request:Request,db:Session=Depends(get_db)):
 @router.get('/finance/transactions')
 def list_finance_transactions(request:Request,account_id:int|None=None,date_from:str|None=None,date_to:str|None=None,q:str='',db:Session=Depends(get_db)):
     cid=company_id(request)
-    sql='''SELECT t.*,a.name account_name,a.account_type FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id AND a.company_id=t.company_id
-      WHERE t.company_id=:cid AND LOWER(COALESCE(t.description,'')) LIKE LOWER(:q)''';params={'cid':cid,'q':f'%{q}%'}
+    sql=f"""SELECT t.*,a.name account_name,a.account_type FROM finance_transactions t JOIN finance_accounts a ON a.id=t.account_id AND a.company_id=t.company_id
+      WHERE t.company_id=:cid AND {_HAREKET_ACIKLAMA_KATLI} LIKE :q ESCAPE '\\'""";params={'cid':cid,'q':arama_deseni(q)}
     if account_id: sql+=' AND t.account_id=:aid';params['aid']=account_id
     if date_from: sql+=' AND t.txn_date>=:df';params['df']=date_from
     if date_to: sql+=' AND t.txn_date<=:dt';params['dt']=date_to
