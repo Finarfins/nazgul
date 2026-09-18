@@ -16,6 +16,15 @@ type KuyrukYenidenSonucu=components['schemas']['KuyrukYenidenSonucu'];
 const yenidenMetni=(kanal:string,sonuc:KuyrukYenidenSonucu)=>
  `${kanal}: ${sonuc.requeued} bildirim yeniden kuyruğa alındı · kalan ${sonuc.remaining} · yeniden denenemez ${sonuc.not_retryable}`;
 
+/**
+ * `changed:false` burada "zaten bu durumda" DEĞİLDİR: başarısız bildirim
+ * vardır ama hiçbiri uygun değildir (onaysız, rıza engelli, tetiği düşmüş).
+ * Genel cümle operatöre "düğme neden bir şey yapmadı"yı anlatmıyordu; yanıtın
+ * `not_retryable` sayısı anlatıyor (mercek #142/H62).
+ */
+const yenidenDegismediMetni=(sonuc:KuyrukYenidenSonucu)=>
+ `Kuyruğa alınacak kayıt yok · kalıcı hata: ${sonuc.not_retryable}`;
+
 const evetHayir=(deger:unknown)=>deger===undefined||deger===null?'—':typeof deger==='boolean'?(deger?'evet':'hayır'):String(deger);
 
 export default function PlatformOutbox(){
@@ -46,7 +55,8 @@ export default function PlatformOutbox(){
        <TableCell>{yasMetni(kanal.oldest_pending_age_seconds)}</TableCell>
        <TableCell align="right">{kanal.failed>0&&<EylemDugmesi<KuyrukYenidenSonucu> etiket="Yeniden dene" renk="warning" ikon={<ReplayIcon/>} testId={`yeniden-${kanal.channel}`}
         onay={{baslik:'Başarısız bildirimleri yeniden dene',icerik:<><b>{kanal.channel}</b> kanalındaki <b>{kanal.failed}</b> başarısız bildirimden uygun olanlar (onaylı, rıza engeli olmayan) yeniden kuyruğa alınacak.</>}}
-        istek={()=>api.post('/platform/outbox/retry',{channel:kanal.channel})} basariMetni={sonuc=>yenidenMetni(kanal.channel,sonuc)} yenile={yenile} bildir={bildir}/>}</TableCell>
+        istek={()=>api.post('/platform/outbox/retry',{channel:kanal.channel})} basariMetni={sonuc=>yenidenMetni(kanal.channel,sonuc)}
+        degismediMetni={yenidenDegismediMetni} yenile={yenile} bildir={bildir}/>}</TableCell>
       </TableRow>)}
      </TableBody>
     </Table></TableContainer>
