@@ -245,7 +245,7 @@ def test_OFFSET_TAVANI_INT4_UST_422_sinirda_200(iki_firma, istemci, sorgu, tasan
     """Tabanda 2^63 -> 500 (`bigint out of range`). Tavan `INT4_UST`: 2^31 ve 2^63
     422, INT4_UST boş sayfa. MUTASYON: `le=INT4_UST`yi silmek 2^63 dalını 500'e
     döndürür; tavanı 2^63-1'e geri almak 2^31 dalını 200'e döndürür."""
-    from app.routers.cek_senetler import INT4_UST
+    from app.sinirlar import INT4_UST
 
     a, _ = iki_firma
     on = sorgu.format(fatura=a["fatura"])
@@ -276,7 +276,7 @@ def test_INVOICE_ID_int4_DISI_422_500_DEGIL(istemci, fatura) -> None:
 
 def test_INVOICE_ID_sinirda_INT4_UST_200(istemci) -> None:
     """Sınırın kendisi geçerli: yabancı/olmayan fatura boş sayfa, 500 değil."""
-    from app.routers.cek_senetler import INT4_UST
+    from app.sinirlar import INT4_UST
 
     yanit = istemci.get(f"/api/despatch-notes?invoice_id={INT4_UST}")
     assert yanit.status_code == 200, yanit.text

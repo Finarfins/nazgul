@@ -1191,7 +1191,7 @@ def test_LISTE_OFFSET_TAVANI_INT4_UST_422_sinirda_200(istemci, admin_basliklari,
     """H51: `offset` tavanı `INT4_UST` (H54: tek tavan). 2^31 ve 2^63 422, sınır
     200. SQLite'ta tavansız 2^31 200 verirdi — MUTASYON: `le=INT4_UST`yi silmek
     ya da 2^63-1'e geri almak bunu KIRMIZI yapar."""
-    from app.routers.cek_senetler import INT4_UST
+    from app.sinirlar import INT4_UST
 
     assert INT4_UST == 2**31 - 1
     for on in ("", f"invoice_id={tohum['invoice_id']}&"):
