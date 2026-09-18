@@ -347,51 +347,50 @@ def _belge_numarasi(db: Session, cid: int, yil: int, verilen: str | None) -> str
                 f"({int(yil):04d}) uyuşmuyor",
                 despatch_number=elle,
             )
-        tekrar = db.execute(
+    else:
+        onek = f"{edespatch.BELGE_SERI_ONEKI}{int(yil):04d}"
+        en_buyuk = db.execute(
+            select(func.max(despatch_notes.c.despatch_number))
+            .select_from(despatch_notes)
+            .where(
+                despatch_notes.c.company_id == cid,
+                despatch_notes.c.despatch_number.like(onek + "%"),
+            )
+        ).scalar()
+        tohum = (
+            int(en_buyuk[len(onek):])
+            if en_buyuk and edespatch.GIB_BELGE_NO_DESENI.match(en_buyuk)
+            else 0
+        )
+    # Elle numara TEK aday; otomatik numara alınmış bir değere denk gelirse
+    # sıradakine geçer. "Alınmış mı" okuması İKİ yolda da AYNI sorgudur.
+    for _ in range(1 if elle else 1000):
+        if elle:
+            numara = elle
+        else:
+            sira = next_sequence_value(db, "despatch_notes", cid, onek, tohum)
+            try:
+                numara = edespatch.belge_numarasi_uret(yil, sira)
+            except UblBuildError:
+                raise _hata(
+                    409, IRSALIYE_NUMARA_TUKENDI,
+                    f"{int(yil):04d} yılı için otomatik irsaliye numarası tükendi "
+                    f"({onek}999999999 kullanılmış); numarayı elle verin",
+                ) from None
+        alinmis = db.execute(
             select(despatch_notes.c.id).where(
                 despatch_notes.c.company_id == cid,
-                func.upper(despatch_notes.c.despatch_number) == elle,
+                func.upper(despatch_notes.c.despatch_number) == numara,
             )
         ).first()
-        if tekrar:
+        if not alinmis:
+            return numara
+        if elle:
             raise _hata(
                 409, IRSALIYE_NO_TEKRAR,
                 f"{elle} numaralı bir irsaliye bu firmada zaten var",
                 despatch_number=elle,
             )
-        return elle
-    onek = f"{edespatch.BELGE_SERI_ONEKI}{int(yil):04d}"
-    en_buyuk = db.execute(
-        select(func.max(despatch_notes.c.despatch_number))
-        .select_from(despatch_notes)
-        .where(
-            despatch_notes.c.company_id == cid,
-            despatch_notes.c.despatch_number.like(onek + "%"),
-        )
-    ).scalar()
-    tohum = (
-        int(en_buyuk[len(onek):])
-        if en_buyuk and edespatch.GIB_BELGE_NO_DESENI.match(en_buyuk)
-        else 0
-    )
-    for _ in range(1000):
-        sira = next_sequence_value(db, "despatch_notes", cid, onek, tohum)
-        try:
-            numara = edespatch.belge_numarasi_uret(yil, sira)
-        except UblBuildError:
-            raise _hata(
-                409, IRSALIYE_NUMARA_TUKENDI,
-                f"{int(yil):04d} yılı için otomatik irsaliye numarası tükendi "
-                f"({onek}999999999 kullanılmış); numarayı elle verin",
-            ) from None
-        alinmis = db.execute(
-            select(despatch_notes.c.id).where(
-                despatch_notes.c.company_id == cid,
-                despatch_notes.c.despatch_number == numara,
-            )
-        ).first()
-        if not alinmis:
-            return numara
     raise RuntimeError("İrsaliye numarası üretilemedi; sayaç olağandışı biçimde çakışıyor")
 
 
