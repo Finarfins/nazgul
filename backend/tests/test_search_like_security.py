@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from app.routers.search import _like
+from app.arama import arama_deseni as _like
 
 
 def _literal_like_matches(values: list[str], query: str) -> list[str]:
