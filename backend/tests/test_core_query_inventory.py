@@ -1157,8 +1157,8 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     # --- CS2 ÇEK/SENET <-> CARİ (göç 20260914_0086): +4 select, hepsi kiracı yüklemli.
     ("app/cek_senet_cari.py", "ciro_anahtari_acik", "select",
      "8c227a3006b58256a9218ddd2706414b5166bc45887815f07f99d864615106e1"): (1, "companies", "arg0"),
-    ("app/cek_senet_cari.py", "odemenin_evraki", "select",
-     "b9b061d6965f872d9bbaf6445633bc595626578b60743b27c695e68a3ee13aea"): (1, "cek_senetler", "arg0"),
+    ("app/cek_senet_cari.py", "odemenin_evrak_satiri", "select",
+     "ad4ce749dc5bf0171e8cb551308f1ce5ce3877ef3dc77052e5e10ecba89589ab"): (1, "cek_senetler", "arg0"),
     # Yaşlandırma "Portföy Çekleri": JOIN yerine İKİ tek-tablo select — tarayıcı
     # `join(...)` argümanını statik çözemiyor (variable-arg, ölçüldü).
     ("app/routers/reports.py", "portfoy_evraklari", "select",
@@ -1351,7 +1351,10 @@ EXPECTED_OP_COUNTS = {"select": 158, "update": 63, "delete": 12}
 # E4b-2 (e-IRSALIYE YANITI, goc 20260915_0089): 227 -> 233, altisi
 # app/routers/despatch_notes.py; TABAN develop `2dd542b`. Tarayicinin
 # ciktisindan alindi. 2c4c3e4d -> 494f7b8b.
-INVENTORY_FINGERPRINT = "494f7b8b7bd3b9b8d9899fe141fd04f65f35072965a868f2a401d6448463dd12"
+# H46 (GOC YOK): 233 -> 233; `odemenin_evraki`nin sorgusu
+# `odemenin_evrak_satiri`ye tasindi (tum satir, PUT'un evrak karsilastirmasi).
+# TABAN develop `bf8e73f`; tarayicinin ciktisindan. 494f7b8b -> a16e155f.
+INVENTORY_FINGERPRINT = "a16e155feaccbf3a3c9120024ba798964437233a64c2eb5f2bdb9a75516acccb"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:
