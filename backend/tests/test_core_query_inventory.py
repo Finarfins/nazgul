@@ -933,6 +933,15 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "ca946138a90e4cf669eed7964a504a54ff4dc76fd41b884661890dbdfc8fa208"): (1, None, "unresolved"),
     ("app/kiraci_geri_yukleme.py", "geri_yukle", "select",
      "650a4a1795805771782d7613ea6d6cecba7093b8a95ec7dfb3513d966217e1ae"): (1, "users", "arg0"),
+    # H49b: e-postayla uyelik esleme. Hedef STATIK cozulur (`auth.users` =
+    # `app_users`, platform tablosu, kiraci tablosu DEGIL; kiraci kapisi onu
+    # korumaz). Tek koruma KUMEDIR: yuklem `lower(email) IN (<manifestin
+    # user_emails haritasinda olup hedefte KIMLIGI OLMAYAN uyelerin
+    # e-postalari>)` + `is_active IS true`, parcali IN; yalniz `id` ve
+    # `lower(email)` secilir. Bos kumede sorgu kosmaz (testle pinli). Gerekce
+    # `_kullanici_epostalari`nin (H49) aynasi.
+    ("app/kiraci_geri_yukleme.py", "_epostayla_esle", "select",
+     "3cdebd813f778a628576a932a287190b6b12c93e05f5fbcc376106424fb83c1b"): (1, "users", "arg0"),
     # --- WHATSAPP ESLESTIRME (WA2, goc 20260910_0079)
     # ON BES sorgu, UC dosya (eslestirme.py 7, baglam.py 4, routers/whatsapp.py 4). KIRACI tablosuna bakan her sorgu `company_id`
     # yuklemi TASIYOR ve yuklem parmak izinde GORUNUR; bu kapi yuklemin
@@ -1261,8 +1270,13 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # H47 (GOC YOK): 233 -> 234, +1 select, `app/statement._cek_dekont_borcu`
 # (CS2'nin text() toplami Core'a cevrildi; TABAN develop `bf8e73f`).
 # `UNRESOLVED_ALLOWLIST` ve `desteksiz` BUYUMEDI (hedef `.select_from()` ile cozuldu).
-TOTAL_CORE_QUERIES = 234
-EXPECTED_OP_COUNTS = {"select": 159, "update": 63, "delete": 12}
+# H49b GERI YUKLEMEDE E-POSTAYLA UYELIK ESLEME (GOC YOK): 234 -> 235 (TABAN
+# develop `82254b2`, #151/H47 birlestikten SONRA TARAYICIYLA YENIDEN OLCULDU;
+# ilk olcum `bf8e73f` uzerinde 233 -> 234), +1 select, ekleme:
+# `kiraci_geri_yukleme._epostayla_esle`. `UNRESOLVED_ALLOWLIST` ve `desteksiz`
+# BUYUMEDI (hedef `arg0` ile cozuldu).
+TOTAL_CORE_QUERIES = 235
+EXPECTED_OP_COUNTS = {"select": 160, "update": 63, "delete": 12}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1362,7 +1376,9 @@ EXPECTED_OP_COUNTS = {"select": 159, "update": 63, "delete": 12}
 # ciktisindan alindi. 2c4c3e4d -> 494f7b8b.
 # H47 (GOC YOK): 233 -> 234, TABAN develop `bf8e73f`; tarayicinin ciktisindan.
 # 494f7b8b -> 31ca10d5.
-INVENTORY_FINGERPRINT = "31ca10d5dd1de511aa223785b40ef1b0c7f74752c40176f04ac82b53e2f602b2"
+# H49b (GOC YOK): 234 -> 235, TABAN develop `82254b2`; tarayicinin ciktisindan.
+# 31ca10d5 -> c0d8dccc.
+INVENTORY_FINGERPRINT = "c0d8dccc5410c26f0bcf0323592ddaf50c51fee45af2b7470c660c2dc243ab20"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:
