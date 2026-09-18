@@ -394,13 +394,126 @@ def test_kopru_IDEMPOTENT_tekrar_ikinci_evrak_YAZMAZ(ortam) -> None:
 def test_bagli_odeme_duzenlenemez_silinemez_409(ortam) -> None:
     client, h = ortam["client"], dict(ortam["h_muh"])
     govde = _cekle_ode(ortam, ortam["mus_diger"], "KLT-1", tutar="15").json()
+    # H46: PUT'un kilidi artık alan alanıdır (422 CEK_ALANI_DEGISTIRILEMEZ);
+    # CEK_BAGLI_ODEME yalnız DELETE'te kalır.
     duz = _odeme_govdesi(ortam["mus_diger"], seri="KLT-1", tutar="16", cek=False)
     cevap = client.put(f"/api/payments/{govde['id']}", headers=h, json=duz)
-    assert cevap.status_code == 409 and cevap.json()["detail"]["code"] == "CEK_BAGLI_ODEME", cevap.text
-    assert client.delete(f"/api/payments/{govde['id']}", headers=h).status_code == 409
-    # PUT'ta evrak alanı hiç kabul edilmez.
+    assert cevap.status_code == 422 and _kod(cevap) == "CEK_ALANI_DEGISTIRILEMEZ", cevap.text
+    sil = client.delete(f"/api/payments/{govde['id']}", headers=h)
+    assert sil.status_code == 409 and _kod(sil) == "CEK_BAGLI_ODEME", sil.text
+    # PUT'ta evrak alanı değiştirilemez.
     duz_cekli = _odeme_govdesi(ortam["mus_diger"], seri="KLT-X", tutar="16")
-    assert client.put(f"/api/payments/{govde['id']}", headers=h, json=duz_cekli).status_code == 422
+    cevap = client.put(f"/api/payments/{govde['id']}", headers=h, json=duz_cekli)
+    assert cevap.status_code == 422 and _kod(cevap) == "CEK_ALANI_DEGISTIRILEMEZ", cevap.text
+
+
+# ------------------------------------------------ H46: PUT'un çek/senet kilidi ---
+
+def _kod(cevap) -> str | None:
+    detay = cevap.json().get("detail")
+    return detay.get("code") if isinstance(detay, dict) else None
+
+
+def _put(ortam, payment_id: int, govde: dict):
+    return ortam["client"].put(f"/api/payments/{payment_id}", headers=ortam["h_muh"], json=govde)
+
+
+def _evraksiz_cek_odemesi(ortam, tutar: str = "9") -> int:
+    """İçe aktarımın yazdığı şekil: yöntem ``check``, evrak YOK, tahsis YOK."""
+    from sqlalchemy import text
+
+    with ortam["engine"].begin() as c:
+        return int(c.execute(text(
+            "INSERT INTO payments(entity_type,entity_id,amount,payment_date,company_id,payment_method) "
+            "VALUES ('customer',:m,:t,:d,:c,'check') RETURNING id"),
+            {"m": ortam["mus_diger"], "t": tutar, "d": _gun(-5), "c": ortam["a"]}).scalar_one())
+
+
+def _odeme_satiri(engine, payment_id: int) -> tuple:
+    return tuple(_sql(engine, "SELECT entity_type,entity_id,amount,payment_date,payment_method,note "
+                      "FROM payments WHERE id=:i", i=payment_id)[0])
+
+
+def test_H46_cek_yontemine_GIRIS_ve_CIKIS_409(ortam) -> None:
+    engine, mus = ortam["engine"], ortam["mus_diger"]
+    # (c) bağlı çek -> nakit / senet: evrak sahipsiz kalırdı.
+    bagli = _cekle_ode(ortam, mus, "H46-Y1", tutar="12").json()
+    once = _odeme_satiri(engine, bagli["id"])
+    for yontem in ("cash", "promissory_note"):
+        cevap = _put(ortam, bagli["id"], _odeme_govdesi(mus, seri="H46-Y1", tutar="12", yontem=yontem, cek=False))
+        assert cevap.status_code == 409 and _kod(cevap) == "CEK_YONTEM_DEGISTIRILEMEZ", (yontem, cevap.text)
+    assert _odeme_satiri(engine, bagli["id"]) == once
+    # (c') evraksız çek (içe aktarım) -> nakit: H46 öncesi 200 idi.
+    evraksiz = _evraksiz_cek_odemesi(ortam)
+    cevap = _put(ortam, evraksiz, _odeme_govdesi(mus, seri="-", tutar="9", yontem="cash", cek=False))
+    assert cevap.status_code == 409 and _kod(cevap) == "CEK_YONTEM_DEGISTIRILEMEZ", cevap.text
+    # (b) nakit -> çek: H46 öncesi 200 ve evraksız yetim çek. Tedarikçi: tahsis kilidi araya girmesin.
+    nakit = _cekle_ode(ortam, ortam["ted_a"], "H46-N0", entity_type="supplier", yontem="cash", cek=False)
+    assert nakit.status_code == 201, nakit.text
+    nid = nakit.json()["id"]
+    once = _odeme_satiri(engine, nid)
+    for cek in (False, None):
+        govde = _odeme_govdesi(ortam["ted_a"], entity_type="supplier", seri="H46-N0", yontem="check", cek=cek)
+        cevap = _put(ortam, nid, govde)
+        assert cevap.status_code == 409 and _kod(cevap) == "CEK_YONTEM_DEGISTIRILEMEZ", (cek, cevap.text)
+    assert _odeme_satiri(engine, nid) == once
+    assert _sql(engine, "SELECT COUNT(*) FROM cek_senetler WHERE payment_id=:p", p=nid)[0][0] == 0
+    # Nakitte evrak gövdesi POST'taki kapıyla (``_cek_bilgisi``) reddedilir.
+    cevap = _put(ortam, nid, _odeme_govdesi(ortam["ted_a"], entity_type="supplier", seri="H46-N0", yontem="cash"))
+    assert cevap.status_code == 422 and "yalnız çek/senet" in cevap.text, cevap.text
+
+
+@pytest.mark.parametrize("degisiklik", [
+    {"tutar": "14"},
+    {"gun": -4},
+    {"entity_type": "supplier", "musteri": "ted_a"},
+    {"cek": {"banka_adi": "Garanti"}},
+    {"cek": {"notlar": "başka"}},
+    {"seri": "H46-XX", "cek": None},
+])
+def test_H46_cek_odemesinde_evrak_alani_DEGISTIRILEMEZ_422(ortam, degisiklik) -> None:
+    engine, mus = ortam["engine"], ortam["mus_diger"]
+    seri = f"H46-A-{uuid4().hex[:6]}"
+    bagli = _cekle_ode(ortam, mus, seri, tutar="13").json()
+    once = _odeme_satiri(engine, bagli["id"])
+    evrak_once = ortam["client"].get(f"/api/cek-senetler/{bagli['cek_senet_id']}", headers=ortam["h_muh"]).json()
+    d = dict(degisiklik)
+    musteri = ortam[d.pop("musteri")] if "musteri" in d else mus
+    if "gun" in d:
+        d["payment_date"] = _gun(d.pop("gun"))
+    govde = _odeme_govdesi(musteri, **{"seri": seri, "tutar": "13", "cek": False, "note": "yalnız not", **d})
+    cevap = _put(ortam, bagli["id"], govde)
+    assert cevap.status_code == 422 and _kod(cevap) == "CEK_ALANI_DEGISTIRILEMEZ", cevap.text
+    assert _odeme_satiri(engine, bagli["id"]) == once
+    evrak = ortam["client"].get(f"/api/cek-senetler/{bagli['cek_senet_id']}", headers=ortam["h_muh"]).json()
+    assert evrak == evrak_once
+
+
+def test_H46_cek_odemesinde_YALNIZ_not_duzenlenir(ortam) -> None:
+    engine, mus = ortam["engine"], ortam["mus_diger"]
+    bagli = _cekle_ode(ortam, mus, "H46-NOT", tutar="17").json()
+    tahsis, bakiye = _tahsis_net(engine, bagli["id"]), _cari_bakiye(ortam, mus)
+    assert tahsis == Decimal("17")  # tahsisli: motorun "tahsis edilmiş" kilidi nota engel olmamalı
+    evrak_yolu = f"/api/cek-senetler/{bagli['cek_senet_id']}"
+    evrak_once = ortam["client"].get(evrak_yolu, headers=ortam["h_muh"]).json()
+    # Evrak gövdesiz ve evrakın AYNISIYLA: ikisi de yalnız notu yazar.
+    for cek, not_ in ((False, "Kasa defteri 12"), (None, "ikinci not")):
+        cevap = _put(ortam, bagli["id"], _odeme_govdesi(mus, seri="H46-NOT", tutar="17", cek=cek, note=not_))
+        assert cevap.status_code == 200 and cevap.json() == {"id": bagli["id"]}, cevap.text
+        assert _odeme_satiri(engine, bagli["id"])[-1] == not_
+    assert _tahsis_net(engine, bagli["id"]) == tahsis and _cari_bakiye(ortam, mus) == bakiye
+    assert ortam["client"].get(evrak_yolu, headers=ortam["h_muh"]).json() == evrak_once
+    kayit = _sql(engine, "SELECT COUNT(*) FROM activity_logs WHERE action_type='payment.update' "
+                 "AND resource_id=:i", i=bagli["id"])[0][0]
+    assert kayit == 2
+    # Evraksız çek ödemesinin de yalnız notu yazılır; evrak eklenemez.
+    evraksiz = _evraksiz_cek_odemesi(ortam)
+    cevap = _put(ortam, evraksiz, _odeme_govdesi(mus, seri="-", tutar="9", cek=False, note="aktarım notu"))
+    assert cevap.status_code == 200, cevap.text
+    assert _odeme_satiri(engine, evraksiz)[-1] == "aktarım notu"
+    cevap = _put(ortam, evraksiz, _odeme_govdesi(mus, seri="H46-SONRA", tutar="9"))
+    assert cevap.status_code == 422 and _kod(cevap) == "CEK_ALANI_DEGISTIRILEMEZ", cevap.text
+    assert _sql(engine, "SELECT COUNT(*) FROM cek_senetler WHERE payment_id=:p", p=evraksiz)[0][0] == 0
 
 
 def test_yetki_ve_kiraci(ortam) -> None:
@@ -736,6 +849,14 @@ def test_kopru_motor_KAPALI_yolunda_da_atomik(tmp_path) -> None:
         assert govde["cek_senet_id"] is not None and "cek_senet" not in govde
         assert tuple(_sql(engine, "SELECT payment_id,portfoy_durumu FROM cek_senetler WHERE id=:i",
                           i=govde["cek_senet_id"])[0]) == (govde["id"], "portfoyde")
+        # H46 kilidi motorun dalından ÖNCE: kapalı yolda da aynı.
+        duz = _odeme_govdesi(k["mus_diger"], seri="OFF-1", tutar="40", cek=False, note="kapalı yol")
+        assert _put(o, govde["id"], duz).status_code == 200
+        assert _odeme_satiri(engine, govde["id"])[-1] == "kapalı yol"
+        cevap = _put(o, govde["id"], {**duz, "amount": "41"})
+        assert cevap.status_code == 422 and _kod(cevap) == "CEK_ALANI_DEGISTIRILEMEZ", cevap.text
+        cevap = _put(o, govde["id"], {**duz, "payment_method": "cash"})
+        assert cevap.status_code == 409 and _kod(cevap) == "CEK_YONTEM_DEGISTIRILEMEZ", cevap.text
         # İçe aktarım yolu (evrak sütunsuz) CS2 öncesi gibi evraksız yazar.
         from app.routers.finance import _cek_bilgisi
         from app.schemas import PaymentCreate
