@@ -112,7 +112,7 @@ tests/test_field_stok_tuketici.py	6
 tests/test_field_stok_zamanlayici.py	6
 tests/test_firma_profili.py	1
 tests/test_herd_management_foundation.py	1
-tests/test_isolated_test_runner.py	1
+tests/test_isolated_test_runner_yurutme.py	1
 tests/test_kantar_fisi_defter.py	1
 tests/test_kantar_fisi_sonluluk.py	1
 tests/test_kantar_fisi_sozlesme.py	1
