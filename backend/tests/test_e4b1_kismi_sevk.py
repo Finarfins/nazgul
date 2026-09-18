@@ -734,6 +734,252 @@ def test_UBL_N_DespatchLine_dogru_miktar_ve_fatura_satiri(istemci, admin_baslikl
 
 
 # ==========================================================================
+# 3b. HİJYEN — H52 numara tükenmesi, H53 elle numara, H66 ISO, H68 lines_count
+# ==========================================================================
+
+def _tek_kalem(h, ad: str = "Cavdar", miktar: str = "5") -> tuple[int, int]:
+    f = _sql_fatura(int(h["X-Company-ID"]), [("PART", ad, miktar)])
+    return f["id"], f["kalemler"][0]
+
+
+def _bir_birim(fatura_id: int, kalem: int, **ek) -> dict:
+    return _govde(fatura_id, lines=[{"invoice_item_id": kalem, "quantity": "1"}], **ek)
+
+
+def test_H52_NUMARA_TUKENDI_409_500_DEGIL(istemci, admin_basliklari) -> None:
+    """Yılın `IRS<yıl>999999999`u elle verilmişse otomatik numara 9 haneyi
+    aşar. Eskiden `UblBuildError` yakalanmıyordu -> 500. Şimdi 409, adıyla;
+    reddedilen istek irsaliye bırakmaz, sayacı da ilerletmez.
+    MUTASYON: `_belge_numarasi`ndaki `except UblBuildError` dalını kaldırmak
+    bunu KIRMIZI yapar (500)."""
+    from sqlalchemy import text
+
+    from app.db import SessionLocal
+
+    h = admin_basliklari
+    f, kalem = _tek_kalem(h)
+    son = istemci.post(
+        "/api/despatch-notes", headers=h,
+        json=_bir_birim(f, kalem, issue_date="2033-03-01", despatch_number="IRS2033999999999"),
+    )
+    assert son.status_code == 201, son.text
+    tukendi = istemci.post(
+        "/api/despatch-notes", headers=h, json=_bir_birim(f, kalem, issue_date="2033-03-02"),
+    )
+    assert tukendi.status_code == 409, tukendi.text
+    assert _kod(tukendi) == "IRSALIYE_NUMARA_TUKENDI"
+    assert "2033" in tukendi.json()["detail"]["message"]
+    liste = istemci.get(f"/api/despatch-notes?invoice_id={f}", headers=h).json()
+    assert liste["total"] == 1
+    with SessionLocal() as db:
+        sayac = db.execute(
+            text(
+                "SELECT current_value FROM document_sequences WHERE company_id=:c "
+                "AND sequence_key='despatch_notes:IRS2033'"
+            ),
+            {"c": int(h["X-Company-ID"])},
+        ).scalar()
+    assert sayac is None, sayac
+    # Başka bir yıl etkilenmez.
+    baska_yil = istemci.post(
+        "/api/despatch-notes", headers=h, json=_bir_birim(f, kalem, issue_date="2036-01-01"),
+    )
+    assert baska_yil.status_code == 201, baska_yil.text
+    assert baska_yil.json()["despatch_number"] == "IRS2036000000001"
+
+
+def test_H53_ELLE_NUMARA_TEKRAR_409_kucuk_harf_ve_baska_fatura(istemci, admin_basliklari) -> None:
+    """Elle verilen numara firmada tekil. Küçük harfli kopya eskiden 201
+    alıyordu (normalize ediliyordu ama HİÇ kontrol edilmiyordu).
+    MUTASYON: `_belge_numarasi`ndaki tekrar ön okumasını silmek bunu KIRMIZI
+    yapar (ikinci istek 201)."""
+    h = admin_basliklari
+    f, kalem = _tek_kalem(h)
+    ilk = istemci.post(
+        "/api/despatch-notes", headers=h,
+        json=_bir_birim(f, kalem, issue_date="2034-05-01", despatch_number="IRS2034000000005"),
+    )
+    assert ilk.status_code == 201, ilk.text
+    kucuk = istemci.post(
+        "/api/despatch-notes", headers=h,
+        json=_bir_birim(f, kalem, issue_date="2034-05-02", despatch_number=" irs2034000000005 "),
+    )
+    assert kucuk.status_code == 409, kucuk.text
+    assert _kod(kucuk) == "IRSALIYE_NO_TEKRAR"
+    assert kucuk.json()["detail"]["despatch_number"] == "IRS2034000000005"
+    g, kalem2 = _tek_kalem(h, "Misir")
+    baska = istemci.post(
+        "/api/despatch-notes", headers=h,
+        json=_bir_birim(g, kalem2, issue_date="2034-06-01", despatch_number="IRS2034000000005"),
+    )
+    assert baska.status_code == 409, baska.text
+    assert _kod(baska) == "IRSALIYE_NO_TEKRAR"
+    assert istemci.get(f"/api/despatch-notes?invoice_id={f}", headers=h).json()["total"] == 1
+    assert istemci.get(f"/api/despatch-notes?invoice_id={g}", headers=h).json()["total"] == 0
+    # Otomatik numara elle verilmişin ARDINDAN gelir, onunla çakışmaz.
+    oto = istemci.post(
+        "/api/despatch-notes", headers=h, json=_bir_birim(g, kalem2, issue_date="2034-06-02"),
+    )
+    assert oto.status_code == 201, oto.text
+    assert oto.json()["despatch_number"] == "IRS2034000000006"
+
+
+def test_H53_ELLE_NUMARA_TEKRAR_baska_FIRMADA_serbest(istemci, admin_basliklari) -> None:
+    """Tekillik FİRMA kapsamlı: başka firmanın aynı numarası engel değil."""
+    from sqlalchemy import text
+
+    from app.db import SessionLocal
+
+    h = admin_basliklari
+    an = datetime.now(timezone.utc)
+    with SessionLocal() as db:
+        yabanci = db.execute(
+            text("INSERT INTO companies(name,is_active,created_at) VALUES('E4b1 H53 Yabanci',1,:t) RETURNING id"),
+            {"t": an},
+        ).scalar_one()
+        db.commit()
+    y = _sql_fatura(int(yabanci), [("PART", "Yabanci", "1")])
+    with SessionLocal() as db:
+        db.execute(
+            text(
+                "INSERT INTO despatch_notes(company_id,invoice_id,despatch_uuid,despatch_number,"
+                "issue_date,actual_shipment_at,driver_name,driver_national_id,vehicle_plate,"
+                "delivery_address,delivery_postal_code,edespatch_status,created_at,updated_at) "
+                "VALUES(:c,:f,'00000000-0000-4000-8000-0000000e4b53','IRS2037000000010',"
+                "'2037-01-01',:t,'A',:tc,:p,'Adres','34000','NONE',:t,:t)"
+            ),
+            {"c": yabanci, "f": y["id"], "t": an, "tc": SOFOR_TCKN, "p": PLAKA},
+        )
+        db.commit()
+    f, kalem = _tek_kalem(h)
+    yanit = istemci.post(
+        "/api/despatch-notes", headers=h,
+        json=_bir_birim(f, kalem, issue_date="2037-02-01", despatch_number="IRS2037000000010"),
+    )
+    assert yanit.status_code == 201, yanit.text
+
+
+@pytest.mark.parametrize(
+    ("issue_date", "numara"),
+    [("2035-01-01", "IRS2034000000001"), (None, "IRS1999000000001")],
+)
+def test_H53_ELLE_NUMARA_YIL_UYUMSUZ_422(istemci, admin_basliklari, issue_date, numara) -> None:
+    """Numaranın yılı `issue_date`in (verilmemişse bugünün) yılı olmalı.
+    MUTASYON: yıl karşılaştırmasını silmek bunu KIRMIZI yapar (201)."""
+    h = admin_basliklari
+    f, kalem = _tek_kalem(h)
+    govde = _bir_birim(f, kalem, despatch_number=numara)
+    if issue_date:
+        govde["issue_date"] = issue_date
+    yanit = istemci.post("/api/despatch-notes", headers=h, json=govde)
+    assert yanit.status_code == 422, yanit.text
+    assert _kod(yanit) == "IRSALIYE_NO_YIL_UYUMSUZ"
+    assert istemci.get(f"/api/despatch-notes?invoice_id={f}", headers=h).json()["total"] == 0
+
+
+def _iso_utc_mi(deger: str) -> bool:
+    an = datetime.fromisoformat(deger)
+    return "T" in deger and an.utcoffset() is not None and an.utcoffset().total_seconds() == 0
+
+
+def test_H66_zaman_alanlari_ISO_8601_ve_response_ile_AYNI(istemci, admin_basliklari) -> None:
+    """`edespatch/status`, detay ve liste `*_at` alanlarını `T`li, offset'li
+    ISO olarak verir — `/response`un `response_received_at`iyle BİREBİR.
+    Eskiden `str()`: SQLite'ta `"2026-09-16 10:00:00"` (boşluk, offset yok).
+    MUTASYON: `_gorunum`u `str(deger)`e geri çevirmek bunu KIRMIZI yapar."""
+    from sqlalchemy import text
+
+    from app.db import SessionLocal
+
+    h = admin_basliklari
+    f, kalem = _tek_kalem(h)
+    yeni = istemci.post("/api/despatch-notes", headers=h, json=_bir_birim(f, kalem))
+    assert yeni.status_code == 201, yeni.text
+    kimlik = yeni.json()["id"]
+    with SessionLocal() as db:
+        db.execute(
+            text(
+                "UPDATE despatch_notes SET edespatch_status='ACCEPTED',response_status='KABUL',"
+                "response_received_at=:ra,edespatch_submitted_at=:ra,edespatch_synced_at=:ra "
+                "WHERE id=:id"
+            ),
+            {"ra": datetime(2026, 9, 16, 10, 0, 0, 123456, tzinfo=timezone.utc), "id": kimlik},
+        )
+        db.commit()
+    durum = istemci.get(f"/api/despatch-notes/{kimlik}/edespatch/status", headers=h).json()
+    detay = istemci.get(f"/api/despatch-notes/{kimlik}", headers=h).json()
+    liste = istemci.get(f"/api/despatch-notes?invoice_id={f}", headers=h).json()["items"][0]
+    yanit = istemci.get(f"/api/despatch-notes/{kimlik}/response", headers=h)
+    assert yanit.status_code == 200, yanit.text
+    beklenen = "2026-09-16T10:00:00.123456+00:00"
+    assert yanit.json()["response_received_at"] == beklenen
+    for govde in (durum, detay, liste):
+        assert govde["response_received_at"] == beklenen, govde
+        for alan in ("edespatch_submitted_at", "edespatch_synced_at", "created_at",
+                     "updated_at", "actual_shipment_at"):
+            assert _iso_utc_mi(govde[alan]), (alan, govde[alan])
+        assert govde["actual_shipment_at"] == "2026-09-15T08:30:00+00:00"
+        # Tarih alanı tarih kalır.
+        assert len(govde["issue_date"]) == 10 and "T" not in govde["issue_date"]
+
+
+def test_H68_liste_lines_count_TEK_SORGU(istemci, admin_basliklari) -> None:
+    """Liste her irsaliyenin sevk satırı sayısını taşır ve bunu sayfa başına
+    TEK sorguyla yapar (irsaliye başına ikinci okuma yok).
+    MUTASYON: `lines_count`u irsaliye başına ayrı bir `COUNT` ile doldurmak
+    sorgu sayısını büyütür ve bu KIRMIZI olur; alanı düşürmek KeyError."""
+    from sqlalchemy import event, text
+
+    from app.db import SessionLocal, engine
+
+    h = admin_basliklari
+    f = _sql_fatura(
+        int(h["X-Company-ID"]),
+        [("LABOR", "Iscilik", "1"), ("PART", "Bugday", "4"), ("PART", "Arpa", "4"),
+         ("PART", "Yulaf", "4")],
+    )
+    bugday = f["kalemler"][1]
+    tek = istemci.post(
+        "/api/despatch-notes", headers=h,
+        json=_govde(f["id"], issue_date="2026-09-01",
+                    lines=[{"invoice_item_id": bugday, "quantity": "1"}]),
+    )
+    assert tek.status_code == 201, tek.text
+    uc = istemci.post(
+        "/api/despatch-notes", headers=h, json=_govde(f["id"], issue_date="2026-09-02"),
+    )
+    assert uc.status_code == 201, uc.text
+    assert len(uc.json()["lines"]) == 3
+
+    sorgular: list[str] = []
+
+    def _say(conn, cursor, statement, *_):
+        if "despatch_lines" in statement or "despatch_notes" in statement:
+            sorgular.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _say)
+    try:
+        liste = istemci.get(f"/api/despatch-notes?invoice_id={f['id']}", headers=h)
+    finally:
+        event.remove(engine, "before_cursor_execute", _say)
+    assert liste.status_code == 200, liste.text
+    ogeler = liste.json()["items"]
+    assert [(o["id"], o["lines_count"]) for o in ogeler] == [
+        (uc.json()["id"], 3), (tek.json()["id"], 1),
+    ]
+    # COUNT(*) toplamı + tek sayfa sorgusu; irsaliye sayısından BAĞIMSIZ.
+    assert len(sorgular) == 2, sorgular
+    # Satırsız irsaliye 0 döner (alt sorgu, JOIN değil — kaybolmaz).
+    with SessionLocal() as db:
+        db.execute(text("DELETE FROM despatch_lines WHERE despatch_id=:d"), {"d": tek.json()["id"]})
+        db.commit()
+    sifir = istemci.get(f"/api/despatch-notes?invoice_id={f['id']}", headers=h).json()["items"]
+    assert [(o["id"], o["lines_count"]) for o in sifir] == [
+        (uc.json()["id"], 3), (tek.json()["id"], 0),
+    ]
+
+
+# ==========================================================================
 # 4. ROL MATRİSİ — yeni GET ucu
 # ==========================================================================
 
