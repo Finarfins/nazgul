@@ -2084,9 +2084,16 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # `<tablo>.c.company_id == cid` yuklemini ACIKCA tasir; INSERT'ler
 # `company_id=cid`i acik anahtarla yazar. IKI tablo Core uzerinden ILK KEZ
 # gorunuyor: `despatch_responses` ve `despatch_response_lines` (yeni kiraci tablolari).
-BEKLENEN_CORE_IFADE_SAYISI = 191
+# 191 -> 192: H47 (GOC YOK; TABAN develop `bf8e73f`). BIR ifade, lisans
+# istemedi: `app/statement.py::_cek_dekont_borcu` (CS2'nin text() toplami
+# Core'a cevrildi). `receivable_charge_documents.c.company_id == cid`
+# yuklemini ACIKCA tasir. `receivable_charge_documents` Core uzerinden ILK KEZ
+# gorunuyor (bugune kadar yalniz text() ile okunuyordu).
+BEKLENEN_CORE_IFADE_SAYISI = 192
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
+    # H47: CS2 dekont toplami (`statement._cek_dekont_borcu`) Core'a cevrildi.
+    "receivable_charge_documents",
     # E4b-2 (goc 20260915_0089): ticari yanit belgesi ve satirlari.
     "despatch_responses",
     "despatch_response_lines",
