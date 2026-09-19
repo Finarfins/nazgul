@@ -40,7 +40,9 @@ os.environ["DATABASE_URL"] = "sqlite:///" + (
 os.environ["SUNGUR_DATA_DIR"] = _CALISMA_ALANI
 os.environ["AUTO_MIGRATE"] = "true"
 
-from app.arama import ARAMA_ESLESME, arama_deseni, arama_katla, katli_sql  # noqa: E402
+from app.arama import (  # noqa: E402
+    ARAMA_ESLESME, arama_deseni, arama_katla, katli_sql, sqlite_katlamayi_kaydet,
+)
 
 ACILIS_PAROLASI = "admin123"
 ADMIN_PAROLASI = "H57Arama!2026xyz"
@@ -84,7 +86,9 @@ def test_arama_deseni_katlar_ve_kacirir() -> None:
 
 def test_tek_kural_UPPER_yok_tablo_BUYUK_ASCII() -> None:
     """Katlama YALNIZ tablodur: SQL'de `UPPER` geçmez, her hedef A-Z."""
-    assert "UPPER" not in katli_sql("x")
+    assert "UPPER" not in katli_sql("x") and "REPLACE" not in katli_sql("x")
+    # Ayristirici yigini YAPIYA bagli: ifade TEK cagri, ic ice DEGIL (CI kirmizisi).
+    assert katli_sql("x").count("(") == 1
     assert all(len(k) == 1 and "A" <= h <= "Z" for k, h in ARAMA_ESLESME)
     for harf in "âÂîÎûÛéÉèêëáàäóöôúüñçğışİ":
         assert harf in dict(ARAMA_ESLESME), harf
@@ -100,6 +104,7 @@ def test_katli_sql_SQLitete_arama_katla_ile_AYNI(deger: str) -> None:
     """Kolon ifadesi Python katlamasıyla harfi harfine aynı sonucu vermeli; yoksa
     iki taraf farklı biçimlerde buluşur ve eşleşme şansa kalır."""
     baglanti = sqlite3.connect(":memory:")
+    sqlite_katlamayi_kaydet(baglanti)
     try:
         (sonuc,) = baglanti.execute(f"SELECT {katli_sql('?')}", (deger,)).fetchone()
     finally:
@@ -116,6 +121,7 @@ def test_birebir_alt_dizgi_her_zaman_bulunur_SQLite() -> None:
     kolonda katlanmış kalıpla eşleşir. Karakter başına eşlemenin özelliği; ilk
     sürümde "â"/"é" içeren her alt dizgi bunu bozuyordu."""
     baglanti = sqlite3.connect(":memory:")
+    sqlite_katlamayi_kaydet(baglanti)
     try:
         for ad in (*ADLAR, B_ADI, *TABLO_DISI):
             for alt in _alt_dizgiler(ad):

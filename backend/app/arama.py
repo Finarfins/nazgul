@@ -22,9 +22,18 @@ tablosunun KARAKTER BAŞINA uygulanmasıdır ve BAŞKA HİÇBİR ŞEY değildir.
   ``.upper()`` ile (her harf), kolonu SQL ``UPPER()`` ile (SQLite'ta ve C
   harmanlı PG'de yalnız A-Z) büyütüyordu; tabloda olmayan her aksanlı harf
   iki tarafta FARKLI katlanıyordu: "Kâzım", "hâlâ", "Café" tabanda bulunup
-  HEAD'de BOŞ dönüyordu. ASCII büyütme de tablonun parçası olunca SQL tarafı
-  yalnız ``REPLACE`` zinciridir; ``REPLACE`` bayt-bayt karşılaştırır, yerel
-  ayar/harmanlama (SQLite, PG C, PG ICU, tr_TR) sonucu DEĞİŞTİRMEZ.
+  HEAD'de BOŞ dönüyordu. SQL tarafı tabloyu TEK ``translate(kolon,kaynak,hedef)``
+  çağrısıyla uygular; ``translate`` karakter karakter eşler, yerel ayar/
+  harmanlama (SQLite, PG C, PG ICU, tr_TR) sonucu DEĞİŞTİRMEZ.
+* ``translate`` PostgreSQL'de YERLEŞİKTİR; SQLite'ta :func:`sqlite_katlamayi_kaydet`
+  ile AYNI anlamda bir kullanıcı işlevi olarak kaydedilir (``app/db.py`` her
+  bağlantıda çağırır). TEK SQL metni iki lehçede de koşar.
+  NEDEN İÇ İÇE ``REPLACE`` DEĞİL — ÖLÇÜLDÜ, VARSAYILMADI: 87 basamaklı
+  ``REPLACE`` zinciri CI'nın Linux SQLite yapısında ``parser stack overflow``
+  veriyordu (#148 koşu 35473305307; `customers.py` listesi, dört backend-quality
+  bölümü birden kırmızı). SQLite'ın ayrıştırıcı yığını (YYSTACKDEPTH) YAPIYA
+  BAĞLIDIR — Windows'taki 3.49.1 yapısı 100 basamağı kaldırıyordu, CI'nınki
+  kaldırmadı. Tek çağrı derinlikten TAMAMEN bağımsızdır.
 * Karakter başına bir eşleme olduğu için katlama alt dizgiyi korur: ``q``
   bir adın AYNEN alt dizgisiyse katlanmışı da katlanmış adın alt dizgisidir.
   Tabanda birebir alt dizgiyle bulunan hiçbir kayıt kaybolamaz.
@@ -42,9 +51,12 @@ SQL ifadesi kurar, kullanıcı metnini SQL'e hiç koymaz. :func:`katli_sql`
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 from .whatsapp.niyet import _TR_ESLESME
 
-__all__ = ["ARAMA_ESLESME", "KACIS", "arama_deseni", "arama_katla", "katli_sql"]
+__all__ = ["ARAMA_ESLESME", "KACIS", "arama_deseni", "arama_katla", "katli_sql",
+           "sqlite_katlamayi_kaydet"]
 
 #: LIKE kaçış karakteri. SQL tarafında ``ESCAPE '\\'`` olarak yazılır.
 KACIS = "\\"
@@ -113,16 +125,45 @@ def arama_deseni(q: str) -> str:
     return f"%{kacisli}%"
 
 
+#: `translate` çağrısının iki sabit dizgisi. Tablo doğrulandığı için ikisi de
+#: AYNI uzunluktadır ve içlerinde tek tırnak/ters bölü YOKTUR (SQL'e gömülüyor).
+KAYNAK_HARFLER = "".join(kaynak for kaynak, _ in ARAMA_ESLESME)
+HEDEF_HARFLER = "".join(hedef for _, hedef in ARAMA_ESLESME)
+
+
+@lru_cache(maxsize=8)
+def _cevrim_tablosu(kaynak: str, hedef: str) -> dict[int, str | None]:
+    # Satır başına yeniden kurulursa SQLite tarafı ölçülebilir biçimde yavaşlar;
+    # tablo çağrı başına DEĞİL, (kaynak,hedef) çifti başına bir kez kurulur.
+    return {ord(k): (hedef[i] if i < len(hedef) else None) for i, k in enumerate(kaynak)}
+
+
+def _cevir(metin: str | None, kaynak: str, hedef: str) -> str | None:
+    """PostgreSQL ``translate`` anlamı: karakter karakter eşle, karşılığı
+    olmayanı (hedef daha kısaysa) SİL."""
+
+    if metin is None:
+        return None
+    return metin.translate(_cevrim_tablosu(kaynak, hedef))
+
+
+def sqlite_katlamayi_kaydet(dbapi_baglanti) -> None:
+    """SQLite bağlantısına PG ile AYNI anlamda ``translate`` işlevini kaydeder.
+
+    ``app/db.py`` bunu her bağlantıda çağırır; kendi ``sqlite3`` bağlantısını
+    açan testler de çağırmalıdır. PostgreSQL'de gerekmez (yerleşik).
+    """
+
+    dbapi_baglanti.create_function("translate", 3, _cevir, deterministic=True)
+
+
 def katli_sql(kolon: str) -> str:
     """``kolon``u :func:`arama_katla` ile AYNI biçime indiren SQL ifadesi.
 
     ``kolon`` bir SABİT kolon ifadesidir (ör. ``"COALESCE(c.owner_name,'')"``),
-    asla kullanıcı girdisi değil. Yalnız iç içe ``REPLACE``dir; ``UPPER``
-    yoktur, bu yüzden SQLite ve PostgreSQL (C, ICU, tr_TR) aynı sonucu verir.
+    asla kullanıcı girdisi değil. TEK ``translate`` çağrısıdır: ``UPPER`` yok
+    (harmanlamaya bağlı), iç içe ``REPLACE`` yok (ayrıştırıcı yığınına bağlı).
     Modül düzeyinde sabit kurmak için çağrılır, istek başına DEĞİL.
     """
 
-    ifade = kolon
-    for kaynak, hedef in ARAMA_ESLESME:
-        ifade = f"REPLACE({ifade},'{kaynak}','{hedef}')"
-    return ifade
+    return f"translate({kolon},'{KAYNAK_HARFLER}','{HEDEF_HARFLER}')"

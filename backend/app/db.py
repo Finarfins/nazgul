@@ -9,6 +9,7 @@ from sqlalchemy.sql.dml import Delete, Insert, Update
 from sqlalchemy.sql.elements import TextClause
 from sqlalchemy.orm import Session, sessionmaker
 
+from .arama import sqlite_katlamayi_kaydet
 from .config import settings
 
 is_sqlite = settings.database_url.startswith("sqlite")
@@ -50,6 +51,10 @@ if is_sqlite:
             cursor.execute("PRAGMA synchronous=NORMAL")
         finally:
             cursor.close()
+        # H57 arama katlaması TEK SQL metniyle iki lehçede de koşsun diye:
+        # PostgreSQL `translate`i YERLEŞİK verir, SQLite vermez. Kayıt burada
+        # yapılır ki `app/arama.py::katli_sql` lehçe bilmek zorunda kalmasın.
+        sqlite_katlamayi_kaydet(dbapi_connection)
 
     @event.listens_for(engine, "checkout")
     def _reassert_foreign_keys(dbapi_connection, _connection_record, _proxy) -> None:
