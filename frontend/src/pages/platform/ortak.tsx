@@ -29,11 +29,16 @@ export type PlatformVerisi<T>={
  * `GET /api<yol>` çağrısı. `parametreler` değiştiğinde yeniden çağırır;
  * `yenilemeMs` verilirse o aralıkla tazeler. Geç gelen eski yanıt yenisinin
  * üzerine YAZILMAZ (sayfa hızlı değiştirildiğinde tablo geri atlamasın).
+ *
+ * `secenekler.etkin` `false` iken İSTEK ATILMAZ ve eldeki veri OLDUĞU GİBİ
+ * kalır: ekran, uçtan kesin 422 dönecek bir süzgeç yazılırken tablosunu
+ * kaybetmemeli (PP4b/H67b).
  */
 export function usePlatformVerisi<T>(
  yol:string,
  parametreler?:Record<string,string|number|boolean|undefined>,
  yenilemeMs?:number,
+ secenekler?:{etkin?:boolean},
 ):PlatformVerisi<T>{
  const [veri,setVeri]=useState<T|null>(null);
  const [hata,setHata]=useState<YuklemeHatasi|null>(null);
@@ -41,8 +46,10 @@ export function usePlatformVerisi<T>(
  const [tur,setTur]=useState(0);
  const sonIstek=useRef(0);
  const anahtar=JSON.stringify(parametreler??{});
+ const etkin=secenekler?.etkin!==false;
 
  useEffect(()=>{
+  if(!etkin){setYukleniyor(false);return}
   const istek=++sonIstek.current;
   setYukleniyor(true);
   const params=JSON.parse(anahtar) as Record<string,unknown>;
@@ -54,7 +61,7 @@ export function usePlatformVerisi<T>(
    const status=(error as {response?:{status?:number}})?.response?.status;
    setHata(status===403?{tur:'yetki'}:{tur:'hata',mesaj:errorDetail(error,'Veri yüklenemedi; bağlantıyı kontrol edip yeniden deneyin.')});
   }).finally(()=>{if(istek===sonIstek.current)setYukleniyor(false)});
- },[yol,anahtar,tur]);
+ },[yol,anahtar,tur,etkin]);
 
  useEffect(()=>{
   if(!yenilemeMs)return undefined;
@@ -119,16 +126,22 @@ export const ZATEN_BU_DURUMDA='Zaten bu durumda';
  *   yıkıcı eylemlerin hepsi (askıya alma, kilitleme, şifre sıfırlatma, hız
  *   sınırı temizliği, kuyruk yeniden deneme) `onay` ile kullanılır.
  * - Başarı + `changed:true` → başarı bildirimi ve `yenile()`;
- *   `changed:false` → "Zaten bu durumda" bilgi bildirimi ve `yenile()`;
+ *   `changed:false` → bilgi bildirimi (`degismediMetni` verilmezse
+ *   "Zaten bu durumda") ve `yenile()`;
  *   hata (409/429/404…) → sunucunun cümlesi (`errorDetail`), liste yenilenmez.
+ * - `changed:false` sonrası da `yenile()` çağrılır: sunucu bizden farklı
+ *   düşünüyorsa ekrandaki satır bayattır, tazelenmeli. Şef kabul etti
+ *   (mercek #142, 3a).
  */
-export function EylemDugmesi<T extends DegisimYaniti>({etiket,ikon,renk,onay,istek,basariMetni,yenile,bildir,testId}:{
+export function EylemDugmesi<T extends DegisimYaniti>({etiket,ikon,renk,onay,istek,basariMetni,degismediMetni,yenile,bildir,testId}:{
  etiket:string;
  ikon?:React.ReactNode;
  renk?:'primary'|'error'|'warning';
  onay?:{baslik:string;icerik:React.ReactNode;onayEtiketi?:string};
  istek:()=>Promise<{data:T}>;
  basariMetni:(veri:T)=>string;
+ /** `changed:false` yanıtını sayılarıyla anlatır; yoksa `ZATEN_BU_DURUMDA`. */
+ degismediMetni?:(veri:T)=>string;
  yenile:()=>void;
  bildir:(bildirim:EylemBildirimi)=>void;
  testId?:string;
@@ -141,7 +154,9 @@ export function EylemDugmesi<T extends DegisimYaniti>({etiket,ikon,renk,onay,ist
   setCalisiyor(true);
   try{
    const {data}=await istek();
-   bildir(data.changed?{tur:'basari',mesaj:basariMetni(data)}:{tur:'bilgi',mesaj:ZATEN_BU_DURUMDA});
+   bildir(data.changed
+    ?{tur:'basari',mesaj:basariMetni(data)}
+    :{tur:'bilgi',mesaj:degismediMetni?degismediMetni(data):ZATEN_BU_DURUMDA});
    setAcik(false);
    yenile();
   }catch(error){

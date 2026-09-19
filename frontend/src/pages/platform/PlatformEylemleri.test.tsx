@@ -28,7 +28,8 @@ vi.mock('../../AuthContext',()=>({useAuth:()=>({can:(izin:string)=>izin==='platf
 
 import PlatformCompanies from './PlatformCompanies';
 import PlatformOutbox from './PlatformOutbox';
-import PlatformSecurity,{BOS_SUZGECLER,denetimParametreleri,gunBasi} from './PlatformSecurity';
+import PlatformSecurity from './PlatformSecurity';
+import {BOS_SUZGECLER,denetimParametreleri,gunBasi} from './filtreler';
 import PlatformUsers from './PlatformUsers';
 import {ZATEN_BU_DURUMDA} from './ortak';
 
@@ -200,19 +201,26 @@ it('yeniden dene: onay kanalı ve başarısız sayısını anar, gövde {channel
  await waitFor(()=>expect(cagriSayisi('/platform/outbox/health')).toBe(once+1));
 });
 
-it('yeniden dene changed:false → Zaten bu durumda',async()=>{
+// H62: burada `changed:false` "zaten bu durumda" değil, "uygun kayıt yok"tur;
+// genel cümle yerine yanıtın `not_retryable` sayısı gösterilir.
+it('yeniden dene changed:false → kalıcı hata sayısını anan cümle, genel cümle DEĞİL',async()=>{
  post.mockResolvedValue({data:{requeued:0,remaining:0,not_retryable:5,changed:false}});
  render(<PlatformOutbox/>);
  fireEvent.click(await screen.findByTestId('yeniden-whatsapp'));
+ const once=cagriSayisi('/platform/outbox/health');
  onayla('Yeniden dene');
- expect(await bildirim()).toBe(ZATEN_BU_DURUMDA);
+ expect(await bildirim()).toBe('Kuyruğa alınacak kayıt yok · kalıcı hata: 5');
+ expect(screen.getByTestId('eylem-bildirimi').textContent).not.toContain(ZATEN_BU_DURUMDA);
+ expect(screen.getByTestId('eylem-bildirimi').className).toMatch(/Info/);
+ // Liste yine de tazelenir (ortak.tsx: Şef kararı, mercek #142 3a).
+ await waitFor(()=>expect(cagriSayisi('/platform/outbox/health')).toBe(once+1));
 });
 
 // ---------------------------------------------------------------- güvenlik
 it('hız sınırı temizle: onay IP’yi anar, DELETE ?ip=, iki sayı ayrı görünür',async()=>{
  sil.mockResolvedValue({data:{ip_address:'10.0.0.7',rate_limit_rows:4,login_attempt_rows:2,changed:true}});
  render(<PlatformSecurity/>);
- fireEvent.click(await screen.findByTestId('temizle-login-10.0.0.7'));
+ fireEvent.click(await screen.findByTestId('temizle-10.0.0.7'));
  expect(onayMetni()).toContain('10.0.0.7');
  const once=cagriSayisi('/platform/rate-limits');
  onayla('Kilidi temizle');
@@ -226,7 +234,7 @@ it('hız sınırı temizle: onay IP’yi anar, DELETE ?ip=, iki sayı ayrı gör
 it('hız sınırı temizle 404: sunucu cümlesi görünür, liste yenilenmez',async()=>{
  sil.mockRejectedValue(sunucuHatasi(404,'Bu IP için hız sınırı ya da giriş kilidi kaydı yok'));
  render(<PlatformSecurity/>);
- fireEvent.click(await screen.findByTestId('temizle-login-10.0.0.7'));
+ fireEvent.click(await screen.findByTestId('temizle-10.0.0.7'));
  const once=cagriSayisi('/platform/rate-limits');
  onayla('Kilidi temizle');
  expect(await bildirim()).toBe('Bu IP için hız sınırı ya da giriş kilidi kaydı yok');
@@ -251,7 +259,7 @@ it('denetim süzgeçleri uç parametrelerine AYNEN eşlenir',()=>{
 
 it('denetim süzgeç alanları yazıldıkça sorgu parametreleri gider',async()=>{
  render(<PlatformSecurity/>);
- await screen.findByTestId('temizle-login-10.0.0.7');
+ await screen.findByTestId('temizle-10.0.0.7');
  const yaz=(etiket:string,deger:string)=>fireEvent.change(screen.getByLabelText(etiket),{target:{value:deger}});
  yaz('İşlem','DELETE');
  yaz('IP adresi','10.0.0.9');
