@@ -52,6 +52,19 @@ def _values(payload: CustomerCreate) -> dict:
     values['is_active'] = bool(values['is_active'])
     return values
 
+
+# H57/H58: `musteri_satirlari`nin iki arama parcasi. Metin kolonlari
+# `app/arama.py::katli_sql` ile katlanir; ifadeler modul yuklenirken BIR KEZ
+# kurulur (istek basina degil). Yalniz SABIT kolon adlari; `q` `:q` ile baglanir.
+_MUSTERI_AD = katli_sql('c.name')
+_MUSTERI_YETKILI = katli_sql("COALESCE(c.owner_name,'')")
+_MUSTERI_EPOSTA = katli_sql("COALESCE(c.email,'')")
+_MUSTERI_ARAMA_MASKELI = f"({_MUSTERI_AD} LIKE :q ESCAPE '\\' OR {_MUSTERI_YETKILI} LIKE :q ESCAPE '\\')"
+_MUSTERI_ARAMA_TAM = f"""({_MUSTERI_AD} LIKE :q ESCAPE '\\' OR {_MUSTERI_YETKILI} LIKE :q ESCAPE '\\'
+       OR COALESCE(c.phone,'') LIKE :q ESCAPE '\\'
+       OR {_MUSTERI_EPOSTA} LIKE :q ESCAPE '\\' OR COALESCE(c.tax_number,'') LIKE :q ESCAPE '\\')"""
+
+
 def musteri_satirlari(db: Session, cid: int, *, q: str = '', sort: str = 'name_asc',
                       active: str = 'active', limit: int = 500, maskeli: bool = False):
     """`GET /api/customers`in SORGUSU — `Request` YOK, `cid` AÇIK.
@@ -92,16 +105,8 @@ def musteri_satirlari(db: Session, cid: int, *, q: str = '', sort: str = 'name_a
     # the list agrees with the cari detail card. The period_end<=:as_of filter
     # below is document scope, not vade, and is left alone.
     # H57/H58: `q` katlanmis ve kacirilmis kalip olarak BAGLANIR (`app/arama.py`);
-    # metin kolonlari ayni Turkce katlamadan gecer, her LIKE `ESCAPE` tasir.
-    ad, yetkili, eposta = (katli_sql('c.name'), katli_sql("COALESCE(c.owner_name,'')"),
-                           katli_sql("COALESCE(c.email,'')"))
-    arama_sql = (
-        f"({ad} LIKE :q ESCAPE '\\' OR {yetkili} LIKE :q ESCAPE '\\')"
-        if maskeli else
-        f"""({ad} LIKE :q ESCAPE '\\' OR {yetkili} LIKE :q ESCAPE '\\'
-       OR COALESCE(c.phone,'') LIKE :q ESCAPE '\\'
-       OR {eposta} LIKE :q ESCAPE '\\' OR COALESCE(c.tax_number,'') LIKE :q ESCAPE '\\')"""
-    )
+    # arama parcasi modul yuklenirken BIR KEZ kurulan iki SABITten biridir.
+    arama_sql = _MUSTERI_ARAMA_MASKELI if maskeli else _MUSTERI_ARAMA_TAM
     rows=db.execute(
       text(f"""SELECT c.id,c.name,c.owner_name,c.phone,c.email,c.address,c.tax_number,c.opening_balance,
       COALESCE(c.risk_limit,0) risk_limit,COALESCE(c.payment_term_days,0) payment_term_days,CASE WHEN COALESCE(c.is_active, TRUE) THEN 1 ELSE 0 END is_active,
