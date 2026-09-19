@@ -405,8 +405,21 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 #     `test_route_security_contracts` 420 -> 421 ile AYNI uc.
 #   * `EXPECTED_READ` 87'de SABIT (izin "sales", `read` degil); GUARDED_READ
 #     ve UNDENIABLE de SABIT.
-EXPECTED_AUTHENTICATED = 408
-EXPECTED_READ = 87
+# F10-1a WHATSAPP TARAF BAGLANTISI (goc 20260918_0090): DORT yeni uc
+# (POST/DELETE party-pairing-codes, GET/DELETE party-links).
+#   * `EXPECTED_AUTHENTICATED` 408 -> 412 (+4, TABAN develop `f953964`);
+#     `test_route_security_contracts` 421 -> 425 ile AYNI dort uc.
+#   * `EXPECTED_READ` 87 -> 91 (+4). Izin OLCULDU: dordu de "read" ve bu bir
+#     SECIM degil ZORUNLULUK — gereken izin `party_type`a bagli, ara katman
+#     ise govdeyi/sorguyu GORMEZ (gerekcenin tamami `app/auth.py`de).
+#   * `GUARDED_READ_OPERATIONS` 31 -> 35 (+4): dordu de handler'da
+#     `_require_permission` cagiriyor (CUSTOMER -> `sales`, SUPPLIER ->
+#     `purchases`) — `/api/platform/backups` ile AYNI sinif.
+#   * `EXPECTED_UNDENIABLE` 97'de SABIT ve bu ARITMETIK: korumali read
+#     CIPLAK read'i buyutmez, `naked_read` 56'da KIMILDAMAZ. Yani dort uc
+#     "hicbir rol degeriyle reddedilemez" kumesine GIRMIYOR.
+EXPECTED_AUTHENTICATED = 412
+EXPECTED_READ = 91
 EXPECTED_UNDENIABLE = 97
 
 #: ``read`` isteyen ama HANDLER'da reddedilebilen uçlar: middleware'i geçerler,
@@ -457,6 +470,16 @@ GUARDED_READ_OPERATIONS = {
     ("POST", "/api/platform/backups"),
     ("POST", "/api/platform/backups/{name}/restore"),
     ("POST", "/api/platform/backups/{name}/verify"),
+    # F10-1a (goc 20260918_0090): taraf eslestirmesinin DORT ucu. Middleware
+    # `read`, handler `_require_permission` — izin `party_type`tan turuyor
+    # (CUSTOMER -> `sales`, SUPPLIER -> `purchases`) ve o ROL DEGERIYLE
+    # REDDEDEBILIR: `depo` CUSTOMER tarafinda, `satis` SUPPLIER tarafinda
+    # 403 alir. Bu yuzden CIPLAK read'e DEGIL KORUMALI read'e duserler ve
+    # `EXPECTED_UNDENIABLE` KIMILDAMAZ.
+    ("DELETE", "/api/whatsapp/party-links/{baglanti_id}"),
+    ("DELETE", "/api/whatsapp/party-pairing-codes/{kod_id}"),
+    ("GET", "/api/whatsapp/party-links"),
+    ("POST", "/api/whatsapp/party-pairing-codes"),
 }
 
 #: Altı rolün ALTISI da taşıdığı için reddedilemeyen, ama eski ``{"read"}``
@@ -744,7 +767,8 @@ def test_guarded_read_membership_not_just_magnitude() -> None:
     # 26 -> 24: SEC-3'un iki ekstre PDF'i. Kumeden CIKMALARI bir ZAYIFLAMA
     # DEGIL: kapi handler'dan MIDDLEWARE'e tasindi, yani daha ERKEN duruyor.
     # 24 -> 31: PP1'in yedi platform yonetim GET'i (`require_platform_operator`).
-    assert len(guarded) == 31
+    # 31 -> 35: F10-1a taraf eslestirmesinin DORT ucu (goc 20260918_0090).
+    assert len(guarded) == 35
 
 
 def test_farm_and_herd_view_membership_not_just_magnitude() -> None:

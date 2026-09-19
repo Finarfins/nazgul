@@ -494,7 +494,8 @@ def test_yuz_iki_tablo_dosyasi_tam(hazir) -> None:
     # 121 -> 122: CS1 `cek_senetler` (goc 20260914_0085), semadan turuyor.
     # 122 -> 123: E4b-1 `despatch_lines` (goc 20260915_0087), semadan turuyor.
     # 123 -> 125: E4b-2 `despatch_responses` + `despatch_response_lines` (goc 20260915_0089), semadan turuyor.
-    assert len(gorulen) == 125
+    # 125 -> 127: F10-1a `whatsapp_party_links` + `whatsapp_party_pairing_codes` (goc 20260918_0090), semadan turuyor.
+    assert len(gorulen) == 127
     # Uygulamanın ŞEMADAN türettiği küme ile kapının listesi AYNI olmalı.
     assert set(hazir["sonuc"]["kiraci_tablolar"]) == set(TENANT_TABLES)
     assert f"companies/{hazir['sonuc']['a_id']}.json" in hazir["adlar"]
@@ -512,7 +513,8 @@ def test_tablo_sirasi_topolojik_ve_tam(hazir) -> None:
     # 121 -> 122: CS1 `cek_senetler` (goc 20260914_0085), semadan turuyor.
     # 122 -> 123: E4b-1 `despatch_lines` (goc 20260915_0087), semadan turuyor.
     # 123 -> 125: E4b-2 `despatch_responses` + `despatch_response_lines` (goc 20260915_0089), semadan turuyor.
-    assert len(sira) == 125 and len(set(sira)) == 125
+    # 125 -> 127: F10-1a `whatsapp_party_links` + `whatsapp_party_pairing_codes` (goc 20260918_0090), semadan turuyor.
+    assert len(sira) == 127 and len(set(sira)) == 127
     assert set(sira) == set(sonuc["kiraci_tablolar"])
 
     # Testin KENDİ bağımsız Kahn tanığı: her bağımlılık, bağımlıdan ÖNCE.
@@ -743,7 +745,8 @@ with TestClient(app) as client:
     # 121 -> 122: CS1 `cek_senetler` (goc 20260914_0085), semadan turuyor.
     # 122 -> 123: E4b-1 `despatch_lines` (goc 20260915_0087), semadan turuyor.
     # 123 -> 125: E4b-2 `despatch_responses` + `despatch_response_lines` (goc 20260915_0089), semadan turuyor.
-    assert len(ndjson) == 125, len(ndjson)
+    # 125 -> 127: F10-1a `whatsapp_party_links` + `whatsapp_party_pairing_codes` (goc 20260918_0090), semadan turuyor.
+    assert len(ndjson) == 127, len(ndjson)
     # ÖLÇÜLDÜ: "tamamen boş" bir firma dışa AKTARILAMAZ. Dışa aktarımın
     # kendisi ÜYELİK ister ve üyelik satırı `user_company_memberships`
     # tablosundadır — yani erişilebilir HER firmada en az bir satır vardır.

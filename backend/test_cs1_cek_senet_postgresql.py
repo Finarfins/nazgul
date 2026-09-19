@@ -40,7 +40,7 @@ pytestmark = pytest.mark.postgresql
 KOSU = uuid4().hex[:8]
 TABLO = "cek_senetler"
 ONCE = "20260914_0084"
-BAS = "20260915_0089"  # E4b-2: baş 0089
+BAS = "20260918_0090"  # F10-1a: bas 0090
 
 
 def _url() -> str:

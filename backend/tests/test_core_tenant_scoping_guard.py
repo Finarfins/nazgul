@@ -1798,6 +1798,37 @@ CEKIRDEK_KIRACI_ISTISNALARI: dict[tuple[str, str, str], str] = {
         "(`code_digest == :ozet`) AYNI."
     ),
     (
+        "backend/app/whatsapp/taraf.py",
+        "kod_kullan",
+        "490f507628e0f09056fcd86f40e4c8cb4b5bba6fac99f6a8ff76dfc9c2aaadea",
+    ): (
+        "F10-1a taraf eslestirme kodunun OZETLE aranmasi (goc 20260918_0090). "
+        "`eslestirme.kod_kullan` lisansiyla AYNI SINIF ve ayni gerekce: kiraci "
+        "yuklemi TASIYAMAZ cunku cagiranda henuz kiraci YOKTUR — bu sorgunun "
+        "URETTIGI sey `company_id`nin KENDISIDIR. Anahtar `code_digest` ve "
+        "KURESEL UNIQUE'tir (`uq_wppc_code_digest`), yani sorgu en fazla BIR "
+        "satir doner. Ozetin bilinmesi TEK BASINA YETMEZ: satir bulunduktan "
+        "sonra kod, VERILDIGI numaradan (`target_phone`) gelmediyse REDDEDILIR "
+        "(SEC-1 kurali) ve telefon+pencere sayaci (`whatsapp_pairing_attempts`, "
+        "personel yoluyla ORTAK) denemeyi 15 dakikada 5 ile sinirlar. Satir "
+        "bulunduktan SONRA yazan her deyim (`_denemeyi_artir`, CAS UPDATE, "
+        "baglanti INSERT'i) kiraci yuklemi TASIR."
+    ),
+    (
+        "backend/app/whatsapp/taraf.py",
+        "taraf_coz",
+        "ae4de317636a0c2b57038c24f12fcb6624733a83547c1b0986b873cbbfc8cfde",
+    ): (
+        "F10-1a: numaradan TARAF adaylarinin taranmasi (goc 20260918_0090). "
+        "`eslestirme.kimlik_coz` lisansiyla AYNI SINIF: sorgunun KENDISI 'bu "
+        "numara HANGI firmalarda aktif' sorusudur ve bir `company_id=:cid` "
+        "yuklemi eklemek, cevabi soruyla birlikte vermek olurdu. Yuklem "
+        "`phone` + `is_active`tir ve HICBIR ticari veri SECILMEZ (yalniz "
+        "company_id/party_type/party_id). Her aday ayrica KIRACI YUKLEMLI bir "
+        "zincirden gecer (`_firma_aktif` + `_taraf_dogrula`): pasif cari ya da "
+        "kapanmis firma icin kimlik COZULMEZ — fail-closed."
+    ),
+    (
         "backend/app/whatsapp/eslestirme.py",
         "kimlik_coz",
         "9cfdbd5059edb6d1c4e488edac9a897bb3be419ac8a77c6f40b5c490408abcde",
@@ -1955,7 +1986,12 @@ def test_istisna_gercekten_kullaniliyor() -> None:
     # Ilk kez bir platform lisansi kiraci tablosuna YAZIYOR; yazilan sutunlar
     # yalniz durum/zaman (`schedule_retry` ile ayni), kiraci verisi degil.
     # `list_untenanted_audit` lisansi yeni parmak izine TASINDI (sayim ayni).
-    assert len(CEKIRDEK_KIRACI_ISTISNALARI) == 14, (
+    # 14 -> 16: F10-1a TARAF BAGLANTISI (goc 20260918_0090). IKI kayit ve
+    # ikisi de MEVCUT SINIFTAN (WA2'nin iki lisansinin ikizi): sorgunun
+    # URETTIGI sey `company_id`nin KENDISIDIR. Yeni bir sinif ACILMADI.
+    # `taraf.py`nin diger ON UC Core ifadesi istisna ISTEMEDI — yuklem
+    # hepsine ACIKCA yazildi.
+    assert len(CEKIRDEK_KIRACI_ISTISNALARI) == 16, (
         "Bu kapıdaki istisna sayısı arttı. Her yeni kayıt AYRI bir güvenlik "
         "kararıdır ve kendi gerekçesiyle incelenmelidir: "
         f"{sorted(CEKIRDEK_KIRACI_ISTISNALARI)}"
@@ -2089,7 +2125,13 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # Core'a cevrildi). `receivable_charge_documents.c.company_id == cid`
 # yuklemini ACIKCA tasir. `receivable_charge_documents` Core uzerinden ILK KEZ
 # gorunuyor (bugune kadar yalniz text() ile okunuyordu).
-BEKLENEN_CORE_IFADE_SAYISI = 192
+# 192 -> 208: F10-1a WHATSAPP TARAF BAGLANTISI (goc 20260918_0090; TABAN
+# develop `6ad974f`, #152/H46 birlestikten SONRA TARAYICIYLA YENIDEN
+# OLCULDU; ilk olcum `f953964` uzerinde 191 -> 207). ON ALTI yeni ifade: on
+# ucu `app/whatsapp/taraf.py`, ucu `app/routers/whatsapp.py`nin `party-`
+# uclarinda. IKISI lisansli istisnadir (ozet aramasi + numara taramasi);
+# kalan ON DORDU kiraci yuklemini ACIKCA tasir.
+BEKLENEN_CORE_IFADE_SAYISI = 208
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
     # H47: CS2 dekont toplami (`statement._cek_dekont_borcu`) Core'a cevrildi.
@@ -2112,6 +2154,12 @@ BEKLENEN_KIRACI_TABLOLARI = frozenset({
     "invoices",
     # WA4 bekleyen islem defteri (goc 20260910_0080). `company_id` tasir.
     "whatsapp_pending_actions",
+    # F10-1a (goc 20260918_0090): taraf baglanti defteri ve kod defteri.
+    # Ikisine de YALNIZ `app/whatsapp/taraf.py` ile `routers/whatsapp.py`nin
+    # `party-` uclari dokunuyor; IKI lisansli istisna disinda her ifade
+    # `company_id` yuklemini ACIKCA tasir.
+    "whatsapp_party_links",
+    "whatsapp_party_pairing_codes",
     # WA2 esleştirme defteri (goc 20260910_0079). UCU DE `company_id` tasir,
     # yani `TENANT_TABLES`a girer ve bu kapiya GORUNUR. `whatsapp_inbound`
     # ve `whatsapp_pairing_attempts` (WA1) burada YOK ve olmamalari dogru:

@@ -320,6 +320,33 @@ ROUTE_REASON_GROUPS = (
         },
     ),
     (
+        # WHATSAPP TARAF (CARI) ESLESTIRMESI (F10-1a, goc 20260918_0090).
+        # AYRI BIR GEREKCE GRUBU ve bu ZORUNLU — USTTEKI personel grubuyla
+        # BIRLESTIRILEMEZ, cunku iki grup iki FARKLI seyi vaat ediyor:
+        # ustteki "hedef KULLANICININ bu firmadaki UYELIGI yeniden
+        # dogrulanir" diyor; bu dort uc bir kullanici DEGIL bir CARI
+        # dogruluyor (`customers`/`suppliers`, AYNI firmada ve AKTIF) ve
+        # ayrica ROL KAPISI handler'dadir (CUSTOMER -> `sales`,
+        # SUPPLIER -> `purchases`) cunku ara katman govdeyi goremez.
+        #
+        # MASKELEME AYNI: `GET /party-links` ham numara DONDURMEZ ve duz kod
+        # yalniz POST cevabinda, BIR KEZ gorunur.
+        "Tenant-scoped WhatsApp party (customer/supplier) pairing "
+        "administration; the handler filters by request.state.company_id, "
+        "re-verifies that the party row exists and is active in that "
+        "company, and applies a role gate derived from party_type (CUSTOMER "
+        "-> sales, SUPPLIER -> purchases) because the middleware cannot see "
+        "the request body. The plaintext pairing code is returned once by "
+        "the POST and never stored or read back; phone numbers are masked "
+        "in every response.",
+        {
+            ("POST", "/api/whatsapp/party-pairing-codes"),
+            ("DELETE", "/api/whatsapp/party-pairing-codes/{kod_id}"),
+            ("GET", "/api/whatsapp/party-links"),
+            ("DELETE", "/api/whatsapp/party-links/{baglanti_id}"),
+        },
+    ),
+    (
         # PUSH CİHAZ DEFTERİ (5.4c, göç 20260909_0077). AYRI BİR GEREKÇE
         # GRUBU ve bu ZORUNLU: üstteki "kiracı kapsamlı okuma" gerekçesi
         # yalnız `company_id` süzgecini vaat eder; bu üç uç ONDAN DAHA
@@ -705,8 +732,17 @@ DYNAMIC_PERMISSION_CASES = {
 # (TABAN develop `0885616`). Izin OLCULDU: "sales" — YENI KURAL YOK,
 # `/api/despatch-notes` onek kuralindan. `tenant_scope` "company", izin `read`
 # degil: `ROUTE_REASONS` gerekce ISTEMIYOR ve eklenmedi.
-EXPECTED_OPERATION_COUNT = 421
-EXPECTED_PATH_COUNT = 327
+# 20260918 — F10-1a WHATSAPP TARAF BAGLANTISI (goc 20260918_0090): DORT yeni
+# islem, DORT yeni yol (POST/DELETE /api/whatsapp/party-pairing-codes[/{id}],
+# GET /api/whatsapp/party-links, DELETE /api/whatsapp/party-links/{id}).
+# Sayim 421/327 -> 425/331 (TABAN develop `f953964`). Izin OLCULDU: dordu de
+# "read" — `auth.py`ye YENI BIR ONEK SATIRI eklendi
+# (`/api/whatsapp/party-` -> "read") ve gerekcesi orada yazili: gereken izin
+# GOVDEYE bagli (`party_type`), ara katman ise YOLU gorur. GERCEK kapi
+# handler'daki `_require_permission`dir. `tenant_scope` "company" ve izin
+# `read`, yani `ROUTE_REASONS` gerekce ISTIYOR: KENDI grubuyla girdiler.
+EXPECTED_OPERATION_COUNT = 425
+EXPECTED_PATH_COUNT = 331
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -914,7 +950,11 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # H59: tenant-restore review-reason metni #136'daki yerine kipi kaldirilmasina
     # gore guncellendi ("creates a NEW company only; never writes over an existing one");
     # sayim 421/327 degismedi. Parmak izi cd72be75 -> 05dafb0d.
-    "05dafb0dce6ad7387b143fbabeaf513cf02e65cebb2a868bc24db2da2c852bd4"
+    # F10-1a (goc 20260918_0090): DORT yeni uc (`/api/whatsapp/party-*`),
+    # dordu de "read" + handler rol kapisi; KENDI gerekce grubuyla girdiler.
+    # Sayim 421/327 -> 425/331. TABAN develop `f953964`: parmak izi
+    # 05dafb0d -> 49838c5b.
+    "49838c5bf60c8608aa718ac959a9d0747b4c4c062c00a22e66cddf36a1f03d90"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

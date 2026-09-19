@@ -138,6 +138,21 @@ ACTION_TYPES: dict[str, str] = {
     "whatsapp_pending.cancelled": "WhatsApp bekleyen işlem iptal edildi",
     "whatsapp_pending.expired": "WhatsApp bekleyen işlem süresi doldu",
     "whatsapp_pending.failed": "WhatsApp bekleyen işlem hatayla kapandı",
+    # WhatsApp CARİ eşleştirmesi (F10-1a, göç 20260918_0090). DÖRDÜ DE
+    # `whatsapp_party` kaynağına bağlıdır ve `user` DEĞİL: konusu bir
+    # kullanıcı değil bir CARİDİR (müşteri ya da tedarikçi) ve kaynak
+    # kimliği `whatsapp_party_links.id`dir. Kod olaylarında bağlantı HENÜZ
+    # YOKTUR, bu yüzden kaynak kimliği `NULL`dur; taraf `details`te durur.
+    # `details` HASSAS YÜK TAŞIMAZ: kod, özet ve ham telefon GİRMEZ —
+    # WA2'nin kuralı. Bağlantıyı AÇAN satırın aktörü `NULL`dur: çiftçinin
+    # bir `app_users` kimliği yoktur (keşif §5.5) ve `activity_logs.user_id`
+    # geri yüklemede zaten yumuşak referanstır.
+    "party.whatsapp_pairing_code_created": "WhatsApp cari eşleştirme kodu üretildi",
+    "party.whatsapp_pairing_code_cancelled": (
+        "WhatsApp cari eşleştirme kodu iptal edildi"
+    ),
+    "party.whatsapp_link_activated": "WhatsApp cari bağlantısı açıldı",
+    "party.whatsapp_link_deactivated": "WhatsApp cari bağlantısı kapatıldı",
     # Panelin kendisi
     "activity_log.archive": "Aktivite kaydı arşivleme",
     "activity_log.unarchive": "Aktivite kaydı arşivden çıkarma",
@@ -258,6 +273,12 @@ RESOURCE_TYPES: frozenset[str] = frozenset(
         # taslak izini ödeme izinden ayırt edilebilir kılar — panel geldiğinde
         # geçmiş kayıtların tipi DEĞİŞMEK zorunda kalmaz.
         "whatsapp_pending",
+        # WhatsApp CARİ bağlantısı (F10-1a, göç 20260918_0090). Kaynak
+        # KİMLİĞİ `whatsapp_party_links.id`dir; kod olaylarında (bağlantı
+        # henüz yokken) `NULL`dur. Tip AYRI açıldı ve `user` YENİDEN
+        # KULLANILMADI: kaynak bağlantısı kullanıcı kartına gitseydi, var
+        # olmayan bir kullanıcıya işaret ederdi.
+        "whatsapp_party",
         # Çek/senet portföy satırı (CS1, göç 20260914_0085). Kaynak KİMLİĞİ
         # `cek_senetler.id`, okuma yüzeyi `GET /api/cek-senetler/{id}`.
         "cek_senet",

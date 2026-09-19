@@ -337,6 +337,10 @@ _KAYNAK_TIPI: dict[str, str | None] = {
     "animal_quarantine": "animal_quarantines",
     "field_integration_event": "field_integration_events",
     "whatsapp_pending": "whatsapp_pending_actions",
+    # F10-1a kaynak tipi (`activity_log.RESOURCE_TYPES`): kaynak kimliği
+    # `whatsapp_party_links.id`dir. Kod olaylarında kimlik `NULL`dur ve
+    # `NULL` bu yolun zaten dışındadır.
+    "whatsapp_party": "whatsapp_party_links",
     # CS1 kaynak tipi (`activity_log.RESOURCE_TYPES`); CS2'de eşlendi.
     "cek_senet": "cek_senetler",
     "activity_log": "activity_logs",
@@ -383,6 +387,18 @@ AYIRT_EDICI_HEDEFLER: dict[tuple[str, str], tuple[str, dict[str, str | None]]] =
     ("returns", "source_id"): ("source_type", _KAYNAK),
     ("sales_orders", "converted_id"): ("converted_type", _DONUSUM),
     ("stock_movements", "reference_id"): ("reference_type", _REFERANS),
+    # F10-1a (göç 20260918_0090): taraf bağlantısının ve kod defterinin
+    # POLİMORFİK cari bağı. `notification_consents.party_id` ile AYNI sınıf
+    # ve AYNI sözlük (`_TARAF`) — iki tablonun `party_type` CHECK'i de aynı
+    # iki değeri taşıyor. Yeni bir sınıflandırıcı türü GEREKMEDİ.
+    #
+    # Kod defterinin `consumed_link_id`si BURADA YOK ve bu ölçüldü: o sütun
+    # BİLEŞİK FK'dir ((company_id, consumed_link_id) -> whatsapp_party_links)
+    # ve `_Plan` onu yansıtılan FK'lerden `fk_kiraci` olarak kendisi eşliyor;
+    # buraya yazılsaydı ölü bir kayıt olurdu. `created_by` de aynı sebeple
+    # `KULLANICI_SUTUNLARI`nda değil: FK -> app_users.
+    ("whatsapp_party_links", "party_id"): ("party_type", _TARAF),
+    ("whatsapp_party_pairing_codes", "party_id"): ("party_type", _TARAF),
     ("whatsapp_pending_actions", "result_id"): ("action_type", _WA_ISLEM),
 }
 
@@ -400,6 +416,10 @@ BILINEN_COZUMSUZLER: dict[tuple[str, str], str] = {
 #: taslak işlem anahtarı); çakışan satır ATLANIR ve raporda sayılır.
 KURESEL_TEKIL_ATLANIR: dict[str, tuple[str, ...]] = {
     "whatsapp_pairing_codes": ("code_digest",),
+    # F10-1a (göç 20260918_0090): taraf kodunun özeti de KÜRESEL tekildir
+    # (`uq_wppc_code_digest`) ve personel kod defteriyle AYNI sınıftadır —
+    # tek kullanımlık bir SIR. Çakışan satır ATLANIR ve raporda sayılır.
+    "whatsapp_party_pairing_codes": ("code_digest",),
     "whatsapp_pending_actions": ("islem_anahtari",),
 }
 

@@ -494,6 +494,149 @@ Index(
 )
 
 
+# ---------------------------------------------------------------------------
+# F10-1a — TARAF BAGLANTI DEFTERI (goc 20260918_0090). IKISI DE KIRACI TABLOSU.
+# ---------------------------------------------------------------------------
+# `whatsapp_links` "bu numara hangi PERSONEL" sorusunu cevapliyor; bu iki
+# tablo "bu numara hangi CARI" sorusunu cevapliyor. Ciftci bir `app_users`
+# satiri DEGILDIR ve tek bir cari bile degildir: ekstre tarafi `customers`,
+# avans/makbuz tarafi `suppliers` (kesif §3.1). Bu yuzden bag POLIMORFIKTIR
+# ve sozlugu `notifications/consents.py::PARTY_TYPES` ile BIREBIR aynidir.
+#
+# CHECK kisitlari goc `20260918_0090` ile BIREBIR aynidir — bu dosyanin
+# basligindaki ev kurali: Alembic ile kurulan sema ile `metadata.create_all()`
+# ile kurulan sema guvenlik anlami bakimindan AYRISMAMALIDIR.
+
+#: Gocun `ck_wpl_party_type` / `ck_wppc_party_type` CHECK'i ile BIREBIR ayni
+#: iki deger. `consents.PARTY_TYPES` ile de birebir; ayri yazildi cunku bu
+#: modul `notifications` paketini CEKMEZ (cevrimsiz import garantisi) ve bir
+#: import, sozlugun sessizce ayrilmasini ZATEN engellemezdi — kapi
+#: `tests/test_f10_1a_taraf_baglantisi.py`de, iki kumeyi ESITLIYOR.
+TARAF_CUSTOMER = "CUSTOMER"
+TARAF_SUPPLIER = "SUPPLIER"
+TARAF_TIPLERI: frozenset[str] = frozenset({TARAF_CUSTOMER, TARAF_SUPPLIER})
+
+whatsapp_party_links = Table(
+    "whatsapp_party_links",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("company_id", Integer, nullable=False),
+    Column("party_type", String(12), nullable=False),
+    # POLIMORFIK: gercek FK YOK. `notification_consents.party_id` ile AYNI
+    # durum ve AYNI cozum (goc basligi).
+    Column("party_id", Integer, nullable=False),
+    # Kanonik numara (`telefon.normalize_phone`), `whatsapp_links.phone` ile
+    # AYNI genislik ve bicim.
+    Column("phone", String(20), nullable=False),
+    Column("is_active", Boolean, nullable=False, default=True),
+    # Riza IZI, karar DEGIL: karar her cevapta `notification_consents`ten
+    # yeniden okunur (consents.py sozlesme 2).
+    Column("consent_at", DateTime(timezone=True), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("created_by", Integer, nullable=True),
+    CheckConstraint(
+        "party_type IN ('CUSTOMER','SUPPLIER')", name="ck_wpl_party_type"
+    ),
+    CheckConstraint("party_id > 0", name="ck_wpl_party_id"),
+    UniqueConstraint("company_id", "id", name="uq_whatsapp_party_links_company_id"),
+    Index("ix_whatsapp_party_links_phone", "phone"),
+    Index("ix_whatsapp_party_links_taraf", "company_id", "party_type", "party_id"),
+)
+
+# AKTIF NUMARA TEKILLIGI — `whatsapp_links`in kuralinin BIREBIR aynisi ve ayni
+# gerekce: bir numara BIR FIRMADA en fazla bir aktif taraf baglantisi tasir,
+# BASKA firmada tasiyabilir (bir ciftci iki alim merkezine urun verir).
+# KISMI (WHERE'li): pasif satirlar anahtarin DISINDA kalir.
+Index(
+    "uq_whatsapp_party_links_aktif_numara",
+    whatsapp_party_links.c.company_id,
+    whatsapp_party_links.c.phone,
+    unique=True,
+    sqlite_where=whatsapp_party_links.c.is_active.is_(True),
+    postgresql_where=whatsapp_party_links.c.is_active.is_(True),
+)
+
+
+whatsapp_party_pairing_codes = Table(
+    "whatsapp_party_pairing_codes",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("company_id", Integer, nullable=False),
+    Column("party_type", String(12), nullable=False),
+    Column("party_id", Integer, nullable=False),
+    # KOD BIR NUMARAYA VERILIR (SEC-1, goc `20260912_0082`nin kurali). Burada
+    # `server_default` YOK ve bu 0082'den BILINCLI bir ayrilik: o varsayilan
+    # var olan satirlari doldurmak icindi; bu tablo BOS doguyor ve bos hedef
+    # bir sozlesme ihlalidir — `ck_wppc_target_phone` onu REDDEDER.
+    Column("target_phone", String(20), nullable=False),
+    Column("created_by", Integer, nullable=True),
+    Column("code_digest", String(64), nullable=False),
+    Column("status", String(12), nullable=False, default=PAIRING_PENDING),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("attempt_count", Integer, nullable=False, default=0),
+    Column("max_attempts", Integer, nullable=False, default=PAIRING_MAX_ATTEMPTS),
+    Column("consumed_at", DateTime(timezone=True), nullable=True),
+    Column("cancelled_at", DateTime(timezone=True), nullable=True),
+    Column("consumed_link_id", Integer, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("code_digest", name="uq_wppc_code_digest"),
+    UniqueConstraint("company_id", "id", name="uq_wppc_company_id"),
+    Index("ix_wppc_company_status", "company_id", "status", "expires_at"),
+    CheckConstraint(
+        "party_type IN ('CUSTOMER','SUPPLIER')", name="ck_wppc_party_type"
+    ),
+    CheckConstraint("target_phone <> ''", name="ck_wppc_target_phone"),
+    # YEDI CHECK — goc `20260918_0090` ile BIREBIR, 0079'un matrisi:
+    #   PENDING  : ucu de NULL
+    #   CONSUMED : consumed_at + consumed_link_id dolu, cancelled_at NULL
+    #   CANCELLED: cancelled_at dolu, consumed_* NULL
+    #   EXPIRED  : ucu de NULL
+    CheckConstraint(
+        "status IN ('PENDING','CONSUMED','CANCELLED','EXPIRED')",
+        name="ck_wppc_status",
+    ),
+    CheckConstraint("attempt_count >= 0", name="ck_wppc_attempt_count"),
+    CheckConstraint("max_attempts > 0", name="ck_wppc_max_attempts"),
+    CheckConstraint(
+        "(status <> 'PENDING') OR "
+        "(consumed_at IS NULL AND cancelled_at IS NULL AND consumed_link_id IS NULL)",
+        name="ck_wppc_pending_temiz",
+    ),
+    CheckConstraint(
+        "(status <> 'CONSUMED') OR "
+        "(consumed_at IS NOT NULL AND consumed_link_id IS NOT NULL "
+        "AND cancelled_at IS NULL)",
+        name="ck_wppc_consumed_alanlari",
+    ),
+    CheckConstraint(
+        "(status <> 'CANCELLED') OR "
+        "(cancelled_at IS NOT NULL AND consumed_at IS NULL "
+        "AND consumed_link_id IS NULL)",
+        name="ck_wppc_cancelled_alani",
+    ),
+    CheckConstraint(
+        "(status <> 'EXPIRED') OR "
+        "(consumed_at IS NULL AND consumed_link_id IS NULL "
+        "AND cancelled_at IS NULL)",
+        name="ck_wppc_expired_temiz",
+    ),
+)
+
+# TARAF BASINA EN FAZLA BIR BEKLEYEN KOD — `uq_wpc_aktif_kod`un taraf ucluyle
+# yeniden yazilmis hali. Hakem uygulama sorgusu DEGIL bu indekstir: iki
+# personel ayni anda kod uretse bile tek bekleyen kod kalir.
+Index(
+    "uq_wppc_aktif_kod",
+    whatsapp_party_pairing_codes.c.company_id,
+    whatsapp_party_pairing_codes.c.party_type,
+    whatsapp_party_pairing_codes.c.party_id,
+    unique=True,
+    sqlite_where=whatsapp_party_pairing_codes.c.status == PAIRING_PENDING,
+    postgresql_where=whatsapp_party_pairing_codes.c.status == PAIRING_PENDING,
+)
+
+
 __all__ = [
     "ANSWERED",
     "BAGLAM_OMRU_DAKIKA",
@@ -527,11 +670,16 @@ __all__ = [
     "PROCESSING",
     "RECEIVED",
     "TAHSILAT",
+    "TARAF_CUSTOMER",
+    "TARAF_SUPPLIER",
+    "TARAF_TIPLERI",
     "metadata",
     "whatsapp_context",
     "whatsapp_inbound",
     "whatsapp_links",
     "whatsapp_pairing_attempts",
     "whatsapp_pairing_codes",
+    "whatsapp_party_links",
+    "whatsapp_party_pairing_codes",
     "whatsapp_pending_actions",
 ]

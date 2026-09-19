@@ -983,6 +983,36 @@ def required_permission(method: str, path: str) -> str:
     # olmali. Webhook uclari bu kuraldan ETKILENMEZ ve bu OLCULDU: ikisi de
     # `PUBLIC_API`dedir, yani `security_and_audit`in yetki blogunun TAMAMINI
     # atlarlar ve `required_permission` onlar icin HIC CAGRILMAZ.
+    # WHATSAPP TARAF (CARI) ESLESTIRMESI (F10-1a, goc 20260918_0090).
+    # SIRA SOZLESMEDIR: bu kural ASAGIDAKI `/api/whatsapp/` kuralinin
+    # USTUNDEDIR. Altina yazilsaydi dort uc de `users` iznine duserdi ve
+    # kapi PRATIKTE OLU kalirdi — gerekce kesif §7'nin K4 kararinda,
+    # alintiyla: `/api/whatsapp/` onekinin `users` izni secilmisti cunku
+    # *"kime WhatsApp'tan ulasilabilir" listesi bir KULLANICI YONETIMI
+    # yuzeyidir*. CIFTCI baglantisi bir kullanici yonetimi isi DEGILDIR:
+    # cari kartindaki dugmeyi kullanacak olan satis/alim personelidir ve o
+    # rollerde `users` izni YOKTUR (olculdu: `satis` = {read, sales,
+    # field_service, payments, notifications, farm.view, herd.view},
+    # `depo` = {read, stock, purchases, supplier_prices.view, farm.view,
+    # farm.inputs, herd.view}).
+    #
+    # NEDEN `read` — ve neden bu bir GEVSEME DEGIL: gereken izin GOVDEYE
+    # baglidir (`party_type` CUSTOMER -> `sales`, SUPPLIER -> `purchases`)
+    # ve bu fonksiyon YOLU gorur, govdeyi GORMEZ. Iki iznin ortak bir ust
+    # kumesi de YOKTUR (olculdu: `satis` ∩ `depo` = {read, farm.view,
+    # herd.view}). Bu yuzden ara katman KIMLIK + CSRF kapisini kurar,
+    # GERCEK kapi handler'dadir (`routers/whatsapp.py::_require_permission`,
+    # yetki nufus sayiminin `DENYING_GUARDS` katalogunda). Sinif AYNEN
+    # `/api/platform/backups` ile ayni: KORUMALI read
+    # (`GUARDED_READ_OPERATIONS`), CIPLAK read DEGIL — bu yuzden
+    # `EXPECTED_UNDENIABLE` KIMILDAMAZ.
+    #
+    # ONEK "party-" TIRE ILE BITIYOR ve bu ZORUNLU: "/api/whatsapp/party"
+    # yazsaydik yarin eklenecek bir "/api/whatsapp/partiler" ucu de sessizce
+    # bu kurala duserdi. Dort ucun dordu de tam olarak bu oneki tasiyor
+    # (`party-pairing-codes`, `party-links`).
+    if path.startswith("/api/whatsapp/party-"):
+        return "read"
     if path.startswith("/api/whatsapp/"):
         return "users"
     if path.startswith(_COST_RATE_PREFIX):

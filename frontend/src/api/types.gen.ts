@@ -6321,6 +6321,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/whatsapp/party-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Taraf Baglantilarini Listele
+         * @description Bir tarafın (ya da taraf tipinin) bağlantı defteri. TELEFON MASKELİ.
+         *
+         *     `party_type` ZORUNLUDUR ve bu bir süs değil: izin ondan türer. Varsayılan
+         *     verilseydi çağıran, izni olmayan tarafın defterini varsayılan üzerinden
+         *     okumaya çalışabilirdi — ve hangi tarafın okunduğu istekte GÖRÜNMEZDİ.
+         *
+         *     Ham numara CEVAPTA YOKTUR (SEC-3b ile aynı gerekçe): defterin amacı "bu
+         *     cari bağlı mı" sorusunu cevaplamaktır, "hangi numaradan" sorusunu değil.
+         *     Pasif satırlar da döner — "kim ne zaman bağlıydı" izi silinmez.
+         */
+        get: operations["taraf_baglantilarini_listele_api_whatsapp_party_links_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/whatsapp/party-links/{baglanti_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Taraf Baglantisi Kapat
+         * @description Bağlantıyı PASİFLEŞTİRİR, SİLMEZ: kim ne zaman bağlıydı izi kalır.
+         *
+         *     Kiracı yüklemi bir süs DEĞİL: düşseydi bir firmanın personeli BAŞKA
+         *     firmanın bağlantısını kapatabilirdi. İzin, kod iptalindeki SIRA ile
+         *     aynı yoldan satırın kendi `party_type`ından gelir.
+         */
+        delete: operations["taraf_baglantisi_kapat_api_whatsapp_party_links__baglanti_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/whatsapp/party-pairing-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Taraf Kodu Uret
+         * @description Cari için tek kullanımlık kod üretir. DÜZ KOD YALNIZ BU CEVAPTA döner.
+         *
+         *     Çiftçi ASLA kendi kendine kaydolmaz (keşif §3.3): kod üretimi bir ERP
+         *     eylemidir ve `phone` alanı kodu ürettiği anda hedef numaraya bağlar.
+         */
+        post: operations["taraf_kodu_uret_api_whatsapp_party_pairing_codes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/whatsapp/party-pairing-codes/{kod_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Taraf Kodu Iptal
+         * @description Bekleyen kodu iptal eder. TENANT KAPSAMLI; idempotent DEĞİL (404).
+         *
+         *     Yok / başka firmanın / zaten kapanmış — ÜÇÜ DE aynı 404'ü alır.
+         *     İzin satırın KENDİ `party_type`ından türer: satır okunmadan hangi iznin
+         *     gerektiği bilinemez, bu yüzden SIRA "kiracı kapsamlı oku -> izni uygula
+         *     -> yaz"dır. Okuma yalnız `party_type`/`party_id` seçer ve satır
+         *     bulunamazsa izin denetimine HİÇ girilmez — 404 ile 403 arasındaki fark
+         *     başka firmanın kod envanterini sızdırmaz.
+         */
+        delete: operations["taraf_kodu_iptal_api_whatsapp_party_pairing_codes__kod_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/whatsapp/webhook": {
         parameters: {
             query?: never;
@@ -11013,6 +11115,21 @@ export interface components {
             supplier_stock?: number | string | null;
             /** Tiers */
             tiers?: components["schemas"]["DiscountTier"][] | null;
+        };
+        /**
+         * TarafKodGirdisi
+         * @description Kod üretme gövdesi. `extra="forbid"`: sessizce yok sayılan alan YOK.
+         */
+        TarafKodGirdisi: {
+            /** Party Id */
+            party_id: number;
+            /**
+             * Party Type
+             * @enum {string}
+             */
+            party_type: "CUSTOMER" | "SUPPLIER";
+            /** Phone */
+            phone: string;
         };
         /** TaskCreate */
         TaskCreate: {
@@ -23760,6 +23877,141 @@ export interface operations {
         };
     };
     eslestirme_kodu_iptal_api_whatsapp_pairing_codes__kod_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kod_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    taraf_baglantilarini_listele_api_whatsapp_party_links_get: {
+        parameters: {
+            query: {
+                party_type: "CUSTOMER" | "SUPPLIER";
+                party_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    taraf_baglantisi_kapat_api_whatsapp_party_links__baglanti_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                baglanti_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    taraf_kodu_uret_api_whatsapp_party_pairing_codes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TarafKodGirdisi"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    taraf_kodu_iptal_api_whatsapp_party_pairing_codes__kod_id__delete: {
         parameters: {
             query?: never;
             header?: never;

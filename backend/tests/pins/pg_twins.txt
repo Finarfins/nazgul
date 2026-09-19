@@ -32,6 +32,7 @@ test_e4b2_irsaliye_yaniti_postgresql.py
 test_einvoice_seam_postgresql.py
 test_enterprise_invoices_postgresql.py
 test_f0_email_dispatch_postgresql.py
+test_f10_1a_taraf_baglantisi_postgresql.py
 test_farm_activity_with_inputs_postgresql.py
 test_farm_bku_ice_aktarma_postgresql.py
 test_farm_bku_katalogu_postgresql.py
