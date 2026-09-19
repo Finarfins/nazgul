@@ -9,9 +9,16 @@ KUSUR (#139 merceği ölçtü, `bf8e73f` üzerinde):
   kuruyordu: kullanıcının yazdığı ``%`` firmanın BÜTÜN satırlarını, ``_`` her
   tek karakteri eşliyordu.
 
-ÇARE tek dikişte (`app/arama.py`): sorgu Python'da ``tr_katla`` ile, kolon
-SQL'de ``katli_sql`` ile AYNI eşlemeden geçer; kalıp ``arama_deseni`` ile
-kaçırılır ve her ``LIKE`` ``ESCAPE '\\'`` taşır.
+ÇARE tek dikişte (`app/arama.py`): sorgu Python'da ``arama_katla`` ile, kolon
+SQL'de ``katli_sql`` ile AYNI tablodan (``ARAMA_ESLESME``) geçer; kalıp
+``arama_deseni`` ile kaçırılır ve her ``LIKE`` ``ESCAPE '\\'`` taşır.
+
+DÜZELTME TURU (mercek NO-GO, `0580dcc`): ilk sürüm sorguyu Python
+``.upper()`` ile, kolonu SQL ``UPPER()`` ile büyütüyordu; tabloda olmayan
+aksanlar iki tarafta farklı katlandı ve "Kâzım", "hâlâ", "Café" tabanda
+bulunup HEAD'de BOŞ döndü. Artık tek kural karakter başına tablo eşlemesidir;
+``UPPER`` yok. İddialar: aksanlı her yazım bulur, tabanda birebir alt
+dizgiyle bulunan her ad hâlâ bulunur, ``katli_sql`` istek başına ÇAĞRILMAZ.
 
 Beş uç, aynı tohum, aynı iddialar. B firmasının carisi aynı sahibi taşır ki
 kiracı sızıntısı görünür olsun. PG ikizi: ``test_h57_h58_arama_postgresql.py``.
@@ -33,7 +40,7 @@ os.environ["DATABASE_URL"] = "sqlite:///" + (
 os.environ["SUNGUR_DATA_DIR"] = _CALISMA_ALANI
 os.environ["AUTO_MIGRATE"] = "true"
 
-from app.arama import arama_deseni, katli_sql, tr_katla  # noqa: E402
+from app.arama import ARAMA_ESLESME, arama_deseni, arama_katla, katli_sql  # noqa: E402
 
 ACILIS_PAROLASI = "admin123"
 ADMIN_PAROLASI = "H57Arama!2026xyz"
@@ -41,7 +48,21 @@ DEPO_PAROLASI = "H57Depo!2026xyz"
 
 YILMAZ = "Yılmaz Tarım"
 #: Tohum adları. Hiçbiri `%` taşımaz: `q=%` ancak joker gibi davranırsa satır döner.
-ADLAR = (YILMAZ, "Kaya Ltd", "OEM_123 Parça", "OEMX123 Parça", "A\\B Gıda", "AB Gıda")
+KAZIM = "Kâzım Hâlâ Tarım"
+CAFE = "Café Deniz"
+EMILE = "Émile"
+ADLAR = (YILMAZ, "Kaya Ltd", "OEM_123 Parça", "OEMX123 Parça", "A\\B Gıda", "AB Gıda",
+         KAZIM, CAFE, EMILE)
+#: Aksanlı adların her yazımı YALNIZ kendi adını bulmalı (0580dcc'de hepsi BOŞTU).
+AKSAN_YAZIMLARI = {
+    KAZIM: ("Kâzım", "kâzım", "KÂZIM", "Kazım", "kazim", "KAZIM", "hâlâ", "HÂLÂ", "Hâlâ",
+            "hala", "HALA", "kâzım hâlâ"),
+    CAFE: ("Café", "café", "CAFÉ", "cafe", "CAFE", "Cafe Deniz", "CAFÉ DENİZ"),
+    EMILE: ("Émile", "émile", "ÉMILE", "emile", "EMILE", "Emile"),
+}
+AKSAN_CIFTLERI = tuple((ad, q) for ad, yazimlar in AKSAN_YAZIMLARI.items() for q in yazimlar)
+#: Tabloda OLMAYAN harfler: dokunulmadan kalır, birebir yazılınca bulunur.
+TABLO_DISI = ("Straße", "Москва Ltd", "Ωmega", "Æsir", "œuvre")
 B_ADI = "Yılmaz B Firması"
 
 YILMAZ_YAZIMLARI = ("yılmaz", "YILMAZ", "Yilmaz", "yilmaz", "YİLMAZ", "  yılMAZ  ")
@@ -57,13 +78,25 @@ def test_arama_deseni_katlar_ve_kacirir() -> None:
     assert arama_deseni("  %_\\  ") == "%\\%\\_\\\\%"
     assert {arama_deseni(y) for y in YILMAZ_YAZIMLARI} == {"%YILMAZ%"}
     assert arama_deseni("") == "%%"
+    assert arama_deseni("Kâzım") == arama_deseni("KAZIM") == "%KAZIM%"
+    assert arama_deseni("café") == arama_deseni("CAFÉ") == "%CAFE%"
+
+
+def test_tek_kural_UPPER_yok_tablo_BUYUK_ASCII() -> None:
+    """Katlama YALNIZ tablodur: SQL'de `UPPER` geçmez, her hedef A-Z."""
+    assert "UPPER" not in katli_sql("x")
+    assert all(len(k) == 1 and "A" <= h <= "Z" for k, h in ARAMA_ESLESME)
+    for harf in "âÂîÎûÛéÉèêëáàäóöôúüñçğışİ":
+        assert harf in dict(ARAMA_ESLESME), harf
+    # Tablo dışı harf iki tarafta da DOKUNULMADAN kalır (Python `.upper()` yok).
+    assert arama_katla("straße москва") == "STRAßE москва"
 
 
 @pytest.mark.parametrize("deger", [
     YILMAZ, "Mehmet Yılmaz", "İSMAİL IŞIK", "şğüöç ŞĞÜÖÇ", "istanbul", "A\\B Gıda",
-    "OEM_123", "ali@ornek.test",
+    "OEM_123", "ali@ornek.test", KAZIM, CAFE, EMILE, "HÂLÂ ÿØøÑñ", *TABLO_DISI,
 ])
-def test_katli_sql_SQLitete_tr_katla_ile_AYNI(deger: str) -> None:
+def test_katli_sql_SQLitete_arama_katla_ile_AYNI(deger: str) -> None:
     """Kolon ifadesi Python katlamasıyla harfi harfine aynı sonucu vermeli; yoksa
     iki taraf farklı biçimlerde buluşur ve eşleşme şansa kalır."""
     baglanti = sqlite3.connect(":memory:")
@@ -71,7 +104,52 @@ def test_katli_sql_SQLitete_tr_katla_ile_AYNI(deger: str) -> None:
         (sonuc,) = baglanti.execute(f"SELECT {katli_sql('?')}", (deger,)).fetchone()
     finally:
         baglanti.close()
-    assert sonuc == tr_katla(deger)
+    assert sonuc == arama_katla(deger)
+
+
+def _alt_dizgiler(ad: str) -> set[str]:
+    return {ad[i:j] for i in range(len(ad)) for j in range(i + 1, len(ad) + 1) if ad[i:j].strip()}
+
+
+def test_birebir_alt_dizgi_her_zaman_bulunur_SQLite() -> None:
+    """Gerilemezlik (katlama düzeyi): bir adın HER birebir alt dizgisi, katlanmış
+    kolonda katlanmış kalıpla eşleşir. Karakter başına eşlemenin özelliği; ilk
+    sürümde "â"/"é" içeren her alt dizgi bunu bozuyordu."""
+    baglanti = sqlite3.connect(":memory:")
+    try:
+        for ad in (*ADLAR, B_ADI, *TABLO_DISI):
+            for alt in _alt_dizgiler(ad):
+                (esles,) = baglanti.execute(
+                    f"SELECT {katli_sql('?')} LIKE ? ESCAPE '\\'", (ad, arama_deseni(alt))).fetchone()
+                assert esles == 1, (ad, alt)
+    finally:
+        baglanti.close()
+
+
+def test_katli_sql_istek_basina_CAGRILMAZ() -> None:
+    """Şef koşulu: katlama ifadesi modül yüklenirken BİR KEZ kurulur. Router'larda
+    `katli_sql(...)` yalnız modül düzeyindeki atamalarda geçebilir (AST ile)."""
+    import ast
+    from pathlib import Path
+
+    def cagrilar(dugum) -> list[int]:
+        return [a.lineno for a in ast.walk(dugum)
+                if isinstance(a, ast.Call) and getattr(a.func, "id", None) == "katli_sql"]
+
+    kok = Path(__file__).resolve().parents[1] / "app" / "routers"
+    modul_duzeyi, fonksiyon_ici = 0, []
+    for dosya in sorted(kok.glob("*.py")):
+        agac = ast.parse(dosya.read_text(encoding="utf-8"))
+        for dugum in ast.walk(agac):
+            if isinstance(dugum, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                fonksiyon_ici += [f"{dosya.name}:{n}" for n in cagrilar(dugum)]
+        for d in agac.body:
+            if isinstance(d, ast.Assign):
+                modul_duzeyi += len(cagrilar(d))
+    assert fonksiyon_ici == []
+    # search 10 + finance 5 + customers 3: sayı düşerse bir çağrı modül
+    # düzeyinden (atama dışı bir yere) kaçmıştır.
+    assert modul_duzeyi == 18
 
 
 # --------------------------------------------------------------------------
@@ -215,6 +293,23 @@ def test_H58_alt_cizgi_harfi_harfine(istemci, admin, tohum, uc) -> None:
 def test_H58_ters_bolu_harfi_harfine(istemci, admin, tohum, uc) -> None:
     """`\\` kaçış karakteri olarak yutulmaz: "AB Gıda" eşleşmez."""
     assert _adlar(istemci, admin, uc, "A\\B") == {"A\\B Gıda"}
+
+
+@pytest.mark.parametrize("uc", UCLAR)
+@pytest.mark.parametrize(("ad", "q"), AKSAN_CIFTLERI)
+def test_aksanli_yazimlarin_hepsi_bulur(istemci, admin, tohum, uc, ad, q) -> None:
+    """0580dcc'de "Kâzım"/"hâlâ"/"Café"/"Émile" BOŞ dönüyordu (tabanda bulunuyordu)."""
+    assert _adlar(istemci, admin, uc, q) == {ad}
+
+
+@pytest.mark.parametrize("uc", UCLAR)
+def test_tabanda_bulunan_her_ad_hala_bulunur(istemci, admin, tohum, uc) -> None:
+    """Gerilemezlik (istek düzeyi): her adın her 3 harflik penceresi ve her kelimesi
+    — tabanda birebir alt dizgiyle bulunan her kalıp — adı hâlâ getirir."""
+    for ad in ADLAR:
+        kaliplar = {ad[i:i + 3] for i in range(len(ad) - 2)} | set(ad.split())
+        for q in sorted(k for k in kaliplar if k.strip()):
+            assert ad in _adlar(istemci, admin, uc, q), (uc, ad, q)
 
 
 @pytest.mark.parametrize("uc", CARI_UCLARI)
