@@ -136,11 +136,13 @@ def upgrade() -> None:
             sa.Column(
                 "is_active", sa.Boolean(), nullable=False, server_default=sa.true()
             ),
-            # Baglanti acildigi anda yazilan riza kaydinin zamani (§5.4).
-            # KARAR VERICI DEGILDIR: karar her seferinde
-            # `notification_consents`ten yeniden okunur (consents.py
-            # sozlesme 2). Bu sutun yalniz "baglanti hangi riza anina
-            # dayaniyor" izidir.
+            # RIZA IZI — F10-1a'da HER ZAMAN NULL (§5.4, Sef karari).
+            # Rizayi personelin urettigi kod VERMEZ; ciftcinin ilk mesajindaki
+            # acik onay verir ve o yol F10-1b'dedir. Sutun burada aciliyor
+            # cunku damgayi yazacak gocun ayrica gelmesi, ayni tabloyu iki
+            # kez degistirmek olurdu. KARAR VERICI DEGILDIR: karar her
+            # cevapta `notification_consents`ten yeniden okunur (consents.py
+            # sozlesme 2); satir yoksa `NO_RECORD` ve fail-closed.
             sa.Column("consent_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
             sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),

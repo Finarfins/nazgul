@@ -530,7 +530,9 @@ whatsapp_party_links = Table(
     Column("phone", String(20), nullable=False),
     Column("is_active", Boolean, nullable=False, default=True),
     # Riza IZI, karar DEGIL: karar her cevapta `notification_consents`ten
-    # yeniden okunur (consents.py sozlesme 2).
+    # yeniden okunur (consents.py sozlesme 2). F10-1a'da HER ZAMAN NULL'dur —
+    # rizayi personelin urettigi kod DEGIL, ciftcinin ilk mesaji verir
+    # (F10-1b) ve damga o an dolar. NULL = "bu baglanti henuz riza tasimiyor".
     Column("consent_at", DateTime(timezone=True), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),

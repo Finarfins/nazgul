@@ -27,10 +27,12 @@ Keşif §2.2 ölçtü: `telefon.normalize_phone` (gevşek) ile
 Karar ikisini de kullanır ve her birine TEK bir iş verir:
 
 * **Doğrulama** `consents.normalize_msisdn` ile yapılır (sıkı). Gerekçe:
-  eşleştirilen numara aynı zamanda KVKK rıza kaydının alıcısıdır ve rıza
-  defteri numarayı o biçimde saklar. Gevşek doğrulama, rıza yazılamayan bir
-  bağlantı üretirdi — yani bağlanmış ama HİÇBİR ZAMAN cevap alamayacak bir
-  çiftçi.
+  eşleştirilen numara YARIN KVKK rıza kaydının alıcısı olacaktır (rızayı
+  F10-1b'de çiftçinin ilk mesajı verir) ve rıza defteri numarayı o biçimde
+  saklar. Gevşek doğrulama, rızası HİÇBİR ZAMAN yazılamayacak bir bağlantı
+  üretirdi — yani bağlanmış ama sonsuza dek fail-closed kalan bir çiftçi.
+  Kapı bu yüzden BURADA, eşleştirme anındadır: sorun F10-1b'de değil,
+  numaranın deftere girdiği anda görünmelidir.
 * **Saklama** `telefon.normalize_phone` çıktısıdır. Gerekçe:
   `whatsapp_inbound.sender_phone` o biçimdedir ve karşılaştırma oradan
   geçer. `+90...` saklansaydı her karşılaştırma bir dönüşüm daha isterdi.
@@ -75,7 +77,7 @@ from sqlalchemy.orm import Session
 from ..activity_log import log_activity
 from ..auth import token_digest, utcnow
 from ..core_schema import customers, suppliers
-from ..notifications.consents import ConsentError, normalize_msisdn, set_consent
+from ..notifications.consents import normalize_msisdn
 from ..tenancy import companies
 from . import schema
 from .eslestirme import deneme_say, kod_bicimle, kod_kanonik, kod_uret_metin
@@ -88,11 +90,24 @@ from .telefon import normalize_phone
 
 log = logging.getLogger("nazgul.whatsapp.taraf")
 
-#: Rıza defterine yazılan kanal ve kaynak. `PHONE`: rıza, çiftçinin KENDİ
-#: numarasından gönderdiği `BAĞLA <KOD>` mesajıyla, yani bir telefon
-#: eylemiyle doğar (`consents.CONSENT_SOURCES` üyesi).
-RIZA_KANALI = "WHATSAPP"
-RIZA_KAYNAGI = "PHONE"
+# --- RIZA BU DİLİMDE YAZILMAZ — ŞEF KARARI (2026-09-20) -------------------
+#
+# Bu modül `notification_consents`e HİÇBİR ŞEY yazmaz ve bu ölçülmüş bir
+# karardır, bir eksiklik değil:
+#
+# * **Rızayı personel veremez.** Kodu üreten, cari kartındaki düğmeye basan
+#   personeldir; eşleştirmenin başarısı yalnız "bu numara bu cariye ait"
+#   demektir. Keşif §5.4'ün akışı rızayı ÇİFTÇİNİN İLK MESAJINA bağlıyor ve
+#   o soru (KVKK metni + `EVET`/`HAYIR`) F10-1b'dedir.
+# * **Defterde BEKLEYEN durumu YOK** — ölçüldü: `notification_consents.status`
+#   CHECK'i `('GRANTED','REVOKED')` (göç `20260728_0033`). Yani "sorulacak"
+#   diye yazılabilecek bir satır biçimi yoktur; satırı hiç açmamak DOĞRU
+#   temsildir ve `evaluate_consent` onu tam da gereken biçimde okur:
+#   `NO_RECORD` → fail-closed, ERP verisi DÖNMEZ.
+# * `whatsapp_party_links.consent_at` bu dilimde `NULL` KALIR. Sütun F10-1b
+#   için açıldı: `EVET` geldiğinde rıza satırı GRANTED olur ve damga o an
+#   dolar. NULL bir `consent_at`, "bu bağlantı henüz rıza taşımıyor"un
+#   kendisidir.
 
 
 class TarafHatasi(Exception):
@@ -416,10 +431,11 @@ def kod_kullan(
     tüketim, hedef numara bağı (SEC-1), ayırt edilemez ret, hız sınırı
     ısırınca kod TÜKETİLMEZ ama satırın sayacı YANAR.
 
-    EK OLARAK: başarı anında KVKK rıza satırı yazılır (`consents.set_consent`,
-    kanal `WHATSAPP`, kaynak `PHONE`). Rıza yazılamıyorsa BAĞLANTI DA
-    AÇILMAZ — aynı SAVEPOINT içindedir. Gerekçe fail-closed'dur: rızasız bir
-    bağlantı, ilk cevabında sessizce tıkanacak bir bağlantıdır.
+    RIZA YAZILMAZ ve bu bilinçli (modül başlığı, Şef kararı): başarı yalnız
+    "bu numara bu cariye ait" demektir. KVKK rızasını çiftçinin İLK MESAJI
+    verir (F10-1b) ve o an gelene kadar `evaluate_consent` `NO_RECORD`
+    döndürerek fail-closed davranır — yani bağlanmış ama rıza vermemiş bir
+    numara ERP verisi ALAMAZ.
     """
     an = simdi or utcnow()
     normal = normalize_phone(telefon)
@@ -513,7 +529,11 @@ def kod_kullan(
                     party_id=party_id,
                     phone=normal,
                     is_active=True,
-                    consent_at=an,
+                    # RIZA DAMGASI YAZILMAZ (modül başlığı): rızayı çiftçinin
+                    # ilk mesajı verir, eşleştirme DEĞİL. NULL, "henüz rıza
+                    # yok"un kendisidir ve `evaluate_consent` zaten
+                    # `NO_RECORD` ile fail-closed davranır.
+                    consent_at=None,
                     created_at=an,
                     updated_at=an,
                     created_by=None,
@@ -539,30 +559,11 @@ def kod_kullan(
             )
             if int(cas.rowcount or 0) != 1:
                 raise _YarisKaybedildi()
-
-            # KVKK: rıza defteri ZATEN VAR ve WhatsApp'ı tanıyor (keşif
-            # §1.7). Yeni defter AÇILMAZ; var olan fail-closed kapıya
-            # yazılır. `set_consent` commit ETMEZ ve bu SAVEPOINT'in
-            # içindedir: rıza yazılamazsa bağlantı da doğmaz.
-            set_consent(
-                db,
-                company_id=company_id,
-                party_type=party_type,
-                party_id=party_id,
-                channel=RIZA_KANALI,
-                granted=True,
-                source=RIZA_KAYNAGI,
-                source_ref=f"whatsapp_party_link:{link_id}",
-                recipient=normal,
-                user_id=None,
-                reason="WhatsApp eşleştirme (BAĞLA)",
-            )
     except _YarisKaybedildi:
         return _basarisiz(cevapla)
-    except (IntegrityError, ConsentError):
+    except IntegrityError:
         # Numara BU FİRMADA zaten aktif bir taraf bağlantısına sahip
-        # (`uq_whatsapp_party_links_aktif_numara`) ya da rıza yazılamadı.
-        # İKİSİ DE aynı cevabı alır; ayırmak bir kâhin olurdu.
+        # (`uq_whatsapp_party_links_aktif_numara`). Cevap ayırt EDİLEMEZ.
         _denemeyi_artir(db, company_id, int(satir["id"]))
         return _basarisiz(cevapla)
 
@@ -650,8 +651,6 @@ def taraf_coz(db: Session, telefon: str) -> list[TarafKimlik]:
 __all__ = [
     "BASARI_MESAJI",
     "RED_MESAJI",
-    "RIZA_KANALI",
-    "RIZA_KAYNAGI",
     "TarafHatasi",
     "TarafKimlik",
     "TarafSonucu",

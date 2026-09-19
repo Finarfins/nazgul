@@ -31,7 +31,10 @@ niyetleri ve mesaj hız sınırı F10-1b'nindir.
                                     -> PERSONEL ÇAKIŞMASI adımları KIRMIZI
   * `normalize_msisdn` yerine `e164` ile doğrulamak
                                     -> SIKI NUMARA adımı KIRMIZI (K2)
-  * Rıza yazımını kaldırmak         -> RIZA adımı KIRMIZI
+  * Eşleştirmede rıza satırı YAZMAK (ya da `consent_at` damgalamak)
+                                    -> RIZA adımı KIRMIZI (rızayı
+                                       personelin ürettiği kod veremez;
+                                       çiftçinin ilk mesajı verir — §5.4)
   * `auth.py`deki `party-` kuralını generic kuralın ALTINA almak
                                     -> KURAL SIRASI kapısı KIRMIZI
   * Handler'daki `_taraf_izni` çağrısını kaldırmak
@@ -402,9 +405,11 @@ def dunya(uygulama):
                 },
             ).scalar_one()
 
+        # SEVK EDİLEN ALTI ROLÜN ALTISI (`auth.ROLE_PERMISSIONS`): izin
+        # matrisi altısını da ÖLÇÜYOR, örneklemiyor.
         roller = {
             rol: kullanici(f"f10a-{rol}-{n}", rol)
-            for rol in ("admin", "satis", "depo", "rapor")
+            for rol in ("admin", "yonetici", "muhasebe", "satis", "depo", "rapor")
         }
         for uid in roller.values():
             for cid in (firma_a, firma_b):
@@ -513,7 +518,10 @@ def test_DAVRANIS_kod_uret_KULLAN_baglanti_ve_RIZA_aciyor(oturum, dunya) -> None
     assert len(satirlar) == 1
     assert satirlar[0]["phone"] == NUMARA
     assert bool(satirlar[0]["is_active"]) is True
-    assert satirlar[0]["consent_at"] is not None
+    # RIZA DAMGASI YOK: rizayi personelin urettigi kod DEGIL, ciftcinin ilk
+    # mesaji verir (F10-1b). MUTASYON: burada `consent_at=an` yazmak bunu ve
+    # RIZA kapisini KIRMIZI yapar.
+    assert satirlar[0]["consent_at"] is None
 
     durum = (
         oturum.execute(text(f"SELECT status,consumed_link_id FROM {KOD_TABLO}"))
@@ -523,24 +531,42 @@ def test_DAVRANIS_kod_uret_KULLAN_baglanti_ve_RIZA_aciyor(oturum, dunya) -> None
     assert durum["status"] == "CONSUMED"
     assert int(durum["consumed_link_id"]) == sonuc.link_id
 
-    # KVKK: yeni defter AÇILMADI, var olan rıza defterine yazıldı.
-    riza = (
+    # KVKK: BU DİLİM RIZA DEFTERİNE HİÇBİR ŞEY YAZMAZ (Şef kararı).
+    # Rızayı personelin ürettiği kod veremez; çiftçinin ilk mesajındaki açık
+    # onay verir ve o yol F10-1b'dedir. Defterde "bekleyen" durumu da YOKTUR
+    # (`status` CHECK'i yalnız GRANTED/REVOKED), yani satırı hiç açmamak DOĞRU
+    # temsildir — ve `evaluate_consent` onu tam gerektiği gibi okur.
+    assert (
+        oturum.execute(
+            text("SELECT count(*) FROM notification_consents WHERE company_id=:c"),
+            {"c": dunya["firma_a"]},
+        ).scalar_one()
+        == 0
+    )
+    assert (
         oturum.execute(
             text(
-                "SELECT status,channel,party_type,party_id,recipient_snapshot,"
-                "source FROM notification_consents WHERE company_id=:c"
+                "SELECT count(*) FROM notification_consent_events"
+                " WHERE company_id=:c"
             ),
             {"c": dunya["firma_a"]},
-        )
-        .mappings()
-        .one()
+        ).scalar_one()
+        == 0
     )
-    assert riza["status"] == "GRANTED"
-    assert riza["channel"] == "WHATSAPP"
-    assert riza["party_type"] == "SUPPLIER"
-    assert int(riza["party_id"]) == dunya["tedarikci_a"]
-    assert riza["source"] == "PHONE"
-    assert riza["recipient_snapshot"] == "+90" + NUMARA[2:]
+    # FAIL-CLOSED: bağlı ama rızasız numara ERP verisi ALAMAZ — kapı zaten
+    # var olan `evaluate_consent`tır ve `NO_RECORD` döner.
+    from app.notifications.consents import evaluate_consent
+
+    karar = evaluate_consent(
+        oturum,
+        company_id=dunya["firma_a"],
+        party_type="SUPPLIER",
+        party_id=dunya["tedarikci_a"],
+        channel="WHATSAPP",
+        recipient=NUMARA,
+    )
+    assert karar["allowed"] is False
+    assert karar["reason"] == "NO_RECORD"
 
     # Denetim izi: aktör NULL (çiftçinin `app_users` kimliği YOK).
     kayit = (
@@ -886,19 +912,32 @@ def basliklar(uygulama, dunya):
     return uret
 
 
-@pytest.mark.parametrize(
-    "rol,party_type,beklenen",
-    [
-        ("satis", "CUSTOMER", 201),
-        ("satis", "SUPPLIER", 403),
-        ("depo", "SUPPLIER", 201),
-        ("depo", "CUSTOMER", 403),
-        ("rapor", "CUSTOMER", 403),
-        ("rapor", "SUPPLIER", 403),
-        ("admin", "CUSTOMER", 201),
-        ("admin", "SUPPLIER", 201),
-    ],
-)
+#: SEVK EDİLEN ALTI ROLÜN ALTISI, İKİ TARAF TİPİNİN İKİSİNDE — ELLE YAZILDI.
+#: `ROLE_PERMISSIONS`tan türetilseydi, izin tablosunu bozan bir mutasyon
+#: beklentiyi de birlikte kaydırır ve kapı sessizce yeşil kalırdı (deponun
+#: "çapa doğruladığı kaynaktan bağımsız yazılır" kuralı).
+#:
+#: `rapor` SATIRLARI BU KAPININ ASIL İDDİASIDIR: rol `read` TAŞIR, yani ara
+#: katmandan GEÇER — ve handler'da 403 alır. Uçların KORUMALI read
+#: (`GUARDED_READ_OPERATIONS`) sayılması ve `EXPECTED_UNDENIABLE`ın 97'de
+#: SABİT kalması tam olarak bu ölçüme dayanıyor.
+IZIN_MATRISI = [
+    ("admin", "CUSTOMER", 201),      # "*" jokeri
+    ("admin", "SUPPLIER", 201),
+    ("yonetici", "CUSTOMER", 201),   # sales + purchases
+    ("yonetici", "SUPPLIER", 201),
+    ("muhasebe", "CUSTOMER", 201),   # sales + purchases
+    ("muhasebe", "SUPPLIER", 201),
+    ("satis", "CUSTOMER", 201),      # yalnız sales
+    ("satis", "SUPPLIER", 403),
+    ("depo", "CUSTOMER", 403),       # yalnız purchases
+    ("depo", "SUPPLIER", 201),
+    ("rapor", "CUSTOMER", 403),      # read VAR, ikisi de YOK
+    ("rapor", "SUPPLIER", 403),
+]
+
+
+@pytest.mark.parametrize("rol,party_type,beklenen", IZIN_MATRISI)
 def test_UC_IZIN_MATRISI(uygulama, dunya, basliklar, rol, party_type, beklenen) -> None:
     """Kapı ROL DEĞERİYLE reddediyor: CUSTOMER `sales`, SUPPLIER `purchases`.
 
