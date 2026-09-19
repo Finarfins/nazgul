@@ -102,7 +102,27 @@ def _temizle(engine) -> None:
             {"p": NUMARA, "q": IKINCI_NUMARA},
         )
         b.execute(text("DELETE FROM app_users WHERE username LIKE :o"), {"o": onek})
-        b.execute(text("DELETE FROM companies WHERE name LIKE :o"), {"o": onek})
+        # `activity_logs` YALNIZ-EKLEMEDIR (BEFORE DELETE tetikleyicisi, goc
+        # `20260727_0030`): yaris adimi bagli satir basina bir denetim kaydi
+        # yaziyor ve o satiri tasiyan firma SILINEMEZ. CS1 ikizinin kurali
+        # AYNEN uygulaniyor: denetim satiri olan firma PASIFE alinir (koşu
+        # onekli oldugu icin hicbir komsunun acilis secimine girmez), otekiler
+        # silinir. Denetim satirini silmeye CALISMAK yanlis olurdu — defterin
+        # yalniz-ekleme sozlesmesi tam olarak budur.
+        b.execute(
+            text(
+                "UPDATE companies SET is_active = FALSE WHERE name LIKE :o"
+                " AND id IN (SELECT company_id FROM activity_logs)"
+            ),
+            {"o": onek},
+        )
+        b.execute(
+            text(
+                "DELETE FROM companies WHERE name LIKE :o"
+                " AND id NOT IN (SELECT company_id FROM activity_logs)"
+            ),
+            {"o": onek},
+        )
 
 
 @pytest.fixture()
