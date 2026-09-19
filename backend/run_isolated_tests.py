@@ -85,6 +85,7 @@ class TestResult:
     collected: tuple[str, ...]
     outcomes: dict[str, str]
     collect_only: bool = False
+    failure_text: str = ""
 
     @property
     def passed(self) -> bool:
@@ -310,6 +311,93 @@ def _read_worker_report(path: Path) -> tuple[tuple[str, ...], dict[str, str]]:
     return tuple(collected), dict(outcomes)
 
 
+def _traceback_deadline_margin(timeout: int) -> float:
+    """Seconds before the kill at which the child dumps its stacks.
+
+    Absolute, not proportional: at 180 s a 10 % margin would dump 18 s early
+    and blame a test that still had time; at a 12 s test timeout 5 s would eat
+    half the budget.
+    """
+    return min(5.0, max(timeout, 1) / 4)
+
+
+def _read_progress(path: Path) -> tuple[int | None, dict[str, float], dict[str, float]]:
+    collected: int | None = None
+    started: dict[str, float] = {}
+    finished: dict[str, float] = {}
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return collected, started, finished
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # the kill can cut the last line in half
+        kind = event.get("event")
+        if kind == "collected":
+            collected = event.get("count")
+        elif kind == "start":
+            started[event["nodeid"]] = event["time"]
+        elif kind == "finish":
+            finished[event["nodeid"]] = event["time"]
+    return collected, started, finished
+
+
+def _tail(text: str, lines: int = 40) -> str:
+    return "\n".join(text.rstrip().splitlines()[-lines:])
+
+
+def timeout_failure_text(
+    *,
+    timeout: int,
+    killed_at: float,
+    progress_path: Path,
+    traceback_path: Path,
+    stdout: str,
+    stderr: str,
+) -> str:
+    """Explain a killed file: what ran, what was running, where it was stuck."""
+    collected, started, finished = _read_progress(progress_path)
+    lines = [f"Dosya {max(timeout, 1)}s sınırını aştı ve durduruldu."]
+    lines.append(
+        f"Toplanan test: {'bilinmiyor' if collected is None else collected}; "
+        f"tamamlanan: {len(finished)}"
+    )
+    running = [nodeid for nodeid in started if nodeid not in finished]
+    if running:
+        nodeid = running[-1]
+        lines.append(
+            f"Zaman aşımında çalışan test: {nodeid} "
+            f"({killed_at - started[nodeid]:.1f}s çalıştı)"
+        )
+    else:
+        lines.append(
+            "Zaman aşımında çalışan test yok (toplama, oturum kurulumu ya da kapanışı)."
+        )
+    durations = sorted(
+        ((finished[nodeid] - started[nodeid], nodeid) for nodeid in finished if nodeid in started),
+        reverse=True,
+    )
+    if durations:
+        lines.append("En yavaş tamamlananlar:")
+        lines.extend(f"  {seconds:.1f}s {nodeid}" for seconds, nodeid in durations[:5])
+    try:
+        stacks = traceback_path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        stacks = ""
+    if stacks:
+        lines.append("--- Yığın dökümü (faulthandler, durdurmadan önce) ---")
+        lines.append(stacks)
+    if stdout.strip():
+        lines.append("--- Çocuk stdout (son satırlar) ---")
+        lines.append(_tail(stdout))
+    if stderr.strip():
+        lines.append("--- Çocuk stderr (son satırlar) ---")
+        lines.append(_tail(stderr))
+    return "\n".join(lines)
+
+
 def _execute_test_file(
     path: Path,
     *,
@@ -328,6 +416,12 @@ def _execute_test_file(
 
     env = _subprocess_environment(workdir)
     report_path = Path(env["ISOLATED_TEST_REPORT"])
+    progress_path = workdir / "pytest-progress.jsonl"
+    traceback_path = workdir / "timeout-traceback.txt"
+    for stale in (progress_path, traceback_path):
+        stale.unlink(missing_ok=True)
+    env["ISOLATED_TEST_PROGRESS"] = str(progress_path)
+    env["ISOLATED_TEST_TRACEBACK"] = str(traceback_path)
     command = [
         sys.executable,
         "-m",
@@ -348,6 +442,10 @@ def _execute_test_file(
         command.insert(-1, "-vv")
 
     started = time.monotonic()
+    env["ISOLATED_TEST_DEADLINE"] = repr(
+        time.time() + max(timeout, 1) - _traceback_deadline_margin(timeout)
+    )
+    failure_text = ""
     try:
         try:
             completed = subprocess.run(
@@ -373,6 +471,14 @@ def _execute_test_file(
             stdout = _decode_captured_output(exc.stdout)
             stderr = _decode_captured_output(exc.stderr)
             reason = "timeout"
+            failure_text = timeout_failure_text(
+                timeout=timeout,
+                killed_at=time.time(),
+                progress_path=progress_path,
+                traceback_path=traceback_path,
+                stdout=stdout,
+                stderr=stderr,
+            )
 
         try:
             collected, outcomes = _read_worker_report(report_path)
@@ -403,6 +509,7 @@ def _execute_test_file(
             collected=collected,
             outcomes=outcomes,
             collect_only=collect_only,
+            failure_text=failure_text,
         )
     finally:
         if not preprepared:
@@ -418,6 +525,10 @@ def _emit_result(result: TestResult, total: int) -> None:
         f"({result.elapsed:.1f}s, {len(result.collected)} test)",
         flush=True,
     )
+    if result.failure_text:
+        # Already carries the child's stdout/stderr tail; do not print them twice.
+        print(result.failure_text, flush=True)
+        return
     if result.stdout.strip():
         print(result.stdout.rstrip())
     if result.stderr.strip():
@@ -666,12 +777,23 @@ def _write_report(path: Path, results: list[TestResult], total_seconds: float) -
                 "reason": result.reason,
                 "elapsed": round(result.elapsed, 3),
                 "collected": len(result.collected),
+                "failure_text": result.failure_text,
             }
             for result in results
         ],
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def print_failure_summary(failures: list[TestResult], total: float) -> None:
+    print("\nBaşarısız test dosyaları:", file=sys.stderr)
+    for result in failures:
+        print(f"- {result.rel_path}: {result.reason}", file=sys.stderr)
+        if result.failure_text:
+            for line in result.failure_text.splitlines():
+                print(f"    {line}", file=sys.stderr)
+    print(f"Toplam süre: {total:.1f}s", file=sys.stderr)
 
 
 def main() -> int:
@@ -758,10 +880,7 @@ def main() -> int:
 
     failures = [result for result in results if not result.passed]
     if failures:
-        print("\nBaşarısız test dosyaları:", file=sys.stderr)
-        for result in failures:
-            print(f"- {result.rel_path}: {result.reason}", file=sys.stderr)
-        print(f"Toplam süre: {total:.1f}s", file=sys.stderr)
+        print_failure_summary(failures, total)
         return 1
 
     manifest = execution_manifest(results)
