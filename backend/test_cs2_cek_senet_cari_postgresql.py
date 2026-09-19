@@ -326,3 +326,61 @@ def test_UC_KATMANI_PG_smoke(motor, iki_firma) -> None:
             c.execute(text("DELETE FROM auth_tokens WHERE user_id=:u"), {"u": uid})
             c.execute(text("DELETE FROM auth_refresh_tokens WHERE user_id=:u"), {"u": uid})
             c.execute(text("DELETE FROM user_company_memberships WHERE user_id=:u"), {"u": uid})
+
+
+#: H47: `_cek_dekont_borcu` Core'a çevrildi. Tohum ve beklenenler SQLite
+#: ikiziyle (``tests/test_cs2_cek_senet_cari.py::H47_*``) AYNIDIR; değerler
+#: eski text() sorgusunun aynı tohumda PG'de verdiği sonuçtur. PG'ye özgü
+#: risk: `DATE` `period_end`in `CAST(... AS TEXT)` ile güne inmesi ve psycopg3
+#: bağlı parametrelerinin `substr` / karşılaştırma tipleri.
+H47_TOHUM = (
+    ("100.10", "2026-12-02", "posted", True, "a"),
+    ("200.25", "2026-12-05", "posted", True, "a"),
+    ("50.00", "2026-12-05", "reversed", True, "a"),
+    ("7.00", "2026-12-03", "draft", True, "a"),
+    ("11.00", "2026-12-03", "posted", False, "a"),
+    ("400.40", "2026-12-10", "posted", True, "a"),
+    ("1000.00", "2026-12-03", "posted", True, "b"),
+)
+H47_BEKLENEN = (
+    (None, None, True, Decimal("750.75")),
+    (None, "2026-12-05", False, Decimal("100.10")),
+    (None, "2026-12-05", True, Decimal("350.35")),
+    ("2026-12-03", "2026-12-10", True, Decimal("650.65")),
+    ("2026-12-05", "2026-12-05", True, Decimal("250.25")),
+    ("2026-12-05", "2026-12-05", False, Decimal("0.00")),
+    ("2026-12-11", None, True, Decimal("0.00")),
+)
+
+
+def test_H47_dekont_borcu_Core_PG(motor, iki_firma) -> None:
+    from sqlalchemy.orm import Session
+
+    from app import statement
+
+    _, b = iki_firma
+    with motor.begin() as c:
+        h = _firma(c, "H47")
+        kim = {"a": h["mus"], "b": c.execute(text(
+            "INSERT INTO customers(company_id,name,opening_balance) VALUES (:c,'M2',0) RETURNING id"),
+            {"c": h["cid"]}).scalar_one()}
+        for sira, (tutar, gun, durum, kayitli, hangi) in enumerate(H47_TOHUM):
+            cek = c.execute(text(
+                "INSERT INTO cek_senetler(company_id,tur,yon,portfoy_durumu,customer_id,tutar,vade,seri_no,"
+                "created_at) VALUES (:c,'cek','alinan','karsiliksiz',:m,100,'2026-12-01',:s,now()) RETURNING id"),
+                {"c": h["cid"], "m": kim[hangi], "s": f"{KOSU}-H47-{sira}"}).scalar_one()
+            _yaz_c = _belge({**h, "cek": cek, "mus": kim[hangi]}, period_start=gun, period_end=gun,
+                            gross_amount=tutar, status=durum,
+                            posted_at=datetime(2026, 12, 11, 10, tzinfo=timezone.utc) if kayitli else None)
+            c.execute(text(f"INSERT INTO {BELGE}(" + ",".join(_yaz_c) + ") VALUES ("
+                           + ",".join(":" + k for k in _yaz_c) + ")"), _yaz_c)
+    try:
+        with Session(motor) as db:
+            for date_from, date_to, dahil, beklenen in H47_BEKLENEN:
+                toplam = statement._cek_dekont_borcu(db, h["cid"], "customer", kim["a"], date_from, date_to, dahil)
+                assert (toplam, str(toplam)) == (beklenen, str(beklenen)), (date_from, date_to, dahil)
+            assert statement._cek_dekont_borcu(db, h["cid"], "customer", kim["b"], None, None, True) == Decimal("1000.00")
+            assert statement._cek_dekont_borcu(db, b["cid"], "customer", kim["a"], None, None, True) == Decimal("0.00")
+            assert statement._cek_dekont_borcu(db, h["cid"], "supplier", kim["a"], None, None, True) == Decimal("0.00")
+    finally:
+        _belgeleri_sil(motor)

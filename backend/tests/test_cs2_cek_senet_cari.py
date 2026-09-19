@@ -743,3 +743,110 @@ def test_kopru_motor_KAPALI_yolunda_da_atomik(tmp_path) -> None:
         odeme = PaymentCreate(entity_type="customer", entity_id=k["mus_diger"], amount="1",
                               payment_date=_gun(0), payment_method="check")
         assert _cek_bilgisi(odeme, cek_zorunlu=False) is None
+
+
+# ------------------------------------------------------------ H47: dekont toplamı Core ---
+
+#: H47 tohumu: (tutar, period_end, durum, posted_at dolu mu, hangi müşteri).
+#: Toplama GİREN yalnız ``a`` müşterisinin `posted`/`reversed` + `posted_at`
+#: dolu satırlarıdır; taslak, kaydı düşülmemiş ve başka müşteri HARİÇ.
+H47_TOHUM = (
+    ("100.10", "2026-12-02", "posted", True, "a"),
+    ("200.25", "2026-12-05", "posted", True, "a"),
+    ("50.00", "2026-12-05", "reversed", True, "a"),
+    ("7.00", "2026-12-03", "draft", True, "a"),       # taslak: HARİÇ
+    ("11.00", "2026-12-03", "posted", False, "a"),    # posted_at yok: HARİÇ
+    ("400.40", "2026-12-10", "posted", True, "a"),
+    ("1000.00", "2026-12-03", "posted", True, "b"),   # başka müşteri: HARİÇ
+)
+
+#: (date_from, date_to, inclusive_to) -> beklenen. Değerler H47'de eski
+#: text() sorgusunun AYNI tohumda SQLite ve PG'de verdiği sonuçtur (40/40
+#: karşılaştırma, iki lehçede FARK 0); text() silindi, sabit kaldı.
+H47_BEKLENEN = (
+    (None, None, True, Decimal("750.75")),
+    (None, "2026-12-05", False, Decimal("100.10")),   # devir: sınır günü HARİÇ
+    (None, "2026-12-05", True, Decimal("350.35")),
+    ("2026-12-03", "2026-12-10", True, Decimal("650.65")),
+    ("2026-12-05", "2026-12-05", True, Decimal("250.25")),
+    ("2026-12-05", "2026-12-05", False, Decimal("0.00")),
+    ("2026-12-11", None, True, Decimal("0.00")),
+)
+
+
+def _h47_tohumla(ortam) -> dict:
+    from sqlalchemy import text
+
+    # KENDİ FİRMASI: taslak / kaydı düşülmemiş satırlar firma geneli ham
+    # toplam alan komşu testleri (pano) ters sırada KIRAR (ölçüldü: 18.00).
+    engine = ortam["engine"]
+    with engine.begin() as c:
+        firma = int(c.execute(text(
+            "INSERT INTO companies(name,is_active,created_at) VALUES ('H47 Dekont',1,CURRENT_TIMESTAMP) "
+            "RETURNING id")).scalar_one())
+
+        def musteri() -> int:
+            return int(c.execute(text(
+                "INSERT INTO customers(company_id,name,opening_balance) VALUES (:c,'H47',0) RETURNING id"),
+                {"c": firma}).scalar_one())
+
+        kim = {"cid": firma, "a": musteri(), "b": musteri()}
+        for sira, (tutar, gun, durum, kayitli, hangi) in enumerate(H47_TOHUM):
+            cek = int(c.execute(text(
+                "INSERT INTO cek_senetler(company_id,tur,yon,portfoy_durumu,customer_id,tutar,vade,"
+                "seri_no,created_at) VALUES (:c,'cek','alinan','karsiliksiz',:m,100,'2026-12-01',:s,"
+                "CURRENT_TIMESTAMP) RETURNING id"),
+                {"c": firma, "m": kim[hangi], "s": f"H47-{sira}"}).scalar_one())
+            c.execute(text(
+                "INSERT INTO receivable_charge_documents(company_id,cek_senet_id,customer_id,charge_type,"
+                "period_start,period_end,due_date_snapshot,calculation_snapshot,gross_amount,status,"
+                "calculation_fingerprint,revision_no,currency,exchange_rate,posted_at) VALUES "
+                "(:c,:k,:m,'bounced_check',:g,:g,'2026-12-01','{}',:t,:d,'x',1,'TRY',1,:p)"),
+                {"c": firma, "k": cek, "m": kim[hangi], "g": gun, "t": tutar, "d": durum,
+                 "p": "2026-12-11 10:00:00+00:00" if kayitli else None})
+    return kim
+
+
+@pytest.fixture(scope="module")
+def h47(ortam) -> dict:
+    return _h47_tohumla(ortam)
+
+
+@pytest.mark.parametrize("date_from, date_to, inclusive_to, beklenen", H47_BEKLENEN)
+def test_H47_dekont_borcu_Core_sabit_sonuc(ortam, h47, date_from, date_to, inclusive_to, beklenen) -> None:
+    from sqlalchemy.orm import Session
+
+    from app import statement
+
+    with Session(ortam["engine"]) as db:
+        toplam = statement._cek_dekont_borcu(
+            db, h47["cid"], "customer", h47["a"], date_from, date_to, inclusive_to)
+    assert (toplam, str(toplam)) == (beklenen, str(beklenen))
+
+
+def test_H47_dekont_borcu_kiraci_musteri_ve_tur_sinirlari(ortam, h47) -> None:
+    from sqlalchemy.orm import Session
+
+    from app import statement
+
+    with Session(ortam["engine"]) as db:
+        # Başka müşterinin belgesi YALNIZ kendi toplamında.
+        assert statement._cek_dekont_borcu(db, h47["cid"], "customer", h47["b"], None, None, True) == Decimal("1000.00")
+        # Aynı müşteri kimliği başka firmada: SIFIR (company_id yüklemi).
+        assert statement._cek_dekont_borcu(db, ortam["a"], "customer", h47["a"], None, None, True) == Decimal("0.00")
+        # Tedarikçi ekstresi dekont taşımaz.
+        assert statement._cek_dekont_borcu(db, h47["cid"], "supplier", h47["a"], None, None, True) == Decimal("0.00")
+
+
+def test_H47_Core_tablosu_goc_sutun_tipleriyle_AYNI(ortam) -> None:
+    """Core yüzeyi göçün KOPYASI değildir ama okuduğu sütunların tipi göçle
+    aynı olmalı: ayrışırsa bağlama/okuma sessizce kayar."""
+    from sqlalchemy import inspect
+
+    from app.statement import receivable_charge_documents
+
+    goc = {c["name"]: c for c in inspect(ortam["engine"]).get_columns("receivable_charge_documents")}
+    for sutun in receivable_charge_documents.columns:
+        assert sutun.name in goc, sutun.name
+        assert type(sutun.type)._type_affinity is type(goc[sutun.name]["type"])._type_affinity, sutun.name
+        assert sutun.nullable == goc[sutun.name]["nullable"], sutun.name
