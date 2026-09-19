@@ -194,16 +194,16 @@ ROUTE_REASON_GROUPS = (
     (
         # KIRACI GERI YUKLEME (5.1c, GOC YOK). Yedek grubuna GIREMEZ: o metin
         # "backup operation" der ve kumenin TAMAMINI kastediyor; bu uc TEK
-        # firmanin 5.1a zip'ini YENI bir firma olarak (ya da kapali kimligin
-        # yerine) canli veritabanina yazar. Izin `__admin_only__` — yedeklerin
+        # firmanin 5.1a zip'ini YENI bir firma olarak canli veritabanina yazar
+        # (yerine kipi #136'da kaldirildi). Izin `__admin_only__` — yedeklerin
         # `read`i DEGIL ve bu OLCULDU (`required_permission`); gerekcesi
         # `app/auth.py`deki kuralda. Gercek kapi yonlendiricideki
         # `require_platform_operator`dir. PP1'den beri ara katman bu onekte
         # kiraci COZMEZ (`platform_access.platform_yolu`) ve denetim satiri
         # firmasiz `security_audit_logs`a yazilir (`app/platform_denetim.py`).
-        "Tenant restore from a 5.1a export zip into a NEW company (or an erased "
-        "company id in place); router applies the platform-operator allow-list, "
-        "middleware permission is __admin_only__.",
+        "Tenant restore from a 5.1a export zip creates a NEW company only; never "
+        "writes over an existing one; router applies the platform-operator "
+        "allow-list, middleware permission is __admin_only__.",
         {
             ("POST", "/api/platform/tenant-restore"),
         },
@@ -911,7 +911,10 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # TABAN 989b735 (CS2 sonrasi YENIDEN OLCULDU): parmak izi 35f45088 -> 958a9c0e.
     # E4b-2 (goc 20260915_0089): BIR yeni GET (`.../response`), "sales".
     # TABAN 0885616: parmak izi 958a9c0e -> cd72be75.
-    "cd72be7502ea408079517be7148224c7af4a4e57e4bff701a23b1555f949ceb5"
+    # H59: tenant-restore review-reason metni #136'daki yerine kipi kaldirilmasina
+    # gore guncellendi ("creates a NEW company only; never writes over an existing one");
+    # sayim 421/327 degismedi. Parmak izi cd72be75 -> 05dafb0d.
+    "05dafb0dce6ad7387b143fbabeaf513cf02e65cebb2a868bc24db2da2c852bd4"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 
