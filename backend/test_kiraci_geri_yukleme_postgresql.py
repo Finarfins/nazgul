@@ -123,3 +123,16 @@ def test_pg_kip_matrisi(hazir) -> None:
         assert m[etiket]["detail"] == "mode yalnız 'yeni' olabilir", (etiket, m[etiket])
     assert all(v["status"] != 500 for v in m.values()), m
     assert all(v["sonrasi"] == hazir["imha_sonrasi_a"] for v in m.values()), m
+
+
+def test_pg_uyelik_epostayla_esleme(hazir) -> None:
+    """H49b: SQLite ikiziyle AYNI iddialar, GERÇEK PostgreSQL ``lower()`` ve
+    boolean ``is_active`` karşılaştırmasıyla: tek aktif eşleşme eşlenir,
+    belirsiz/pasif/eski arşiv atlanır, e-posta hiçbir yere yazılmaz."""
+    ikiz = _sqlite_ikizi()
+    ikiz.test_uyelik_epostayla_tek_aktif_kullaniciya_eslenir(hazir)
+    ikiz.test_uyelik_eposta_belirsizse_atlanir(hazir)
+    ikiz.test_uyelik_eposta_pasif_kullanici_sayilmaz(hazir)
+    ikiz.test_eski_arsiv_user_emails_yoksa_yalniz_kimlik(hazir)
+    ikiz.test_manifest_epostasi_yanita_izlere_veritabanina_yazilmaz(hazir)
+    ikiz.test_gecersiz_user_emails_422_ve_sifir_yazma(hazir)

@@ -427,8 +427,17 @@ def clear_login_failures(db: Session, username: str, ip_address: str) -> None:
     db.commit()
 
 
+def normalize_email(value: str) -> str:
+    """Girişin e-posta kimliği: kenar boşluğu atılır, küçük harfe indirilir.
+
+    Tek tanım: ``authenticate`` ve kiracı geri yüklemesinin e-postayla üyelik
+    eşlemesi (``kiraci_geri_yukleme``) aynı biçimi kullanır.
+    """
+    return value.strip().lower()
+
+
 def authenticate(db: Session, username: str, password: str) -> dict[str, Any] | None:
-    identity = username.strip().lower()
+    identity = normalize_email(username)
     row = db.execute(
         select(users).where(
             (users.c.username == username) | (users.c.email == identity)
