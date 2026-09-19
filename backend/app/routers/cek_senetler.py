@@ -93,6 +93,7 @@ from ..finance_engine import finance_accounts
 from ..business_time import business_today
 from ..money import money
 from ..schemas import CekBilgisi, PaymentCreate
+from ..sinirlar import INT4_UST
 from ..tenancy import company_id, istek_rolu
 from ..idempotency import BASLIK as IDEMPOTENS_BASLIGI
 from .finance import odeme_kaydet
@@ -103,9 +104,6 @@ router = APIRouter(prefix="/cek-senetler", tags=["Çek/Senet Portföyü"])
 #: aktarımdır ve ayrı bir iş olarak ele alınmalıdır.
 BORDRO_TAVANI = 200
 SAYFA_TAVANI = 200
-#: Kimlik sütunları PG'de INTEGER (int4). Üstündeki bir kimlik sorguya
-#: ulaşırsa PG ``NumericValueOutOfRange`` (500) verir; sınır uçta 422'dir.
-INT4_UST = 2147483647
 
 Tur = Literal["cek", "senet"]
 Yon = Literal["alinan", "verilen"]

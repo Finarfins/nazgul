@@ -43,6 +43,7 @@ from ..schemas import (
     ProductUpdate,
     StockAdjust,
 )
+from ..sinirlar import INT4_UST
 from ..tenancy import company_id
 
 router = APIRouter(prefix="/products", tags=["products"])
@@ -327,7 +328,7 @@ def product_warehouse_stock(
 def parti_mutabakat_raporu(
     request: Request,
     limit: int = Query(200, ge=1, le=1000),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=INT4_UST),
     db: Session = Depends(get_db),
 ):
     """Stok defteri ile parti defteri hangi (ürün, depo) çiftinde AYRIŞIYOR.

@@ -108,8 +108,8 @@ from ..einvoice import EInvoiceError, UblBuildError, einvoice_configuration, get
 from ..einvoice import edespatch
 from ..einvoice.endpoints import IZIBIZ_EDESPATCH_PDF_UNVERIFIED
 from ..invoice_service import log_invoice_action
+from ..sinirlar import INT4_UST
 from ..tenancy import company_id
-from .cek_senetler import INT4_UST
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/despatch-notes", tags=["despatch-notes"])

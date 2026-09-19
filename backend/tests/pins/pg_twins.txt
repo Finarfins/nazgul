@@ -52,6 +52,7 @@ test_field_stok_0061_postgresql.py
 test_field_stok_tuketici_postgresql.py
 test_h17_auth_rate_limits_index_postgresql.py
 test_h51_irsaliye_listesi_postgresql.py
+test_h54_offset_tavani_postgresql.py
 test_harman_v2c_allocation_postgresql.py
 test_harman_vadeli_postgresql.py
 test_harvest_season_admin_postgresql.py
