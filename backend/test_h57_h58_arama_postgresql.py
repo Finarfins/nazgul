@@ -264,6 +264,28 @@ def test_katli_sql_PGde_her_harmanlamada_arama_katla_ile_AYNI(motor, deger) -> N
             assert sonuc == arama_katla(deger), (harman, deger)
 
 
+@pytest.mark.parametrize(("metin", "kaynak", "hedef"), [
+    ("abcd", "abc", "A"), ("abcd", "abc", "ABC"), ("abc", "", ""), ("Kâzım", "â", "A"),
+])
+def test_sqlite_UDFsi_PG_translate_ile_AYNI(motor, metin, kaynak, hedef) -> None:
+    """SQLite'a kaydettigimiz `translate` ile PG'nin YERLESIK `translate`i ayni
+    sonucu vermeli; yoksa tek SQL metni iki lehcede iki anlam tasir."""
+    import sqlite3
+
+    from app.arama import sqlite_katlamayi_kaydet
+
+    with motor.connect() as c:
+        pg = c.execute(text("SELECT translate(:m,:k,:h)"),
+                       {"m": metin, "k": kaynak, "h": hedef}).scalar_one()
+    yerel = sqlite3.connect(":memory:")
+    sqlite_katlamayi_kaydet(yerel)
+    try:
+        sqlite_sonuc = yerel.execute("SELECT translate(?,?,?)", (metin, kaynak, hedef)).fetchone()[0]
+    finally:
+        yerel.close()
+    assert sqlite_sonuc == pg
+
+
 def test_birebir_alt_dizgi_her_zaman_bulunur_PG(motor) -> None:
     """Gerilemezlik (katlama düzeyi, PG): her adın HER birebir alt dizgisi eşleşir."""
     from app.arama import arama_deseni, katli_sql

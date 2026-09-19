@@ -112,6 +112,23 @@ def test_katli_sql_SQLitete_arama_katla_ile_AYNI(deger: str) -> None:
     assert sonuc == arama_katla(deger)
 
 
+def test_sqlite_translate_PG_anlamini_tasir() -> None:
+    """SQLite'a kaydedilen `translate` PG'nin ANLAMIDIR, yaklasigi degil: hedef
+    kaynaktan KISAYSA karsiligi olmayan karakter SILINIR. Tablomuz esit
+    uzunlukta oldugu icin bu dal uretimde kosmaz ama sozlesme buradadir; PG
+    ikizi ayni iddiayi gercek PostgreSQL'de olcer."""
+    baglanti = sqlite3.connect(":memory:")
+    sqlite_katlamayi_kaydet(baglanti)
+    try:
+        cagir = lambda *a: baglanti.execute("SELECT translate(?,?,?)", a).fetchone()[0]  # noqa: E731
+        assert cagir("abcd", "abc", "A") == "Ad"
+        assert cagir("abcd", "abc", "ABC") == "ABCd"
+        assert cagir(None, "a", "A") is None
+        assert cagir("abc", "", "") == "abc"
+    finally:
+        baglanti.close()
+
+
 def _alt_dizgiler(ad: str) -> set[str]:
     return {ad[i:j] for i in range(len(ad)) for j in range(i + 1, len(ad) + 1) if ad[i:j].strip()}
 
