@@ -22,6 +22,10 @@ _CARI_YETKILI = katli_sql("COALESCE(owner_name,'')")
 _CARI_EPOSTA = katli_sql("COALESCE(email,'')")
 _URUN_AD = katli_sql('name')
 _URUN_KOD = katli_sql("COALESCE(product_code,'')")
+# Barkod da katlanir: `q` artik katlanmis (BUYUK) baglanir; katlanmamis bir
+# barkod kolonu PG'de (LIKE buyuk/kucuk harf duyarli) kucuk harfli barkodu
+# kaybederdi. Telefon ve `CAST(id AS TEXT)` rakamdir, katlama onlara dokunmaz.
+_URUN_BARKOD = katli_sql("COALESCE(barcode,'')")
 _SATIS_BELGE = katli_sql("COALESCE(o.document_no,'')")
 _SATIS_CARI = katli_sql('c.name')
 _ALIS_BELGE = katli_sql("COALESCE(p.document_no,'')")
@@ -86,7 +90,7 @@ def global_search(
     #     `05** *** ** 12`den `q=012`, `q=4512`, ... diye ham numara geri
     #     cikarilabilirdi. Iki sorgu role gore secilen iki AYRI metindir; H57
     #     ile ikisi de katlanmis kolon ifadesini f-string ile tasir, yani
-    #     dinamik text() sayisi 2 -> 6 (dort arama sorgusu) oldu. Kiraci
+    #     dinamik text() sayisi 2 -> 7 (bes arama sorgusu) oldu. Kiraci
     #     yuklemi (`company_id=:cid`) her birinde SABIT parcadadir. VKN bu
     #     ucta HIC eslesmiyordu (mercek olctu) ve hala eslesmiyor.
     #
@@ -124,7 +128,7 @@ def global_search(
         SELECT id, name, product_code, barcode, stock, unit
         FROM products
         WHERE company_id=:cid AND COALESCE(active, TRUE)=TRUE AND (
-          {_URUN_AD} LIKE :q ESCAPE '\\' OR {_URUN_KOD} LIKE :q ESCAPE '\\' OR COALESCE(barcode,'') LIKE :q ESCAPE '\\'
+          {_URUN_AD} LIKE :q ESCAPE '\\' OR {_URUN_KOD} LIKE :q ESCAPE '\\' OR {_URUN_BARKOD} LIKE :q ESCAPE '\\'
         )
         ORDER BY name LIMIT :limit
     """), params).mappings().all()

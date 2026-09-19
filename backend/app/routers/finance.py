@@ -129,9 +129,17 @@ def _validate_payment(payload: PaymentCreate):
 
 
 # H57/H58: odeme ve hareket listelerinin arama kolonlari, `app/arama.py`nin
-# katlamasindan gecmis SABIT ifadeler. Kullanici metni yalniz `:q` ile baglanir.
+# katlamasindan gecmis SABIT ifadeler; modul yuklenirken BIR KEZ kurulur (istek
+# basina degil). Kullanici metni yalniz `:q` ile baglanir.
 _ODEME_CARI_KATLI = katli_sql("COALESCE(CASE WHEN p.entity_type='customer' THEN c.name ELSE s.name END,'')")
 _HAREKET_ACIKLAMA_KATLI = katli_sql("COALESCE(t.description,'')")
+_TEDARIKCI_AD = katli_sql('s.name')
+_TEDARIKCI_YETKILI = katli_sql("COALESCE(s.owner_name,'')")
+_TEDARIKCI_EPOSTA = katli_sql("COALESCE(s.email,'')")
+_TEDARIKCI_ARAMA_MASKELI = f"({_TEDARIKCI_AD} LIKE :q ESCAPE '\\' OR {_TEDARIKCI_YETKILI} LIKE :q ESCAPE '\\')"
+_TEDARIKCI_ARAMA_TAM = f"""({_TEDARIKCI_AD} LIKE :q ESCAPE '\\' OR {_TEDARIKCI_YETKILI} LIKE :q ESCAPE '\\'
+       OR COALESCE(s.phone,'') LIKE :q ESCAPE '\\'
+       OR {_TEDARIKCI_EPOSTA} LIKE :q ESCAPE '\\' OR COALESCE(s.tax_number,'') LIKE :q ESCAPE '\\')"""
 
 
 @router.get('/suppliers')
@@ -146,15 +154,7 @@ def suppliers(request: Request, q: str = '', sort: str = 'name_asc', active: str
     # olcum `customers.musteri_satirlari` docstring'inde. H27: maskesiz dal da
     # `owner_name`de eslesir; maskeli dalin UST KUMESIDIR.
     # H57/H58: katlama + kacis ortak dikisten (`app/arama.py`).
-    ad, yetkili, eposta = (katli_sql('s.name'), katli_sql("COALESCE(s.owner_name,'')"),
-                           katli_sql("COALESCE(s.email,'')"))
-    arama_sql=(
-        f"({ad} LIKE :q ESCAPE '\\' OR {yetkili} LIKE :q ESCAPE '\\')"
-        if maskelenecek_mi(istek_rolu(request)) else
-        f"""({ad} LIKE :q ESCAPE '\\' OR {yetkili} LIKE :q ESCAPE '\\'
-       OR COALESCE(s.phone,'') LIKE :q ESCAPE '\\'
-       OR {eposta} LIKE :q ESCAPE '\\' OR COALESCE(s.tax_number,'') LIKE :q ESCAPE '\\')"""
-    )
+    arama_sql = _TEDARIKCI_ARAMA_MASKELI if maskelenecek_mi(istek_rolu(request)) else _TEDARIKCI_ARAMA_TAM
     rows = db.execute(text(f'''SELECT s.id,s.name,s.owner_name,s.phone,s.email,s.address,s.tax_number,s.opening_balance,
       COALESCE(s.risk_limit,0) risk_limit,COALESCE(s.payment_term_days,0) payment_term_days,CASE WHEN COALESCE(s.is_active, TRUE) THEN 1 ELSE 0 END is_active,
       COALESCE(s.opening_balance,0)+COALESCE(SUM(CASE WHEN COALESCE(pu.status,'completed') NOT IN ('draft','cancelled') THEN pu.final_total ELSE 0 END),0)+
