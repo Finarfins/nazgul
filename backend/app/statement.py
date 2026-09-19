@@ -35,8 +35,24 @@ from decimal import Decimal
 
 from fastapi import HTTPException
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import (
+    Column,
+    Date,
+    DateTime,
+    Integer,
+    MetaData,
+    Numeric,
+    String,
+    Table,
+    Text,
+    cast,
+    func,
+    select,
+    text,
+    true,
+)
 from sqlalchemy.orm import Session
+from sqlalchemy.types import NullType
 
 from .alan_maskeleme import maskele_cari
 from .business_time import business_today
@@ -211,7 +227,7 @@ def _totals(
     debit = (
         money(debit)
         + _makbuz_borcu(db, cid, entity_type, entity_id, params, date_from, date_to, inclusive_to)
-        + _cek_dekont_borcu(db, cid, entity_type, entity_id, params, date_from, date_to, inclusive_to)
+        + _cek_dekont_borcu(db, cid, entity_type, entity_id, date_from, date_to, inclusive_to)
     )
     credit = db.execute(
         text(
@@ -292,33 +308,60 @@ DEKONT_KOSULU = (
 )
 
 
+#: Borç belgesi tablosunun Core SORGU yüzeyi (H47). TABLONUN TEK DOĞUM YERİ
+#: GÖÇTÜR (0028, 0086'da `cek_senet_id`); bu MetaData ``create_all`` EDİLMEZ
+#: ve kısıtlar buraya KOPYALANMAZ (`cek_senet_schema.py` ile aynı desen).
+#: Yalnız `_cek_dekont_borcu`nun okuduğu sütunlar; tipleri göçle AYNI.
+#: Python adı tablo adıyla AYNIDIR: kiracı kapsam kapısı ve Core sorgu
+#: envanteri tabloyu ADIYLA tanır.
+receivable_charge_documents = Table(
+    "receivable_charge_documents",
+    MetaData(),
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("company_id", Integer, nullable=False),
+    Column("customer_id", Integer, nullable=False),
+    Column("charge_type", String(30), nullable=False),
+    Column("period_end", Date, nullable=False),
+    Column("gross_amount", Numeric(18, 2), nullable=False),
+    Column("status", String(20), nullable=False),
+    Column("posted_at", DateTime(timezone=True)),
+)
+
+
 def _cek_dekont_borcu(
     db: Session,
     cid: int,
     entity_type: str,
     entity_id: int,
-    params: dict[str, object],
     date_from: str | None,
     date_to: str | None,
     inclusive_to: bool,
 ) -> Decimal:
-    """Karşılıksız/iade çek borç belgelerinin toplamı (yalnız müşteri)."""
+    """Karşılıksız/iade çek borç belgelerinin toplamı (yalnız müşteri).
+
+    Core (H47): yüklem `DEKONT_KOSULU`nun, gün ifadesi `DEKONT_GUNU`nun
+    birebir karşılığıdır; satır sorgusunun UNION kolu o metin sabitlerini
+    kullanmaya devam eder. Toplamın tipi ``NullType``: sürücünün ham değeri
+    `money()`ye text() ile AYNI yoldan gider (SQLite'ta `Numeric` sonuç
+    işlemcisi ``'%.2f'`` biçimiyle yuvarlardı, `money()` ise HALF_UP).
+    """
     if entity_type != "customer":
         return ZERO_MONEY
-    pencere = ""
-    if date_from is not None:
-        pencere += f" AND {DEKONT_GUNU}>=:date_from"
-    if date_to is not None:
-        operator = "<=" if inclusive_to else "<"
-        pencere += f" AND {DEKONT_GUNU}{operator}:date_to"
+    gun = func.substr(cast(receivable_charge_documents.c.period_end, Text), 1, 10)
     toplam = db.execute(
-        text(
-            f"""SELECT COALESCE(SUM(d.gross_amount),0) total
-            FROM receivable_charge_documents d
-            WHERE {DEKONT_KOSULU}
-              {pencere}"""
-        ),
-        params,
+        select(
+            func.coalesce(func.sum(receivable_charge_documents.c.gross_amount), 0, type_=NullType())
+        )
+        .select_from(receivable_charge_documents)
+        .where(
+            receivable_charge_documents.c.company_id == cid,
+            receivable_charge_documents.c.customer_id == entity_id,
+            receivable_charge_documents.c.charge_type == "bounced_check",
+            receivable_charge_documents.c.status.in_(("posted", "reversed")),
+            receivable_charge_documents.c.posted_at.is_not(None),
+            gun >= date_from if date_from is not None else true(),
+            (gun <= date_to if inclusive_to else gun < date_to) if date_to is not None else true(),
+        )
     ).scalar()
     return money(toplam or 0)
 

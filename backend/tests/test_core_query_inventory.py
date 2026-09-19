@@ -1199,6 +1199,12 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "975e57efba2a91dd8ba68c7e652bbbb9de230daaf77cc24c766859b1bda20479"): (1, "despatch_responses", "arg0"),  # satır [1262]
     ("app/routers/despatch_notes.py", "irsaliye_yaniti", "select",
      "f3d6c280c6691faccc5465ac9c183d5b44af807f1561d7c2d87627b980e6ecf6"): (1, "despatch_response_lines", "arg0"),  # satır [1300]
+    # --- H47 (GOC YOK): CS2'nin `_cek_dekont_borcu` text() toplami Core'a
+    # cevrildi. Yuklem `receivable_charge_documents.c.company_id == cid`
+    # ACIKTIR; hedef ACIK `.select_from()` ile cozulur (sezgisel sole-table
+    # yolu tek dosyaya sinirli ve genisletilmedi).
+    ("app/statement.py", "_cek_dekont_borcu", "select",
+     "225391ebacd46113c013cd37050da6a9ae82ff7ec90ef5338135068dbd9bc62e"): (1, "receivable_charge_documents", "select_from"),  # satır [352]
 }
 
 # 20260910 5.1c KIRACI GERI YUKLEME (GOC YOK): 176 -> 184, +6 select +2 update,
@@ -1252,8 +1258,11 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # +5 select +1 update, altisi de app/routers/despatch_notes.py; HEPSI ekleme.
 # `UNRESOLVED_ALLOWLIST` ve `desteksiz` BUYUMEDI. (INSERT'ler bu envanterde
 # sayilmaz; kiraci kapisi `test_core_tenant_scoping_guard` onlari sayar.)
-TOTAL_CORE_QUERIES = 233
-EXPECTED_OP_COUNTS = {"select": 158, "update": 63, "delete": 12}
+# H47 (GOC YOK): 233 -> 234, +1 select, `app/statement._cek_dekont_borcu`
+# (CS2'nin text() toplami Core'a cevrildi; TABAN develop `bf8e73f`).
+# `UNRESOLVED_ALLOWLIST` ve `desteksiz` BUYUMEDI (hedef `.select_from()` ile cozuldu).
+TOTAL_CORE_QUERIES = 234
+EXPECTED_OP_COUNTS = {"select": 159, "update": 63, "delete": 12}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1351,7 +1360,9 @@ EXPECTED_OP_COUNTS = {"select": 158, "update": 63, "delete": 12}
 # E4b-2 (e-IRSALIYE YANITI, goc 20260915_0089): 227 -> 233, altisi
 # app/routers/despatch_notes.py; TABAN develop `2dd542b`. Tarayicinin
 # ciktisindan alindi. 2c4c3e4d -> 494f7b8b.
-INVENTORY_FINGERPRINT = "494f7b8b7bd3b9b8d9899fe141fd04f65f35072965a868f2a401d6448463dd12"
+# H47 (GOC YOK): 233 -> 234, TABAN develop `bf8e73f`; tarayicinin ciktisindan.
+# 494f7b8b -> 31ca10d5.
+INVENTORY_FINGERPRINT = "31ca10d5dd1de511aa223785b40ef1b0c7f74752c40176f04ac82b53e2f602b2"
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:
