@@ -144,13 +144,20 @@ def cek_ekle(
 
 def odemenin_evraki(db: Session, cid: int, payment_id: int) -> int | None:
     """Ödemeye bağlı evrakın kimliği (yoksa ``None``)."""
+    satir = odemenin_evrak_satiri(db, cid, payment_id)
+    return int(satir["id"]) if satir else None
+
+
+def odemenin_evrak_satiri(db: Session, cid: int, payment_id: int) -> dict[str, Any] | None:
+    """Ödemeye bağlı evrakın satırı (yoksa ``None``); H46'da PUT evrak
+    alanlarını bununla karşılaştırır."""
     satir = db.execute(
-        select(cek_senetler.c.id)
+        select(cek_senetler)
         .where(cek_senetler.c.company_id == cid, cek_senetler.c.payment_id == payment_id)
         .order_by(cek_senetler.c.id)
         .limit(1)
-    ).first()
-    return int(satir[0]) if satir else None
+    ).mappings().first()
+    return dict(satir) if satir else None
 
 
 def ciro_anahtari_acik(db: Session, cid: int) -> bool:

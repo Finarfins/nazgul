@@ -25,7 +25,7 @@ from ..payment_allocation_engine import (
 )
 from ..movement_references import validate_payment_reference
 from ..activity_log import diff_details, format_money_tr, log_request_activity
-from ..cek_senet_cari import CEK_YONTEMLERI, YONTEM_TUR, cek_ekle, odemenin_evraki
+from ..cek_senet_cari import CEK_YONTEMLERI, YONTEM_TUR, cek_ekle, odemenin_evrak_satiri, odemenin_evraki
 
 router = APIRouter(tags=['finance'])
 logger = logging.getLogger(__name__)
@@ -349,6 +349,92 @@ def _cek_bagli_odeme_kilidi(db: Session, cid: int, payment_id: int) -> None:
         )
 
 
+#: H46 — çek/senet ödemesinde PUT'un değiştiremeyeceği ödeme alanları: evrak
+#: bunlara dayanır (tutar, cari, tarih) ya da tahsis/finans bunlarla yürür.
+CEK_KILITLI_ALANLAR = (
+    'entity_type', 'entity_id', 'amount', 'payment_date',
+    'account_id', 'reference_type', 'reference_id',
+)
+
+
+def _kilitli_deger(alan: str, deger):
+    if deger is None:
+        return None
+    if alan == 'amount':
+        return money(deger)
+    if alan == 'payment_date':
+        return str(deger)[:10]
+    return deger
+
+
+def _cek_odemesi_kilidi(db: Session, cid: int, existing, payload: PaymentCreate, cek) -> bool:
+    """H46: ``PUT``in çek/senet kapısı; ``True`` = yalnız not yazılacak.
+
+    Yöntem çek/senede GİREMEZ ve ondan ÇIKAMAZ (409): girişte evrak doğmaz
+    (yetim çek ödemesi), çıkışta evrak sahipsiz kalır; yol sil + yeniden
+    yaz'dır. Çek/senet ödemesinde yalnız ``note`` değişir; ödeme alanı ya da
+    gönderilen ``cek_senet`` bağlı evraktan farklıysa 422. ``cek`` POST'un
+    kapısından (``_cek_bilgisi``) geçmiş evrak gövdesidir.
+    """
+    eski = existing['payment_method']
+    if eski != payload.payment_method and CEK_YONTEMLERI & {eski, payload.payment_method}:
+        raise HTTPException(
+            409,
+            {'code': 'CEK_YONTEM_DEGISTIRILEMEZ',
+             'message': 'Çek/senet yöntemine geçilemez ve bu yöntemden çıkılamaz; '
+                        'ödemeyi silip yeniden girin'},
+        )
+    if eski not in CEK_YONTEMLERI:
+        return False
+    yeni = payload.model_dump(exclude={'cek_senet'})
+    degisen = [
+        alan for alan in CEK_KILITLI_ALANLAR
+        if _kilitli_deger(alan, existing[alan]) != _kilitli_deger(alan, yeni[alan])
+    ]
+    if cek is not None:
+        evrak = odemenin_evrak_satiri(db, cid, int(existing['id']))
+        if evrak is None:
+            degisen.append('cek_senet')
+        else:
+            degisen += [
+                f'cek_senet.{alan}' for alan, deger in cek.model_dump().items()
+                if str(deger) != str(evrak[alan])
+            ]
+    if degisen:
+        raise HTTPException(
+            422,
+            {'code': 'CEK_ALANI_DEGISTIRILEMEZ',
+             'message': 'Çek/senet ödemesinde yalnız not düzenlenebilir; değişen alan: '
+                        + ', '.join(degisen)},
+        )
+    return True
+
+
+def _cek_odemesi_notu(db: Session, request: Request, cid: int, payment_id: int, existing, payload: PaymentCreate) -> dict:
+    """Çek/senet ödemesinin tek yazılabilir alanı. Tahsis, finans ve evrak
+    dokunulmaz: çek yönteminin finans satırı yoktur, not tahsisi değiştirmez
+    (bu yüzden motorun "tahsis edilmiş ödeme" kilidi burada aranmaz)."""
+    try:
+        db.execute(
+            text('UPDATE payments SET note=:note WHERE id=:id AND company_id=:cid'),
+            {'note': payload.note, 'id': payment_id, 'cid': cid},
+        )
+        after = db.execute(text('SELECT * FROM payments WHERE id=:id AND company_id=:cid'), {'id': payment_id, 'cid': cid}).mappings().one()
+        record_change(db,request,company_id=cid,entity_type='payment',entity_id=payment_id,action='update',before=dict(existing),after=dict(after))
+        log_request_activity(
+            db, request, cid, 'payment.update', 'payment', payment_id,
+            _payment_summary(
+                db, cid, 'güncelledi', payment_id,
+                str(existing['entity_type']), existing['entity_id'], existing['amount'],
+            ),
+            {'changes': diff_details(dict(existing), dict(after), PAYMENT_AUDIT_FIELDS)},
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback(); logger.exception('Unexpected check payment note update failure', extra={'payment_id': payment_id}); raise HTTPException(500,'Ödeme güncellenemedi. Lütfen tekrar deneyin.') from exc
+    return {'id': payment_id}
+
+
 @router.post('/payments', status_code=201)
 def add(payload: PaymentCreate, request: Request, db: Session = Depends(get_db)):
     return odeme_kaydet(payload, request, db)
@@ -463,15 +549,18 @@ def odeme_kaydet(
 def update_payment(payment_id:int,payload:PaymentCreate,request:Request,db:Session=Depends(get_db)):
     cid=company_id(request)
     _validate_payment(payload)
-    if payload.cek_senet is not None:
-        raise HTTPException(422,'cek_senet yalnız yeni ödemede gönderilebilir')
+    cek = _cek_bilgisi(payload, cek_zorunlu=False)
     _ensure_entity(db,cid,payload.entity_type,payload.entity_id)
     validate_payment_account(db, cid, payload.payment_method, payload.account_id)
     existing=db.execute(text('SELECT * FROM payments WHERE id=:id AND company_id=:cid'),{'id':payment_id,'cid':cid}).mappings().first()
     if not existing: raise HTTPException(404,'Hareket bulunamadı')
-    _cek_bagli_odeme_kilidi(db, cid, payment_id)
     if existing['reference_type'] is not None:
         raise HTTPException(409,'Belgeye bağlı otomatik hareket belge üzerinden düzenlenmelidir.')
+    if _cek_odemesi_kilidi(db, cid, existing, payload, cek):
+        return _cek_odemesi_notu(db, request, cid, payment_id, existing, payload)
+    # Çek/senet dışı ödemenin bağlı evrakı olamaz (köprü yalnız o yöntemlerde
+    # yazar); kilit, bu değişmezin bozulduğu satıra karşı savunmadır.
+    _cek_bagli_odeme_kilidi(db, cid, payment_id)
     values=payload.model_dump(exclude={'cek_senet'});values.update({'id':payment_id,'cid':cid})
     if settings.payment_allocation_engine_enabled:
         try:

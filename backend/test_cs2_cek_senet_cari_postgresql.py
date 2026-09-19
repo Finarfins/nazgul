@@ -315,6 +315,19 @@ def test_UC_KATMANI_PG_smoke(motor, iki_firma) -> None:
                 "payment_date": bugun.isoformat(), "payment_method": "check",
                 "cek_senet": {"vade": (bugun + timedelta(days=5)).isoformat(), "seri_no": KOSU + "-API2"}})
             assert ikinci.status_code == 201, ikinci.text
+            # H46: PUT'un çek kilidi PG'de (NUMERIC tutar, DATE vade, metin tarih).
+            duz = {"entity_type": "customer", "entity_id": a["mus"], "amount": "100",
+                   "payment_date": bugun.isoformat(), "payment_method": "check", "note": "H46 notu",
+                   "cek_senet": {"vade": (bugun + timedelta(days=5)).isoformat(), "seri_no": KOSU + "-API2"}}
+            odeme_yolu = f"/api/payments/{ikinci.json()['id']}"
+            assert client.put(odeme_yolu, headers=h, json=duz).status_code == 200
+            with motor.connect() as c:
+                assert c.execute(text("SELECT note FROM payments WHERE id=:i"),
+                                 {"i": ikinci.json()["id"]}).scalar_one() == "H46 notu"
+            alan = client.put(odeme_yolu, headers=h, json={**duz, "amount": "100.01"})
+            assert alan.status_code == 422 and alan.json()["detail"]["code"] == "CEK_ALANI_DEGISTIRILEMEZ", alan.text
+            yontem = client.put(odeme_yolu, headers=h, json={**duz, "payment_method": "cash", "cek_senet": None})
+            assert yontem.status_code == 409 and yontem.json()["detail"]["code"] == "CEK_YONTEM_DEGISTIRILEMEZ", yontem.text
             yol2 = f"/api/cek-senetler/{ikinci.json()['cek_senet_id']}/durum-degistir"
             assert client.post(yol2, headers=h, json={"hedef": "tahsile_verildi"}).status_code == 200
             tahsil = client.post(yol2, headers=h, json={"hedef": "tahsil_edildi", "tahsil_hesap_id": a["hes"],
