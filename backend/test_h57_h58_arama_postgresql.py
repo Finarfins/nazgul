@@ -11,11 +11,20 @@ KUSUR (#139 merceği ölçtü, `bf8e73f` üzerinde):
   SQLite'tan FARKLI davranır — ``A\\B`` kalıbı ``AB``yi de eşliyordu. Bu
   yüzden ters bölü iddiasının ASIL kanıtı bu dosyadır.
 
+DÜZELTME TURU (mercek NO-GO, `0580dcc`): sorgu Python ``.upper()``, kolon
+SQL ``UPPER()`` ile büyütülüyordu; C harmanlı PG'de ``UPPER`` yalnız A-Z
+büyütür ve "Kâzım", "hâlâ", "Café" tabanda bulunup HEAD'de BOŞ döndü. Artık
+katlama yalnız ``ARAMA_ESLESME`` tablosunun ``REPLACE`` zinciridir.
+
 Ölçülen:
-1. ``katli_sql`` PG'de ``tr_katla`` ile harfi harfine aynı sonucu verir.
+1. ``katli_sql`` PG'de ``arama_katla`` ile harfi harfine aynı sonucu verir —
+   veritabanının öntanımlı harmanlamasında, ``"C"``de ve kurulu her ICU
+   harmanlamasında (``und-x-icu``, ``tr-TR-x-icu``).
 2. Beş uçta dört "Yılmaz" yazımı da bulur; ``%`` 0 satır; ``_`` ve ``\\``
    harfi harfine; B firmasının aynı sahipli carisi görünmez.
 3. Maskeli rol (``depo``) aynı katlamayla arar.
+4. Aksanlı adların ("Kâzım Hâlâ Tarım", "Café Deniz", "Émile") her yazımı
+   bulur; her adın her birebir alt dizgisi adı hâlâ bulur (gerilemezlik).
 
 TEMİZLİK: KENDİ firmalarını önekle bulur ve yalnız onların satırlarını siler;
 tablo SÜPÜRMEZ. API girişi ``activity_logs``a iz bırakır ve o tablo yalnız-
@@ -45,7 +54,23 @@ ONEK = f"H57-{KOSU}"
 PAROLA = "H57Arama!2026xyz"
 
 YILMAZ = "Yılmaz Tarım"
-ADLAR = (YILMAZ, "Kaya Ltd", "OEM_123 Parça", "OEMX123 Parça", "A\\B Gıda", "AB Gıda")
+KAZIM = "Kâzım Hâlâ Tarım"
+CAFE = "Café Deniz"
+EMILE = "Émile"
+ADLAR = (YILMAZ, "Kaya Ltd", "OEM_123 Parça", "OEMX123 Parça", "A\\B Gıda", "AB Gıda",
+         KAZIM, CAFE, EMILE)
+AKSAN_YAZIMLARI = {
+    KAZIM: ("Kâzım", "kâzım", "KÂZIM", "Kazım", "kazim", "KAZIM", "hâlâ", "HÂLÂ", "Hâlâ",
+            "hala", "HALA", "kâzım hâlâ"),
+    CAFE: ("Café", "café", "CAFÉ", "cafe", "CAFE", "Cafe Deniz", "CAFÉ DENİZ"),
+    EMILE: ("Émile", "émile", "ÉMILE", "emile", "EMILE", "Emile"),
+}
+AKSAN_CIFTLERI = tuple((ad, q) for ad, yazimlar in AKSAN_YAZIMLARI.items() for q in yazimlar)
+#: Küçük harfli barkod: PG'de LIKE büyük/küçük harfe duyarlıdır; `q` katlanmış
+#: (BÜYÜK) bağlandığı için katlanmamış bir barkod kolonu bu ürünü kaybederdi.
+BARKOD_URUN = "Barkod Ürün"
+BARKOD = "brk-abc9"
+TABLO_DISI = ("Straße", "Москва Ltd", "Ωmega", "Æsir", "œuvre")
 B_ADI = "Yılmaz B Firması"
 YILMAZ_YAZIMLARI = ("yılmaz", "YILMAZ", "Yilmaz", "yilmaz", "YİLMAZ")
 UCLAR = ("/api/customers", "/api/suppliers", "/api/payments", "/api/finance/transactions", "/api/search")
@@ -53,7 +78,7 @@ CARI_UCLARI = ("/api/customers", "/api/suppliers", "/api/search")
 
 #: Firma satırlarını silme SIRASI (çocuk -> ebeveyn). Bir tablo yoksa atlanır.
 _SILME_SIRASI = (
-    "payment_allocations", "finance_transactions", "payments", "finance_accounts",
+    "payment_allocations", "finance_transactions", "payments", "finance_accounts", "products",
     "entity_change_logs", "customers", "suppliers", "user_company_memberships",
 )
 
@@ -154,6 +179,9 @@ def firmalar(motor):
             c.execute(text(
                 f"INSERT INTO {tablo}(company_id,name,owner_name,opening_balance,is_active)"
                 " VALUES(:c,:n,'Mehmet Yılmaz',0,true)"), {"c": b, "n": B_ADI})
+        c.execute(text(
+            "INSERT INTO products(company_id,name,unit,sale_price,active,barcode)"
+            " VALUES(:c,:n,'Adet',1,true,:b)"), {"c": a, "n": BARKOD_URUN, "b": BARKOD})
     return {"a": a, "b": b, "admin": yonetici, "depo": depo}
 
 
@@ -214,15 +242,41 @@ def _adlar(istemci, basliklar, uc: str, q: str) -> set[str]:
     return {x[alan] for x in govde}
 
 
+#: Denenecek harmanlamalar. `None` = veritabanının öntanımlısı; kurulu
+#: OLMAYAN ICU harmanlaması sessizce düşer ama "C" ZORUNLUDUR (atlama yok).
+_HARMANLAMALAR = (None, "C", "POSIX", "und-x-icu", "tr-TR-x-icu")
+
+
 @pytest.mark.parametrize("deger", [
     YILMAZ, "Mehmet Yılmaz", "İSMAİL IŞIK", "şğüöç ŞĞÜÖÇ", "istanbul", "A\\B Gıda", "OEM_123",
+    KAZIM, CAFE, EMILE, "HÂLÂ ÿØøÑñ", *TABLO_DISI,
 ])
-def test_katli_sql_PGde_tr_katla_ile_AYNI(motor, deger) -> None:
-    from app.arama import katli_sql, tr_katla
+def test_katli_sql_PGde_her_harmanlamada_arama_katla_ile_AYNI(motor, deger) -> None:
+    from app.arama import arama_katla, katli_sql
 
     with motor.connect() as c:
-        sonuc = c.execute(text(f"SELECT {katli_sql('CAST(:v AS TEXT)')}"), {"v": deger}).scalar_one()
-    assert sonuc == tr_katla(deger)
+        kurulu = {r[0] for r in c.execute(text("SELECT collname FROM pg_collation"))}
+        assert "C" in kurulu
+        denenen = [h for h in _HARMANLAMALAR if h is None or h in kurulu]
+        for harman in denenen:
+            kolon = "CAST(:v AS TEXT)" if harman is None else f'(CAST(:v AS TEXT) COLLATE "{harman}")'
+            sonuc = c.execute(text(f"SELECT {katli_sql(kolon)}"), {"v": deger}).scalar_one()
+            assert sonuc == arama_katla(deger), (harman, deger)
+
+
+def test_birebir_alt_dizgi_her_zaman_bulunur_PG(motor) -> None:
+    """Gerilemezlik (katlama düzeyi, PG): her adın HER birebir alt dizgisi eşleşir."""
+    from app.arama import arama_deseni, katli_sql
+
+    ifade = text(f"SELECT {katli_sql('CAST(:ad AS TEXT)')} LIKE :q ESCAPE '\\'")
+    kacan = []
+    with motor.connect() as c:
+        for ad in (*ADLAR, B_ADI, *TABLO_DISI):
+            alt_dizgiler = {ad[i:j] for i in range(len(ad)) for j in range(i + 1, len(ad) + 1)}
+            for alt in sorted(a for a in alt_dizgiler if a.strip()):
+                if not c.execute(ifade, {"ad": ad, "q": arama_deseni(alt)}).scalar_one():
+                    kacan.append((ad, alt))
+    assert kacan == []
 
 
 @pytest.mark.parametrize("uc", UCLAR)
@@ -235,6 +289,29 @@ def test_tohum_her_ucta_gorunur(istemci, admin, uc) -> None:
 @pytest.mark.parametrize("q", YILMAZ_YAZIMLARI)
 def test_H57_turkce_yazimlarin_hepsi_bulur(istemci, admin, uc, q) -> None:
     assert _adlar(istemci, admin, uc, q) == {YILMAZ}
+
+
+@pytest.mark.parametrize("uc", UCLAR)
+@pytest.mark.parametrize(("ad", "q"), AKSAN_CIFTLERI)
+def test_aksanli_yazimlarin_hepsi_bulur(istemci, admin, uc, ad, q) -> None:
+    """0580dcc'de "Kâzım"/"hâlâ"/"Café"/"Émile" BOŞ dönüyordu (tabanda bulunuyordu)."""
+    assert _adlar(istemci, admin, uc, q) == {ad}
+
+
+@pytest.mark.parametrize("uc", UCLAR)
+def test_tabanda_bulunan_her_ad_hala_bulunur(istemci, admin, uc) -> None:
+    """Gerilemezlik (istek düzeyi): her 3 harflik pencere ve her kelime adı getirir."""
+    for ad in ADLAR:
+        kaliplar = {ad[i:i + 3] for i in range(len(ad) - 2)} | set(ad.split())
+        for q in sorted(k for k in kaliplar if k.strip()):
+            assert ad in _adlar(istemci, admin, uc, q), (uc, ad, q)
+
+
+@pytest.mark.parametrize("q", (BARKOD, BARKOD.upper(), "abc9", "Brk-Abc"))
+def test_kucuk_harfli_barkod_katlanmis_q_ile_bulunur(istemci, admin, q) -> None:
+    yanit = istemci.get("/api/search", headers=admin, params={"q": q})
+    assert yanit.status_code == 200, yanit.text
+    assert {x["title"] for x in yanit.json()["items"] if x["type"] == "product"} == {BARKOD_URUN}
 
 
 @pytest.mark.parametrize("uc", UCLAR)
