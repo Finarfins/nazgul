@@ -1240,6 +1240,10 @@ export interface paths {
          *     `DYNAMIC_SQL_FILE_ALLOWLIST`e HİÇ girmiyor — girmeyen bir dosyanın
          *     parmak izi de kaymaz.
          *     Sınırlar uçta (`INT4_UST`), çünkü `::INTEGER` dönüşümü aralık taşmasını 500 yapar.
+         *
+         *     Her öğe `lines_count` taşır (H68): irsaliyenin sevk satırı sayısı. Satırların
+         *     kendisi detaydadır; liste yalnız sayıyı verir, ekranın irsaliye başına detay
+         *     isteği atmasına gerek kalmaz.
          */
         get: operations["irsaliye_listesi_api_despatch_notes_get"];
         put?: never;
