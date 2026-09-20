@@ -612,7 +612,15 @@ def test_HIZ_SINIRI_KOD_ARAMASINDAN_ONCE_KOSUYOR() -> None:
     # Sınır GERÇEKTEN karşılaştırılıyor ve karşılaştırma şemadaki sabitten
     # geliyor (elle yazılmış bir 5 DEĞİL).
     govde = ast.get_source_segment(kaynak, fn) or ""
-    assert "deneme > schema.PAIRING_PENCERE_SINIRI" in govde
+    # F10-1b: yerel degisken `deneme` -> `sayi` oldu cunku `deneme` artik
+    # PARAMETRE adidir (dagitici sayaci BIR KEZ artirip degeri hem
+    # `eslestirme.kod_kullan`a hem `taraf.kod_kullan`a geciriyor; tek gelen
+    # `BAGLA` mesaji sayaci IKI yakmasin diye). KAPININ GUCU AYNI: olculen
+    # sey kiyasin SEMADAKI SABITTEN gelmesidir (elle yazilmis bir 5 DEGIL),
+    # degiskenin adi degil.
+    assert "sayi > schema.PAIRING_PENCERE_SINIRI" in govde
+    # Sayac ya CAGIRANDAN gelir ya BURADA artirilir — ucuncu bir yol YOK.
+    assert "deneme_say(db, normal, simdi=an) if deneme is None else deneme" in govde
     from app.whatsapp.schema import PAIRING_PENCERE_DAKIKA, PAIRING_PENCERE_SINIRI
 
     assert PAIRING_PENCERE_SINIRI == 5
