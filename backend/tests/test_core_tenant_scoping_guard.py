@@ -2175,6 +2175,11 @@ BEKLENEN_KIRACI_TABLOLARI = frozenset({
     # yani `TENANT_TABLES`a girer ve bu kapiya GORUNUR. `whatsapp_inbound`
     # ve `whatsapp_pairing_attempts` (WA1) burada YOK ve olmamalari dogru:
     # ikisi de PLATFORM tablosudur, `company_id` sutunu tasimazlar.
+    # F10-1b'nin `whatsapp_message_attempts`i (goc 20260920_0091) AYNI
+    # SINIFTA ve AYNI gerekceyle burada YOK — ustelik bir adim daha
+    # guclusuyle: sinirin KORUDUGU sey bir firmanin verisi degil, BOT
+    # NUMARASININ mesaj butcesidir. `company_id` tasisaydi iki alim
+    # merkezine birden bagli bir ciftci sinirini IKIYE KATLARDI.
     "whatsapp_context",
     "whatsapp_links",
     "whatsapp_pairing_codes",

@@ -166,6 +166,11 @@ TENANT_TABLES = frozenset({
     # olarak baglidir, yani bir kiracinin kodu BASKA kiracinin baglantisini
     # tuketmis gorunemez.
     #
+    # F10-1b'nin `whatsapp_message_attempts`i (goc 20260920_0091) de bu
+    # listede DEGIL ve gerekcesi WA1'inkinin AYNISI, bir adim daha
+    # guclusuyle: sayilan sey bir NUMARADIR ve sinirin korudugu sey bot
+    # numarasinin MESAJ BUTCESIDIR, bir firmanin verisi degil.
+    #
     # WA1'in IKI tablosu (`whatsapp_inbound`, `whatsapp_pairing_attempts`)
     # bu listede DEGIL ve bu bir tutarsizlik DEGIL: webhook'a gelen mesaj
     # henuz hicbir firmaya ait degildir, bu uc tablo ise tam olarak "bu
