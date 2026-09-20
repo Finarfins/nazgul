@@ -1,0 +1,623 @@
+"""Çiftçi yürütücüsü: rıza kapısı, hız sınırı ve İKİ okuma aracı (F10-1b).
+
+`yurutucu.py` personelin YEDİ aracını koşturur; bu modül çiftçinin İKİSİNİ
+(`ciftci_ekstre`, `ciftci_avans`) koşturur ve onların ÖNÜNDEKİ iki kapıyı
+kurar. Tasarımın tamamı
+`docs/f10-1-ciftci-selfservice-kesif-2026-09-17.md` §4a, §4b, §5.2, §5.3 ve
+§5.4'tedir.
+
+--- İKİ BEYAZ LİSTE ASLA BİRLEŞMEZ ---------------------------------------
+
+`niyet.ARAC_BEYAZ_LISTESI` (yedi personel aracı) bu PR'da DEĞİŞMEDİ ve
+`CIFTCI_BEYAZ_LISTESI` onunla HİÇ KESİŞMEZ. Kapı `KeyError`dır ve
+`yurutucu.VeritabaniYurutucu.kos`un kapısıyla AYNI biçimdedir — ama AYRI
+bir frozenset'e bakar. Tek bir liste olsaydı "hangi listeye bakılacağı"
+çağrı bağlamına bağlı kalırdı ve yanlış listeyle çağıran bir mutasyon
+hiçbir davranış testini kırmazdı.
+
+`niyet.tahsilat_coz` bu dosyada ÇAĞRILMAZ ve içe AKTARILMAZ: çiftçi
+yolunda YAZMA niyeti YOKTUR, yani `whatsapp_pending_actions`e çiftçiden
+HİÇBİR satır düşemez (keşif §5.1).
+
+--- KİRACI SINIRI: ÜÇLÜ ARGÜMANDIR, MESAJDAN GELMEZ ----------------------
+
+Her sorgu `TarafKimlik`in `(company_id, party_type, party_id)` üçlüsüyle
+koşar. `yurutucu.py`nin cümlesi burada BİR ADIM DAHA SIKIDIR: orada
+mesajdan gelen bir firma iddiası "kabul edilmiyor"du; burada mesajdan
+gelen bir CARİ iddiası da kabul edilmiyor — `niyet._terim_cikar` bu
+dalda hiç çağrılmıyor (`ciftci_niyet` başlığı).
+
+MUTASYON ADIYLA: `company_id` yüklemini düşürmek komşu firmanın AYNI ADI
+taşıyan çiftçisinin bakiyesini döndürür. Kapı
+`test_KIRACI_YALITIMI_ayni_ad_komsu_firmada_CIFTCI`.
+
+--- RIZA KAPISI: KARAR HER MESAJDA YENİDEN OKUNUR ------------------------
+
+`consents.py`nin ikinci sözleşmesi ("anlık görüntü karar verici değildir")
+burada AYNEN uygulanır: `whatsapp_party_links.consent_at` bir İZDİR,
+KARAR DEĞİLDİR. Her ERP okumasından ÖNCE `evaluate_consent` çağrılır ve
+`NO_RECORD`/`REVOKED`/`RECIPIENT_CHANGED`/`RECIPIENT_INVALID`in dördü de
+FAIL-CLOSED'dur — veri DÖNMEZ.
+
+RIZAYI ÇİFTÇİNİN İLK MESAJI VERİR, EŞLEŞTİRME DEĞİL (Şef kararı,
+`taraf.kod_kullan` başlığı). `BAĞLA <KOD>` başarılı olduğunda bağlantı
+açılır ama rıza satırı AÇILMAZ; çiftçinin ilk sorusu KVKK metnini ve
+`EVET`/`HAYIR` sorusunu alır.
+
+`HAYIR` bir NO-OP DEĞİLDİR, `REVOKED` yazar. Defter bunu destekliyor
+(ölçüldü: `set_consent` kayıt YOKKEN `granted=False` ile çağrıldığında
+`status='REVOKED'`, `version=1` satırını INSERT eder) ve tercih edilme
+gerekçesi davranışsaldır: no-op bırakılsaydı `evaluate_consent` her
+mesajda yine `NO_RECORD` derdi ve çiftçi KVKK sorusunu SONSUZA DEK
+yeniden alırdı — hem rahatsız edici hem Meta maliyeti üzerinden bir
+masraf yüzeyi. `EVET` her zaman `GRANTED` yazabildiği için reddeden
+çiftçi fikrini değiştirebilir.
+
+`EVET` YALNIZ rıza AÇIK DEĞİLKEN yazar. Zaten açıkken gelen "EVET"
+kapsam mesajına düşer; aksi hâlde tekrarlanan tek bir kelime sınırsız
+`version` artışı ve sınırsız olay satırı üretebilirdi.
+
+--- AKTÖR `NULL`, KAYNAK `whatsapp_party` -------------------------------
+
+`log_activity` bir `app_users.id` bekler; çiftçinin böyle bir kimliği
+YOKTUR (keşif §5.5). `activity_logs.user_id` geri yüklemede zaten yumuşak
+referanstır (`kiraci_geri_yukleme.KULLANICI_SUTUNLARI`), `NULL` onu
+bozmaz. Kaynak kimliği `whatsapp_party_links.id`dir.
+
+MESAJ METNİ VE TELEFON ASLA LOGLANMAZ — `routers/whatsapp.py:347-349`un
+kuralı: *"Kod, özet, telefon ve mesaj metni YAZILMAZ."*
+
+--- HIZ SINIRI YALNIZ BU DALDA ------------------------------------------
+
+`mesaj_deneme_say` YALNIZ buradan çağrılır. Personel yolu
+(`service.cevap_uret`) ona HİÇ uğramaz ve bu KAPSAM kararıdır, eksiklik
+değil: keşif §1.5 personel yolunda sınır OLMADIĞINI ölçtü ve §5.3 onu
+çiftçi için ZORUNLU saydı. Personel sınırını değiştirmek bu PR'ın
+kapsamı dışındadır.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from datetime import date, datetime, timezone
+from decimal import Decimal
+from typing import Any
+
+from sqlalchemy import select, text
+from sqlalchemy.orm import Session
+
+from ..activity_log import log_activity
+from ..auth import utcnow
+from ..notifications import consents
+from ..tenancy import companies
+from . import ciftci_niyet, schema, taraf
+from .niyet import para_tr
+from .schema import whatsapp_message_attempts
+from .taraf import TarafKimlik
+from .telefon import normalize_phone
+
+log = logging.getLogger(__name__)
+
+#: Çiftçinin koşturabileceği araçların TAMAMI. `niyet.ARAC_BEYAZ_LISTESI`
+#: ile KESİŞİMİ BOŞTUR ve bu bir kapıyla ölçülüyor
+#: (`test_IKI_BEYAZ_LISTE_KESISMIYOR`).
+CIFTCI_BEYAZ_LISTESI: frozenset[str] = frozenset({"ciftci_ekstre", "ciftci_avans"})
+
+#: WhatsApp kanalının rıza defterindeki adı. `consents.CONSENT_REQUIRED_CHANNELS`
+#: üyesidir (ölçüldü, `notifications/schema.py:72`).
+KANAL = "WHATSAPP"
+
+
+# ---------------------------------------------------------------------------
+# HIZ SINIRI — `eslestirme.deneme_say`in deseni, AYRI tablo
+# ---------------------------------------------------------------------------
+
+
+def _pencere_basi(an: datetime) -> datetime:
+    """Sabit pencereye yuvarlar.
+
+    `eslestirme._pencere_basi` ile AYNI gövde ve AYNI gerekçe (kayan
+    pencere gerekmiyor); AYRI sabitle (`MESAJ_PENCERE_DAKIKA`) koşar.
+    """
+    if an.tzinfo is None:
+        an = an.replace(tzinfo=timezone.utc)
+    dakika = schema.MESAJ_PENCERE_DAKIKA
+    return an.replace(minute=(an.minute // dakika) * dakika, second=0, microsecond=0)
+
+
+def mesaj_deneme_say(
+    db: Session, telefon: str, *, simdi: datetime | None = None
+) -> int:
+    """Çiftçi mesajını ATOMİK olarak sayar ve penceredeki TOPLAMI döner.
+
+    Tek deyimlik UPSERT: iki işçi aynı anda artırsa bile sayaç KAYBOLMAZ
+    (`uq_whatsapp_message_attempts_pencere` çakışma hedefidir). Uygulama
+    belleği KULLANILMAZ — çok konteynerde paylaşılmaz.
+
+    Tablo PLATFORM tablosudur ve bu ZORUNLU (göç `20260920_0091` başlığı):
+    sınırın koruduğu şey bir firmanın verisi değil, BOT NUMARASININ mesaj
+    bütçesidir. Bu yüzden sorgu KİRACI YÜKLEMİ TAŞIMAZ ve taşıyamaz —
+    ölçülen istisna kaydı `tests/test_core_tenant_scoping_guard.py`dedir.
+    """
+    an = simdi or utcnow()
+    pencere = _pencere_basi(an)
+    normal = normalize_phone(telefon)
+
+    lehce = db.bind.dialect.name if db.bind is not None else ""
+    if lehce == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        deyim = pg_insert(whatsapp_message_attempts).values(
+            phone=normal, window_start=pencere, attempt_count=1, updated_at=an
+        )
+        deyim = deyim.on_conflict_do_update(
+            index_elements=["phone", "window_start"],
+            set_={
+                "attempt_count": whatsapp_message_attempts.c.attempt_count + 1,
+                "updated_at": an,
+            },
+        ).returning(whatsapp_message_attempts.c.attempt_count)
+        return int(db.execute(deyim).scalar_one())
+
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+    deyim = sqlite_insert(whatsapp_message_attempts).values(
+        phone=normal, window_start=pencere, attempt_count=1, updated_at=an
+    )
+    deyim = deyim.on_conflict_do_update(
+        index_elements=["phone", "window_start"],
+        set_={
+            "attempt_count": whatsapp_message_attempts.c.attempt_count + 1,
+            "updated_at": an,
+        },
+    ).returning(whatsapp_message_attempts.c.attempt_count)
+    return int(db.execute(deyim).scalar_one())
+
+
+# ---------------------------------------------------------------------------
+# ARAÇLAR — İKİSİ DE OKUMA
+# ---------------------------------------------------------------------------
+
+#: `TarafKimlik.party_type` → `statement.build_statement`in `entity_type`i.
+#: Keşif §3.1 ölçtü: çiftçi İKİ ayrı caridir ve hangi defterin okunacağını
+#: BAĞLANTININ TİPİ söyler, mesaj DEĞİL.
+_EKSTRE_TARAFI: dict[str, str] = {"CUSTOMER": "customer", "SUPPLIER": "supplier"}
+
+
+def ciftci_ekstre(
+    db: Session, kimlik: TarafKimlik, argumanlar: dict[str, Any]
+) -> dict[str, Any]:
+    """Ekstre/bakiye (keşif §4a). `build_statement`i `rol` GEÇİRMEDEN çağırır.
+
+    `rol` ATLANMASI BİR UNUTMA DEĞİL, KARARIN KENDİSİDİR: `build_statement`
+    başlığı *"varsayılanı MASKELİDİR ... yarın eklenen bir çağıran `rol`
+    geçirmeyi unutursa sonuç GİZLİ olur, sızıntı DEĞİL"* diyor. Çiftçi
+    kendi bakiyesini görmeli, firmanın CARİ KARTI görünümünü (VKN, adres,
+    e-posta) değil.
+
+    Bakiye formülü KOPYALANMADI: aynı fonksiyon `routers/customers.py` ve
+    `routers/finance.py` tarafından da çağrılıyor. Kopya bir formül, iki
+    yüzeyin aynı çiftçi için farklı sayı söylediği güne kadar sessiz
+    kalırdı ve o gün hangisinin doğru olduğu BİLİNEMEZDİ.
+
+    İÇE AKTARMA GÖVDEDE: `statement` modülü `fastapi`yi çeker ve
+    `app/whatsapp/__init__.py` *"bu paketi içe aktaran bir test ya da işçi
+    FastAPI uygulamasını yüklemek ZORUNDA OLMAMALI"* diyor —
+    `yurutucu.py`nin kuralı.
+    """
+    from ..statement import build_statement
+
+    entity_type = _EKSTRE_TARAFI[kimlik.party_type]
+    ekstre = build_statement(
+        db,
+        kimlik.company_id,
+        entity_type,
+        kimlik.party_id,
+        argumanlar.get("date_from"),
+        argumanlar.get("date_to"),
+    )
+    # SON HAREKET son SATIRDAN okunur, `date_to`dan DEĞİL: `date_to`
+    # pencerenin sonudur ve hareket olmayan bir ayda kullanıcıya olmamış
+    # bir hareket tarihi söylerdi.
+    son_hareket = ekstre.lines[-1].entry_date if ekstre.lines else ""
+    return {
+        "ad": ekstre.entity.name,
+        "date_to": ekstre.date_to,
+        "borc": Decimal(str(ekstre.total_debit)),
+        "alacak": Decimal(str(ekstre.total_credit)),
+        "net": Decimal(str(ekstre.closing_balance)),
+        "son_hareket": son_hareket,
+    }
+
+
+#: Avans toplamları. `routers/avans.py::list_supplier_advances`in SELECT'i
+#: SATIRLARI veriyor; burada AYNI yüklemle TOPLAMLARI alıyoruz — uç
+#: ÇAĞRILMIYOR (o bir `Request` ve bir yetki yüklemi ister; ikisi de bu
+#: dalda YOK). Eşitlik bir kapıyla ölçülüyor:
+#: `test_AVANS_TOPLAMLARI_UCUN_KENDI_SAYILARIYLA_AYNI`.
+#:
+#: `payment_id` ve `note` SEÇİLMEZ (keşif §4b: `note` personel notu
+#: olabilir). Tarih `payments.payment_date`ten gelir çünkü
+#: `supplier_advances`in kendi tarih sütunu YOKTUR — `applied_at` avansın
+#: ALINDIĞI değil MAHSUP EDİLDİĞİ andır.
+#:
+#: JOIN yüklemi BİLEŞİKTİR (`company_id` + `id`):
+#: `fk_supplier_advances_payment_same_company` kısıtı bunu zaten garanti
+#: ediyor, sorgu onu TEKRAR ediyor ki kiracı sınırı SORGUNUN KENDİSİNDE
+#: yazılı olsun.
+#:
+#: DÜZ SQL, `text()` — ve bu bir tercih değil ölçüm: `supplier_advances`in
+#: bir Core `Table` nesnesi YOKTUR (`core_schema.py`de tanımlı değil) ve
+#: ucun kendisi de `text()` kullanıyor. Bir Core nesnesi uydurmak, şemanın
+#: ikinci bir tanımını açmak olurdu.
+_AVANS_TOPLAM_SQL = text(
+    "SELECT COALESCE(SUM(a.amount),0) AS alinan,"
+    " COALESCE(SUM(a.remaining_amount),0) AS kalan,"
+    " COUNT(a.id) AS adet,"
+    " MAX(p.payment_date) AS son"
+    " FROM supplier_advances a"
+    " JOIN payments p ON p.company_id=a.company_id AND p.id=a.payment_id"
+    " WHERE a.company_id=:cid AND a.supplier_id=:sid"
+)
+
+
+def ciftci_avans(
+    db: Session, kimlik: TarafKimlik, argumanlar: dict[str, Any]
+) -> dict[str, Any]:
+    """Avans durumu (keşif §4b). YALNIZ tedarikçi tarafında veri vardır.
+
+    `CUSTOMER` tarafı avans sorduğunda TARAF TİPİ SIZDIRILMAZ: cevap
+    "kayıt bulunmuyor"dur ve o cevap, kaydı gerçekten olmayan bir
+    TEDARİKÇİNİN alacağı cevapla BİREBİR AYNIDIR. "Siz müşterisiniz,
+    avansınız olamaz" demek, dışarıdaki birine defterin şeklini
+    anlatırdı.
+    """
+    if kimlik.party_type != schema.TARAF_SUPPLIER:
+        return {"adet": 0, "alinan": Decimal("0"), "kalan": Decimal("0"), "son": None}
+
+    satir = db.execute(
+        _AVANS_TOPLAM_SQL, {"cid": kimlik.company_id, "sid": kimlik.party_id}
+    ).mappings().one()
+    return {
+        "adet": int(satir["adet"] or 0),
+        "alinan": Decimal(str(satir["alinan"] or 0)),
+        "kalan": Decimal(str(satir["kalan"] or 0)),
+        "son": satir["son"] or None,
+    }
+
+
+#: Araç adı → gövde. Anahtar kümesi `CIFTCI_BEYAZ_LISTESI` ile BİREBİR
+#: aynı olmak ZORUNDA — `yurutucu.ARAC_GOVDELERI`nin kuralı ve aynı
+#: gerekçe: eksik bir gövde, beyaz listeden geçmiş bir aracın `KeyError`
+#: ile DEAD üretmesi demekti. Kapı `test_IKI_ARACIN_IKISI_DE_YURUTULEBILIYOR`.
+CIFTCI_ARAC_GOVDELERI = {
+    "ciftci_ekstre": ciftci_ekstre,
+    "ciftci_avans": ciftci_avans,
+}
+
+
+class CiftciYurutucu:
+    """Tek örnek TEK `TarafKimlik`e bağlıdır — `VeritabaniYurutucu`nun kuralı.
+
+    `kos` firma ya da cari SEÇMEZ; kurulurken seçilmiştir. Argümanla
+    geçirilebilseydi, argümanı mesajdan dolduran bir kod yolu bir gün
+    yazılabilirdi.
+    """
+
+    def __init__(self, db: Session, kimlik: TarafKimlik) -> None:
+        self._db = db
+        self._kimlik = kimlik
+
+    def kos(self, arac: str, argumanlar: dict[str, Any]) -> dict[str, Any]:
+        if arac not in CIFTCI_BEYAZ_LISTESI:
+            raise KeyError(arac)
+        return CIFTCI_ARAC_GOVDELERI[arac](self._db, self._kimlik, dict(argumanlar))
+
+
+# ---------------------------------------------------------------------------
+# ŞABLONLU CEVAP — dış model YOK, rakamlar Decimal ile biçimlenir
+# ---------------------------------------------------------------------------
+
+
+def _gun_tr(iso: str) -> str:
+    """``"2026-09-17"`` → ``"17.09.2026"``. Ayrıştırılamayan değer OLDUĞU GİBİ döner.
+
+    `date.fromisoformat` KULLANILMAZ: `statement` satırlarının
+    `entry_date`i `COALESCE(...,'')` ile geliyor, yani boş dize OLABİLİR ve
+    bir istisna, cevabın tamamını DEAD'e çevirirdi.
+    """
+    parca = (iso or "").split("-")
+    if len(parca) != 3 or not all(parca):
+        return iso or ""
+    return f"{parca[2][:2]}.{parca[1]}.{parca[0]}"
+
+
+def _ekstre_yaz(veri: dict[str, Any]) -> str:
+    """Keşif §4a'nın BEŞ SATIRLIK şablonu. Başka cari ADI geçmez."""
+    net = veri["net"]
+    yon = "borç" if net > 0 else ("alacak" if net < 0 else "bakiye")
+    satirlar = [
+        f"Sayın {veri['ad']}, {_gun_tr(veri['date_to'])} itibarıyla bakiyeniz:",
+        f"Borç {para_tr(veri['borc'])} TL · Alacak {para_tr(veri['alacak'])} TL",
+        f"NET: {para_tr(abs(net))} TL {yon}",
+    ]
+    if veri["son_hareket"]:
+        satirlar.append(f"Son hareket: {_gun_tr(veri['son_hareket'])}")
+    satirlar.append("Detay için \"EKSTRE EYLÜL\" gibi bir ay yazabilirsiniz.")
+    return "\n".join(satirlar)
+
+
+def _avans_yaz(veri: dict[str, Any]) -> str:
+    """Keşif §4b'nin şablonu. `payment_id` ve `note` HİÇ GEÇMEZ (başlık)."""
+    if not veri["adet"]:
+        return "Bu numara için avans kaydı bulunmuyor."
+    mahsup = veri["alinan"] - veri["kalan"]
+    satirlar = [
+        "Avans durumunuz:",
+        f"Toplam alınan: {para_tr(veri['alinan'])} TL",
+        f"Mahsup edilen: {para_tr(mahsup)} TL",
+        f"KALAN AVANS: {para_tr(veri['kalan'])} TL",
+    ]
+    if veri["son"]:
+        satirlar.append(f"Son avans {_gun_tr(str(veri['son'])[:10])}.")
+    return "\n".join(satirlar)
+
+
+_SABLONLAR = {"ciftci_ekstre": _ekstre_yaz, "ciftci_avans": _avans_yaz}
+
+
+def cevap_yaz(arac: str, veri: dict[str, Any]) -> str:
+    """Araç sonucunu kullanıcı metnine çevirir. Beyaz liste dışı → `KeyError`."""
+    return _SABLONLAR[arac](veri)
+
+
+# ---------------------------------------------------------------------------
+# AKIŞ — dağıtıcının çağırdığı TEK giriş
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class CiftciSonucu:
+    """`_mesaj_isle`in bu daldan aldığı TAM sonuç.
+
+    ``islendi=False`` pencere sınırının (20) ÜSTÜ demektir: mesaja HİÇ
+    dokunulmadı, hiçbir yazma yapılmadı. ``cevapla=False`` ama
+    ``islendi=True`` ise cevap eşiğinin (15) üstündedir: mesaj TAM OLARAK
+    işlendi — `DUR` ısırdı, rıza yazması düştü — ama dış mesaj
+    GÖNDERİLMEZ. Ayrım `PAIRING_CEVAP_SINIRI`nin gerekçesidir.
+    """
+
+    cevap: str
+    cevapla: bool
+    islendi: bool
+
+
+def _firma_adi(db: Session, company_id: int) -> str:
+    """Firma adı — KİRACI YÜKLEMLİ tek satır okuması (`baglam.firma_adlari`)."""
+    ad = db.execute(
+        select(companies.c.name).where(companies.c.id == company_id)
+    ).scalar_one_or_none()
+    return str(ad or "").strip() or f"Firma #{company_id}"
+
+
+def _riza_degerlendir(db: Session, kimlik: TarafKimlik, telefon: str) -> dict[str, Any]:
+    """`evaluate_consent`in TEK çağrı yeri. Alıcı SIKI normalleştiriciden geçer.
+
+    K2 kararı: doğrulama `consents.normalize_msisdn` (sıkı) ile yapılır ve
+    o dönüşüm `evaluate_consent`in KENDİ İÇİNDEDİR — buraya ham numarayı
+    geçmek, defterin kendi kuralını uygulamasına izin vermektir.
+    """
+    return consents.evaluate_consent(
+        db,
+        company_id=kimlik.company_id,
+        party_type=kimlik.party_type,
+        party_id=kimlik.party_id,
+        channel=KANAL,
+        recipient=telefon,
+    )
+
+
+def _riza_yaz(db: Session, kimlik: TarafKimlik, telefon: str, *, verildi: bool) -> None:
+    """Rızayı yazar VE denetim satırını düşürür. Commit ETMEZ.
+
+    Olay satırı + versiyon artışı `set_consent`in İÇİNDE olur (ölçüldü,
+    `consents.py`: `notification_consent_events` append-only); burada
+    YENİDEN yazılmaz.
+    """
+    consents.set_consent(
+        db,
+        company_id=kimlik.company_id,
+        party_type=kimlik.party_type,
+        party_id=kimlik.party_id,
+        channel=KANAL,
+        granted=verildi,
+        source="PHONE",
+        source_ref=None,
+        recipient=telefon,
+        user_id=None,
+    )
+    log_activity(
+        db,
+        kimlik.company_id,
+        None,
+        (
+            "party.whatsapp_consent_granted"
+            if verildi
+            else "party.whatsapp_consent_revoked"
+        ),
+        "whatsapp_party",
+        kimlik.link_id or None,
+        (
+            "WhatsApp cari rızası verildi"
+            if verildi
+            else "WhatsApp cari rızası geri çekildi"
+        ),
+        {"party_type": kimlik.party_type, "party_id": kimlik.party_id},
+    )
+
+
+def _dur_isle(
+    db: Session, adaylar: list[TarafKimlik], telefon: str, an: datetime
+) -> str:
+    """`DUR`/`İPTAL`: rızayı geri çeker VE bağlantıyı kapatır. İKİSİ BİRDEN.
+
+    Keşif §5.4'ün gerekçesi: ikisi İKİ AYRI soruyu cevaplıyor — rıza
+    "mesaj gönderebilir miyiz", bağlantı "bu numara kim". Yalnız rızayı
+    çekmek, numarayı hâlâ çözülebilir bırakırdı ve `taraf_coz` onu
+    yarın yine aday sayardı.
+
+    ADAYLARIN HEPSİNE uygulanır: `DUR` diyen çiftçi TAMAMEN çıkmak
+    istiyor. Firma seçimi SORULMAZ — "hangi firmadan çıkmak istersiniz"
+    sorusu, çıkmak isteyen birine bir adım daha attırırdı.
+    """
+    for kimlik in adaylar:
+        _riza_yaz(db, kimlik, telefon, verildi=False)
+        if kimlik.link_id:
+            taraf.baglantiyi_kapat(db, kimlik.company_id, kimlik.link_id, simdi=an)
+    log.info("whatsapp: ciftci DUR isledi aday=%s", len(adaylar))
+    return ciftci_niyet.DUR_MESAJI
+
+
+def _firma_coz(
+    db: Session, metin: str, adaylar: list[TarafKimlik]
+) -> tuple[TarafKimlik | None, str]:
+    """Adaylardan BİRİNİ seçer; seçemezse ``(None, sorulacak metin)``.
+
+    RASTGELE SEÇİM YOKTUR — `taraf.taraf_coz`un cümlesi: belirsizlikte
+    rastgele seçim, YANLIŞ tenant'ın verisini dönmek demektir. Seçim
+    sözdiziminin neden `FİRMA SEÇ` DEĞİL de sıra öneki olduğu
+    `ciftci_niyet.firma_secin_mesaji` başlığında ölçülerek yazılı.
+    """
+    if len(adaylar) == 1:
+        return adaylar[0], metin
+
+    adlar = [_firma_adi(db, aday.company_id) for aday in adaylar]
+    if ciftci_niyet.listele_mi(metin):
+        return None, ciftci_niyet.firma_secin_mesaji(adlar)
+
+    sira, kalan = ciftci_niyet.sira_oneki_ayir(metin)
+    if sira is None or not 1 <= sira <= len(adaylar):
+        return None, ciftci_niyet.firma_secin_mesaji(adlar)
+    return adaylar[sira - 1], kalan
+
+
+def ciftci_cevap(
+    db: Session,
+    telefon: str,
+    metin: str,
+    adaylar: list[TarafKimlik],
+    *,
+    medya_mi: bool,
+    simdi: datetime,
+    bugun: date,
+) -> CiftciSonucu:
+    """Çiftçi mesajının TAMAMI. Commit ETMEZ — çağıran (`service`) commit eder.
+
+    SIRA SÖZLEŞMEDİR ve her adımın kendinden sonrakinden ÖNCE olmasının
+    bir gerekçesi var:
+
+      1. HIZ SINIRI — her şeyden önce. Sınırın üstündeki bir mesaj
+         hiçbir sorgu koşturmamalı.
+      2. `DUR`/`İPTAL` — firma çözümünden ÖNCE. Çıkmak isteyen çiftçiye
+         önce firma seçtirmek, çıkışı zorlaştırmak olurdu.
+      3. FİRMA ÇÖZÜMÜ — rızadan ÖNCE. Rıza `(firma, taraf)` başınadır;
+         hangi defterin okunacağı bilinmeden sorulamaz.
+      4. `EVET`/`HAYIR` — rıza KAPISINDAN önce. Kapı `NO_RECORD`da
+         soruyu soruyor; cevabın kapıya takılması sonsuz döngü olurdu.
+      5. RIZA KAPISI — HER ERP okumasından önce, HER mesajda yeniden.
+      6. MEDYA — rızadan sonra, niyetten önce. Çiftçinin gönderdiği
+         fotoğraf bir FATURA DEĞİLDİR; `fatura.medya_ozeti` personel
+         yolunun aracıdır ve çiftçiye ERP özeti döndürürdü.
+      7. NİYET.
+    """
+    sayac = mesaj_deneme_say(db, telefon, simdi=simdi)
+    if sayac > schema.MESAJ_PENCERE_SINIRI:
+        log.warning("whatsapp: ciftci mesaj siniri asildi, islenmedi")
+        return CiftciSonucu(cevap="", cevapla=False, islendi=False)
+    cevapla = sayac <= schema.MESAJ_CEVAP_SINIRI
+
+    if ciftci_niyet.dur_mu(metin):
+        return CiftciSonucu(
+            cevap=_dur_isle(db, adaylar, telefon, simdi),
+            cevapla=cevapla,
+            islendi=True,
+        )
+
+    kimlik, kalan = _firma_coz(db, metin, adaylar)
+    if kimlik is None:
+        return CiftciSonucu(cevap=kalan, cevapla=cevapla, islendi=True)
+
+    karar = _riza_degerlendir(db, kimlik, telefon)
+
+    if ciftci_niyet.evet_mi(metin):
+        if karar["allowed"]:
+            # Rıza ZATEN açık: tekrarlanan "EVET" sınırsız versiyon artışı
+            # ve sınırsız olay satırı üretmesin (başlık).
+            return CiftciSonucu(
+                cevap=ciftci_niyet.CIFTCI_KAPSAM_MESAJI, cevapla=cevapla, islendi=True
+            )
+        _riza_yaz(db, kimlik, telefon, verildi=True)
+        return CiftciSonucu(
+            cevap=ciftci_niyet.RIZA_ALINDI_MESAJI, cevapla=cevapla, islendi=True
+        )
+
+    if ciftci_niyet.hayir_mi(metin):
+        # YALNIZ kayıt YOKKEN yazar: zaten `REVOKED` olan bir deftere
+        # ikinci bir `REVOKED` yazmak, tekrarlanan tek kelimeyle sınırsız
+        # versiyon artışı üretirdi (`EVET`in kuralıyla simetrik).
+        if karar["reason"] == consents.NO_RECORD:
+            _riza_yaz(db, kimlik, telefon, verildi=False)
+        return CiftciSonucu(
+            cevap=ciftci_niyet.RIZA_REDDEDILDI_MESAJI, cevapla=cevapla, islendi=True
+        )
+
+    if not karar["allowed"]:
+        # FAIL-CLOSED. `NO_RECORD` soruyu sorar; kalan üç gerekçe
+        # (`REVOKED`, `RECIPIENT_CHANGED`, `RECIPIENT_INVALID`) AYNI genel
+        # metni alır — ayırt edilemezlik (`ciftci_niyet` başlığı).
+        if karar["reason"] == consents.NO_RECORD:
+            cevap = ciftci_niyet.kvkk_metni(_firma_adi(db, kimlik.company_id))
+        else:
+            cevap = ciftci_niyet.RIZA_KAPALI_MESAJI
+        return CiftciSonucu(cevap=cevap, cevapla=cevapla, islendi=True)
+
+    if medya_mi:
+        return CiftciSonucu(
+            cevap=ciftci_niyet.CIFTCI_KAPSAM_MESAJI, cevapla=cevapla, islendi=True
+        )
+
+    niyet = ciftci_niyet.coz(kalan, bugun=bugun)
+    if niyet.mesaj is not None or niyet.arac is None:
+        return CiftciSonucu(
+            cevap=niyet.mesaj or ciftci_niyet.CIFTCI_KAPSAM_MESAJI,
+            cevapla=cevapla,
+            islendi=True,
+        )
+
+    try:
+        veri = CiftciYurutucu(db, kimlik).kos(niyet.arac, niyet.argumanlar)
+    except KeyError:
+        # Beyaz liste dışı araç. Çözücü bunu üretemez; üretirse kullanıcıya
+        # iç hata değil KAPSAM mesajı gider (`service.cevap_uret`in kuralı).
+        log.warning("whatsapp: ciftci beyaz liste disi arac istendi")
+        return CiftciSonucu(
+            cevap=ciftci_niyet.CIFTCI_KAPSAM_MESAJI, cevapla=cevapla, islendi=True
+        )
+    return CiftciSonucu(
+        cevap=cevap_yaz(niyet.arac, veri), cevapla=cevapla, islendi=True
+    )
+
+
+__all__ = [
+    "CIFTCI_ARAC_GOVDELERI",
+    "CIFTCI_BEYAZ_LISTESI",
+    "CiftciSonucu",
+    "CiftciYurutucu",
+    "KANAL",
+    "cevap_yaz",
+    "ciftci_avans",
+    "ciftci_cevap",
+    "ciftci_ekstre",
+    "mesaj_deneme_say",
+]

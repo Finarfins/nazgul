@@ -128,11 +128,19 @@ class TarafHatasi(Exception):
 
 @dataclass(frozen=True, slots=True)
 class TarafKimlik:
-    """Bir numaranın çözülebildiği TEK bir (firma, taraf) adayı."""
+    """Bir numaranın çözülebildiği TEK bir (firma, taraf) adayı.
+
+    ``link_id`` F10-1b'de eklendi ve SONDA, VARSAYILANLI durur: rıza
+    olaylarının denetim satırı `whatsapp_party_links.id`yi KAYNAK KİMLİĞİ
+    olarak istiyor (keşif §5.5) ve o kimliği ÜRETEN sorgu zaten
+    `taraf_coz`dur — ikinci bir okuma, aynı satırı iki kez sormak olurdu.
+    ``0`` "bilinmiyor" demektir ve `log_activity`ye `None` olarak gider.
+    """
 
     company_id: int
     party_type: str
     party_id: int
+    link_id: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -423,7 +431,12 @@ def _denemeyi_artir(db: Session, company_id: int, kod_id: int) -> None:
 
 
 def kod_kullan(
-    db: Session, telefon: str, ham_kod: str, *, simdi: datetime | None = None
+    db: Session,
+    telefon: str,
+    ham_kod: str,
+    *,
+    simdi: datetime | None = None,
+    deneme: int | None = None,
 ) -> TarafSonucu:
     """`BAĞLA <KOD>` mesajını TARAF defterine karşı işler. Commit ETMEZ.
 
@@ -436,6 +449,16 @@ def kod_kullan(
     verir (F10-1b) ve o an gelene kadar `evaluate_consent` `NO_RECORD`
     döndürerek fail-closed davranır — yani bağlanmış ama rıza vermemiş bir
     numara ERP verisi ALAMAZ.
+
+    ``deneme`` F10-1b'de eklendi ve SAYACIN İKİ KEZ YANMASINI ÖNLER.
+    Ölçülen tuzak: dağıtıcı `BAĞLA <KOD>` için önce personel defterini
+    (`eslestirme.kod_kullan`), sonra taraf defterini dener; İKİSİ DE adım
+    1'de `deneme_say`i çağırıyordu, yani TEK bir gelen mesaj penceredeki
+    sayacı İKİ artırırdı ve personelin 5'lik sınırı 3 yanlış denemede
+    ısırırdı. ``deneme`` verildiğinde sayaç BURADA artırılmaz; çağıran onu
+    BİR KEZ artırmış ve değeri geçmiştir. ``None`` (varsayılan) bugünkü
+    davranışın ta kendisidir — doğrudan çağıran testler DEĞİŞMEZ.
+    Kapı: `test_TEK_BAGLA_SAYACI_BIR_ARTIRIR`.
     """
     an = simdi or utcnow()
     normal = normalize_phone(telefon)
@@ -445,9 +468,10 @@ def kod_kullan(
     # 1) KALICI hız sınırı — kod BULUNMADAN ÖNCE (personel yoluyla AYNI
     #    sayaç, başlık). SAVEPOINT'ten önce GERÇEK bir yazma olması ayrıca
     #    pysqlite tuzağını kapatır (`eslestirme.kod_kullan` adım 6).
-    deneme = deneme_say(db, normal, simdi=an)
-    sinirda = deneme > schema.PAIRING_PENCERE_SINIRI
-    cevapla = (not sinirda) and deneme <= schema.PAIRING_CEVAP_SINIRI
+    #    ÇAĞIRAN SAYMIŞSA YENİDEN SAYILMAZ (`deneme`, başlık).
+    sayi = deneme_say(db, normal, simdi=an) if deneme is None else deneme
+    sinirda = sayi > schema.PAIRING_PENCERE_SINIRI
+    cevapla = (not sinirda) and sayi <= schema.PAIRING_CEVAP_SINIRI
 
     kod = kod_kanonik(ham_kod)
     if kod is None:
@@ -460,6 +484,8 @@ def kod_kullan(
         whatsapp_party_pairing_codes.c.party_type,
         whatsapp_party_pairing_codes.c.party_id,
         whatsapp_party_pairing_codes.c.target_phone,
+        # H78: bağlantı satırının `created_by`si BURADAN gelir (aşağıda).
+        whatsapp_party_pairing_codes.c.created_by,
         whatsapp_party_pairing_codes.c.code_digest,
         whatsapp_party_pairing_codes.c.status,
         whatsapp_party_pairing_codes.c.expires_at,
@@ -536,7 +562,16 @@ def kod_kullan(
                     consent_at=None,
                     created_at=an,
                     updated_at=an,
-                    created_by=None,
+                    # H78 (#154 mercek bulgusu): sütunun yorumu "Kodu üreten
+                    # personel" diyor ama buraya `None` yazılıyordu, yani
+                    # yorum ile veri AYRIŞIYORDU ve bağlantıyı hangi
+                    # personelin açtırdığı denetimde GÖRÜNMÜYORDU. Değer
+                    # TÜKETİLEN KOD SATIRINDAN taşınır — kodu üreten uç onu
+                    # zaten yazmıştı. `NULL` KALABİLİR (kod satırının kendi
+                    # `created_by`si nullable'dır ve kullanıcı silinince
+                    # SET NULL olur); taşınan şey bir iddia değil, var olan
+                    # izin KENDİSİDİR.
+                    created_by=satir["created_by"],
                 )
             )
             link_id = int(sonuc.inserted_primary_key[0])
@@ -623,6 +658,8 @@ def taraf_coz(db: Session, telefon: str) -> list[TarafKimlik]:
             whatsapp_party_links.c.company_id,
             whatsapp_party_links.c.party_type,
             whatsapp_party_links.c.party_id,
+            # F10-1b: rıza olaylarının KAYNAK KİMLİĞİ (`TarafKimlik` başlığı).
+            whatsapp_party_links.c.id,
         )
         .where(
             whatsapp_party_links.c.phone == normal,
@@ -643,7 +680,12 @@ def taraf_coz(db: Session, telefon: str) -> list[TarafKimlik]:
         except TarafHatasi:
             continue
         adaylar.append(
-            TarafKimlik(company_id=company_id, party_type=party_type, party_id=party_id)
+            TarafKimlik(
+                company_id=company_id,
+                party_type=party_type,
+                party_id=party_id,
+                link_id=int(satir[3]),
+            )
         )
     return adaylar
 

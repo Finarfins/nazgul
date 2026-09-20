@@ -476,6 +476,7 @@ def kod_kullan(
     ham_kod: str,
     *,
     simdi: datetime | None = None,
+    deneme: int | None = None,
 ) -> EslestirmeSonucu:
     """``BAĞLA <KOD>`` mesajını işler. Commit ETMEZ — çağıran commit eder.
 
@@ -494,6 +495,14 @@ def kod_kullan(
     * Hız sınırı aşılmışsa kod TÜKETİLMEZ ve satırın ``attempt_count``u
       ARTAR; cevap da üretilmez (``cevapla=False``) — bilinmeyen numara
       istisnası bir mesaj/masraf saldırısına dönüşmemelidir.
+
+    ``deneme`` F10-1b'de eklendi ve DAVRANIŞI DEĞİŞTİRMEZ. Gerekçesi
+    `taraf.kod_kullan`ın aynı parametresiyle BİREBİR aynı: dağıtıcı tek
+    gelen mesaj için İKİ defteri (personel, sonra taraf) deniyor ve iki
+    çağrı da bu adımda sayacı artırsaydı TEK mesaj sayacı İKİ yakardı.
+    Sayacı artık dağıtıcı BİR KEZ artırıp değeri ikisine de geçiriyor.
+    ``None`` (varsayılan) bu fonksiyonun bugünkü davranışının ta
+    kendisidir — doğrudan çağıran WA2 testleri DEĞİŞMEZ.
     """
     an = simdi or utcnow()
     normal = normalize_phone(telefon)
@@ -502,11 +511,11 @@ def kod_kullan(
 
     # 1) KALICI hız sınırı — kod BULUNMADAN ÖNCE. Var olmayan kod denemesi de
     #    sayılır; yoksa saldırgan hiçbir satıra dokunmadan sınırsız cevap
-    #    ürettirebilirdi.
-    deneme = deneme_say(db, normal, simdi=an)
-    sinirda = deneme > schema.PAIRING_PENCERE_SINIRI
+    #    ürettirebilirdi. ÇAĞIRAN SAYMIŞSA YENİDEN SAYILMAZ (`deneme`, başlık).
+    sayi = deneme_say(db, normal, simdi=an) if deneme is None else deneme
+    sinirda = sayi > schema.PAIRING_PENCERE_SINIRI
     # Sınırın altında ama cevap eşiğinin üstündeyse: işlenir, cevap verilmez.
-    cevapla = (not sinirda) and deneme <= schema.PAIRING_CEVAP_SINIRI
+    cevapla = (not sinirda) and sayi <= schema.PAIRING_CEVAP_SINIRI
 
     # 2) Biçim. Serbest cümleden kod ÇIKARILMAZ; tam sözdizimi şart.
     kod = kod_kanonik(ham_kod)
