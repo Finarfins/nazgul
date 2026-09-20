@@ -480,6 +480,16 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     # YONETIMI yuzeyidir ve `/api/users` ile AYNI kapidan gecmelidir.
     # Telefon CEVAPTA MASKELI doner; tam numara hicbir uctan cikmaz.
     ("GET", "/api/whatsapp/links"): "users",
+    # WHATSAPP TARAF (CARI) BAGLANTI DEFTERI (F10-1a, goc 20260918_0090).
+    # Izin `read` ve bu bir ZAYIFLAMA DEGIL: ara katman `party_type`i
+    # GOREMEZ (sorgu parametresidir), GERCEK kapi handler'daki
+    # `_require_permission`dir — CUSTOMER -> `sales`, SUPPLIER ->
+    # `purchases`. Yani uc KORUMALI read'dir (`GUARDED_READ_OPERATIONS`),
+    # CIPLAK read DEGIL: `depo` rolu CUSTOMER defterini, `satis` rolu
+    # SUPPLIER defterini 403 alir. `users` yazilsaydi kapi DOGRU rolleri de
+    # disarida birakirdi (kesif §7, K4).
+    # Telefon CEVAPTA MASKELI doner; tam numara hicbir uctan cikmaz.
+    ("GET", "/api/whatsapp/party-links"): "read",
     # KİRACI DIŞA AKTARIMI. Deny-by-default nöbetçisiyle AYNI ad: yalnız
     # `admin` ("*" jokeri) taşır, yani var olan EN YÜKSEK rol. `read` olsaydı
     # HER rol firmanın tüm defterini indirebilirdi.
@@ -595,7 +605,13 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # E4b-2 (e-IRSALIYE YANITI, goc 20260915_0089): sayim 200 -> 201 (TABAN `0885616`). BIR
 # yeni GET, "sales"; hicbir mevcut ucun izni DEGISMEDI (drift raporu OLCULDU:
 # yalniz `missing`, `stale`/`changed` BOS).
-GET_INVENTORY_COUNT = 201
+# F10-1a (TARAF BAGLANTISI, goc 20260918_0090): sayim 201 -> 202 (TABAN
+# develop `f953964`). BIR yeni GET, "read" (KORUMALI: handler
+# `_require_permission` ile `sales`/`purchases` ister); hicbir mevcut ucun
+# izni DEGISMEDI (drift raporu OLCULDU: yalniz `missing`, `stale`/`changed`
+# BOS). Yeni onek kurali (`/api/whatsapp/party-`) TIRELIDIR, yani mevcut
+# `/api/whatsapp/links` ucuna DOKUNMAZ — olculdu, varsayilmadi.
+GET_INVENTORY_COUNT = 202
 GET_INVENTORY_FINGERPRINT = (
     # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
     # sonra `auth.py`ye `/api/push/` önek kuralı eklendi, sonra izin
@@ -648,7 +664,10 @@ GET_INVENTORY_FINGERPRINT = (
     # E4b-2 (goc 20260915_0089): irsaliyenin ticari yaniti. Sira: uc yazildi,
     # izin kural YAZILMADAN olculdu ("sales", `/api/despatch-notes` onek
     # kuralindan), envantere girdi, EN SON parmak izi. 088b3c51 -> 6fbfbcad (TABAN `0885616`).
-    "6fbfbcad55dff006565bbabca0227190c641edb490929b9183e289839b257f53"
+    # F10-1a (TARAF BAGLANTISI, goc 20260918_0090): parmak izi EN SON
+    # turetildi — once uc yazildi, izni `required_permission` ile OLCULDU
+    # ("read"), sonra envantere gerekcesiyle girdi. 6fbfbcad -> 850bfb8f.
+    "850bfb8f763eba403f701a79aa7f7076b5e5395bf7b55423da2cef956b5ddb58"
 )
 
 

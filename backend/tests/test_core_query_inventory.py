@@ -1214,6 +1214,45 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     # yolu tek dosyaya sinirli ve genisletilmedi).
     ("app/statement.py", "_cek_dekont_borcu", "select",
      "225391ebacd46113c013cd37050da6a9ae82ff7ec90ef5338135068dbd9bc62e"): (1, "receivable_charge_documents", "select_from"),  # satır [352]
+    # --- F10-1a WHATSAPP TARAF BAGLANTISI (goc 20260918_0090). ON BESI de
+    # YENI: ucu `app/routers/whatsapp.py`nin `party-` uclarinda (izin icin
+    # satirin `party_type`ini okuyan IKI select + defter listesi), on ikisi
+    # `app/whatsapp/taraf.py`de. HEPSI kiraci yuklemlidir — IKI licensed
+    # istisna DISINDA (`kod_kullan`in ozet aramasi, `taraf_coz`un numara
+    # taramasi); ikisi de `company_id`nin KENDISINI ureten sorgudur ve
+    # `test_core_tenant_scoping_guard.CEKIRDEK_KIRACI_ISTISNALARI`da adiyla
+    # kayitlidir. `_taraf_dogrula` IKI ayri kayittir (customers/suppliers) ve
+    # bu bilincli: tek degiskenli hali `unresolved-target` olarak REDDEDILDI.
+    ("app/routers/whatsapp.py", "taraf_baglantilarini_listele", "select",
+     "3b6bf034223cf0704fe141ba4ea2ad6cb9046fe90acf59f1d8b4ce5acbf2102a"): (1, "whatsapp_party_links", "arg0"),
+    ("app/routers/whatsapp.py", "taraf_baglantisi_kapat", "select",
+     "96775669a5cc4b5cb5017251ca43c4ed9b1ad6e23b8e34433f3dae334658eb35"): (1, "whatsapp_party_links", "arg0"),
+    ("app/routers/whatsapp.py", "taraf_kodu_iptal", "select",
+     "886eed75dec1e25dbe452c5637d8fed5cfc53e532b02748599aeaaef4677f215"): (1, "whatsapp_party_pairing_codes", "arg0"),
+    ("app/whatsapp/taraf.py", "_aktif_baglanti_var", "select",
+     "05292960aea8d670bb596de67d215134573618927f8c6ac8f45790a6c0639caf"): (1, "whatsapp_party_links", "arg0"),
+    ("app/whatsapp/taraf.py", "_denemeyi_artir", "update",
+     "683935c3fda2b6fa294553c9565d9a2dfa447943fc8364f9edb966928751b7f7"): (1, "whatsapp_party_pairing_codes", "arg0"),
+    ("app/whatsapp/taraf.py", "_firma_aktif", "select",
+     "5ccb1de842d040930f5225d0ff28ba04d35c93673c9e396555658ef4b0dbc674"): (1, "companies", "arg0"),
+    ("app/whatsapp/taraf.py", "_personel_baglantisi_var", "select",
+     "aa56216c4179f1ba41094cf8aee481de794ad00cc107dc7673f14c04314b9ed6"): (1, "whatsapp_links", "arg0"),
+    ("app/whatsapp/taraf.py", "_taraf_dogrula", "select",
+     "6cc967b369b2ca45680fe83c483abab43ec3a659b730e34e4ea09d0a163f5292"): (1, "customers", "arg0"),
+    ("app/whatsapp/taraf.py", "_taraf_dogrula", "select",
+     "f779b91f9f32d95241fa85ee85e8c94cdc088659cdc45ad216e1eb82b4a7f820"): (1, "suppliers", "arg0"),
+    ("app/whatsapp/taraf.py", "baglantiyi_kapat", "update",
+     "01ea548bb23d44eb8aa7e930dccf07e34d4be530889f989070d8bad9050800c7"): (1, "whatsapp_party_links", "arg0"),
+    ("app/whatsapp/taraf.py", "bekleyenleri_iptal_et", "update",
+     "c09dedb61ef77dab8a3b891a009eca34a663bb1034aa13f706daf6a17fe5552f"): (1, "whatsapp_party_pairing_codes", "arg0"),
+    ("app/whatsapp/taraf.py", "kod_iptal", "update",
+     "ff73491df7db3fcc2e4ba35bfd49968dab41c2b0b53418138bd6808d48ec6b27"): (1, "whatsapp_party_pairing_codes", "arg0"),
+    ("app/whatsapp/taraf.py", "kod_kullan", "select",
+     "490f507628e0f09056fcd86f40e4c8cb4b5bba6fac99f6a8ff76dfc9c2aaadea"): (1, "whatsapp_party_pairing_codes", "arg0"),
+    ("app/whatsapp/taraf.py", "kod_kullan", "update",
+     "1373a6ee71a79f074f1d9c97a866c8fb35b2a46ad42b73828c2dd30fd2b158f8"): (1, "whatsapp_party_pairing_codes", "arg0"),
+    ("app/whatsapp/taraf.py", "taraf_coz", "select",
+     "ae4de317636a0c2b57038c24f12fcb6624733a83547c1b0986b873cbbfc8cfde"): (1, "whatsapp_party_links", "arg0"),
 }
 
 # 20260910 5.1c KIRACI GERI YUKLEME (GOC YOK): 176 -> 184, +6 select +2 update,
@@ -1275,8 +1314,16 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # ilk olcum `bf8e73f` uzerinde 233 -> 234), +1 select, ekleme:
 # `kiraci_geri_yukleme._epostayla_esle`. `UNRESOLVED_ALLOWLIST` ve `desteksiz`
 # BUYUMEDI (hedef `arg0` ile cozuldu).
-TOTAL_CORE_QUERIES = 235
-EXPECTED_OP_COUNTS = {"select": 160, "update": 63, "delete": 12}
+# F10-1a WHATSAPP TARAF BAGLANTISI (goc 20260918_0090): 235 -> 250 (TABAN
+# develop `6ad974f`, #152/H46 birlestikten SONRA TARAYICIYLA YENIDEN
+# OLCULDU; ilk olcum `f953964` uzerinde 233 -> 248), +10 select +5 update;
+# HEPSI ekleme, hicbir mevcut sorgu KIMILDAMADI. `UNRESOLVED_ALLOWLIST` ve
+# `desteksiz` BUYUMEDI ve bu iki kez duzeltme ISTEDI: `where(*kosullar)`
+# `variable-arg`, degisken tabloyla yazilan cari dogrulamasi
+# `unresolved-target` veriyordu — ikisi de KAYNAKTA duzeltildi, muafiyet
+# ISTENMEDI. (INSERT'ler bu envanterde sayilmaz.)
+TOTAL_CORE_QUERIES = 250
+EXPECTED_OP_COUNTS = {"select": 170, "update": 68, "delete": 12}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1382,11 +1429,19 @@ EXPECTED_OP_COUNTS = {"select": 160, "update": 63, "delete": 12}
 # `odemenin_evrak_satiri`ye tasindi (tum satir, PUT'un evrak karsilastirmasi).
 # TABAN develop `5b79584` (H49b sonrasi YENIDEN turetildi); tarayicinin
 # ciktisindan. c0d8dccc -> c7c1b164.
+
 # H52/H53 (GOC YOK): 235 -> 235, `_belge_numarasi`nin "alinmis mi" okumasi
 # `UPPER()` ile ve elle numarayla ORTAK (yeni sorgu YOK, bir parmak izi
 # DEGISTI); TABAN develop `6ad974f` (H46 sonrasi YENIDEN turetildi);
 # tarayicinin ciktisindan. c7c1b164 -> ff03df02.
-INVENTORY_FINGERPRINT = "ff03df02f7a6a78ef6e3da7bfb5f9897127466f97453fe774000b18343d91801"
+
+# F10-1a (goc 20260918_0090): 235 -> 250, TABAN develop `d6b07ca` (#153/H52-H53
+# sonrasi YENIDEN turetildi; ilk olcum `f953964` uzerinde
+# 494f7b8b -> 9b7a7b76). Parmak izi EN SON turetildi: once 15 sorgu envantere
+# ADIYLA girdi, sonra tarayicinin ciktisindan alindi. ff03df02 -> fa4c5e26.
+INVENTORY_FINGERPRINT = (
+    "fa4c5e269411bdefa5f1e3215313b5a38bbd141efacc5d7eedce5e35029e9462"
+)
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
 #:

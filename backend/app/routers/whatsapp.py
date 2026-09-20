@@ -95,25 +95,31 @@ import hmac
 import json
 import logging
 from dataclasses import dataclass
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..activity_log import log_activity
-from ..auth import users, utcnow
+from ..auth import has_permission, users, utcnow
 from ..config import settings
 from ..db import SessionLocal, get_db
 from ..tenancy import company_id
-from ..whatsapp import eslestirme, giris
+from ..whatsapp import eslestirme, giris, taraf
 from ..whatsapp import schema as ws_schema
 from ..whatsapp.cloud_api import (
     SIGNATURE_HEADER,
     gelen_mesajlari_coz,
     verify_signature,
 )
-from ..whatsapp.schema import whatsapp_links, whatsapp_pairing_codes
+from ..whatsapp.schema import (
+    whatsapp_links,
+    whatsapp_pairing_codes,
+    whatsapp_party_links,
+    whatsapp_party_pairing_codes,
+)
 from .auth import _consume_ip_limit
 
 log = logging.getLogger("nazgul.whatsapp.webhook")
@@ -496,6 +502,303 @@ def baglanti_kapat(
         int(satir.user_id) if satir else None,
         "WhatsApp bağlantısı kapatıldı: "
         + _maskeli_telefon(satir.phone if satir else None),
+    )
+    db.commit()
+    return {"id": baglanti_id, "is_active": False}
+
+
+# ---------------------------------------------------------------------------
+# F10-1a — TARAF (CARİ) EŞLEŞTİRMESİ
+# ---------------------------------------------------------------------------
+# WA2'nin dört ucu bir KULLANICIYA erişim aracı verir ve bu yüzden `users`
+# iznindedir. Bu dört uç bir CARİYE (müşteri/tedarikçi) erişim aracı verir ve
+# bu BAŞKA BİR İŞTİR. Şefin K4 kararı (keşif §7) ölçülmüş bir gerekçeye
+# dayanıyor ve gerekçe `app/auth.py`de alıntıyla duruyor: `users` izni
+# satış/alım personelinde YOKTUR, yani cari kartındaki düğme pratikte ÖLÜ
+# kalırdı.
+#
+# KAPI İKİ KATMANLIDIR ve bu ZORUNLU, bir tercih değil:
+#
+#   1. Ara katman (`auth.required_permission`) YOLA bakar, GÖVDEYE bakamaz —
+#      oysa hangi iznin gerektiği `party_type`a bağlıdır. Bu yüzden önek
+#      `read`e çözülür: `sales` ve `purchases` rollerinin KESİŞİMİ (ölçüldü:
+#      `satis` ∩ `depo` = {read, farm.view, herd.view}) başka bir ortak izin
+#      TANIMIYOR; `users` yazsaydık iki rol de düşerdi.
+#   2. HANDLER `_require_permission` ile gerçek kapıyı kurar: CUSTOMER ->
+#      `sales`, SUPPLIER -> `purchases`.
+#
+# Sonuç sayaçlarda GÖRÜNÜR ve bilinçlidir: dört uç `EXPECTED_READ`i 87 -> 91,
+# `GUARDED_READ_OPERATIONS`ı 31 -> 35 büyütür; `EXPECTED_UNDENIABLE` 97'de
+# SABİT kalır — korumalı read reddedilemez yüzeyi BÜYÜTMEZ. Yani "her rol
+# girebilir" DEĞİL, "reddi handler verir" demektir.
+
+#: `party_type` -> gereken izin. Sözlük KAPALI: `taraf.py`nin CHECK'i ile
+#: aynı iki değer ve her ikisi de burada bir izne bağlı. Bir gün üçüncü bir
+#: taraf tipi açılırsa `KeyError` GÜRÜLTÜLÜ düşer — sessizce `read`e düşen
+#: bir dal, kapıyı hiç kurmadan açık bırakırdı.
+TARAF_IZINLERI: dict[str, str] = {"CUSTOMER": "sales", "SUPPLIER": "purchases"}
+
+
+def _rol(request: Request) -> str:
+    user = getattr(request.state, "user", None)
+    return str(user.get("role") or "") if isinstance(user, dict) else ""
+
+
+def _require_permission(request: Request, permission: str) -> None:
+    """Rol kapısı. Ad `DENYING_GUARDS` kataloğundadır (yetki nüfus sayımı)."""
+    if not has_permission(_rol(request), permission):
+        raise HTTPException(403, "Bu işlem için yetkiniz yok")
+
+
+def _taraf_izni(request: Request, party_type: str) -> None:
+    _require_permission(request, TARAF_IZINLERI[party_type])
+
+
+def _herhangi_taraf_izni(request: Request) -> None:
+    """İKİ taraftan EN AZ BİRİNİ taşımayan çağıranı SATIR OKUNMADAN reddeder.
+
+    ÖN KAPI ve gerekçesi ölçülmüş bir sızıntıdır, bir süs değil: `{id}` taşıyan
+    iki DELETE'in hangi izni istediği SATIRIN `party_type`ından türüyor, yani
+    izin ancak satır okunduktan SONRA bilinebilir. Bu ön kapı olmasaydı sıra
+    "önce 404, sonra 403" olurdu ve `rapor` gibi İKİ İZNİ DE taşımayan bir rol,
+    var olmayan id'ye 404, var olana 403 alarak hiç göremeyeceği bir defterin
+    KİMLİKLERİNİ SAYABİLİRDİ. Ön kapıyla o rolün cevabı id'den BAĞIMSIZ olarak
+    403'tür.
+
+    KALAN SINIR AÇIKÇA YAZILI: `sales` taşıyan bir rol, KENDİ firmasındaki bir
+    SUPPLIER satırının id'sini 404/403 farkından çıkarabilir. Kapatmanın tek
+    yolu yanlış tarafa da 404 döndürmekti; o zaman aynı uç ailesi aynı reddi
+    iki farklı kodla anlatırdı (POST 403, DELETE 404). Sızan şey KENDİ
+    kiracısında bir satırın VARLIĞIDIR — içerik değil — ve bu kabul edilmiştir.
+    """
+    izinler = sorted(set(TARAF_IZINLERI.values()))
+    if not any(has_permission(_rol(request), izin) for izin in izinler):
+        raise HTTPException(403, "Bu işlem için yetkiniz yok")
+
+
+def _taraf_hatasi(hata: taraf.TarafHatasi) -> HTTPException:
+    """Servis hatasını HTTP'ye çevirir. `code` MAKİNE, `message` insan içindir.
+
+    Yapılandırılmış gövde `POST /api/pos/lookup`un `AMBIGUOUS_BARCODE`
+    deseniyle AYNI: ön yüz metni çevirmeden ayırt edebilsin diye.
+    """
+    return HTTPException(
+        hata.durum, detail={"code": hata.code, "message": hata.message}
+    )
+
+
+class TarafKodGirdisi(BaseModel):
+    """Kod üretme gövdesi. `extra="forbid"`: sessizce yok sayılan alan YOK."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    party_type: Literal["CUSTOMER", "SUPPLIER"]
+    party_id: int = Field(gt=0)
+    #: KOD KİME VERİLİYOR — ZORUNLU (SEC-1 kuralı). Biçim `taraf.kod_uret`
+    #: içinde `consents.normalize_msisdn` (SIKI) ile doğrulanır; burada
+    #: YALNIZ uzunluk sınırı var, asıl karar TEK yerde kalsın.
+    phone: str = Field(min_length=1, max_length=32)
+
+
+@router.post("/party-pairing-codes", status_code=201)
+def taraf_kodu_uret(
+    girdi: TarafKodGirdisi,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Cari için tek kullanımlık kod üretir. DÜZ KOD YALNIZ BU CEVAPTA döner.
+
+    Çiftçi ASLA kendi kendine kaydolmaz (keşif §3.3): kod üretimi bir ERP
+    eylemidir ve `phone` alanı kodu ürettiği anda hedef numaraya bağlar.
+    """
+    _taraf_izni(request, girdi.party_type)
+    cid = company_id(request)
+    try:
+        uretilen = taraf.kod_uret(
+            db,
+            cid,
+            girdi.party_type,
+            girdi.party_id,
+            hedef_telefon=girdi.phone,
+            created_by=_aktor_id(request),
+        )
+    except taraf.TarafHatasi as hata:
+        raise _taraf_hatasi(hata) from None
+
+    # Aktivite YÜKÜ: olay türü + kod satırı kimliği + taraf. Kod, özet ve ham
+    # telefon YAZILMAZ (WA2'nin kuralı).
+    log_activity(
+        db,
+        cid,
+        _aktor_id(request),
+        "party.whatsapp_pairing_code_created",
+        "whatsapp_party",
+        None,
+        f"WhatsApp cari eşleştirme kodu üretildi (kod #{uretilen.kod_id})",
+        {"party_type": girdi.party_type, "party_id": girdi.party_id},
+    )
+    db.commit()
+
+    # Kod bir SIRDIR: ara katman, tarayıcı ya da CDN önbelleğe ALMAMALIDIR.
+    # İKİNCİ katman — birincisi `app/main.py`in global `no-store`udur.
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "kod_id": uretilen.kod_id,
+        "kod": uretilen.kod,
+        "kod_gosterim": taraf.kod_bicimle(uretilen.kod),
+        "expires_at": uretilen.expires_at,
+        "party_type": girdi.party_type,
+        "party_id": girdi.party_id,
+        # HEDEF MASKELİ döner — `GET /party-links`in maskeleme kararı bu
+        # uçtan delinmesin (WA2'nin aynı gerekçesi).
+        "telefon": _maskeli_telefon(uretilen.hedef_telefon),
+    }
+
+
+@router.delete("/party-pairing-codes/{kod_id}")
+def taraf_kodu_iptal(
+    kod_id: int, request: Request, db: Session = Depends(get_db)
+) -> dict:
+    """Bekleyen kodu iptal eder. TENANT KAPSAMLI; idempotent DEĞİL (404).
+
+    Yok / başka firmanın / zaten kapanmış — ÜÇÜ DE aynı 404'ü alır.
+    İzin satırın KENDİ `party_type`ından türer: satır okunmadan hangi iznin
+    gerektiği bilinemez, bu yüzden SIRA "kiracı kapsamlı oku -> izni uygula
+    -> yaz"dır. Okuma yalnız `party_type`/`party_id` seçer ve satır
+    bulunamazsa izin denetimine HİÇ girilmez — 404 ile 403 arasındaki fark
+    başka firmanın kod envanterini sızdırmaz.
+    """
+    _herhangi_taraf_izni(request)
+    cid = company_id(request)
+    satir = db.execute(
+        select(
+            whatsapp_party_pairing_codes.c.party_type,
+            whatsapp_party_pairing_codes.c.party_id,
+        ).where(
+            whatsapp_party_pairing_codes.c.id == kod_id,
+            whatsapp_party_pairing_codes.c.company_id == cid,
+        )
+    ).first()
+    if satir is None:
+        raise HTTPException(404, "Bekleyen eşleştirme kodu bulunamadı.")
+    _taraf_izni(request, str(satir.party_type))
+
+    if not taraf.kod_iptal(db, cid, kod_id):
+        raise HTTPException(404, "Bekleyen eşleştirme kodu bulunamadı.")
+
+    log_activity(
+        db,
+        cid,
+        _aktor_id(request),
+        "party.whatsapp_pairing_code_cancelled",
+        "whatsapp_party",
+        None,
+        f"WhatsApp cari eşleştirme kodu iptal edildi (kod #{kod_id})",
+        {"party_type": str(satir.party_type), "party_id": int(satir.party_id)},
+    )
+    db.commit()
+    return {"kod_id": kod_id, "status": ws_schema.PAIRING_CANCELLED}
+
+
+@router.get("/party-links")
+def taraf_baglantilarini_listele(
+    request: Request,
+    party_type: Literal["CUSTOMER", "SUPPLIER"] = Query(...),
+    party_id: int | None = Query(None, gt=0),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    """Bir tarafın (ya da taraf tipinin) bağlantı defteri. TELEFON MASKELİ.
+
+    `party_type` ZORUNLUDUR ve bu bir süs değil: izin ondan türer. Varsayılan
+    verilseydi çağıran, izni olmayan tarafın defterini varsayılan üzerinden
+    okumaya çalışabilirdi — ve hangi tarafın okunduğu istekte GÖRÜNMEZDİ.
+
+    Ham numara CEVAPTA YOKTUR (SEC-3b ile aynı gerekçe): defterin amacı "bu
+    cari bağlı mı" sorusunu cevaplamaktır, "hangi numaradan" sorusunu değil.
+    Pasif satırlar da döner — "kim ne zaman bağlıydı" izi silinmez.
+    """
+    _taraf_izni(request, party_type)
+    cid = company_id(request)
+    # YÜKLEMLER TEK TEK ve LİTERAL: bir listeye toplayıp `where(*kosullar)`
+    # yazmak ÖLÇÜLDÜ ve Core envanteri onu `variable-arg` olarak REDDETTİ
+    # (`tests/test_core_query_inventory.py`) — haklı olarak: yıldızın ardındaki
+    # listeyi göremeyen bir tarayıcı, kiracı yükleminin orada DURDUĞUNU da
+    # doğrulayamaz.
+    sorgu = (
+        select(
+            whatsapp_party_links.c.id,
+            whatsapp_party_links.c.party_type,
+            whatsapp_party_links.c.party_id,
+            whatsapp_party_links.c.phone,
+            whatsapp_party_links.c.is_active,
+            whatsapp_party_links.c.consent_at,
+            whatsapp_party_links.c.created_at,
+        )
+        .where(
+            whatsapp_party_links.c.company_id == cid,
+            whatsapp_party_links.c.party_type == party_type,
+        )
+        .order_by(
+            whatsapp_party_links.c.is_active.desc(), whatsapp_party_links.c.id.desc()
+        )
+    )
+    if party_id is not None:
+        sorgu = sorgu.where(whatsapp_party_links.c.party_id == party_id)
+    satirlar = db.execute(sorgu).mappings().all()
+    return [
+        {
+            "id": int(s["id"]),
+            "party_type": s["party_type"],
+            "party_id": int(s["party_id"]),
+            "phone_masked": _maskeli_telefon(s["phone"]),
+            "is_active": bool(s["is_active"]),
+            "consent_at": s["consent_at"],
+            "created_at": s["created_at"],
+        }
+        for s in satirlar
+    ]
+
+
+@router.delete("/party-links/{baglanti_id}")
+def taraf_baglantisi_kapat(
+    baglanti_id: int, request: Request, db: Session = Depends(get_db)
+) -> dict:
+    """Bağlantıyı PASİFLEŞTİRİR, SİLMEZ: kim ne zaman bağlıydı izi kalır.
+
+    Kiracı yüklemi bir süs DEĞİL: düşseydi bir firmanın personeli BAŞKA
+    firmanın bağlantısını kapatabilirdi. İzin, kod iptalindeki SIRA ile
+    aynı yoldan satırın kendi `party_type`ından gelir.
+    """
+    _herhangi_taraf_izni(request)
+    cid = company_id(request)
+    satir = db.execute(
+        select(
+            whatsapp_party_links.c.party_type,
+            whatsapp_party_links.c.party_id,
+            whatsapp_party_links.c.phone,
+        ).where(
+            whatsapp_party_links.c.id == baglanti_id,
+            whatsapp_party_links.c.company_id == cid,
+        )
+    ).first()
+    if satir is None:
+        raise HTTPException(404, "Aktif bağlantı bulunamadı.")
+    _taraf_izni(request, str(satir.party_type))
+
+    if not taraf.baglantiyi_kapat(db, cid, baglanti_id):
+        # Yok / başka firmanın / zaten kapalı — ÜÇÜ DE aynı cevap.
+        raise HTTPException(404, "Aktif bağlantı bulunamadı.")
+
+    log_activity(
+        db,
+        cid,
+        _aktor_id(request),
+        "party.whatsapp_link_deactivated",
+        "whatsapp_party",
+        baglanti_id,
+        "WhatsApp cari bağlantısı kapatıldı: " + _maskeli_telefon(satir.phone),
+        {"party_type": str(satir.party_type), "party_id": int(satir.party_id)},
     )
     db.commit()
     return {"id": baglanti_id, "is_active": False}

@@ -53,4 +53,13 @@ GET /api/suppliers/{supplier_id}	purchases	address,email,phone,tax_number	F,F,D,
 GET /api/suppliers/{supplier_id}/statement	purchases	address,email,phone,tax_number	F,F,D,M,D
 GET /api/suppliers/{supplier_id}/statement.pdf	purchases	address,email,phone,tax_number	F,F,D,M,D
 GET /api/whatsapp/links	users	phone	H,H,H,H,H
+# F10-1a TARAF BAGLANTI DEFTERI (goc 20260918_0090). Tarayici `phone`i
+# GORUYOR cunku sorgu `whatsapp_party_links.c.phone` sutununu okuyor; YANIT
+# o degeri TASIMAZ, yalniz `_maskeli_telefon` ciktisini (`phone_masked`,
+# son dort hane) dondurur — bu yuzden bes hucre de S (SUZULUYOR). Izin
+# `read` gorunur ama uc KORUMALIDIR: handler `_require_permission` ile
+# CUSTOMER tarafinda `sales`, SUPPLIER tarafinda `purchases` ister
+# (kesif §7 K4). `GET /api/whatsapp/links` ikizi MUAFLAR'da oldugu icin
+# H,H,H,H,H; bu uc MUAF DEGILDIR ve suzulme GERCEKTEN olculdu.
+GET /api/whatsapp/party-links	read	phone	S,S,S,S,S
 GET /api/work-orders/{work_order_id}/invoice	read	address,tax_number	S,S,S,S,S

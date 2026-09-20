@@ -248,7 +248,8 @@ def test_KIRACI_ENVANTERI_120_ve_TABLOYU_ICERIYOR() -> None:
     # tablosu `despatch_lines`; `company_id` tasir, envantere OTOMATIK girer.
     # 123 -> 125: E4b-2 e-IRSALIYE YANITI (goc 20260915_0089). Iki yeni kiraci
     # tablosu: `despatch_responses`, `despatch_response_lines`.
-    assert len(TENANT_TABLES) == 125, len(TENANT_TABLES)
+    # 125 -> 127: F10-1a `whatsapp_party_links` + `whatsapp_party_pairing_codes` (goc 20260918_0090), semadan turuyor.
+    assert len(TENANT_TABLES) == 127, len(TENANT_TABLES)
 
 
 def test_CLAIM_JETONU_SABIT_SURELI_KARSILASTIRILIYOR() -> None:

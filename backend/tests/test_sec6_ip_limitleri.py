@@ -415,4 +415,5 @@ def test_TENANT_TABLES_auth_rate_limits_ICERMIYOR() -> None:
     # tablosu `despatch_lines`; `company_id` tasir, envantere OTOMATIK girer.
     # 123 -> 125: E4b-2 e-IRSALIYE YANITI (goc 20260915_0089). Iki yeni kiraci
     # tablosu: `despatch_responses`, `despatch_response_lines`.
-    assert len(TENANT_TABLES) == 125
+    # 125 -> 127: F10-1a `whatsapp_party_links` + `whatsapp_party_pairing_codes` (goc 20260918_0090), semadan turuyor.
+    assert len(TENANT_TABLES) == 127
