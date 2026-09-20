@@ -1248,11 +1248,17 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     ("app/whatsapp/taraf.py", "kod_iptal", "update",
      "ff73491df7db3fcc2e4ba35bfd49968dab41c2b0b53418138bd6808d48ec6b27"): (1, "whatsapp_party_pairing_codes", "arg0"),
     ("app/whatsapp/taraf.py", "kod_kullan", "select",
-     "490f507628e0f09056fcd86f40e4c8cb4b5bba6fac99f6a8ff76dfc9c2aaadea"): (1, "whatsapp_party_pairing_codes", "arg0"),
+     "886102c079d264882f64182905e1310876992d575c917f9de31c3268f3275763"): (1, "whatsapp_party_pairing_codes", "arg0"),
     ("app/whatsapp/taraf.py", "kod_kullan", "update",
      "1373a6ee71a79f074f1d9c97a866c8fb35b2a46ad42b73828c2dd30fd2b158f8"): (1, "whatsapp_party_pairing_codes", "arg0"),
     ("app/whatsapp/taraf.py", "taraf_coz", "select",
-     "ae4de317636a0c2b57038c24f12fcb6624733a83547c1b0986b873cbbfc8cfde"): (1, "whatsapp_party_links", "arg0"),
+     "51b8143aece895cb96504297ac291c3ed5572948643f785db2f02a65740ae87f"): (1, "whatsapp_party_links", "arg0"),
+    # F10-1b (goc 20260920_0091): ciftci dalinin firma adi okumasi.
+    # KIRACI YUKLEMLI (`companies.c.id == company_id`) ve `baglam.
+    # firma_adlari` ile AYNI bicim — tek satir, tek firma, ad disinda
+    # hicbir sutun SECILMEZ.
+    ("app/whatsapp/ciftci_yurutucu.py", "_firma_adi", "select",
+     "384b330fb3df5fe860ce15362cc438926b487477dbebcccd52e3d5c928cdfa10"): (1, "companies", "arg0"),
 }
 
 # 20260910 5.1c KIRACI GERI YUKLEME (GOC YOK): 176 -> 184, +6 select +2 update,
@@ -1322,8 +1328,20 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # `variable-arg`, degisken tabloyla yazilan cari dogrulamasi
 # `unresolved-target` veriyordu — ikisi de KAYNAKTA duzeltildi, muafiyet
 # ISTENMEDI. (INSERT'ler bu envanterde sayilmaz.)
-TOTAL_CORE_QUERIES = 250
-EXPECTED_OP_COUNTS = {"select": 170, "update": 68, "delete": 12}
+# F10-1b CIFTCI DAGITIMI (goc 20260920_0091): 250 -> 251, +1 select.
+# Eklenen TEK sorgu `ciftci_yurutucu._firma_adi`dir (KVKK metni ve firma
+# secim listesi icin firma adi). Ciftci dalinin OTEKI iki okumasi
+# envantere GIRMEZ ve bu ikisi de olculdu: `ciftci_ekstre`
+# `statement.build_statement`i CAGIRIYOR (kendi Core ifadesi yok) ve
+# `ciftci_avans` ile `mesaj_deneme_say` Core `select` DEGIL (`text()`
+# ve lehceye ozgu `insert().on_conflict_do_update()`).
+# IKI PARMAK IZI KIMILDADI, SAYI DEGIL: `taraf.kod_kullan`in SELECT'i
+# `created_by` sutununu de seciyor (H78) ve `taraf.taraf_coz`unki `id`yi
+# (riza olaylarinin kaynak kimligi). Yuklemler AYNI kaldi.
+TOTAL_CORE_QUERIES = 251
+# F10-1b (goc 20260920_0091): select 170 -> 171 (`ciftci_yurutucu.
+# _firma_adi`); `update` ve `delete` KIMILDAMADI — ciftci dali OKUMADIR.
+EXPECTED_OP_COUNTS = {"select": 171, "update": 68, "delete": 12}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1444,8 +1462,12 @@ EXPECTED_OP_COUNTS = {"select": 170, "update": 68, "delete": 12}
 # projeksiyonuna `despatch_lines.quantity` eklendi (yanit miktar mutabakati
 # ayni okumadan; YENI sorgu YOK, kiraci yuklemi `company_id == cid` AYNI);
 # TABAN develop `8a6e3e1`; tarayicinin ciktisindan. fa4c5e26 -> 214d1cf5.
+# F10-1b (goc 20260920_0091): 250 -> 251, +1 select (`ciftci_yurutucu.
+# _firma_adi`); TABAN develop `63e57f6` (#159/H60 sonrasi YENIDEN
+# turetildi; ilk olcum `8a6e3e1` uzerinde fa4c5e26 -> a234212e).
+# Tarayicinin ciktisindan alindi, aritmetikle degil. 214d1cf5 -> ce68d341.
 INVENTORY_FINGERPRINT = (
-    "214d1cf5ffac46832eb5a72d0ba82a0d81f51d9c212923029ad3b6e23f2dc414"
+    "ce68d341805f63c2304cdb1b936ae1c8314dffe6baf2928eca39af58b842c222"
 )
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.

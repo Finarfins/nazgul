@@ -33,7 +33,7 @@ pytestmark = pytest.mark.postgresql
 GOC = "20260915_0088"
 ONCEKI = "20260915_0087"
 #: ZINCIRIN BASI — `GOC`tan AYRI; her yeni gocle KIMILDAR (bkz. E1 ikizi).
-BAS = "20260918_0090"  # F10-1a: bas 0090 (bu dosyanın göçü GOC=0088)
+BAS = "20260920_0091"  # F10-1b: bas 0091 (bu dosyanın göçü GOC=0088)
 TABLO = "auth_rate_limits"
 INDEKS = "ix_auth_rate_limits_attempted_at"
 BILESIK = "ix_auth_rate_limits_action_ip_time"

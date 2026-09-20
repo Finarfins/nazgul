@@ -398,4 +398,4 @@ def test_BAS_TEK_ve_0073_zincirin_UCUNDA(motor) -> None:
 
     config = Config(str(BACKEND / "alembic.ini"))
     baslar = ScriptDirectory.from_config(config).get_heads()
-    assert tuple(baslar) == ("20260918_0090",), baslar
+    assert tuple(baslar) == ("20260920_0091",), baslar
