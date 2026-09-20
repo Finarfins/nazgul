@@ -4,11 +4,12 @@ from collections.abc import Generator
 from decimal import Decimal
 import sqlite3
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.sql.dml import Delete, Insert, Update
 from sqlalchemy.sql.elements import TextClause
 from sqlalchemy.orm import Session, sessionmaker
 
+from .arama import sqlite_katlamayi_kaydet
 from .config import settings
 
 is_sqlite = settings.database_url.startswith("sqlite")
@@ -36,6 +37,22 @@ else:
 # Kaldırılırsa öldürülen bağlantıdan sonraki ilk istek 503 döner — ölçüldü,
 # `tests/test_db_baglanti_dayanikliligi.py` bunu kapı olarak tutuyor.
 engine = create_engine(settings.database_url, connect_args=connect_args, pool_pre_ping=True)
+
+
+# H57 arama katlaması TEK SQL metniyle iki lehçede de koşar: PostgreSQL
+# `translate`i YERLEŞİK verir, SQLite vermez, bu yüzden her SQLite bağlantısına
+# aynı anlamda kaydedilir. Kanca BU MODÜLÜN motoruna değil, `Engine` SINIFINA
+# bağlanır — ÖLÇÜLDÜ, VARSAYILMADI: `tests/test_entity_detail_accounting_totals`
+# kendi `create_engine("sqlite+pysqlite:///:memory:")` motorunu kurup
+# `musteri_satirlari`yi çağırıyor; motora özel kanca orada HİÇ ateşlenmez ve
+# sorgu "no such function: translate" ile düşer. Sınıf kancası, uygulamanın
+# motorunu da testin motorunu da kapsar; PostgreSQL bağlantıları isinstance
+# denetiminden geçmez.
+@event.listens_for(Engine, "connect")
+def _arama_katlamasini_kaydet(dbapi_connection, _connection_record) -> None:
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        sqlite_katlamayi_kaydet(dbapi_connection)
+
 
 if is_sqlite:
     @event.listens_for(engine, "connect")
@@ -81,6 +98,7 @@ if is_sqlite:
             cursor.execute("PRAGMA foreign_keys=ON")
         finally:
             cursor.close()
+
 
 def _is_write_statement(statement) -> bool:
     if isinstance(statement, (Insert, Update, Delete)):

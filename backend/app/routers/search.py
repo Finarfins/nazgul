@@ -3,6 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..alan_maskeleme import maskele_cari_listesi, maskelenecek_mi
+from ..arama import arama_deseni, katli_sql
 from ..db import get_db
 from ..money import money
 from ..part_search import normalize_part_identifier, parse_part_search_query
@@ -12,16 +13,23 @@ from .products import list_products
 router = APIRouter(prefix='/search', tags=['search'])
 
 
-def _like(value: str) -> str:
-    """Build a literal contains-pattern for SQL LIKE expressions.
-
-    User-provided percent and underscore characters must not become wildcard
-    operators. Backslash is escaped first because the SQL expressions below
-    explicitly use it as the LIKE escape character.
-    """
-
-    escaped = value.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
+# H57: arama metin kolonlari `q` ile AYNI Turkce katlamadan gecer. Kalip
+# (`arama_deseni`) ve kolon ifadesi (`katli_sql`) ortak dikistedir
+# (`app/arama.py`); buradaki eski `_like` oraya tasindi. Ifadeler yalniz
+# SABIT kolon adlarindan kurulur; kullanici metni yalniz `:q` ile baglanir.
+_CARI_AD = katli_sql('name')
+_CARI_YETKILI = katli_sql("COALESCE(owner_name,'')")
+_CARI_EPOSTA = katli_sql("COALESCE(email,'')")
+_URUN_AD = katli_sql('name')
+_URUN_KOD = katli_sql("COALESCE(product_code,'')")
+# Barkod da katlanir: `q` artik katlanmis (BUYUK) baglanir; katlanmamis bir
+# barkod kolonu PG'de (LIKE buyuk/kucuk harf duyarli) kucuk harfli barkodu
+# kaybederdi. Telefon ve `CAST(id AS TEXT)` rakamdir, katlama onlara dokunmaz.
+_URUN_BARKOD = katli_sql("COALESCE(barcode,'')")
+_SATIS_BELGE = katli_sql("COALESCE(o.document_no,'')")
+_SATIS_CARI = katli_sql('c.name')
+_ALIS_BELGE = katli_sql("COALESCE(p.document_no,'')")
+_ALIS_CARI = katli_sql('s.name')
 
 
 def _normalized_identifier_sql(column: str, dialect: str = "sqlite") -> str:
@@ -64,7 +72,7 @@ def global_search(
     db: Session = Depends(get_db),
 ):
     cid = company_id(request)
-    params = {'cid': cid, 'q': _like(q), 'limit': limit}
+    params = {'cid': cid, 'q': arama_deseni(q), 'limit': limit}
     results: list[dict] = []
 
     # SEC-3b — iki karar, ikisi de bu blokta:
@@ -77,34 +85,35 @@ def global_search(
     #
     # (2) ARAMA (PR #114 duzeltme turu): maskeli rol icin `q` yalniz `name`/
     #     `owner_name` uzerinde eslesir. Onceki surum telefon/e-posta uzerinde
-    #     eslesmeye devam ediyordu ve `_like` bir ICERIR kalibi kurdugu icin
-    #     bu uc `/api/customers?q=` ile AYNI sonek orakuluydu: maskeli
+    #     eslesmeye devam ediyordu ve arama kalibi bir ICERIR kalibi oldugu
+    #     icin bu uc `/api/customers?q=` ile AYNI sonek orakuluydu: maskeli
     #     `05** *** ** 12`den `q=012`, `q=4512`, ... diye ham numara geri
-    #     cikarilabilirdi. Iki sorgu iki AYRI SABIT metindir (f-string DEGIL):
-    #     `test_tenant_scoping_guard` sabit metinleri tek tek denetler ve
-    #     dosyadaki dinamik text() sayisi 2'de sabit kalir. VKN bu ucta HIC
-    #     eslesmiyordu (mercek olctu) ve hala eslesmiyor.
+    #     cikarilabilirdi. Iki sorgu role gore secilen iki AYRI metindir; H57
+    #     ile ikisi de katlanmis kolon ifadesini f-string ile tasir, yani
+    #     dinamik text() sayisi 2 -> 7 (bes arama sorgusu) oldu. Kiraci
+    #     yuklemi (`company_id=:cid`) her birinde SABIT parcadadir. VKN bu
+    #     ucta HIC eslesmiyordu (mercek olctu) ve hala eslesmiyor.
     #
     # (3) H27: maskesiz dal da `owner_name` uzerinde eslesir. Onceden
     #     eslesmiyordu; ayni `q` `depo`da bir cari bulurken `yonetici`de
     #     bulamiyordu. Maskesiz dal artik maskeli dalin UST KUMESIDIR.
     rol = istek_rolu(request)
     if maskelenecek_mi(rol):
-        customers = db.execute(text("""
+        customers = db.execute(text(f"""
             SELECT id, name, phone, email
             FROM customers
             WHERE company_id=:cid AND (
-              name LIKE :q ESCAPE '\\' OR COALESCE(owner_name,'') LIKE :q ESCAPE '\\'
+              {_CARI_AD} LIKE :q ESCAPE '\\' OR {_CARI_YETKILI} LIKE :q ESCAPE '\\'
             )
             ORDER BY name LIMIT :limit
         """), params).mappings().all()
     else:
-        customers = db.execute(text("""
+        customers = db.execute(text(f"""
             SELECT id, name, phone, email
             FROM customers
             WHERE company_id=:cid AND (
-              name LIKE :q ESCAPE '\\' OR COALESCE(owner_name,'') LIKE :q ESCAPE '\\'
-              OR COALESCE(phone,'') LIKE :q ESCAPE '\\' OR COALESCE(email,'') LIKE :q ESCAPE '\\'
+              {_CARI_AD} LIKE :q ESCAPE '\\' OR {_CARI_YETKILI} LIKE :q ESCAPE '\\'
+              OR COALESCE(phone,'') LIKE :q ESCAPE '\\' OR {_CARI_EPOSTA} LIKE :q ESCAPE '\\'
             )
             ORDER BY name LIMIT :limit
         """), params).mappings().all()
@@ -115,11 +124,11 @@ def global_search(
             'path': f"/musteriler/{row['id']}",
         })
 
-    products = db.execute(text("""
+    products = db.execute(text(f"""
         SELECT id, name, product_code, barcode, stock, unit
         FROM products
         WHERE company_id=:cid AND COALESCE(active, TRUE)=TRUE AND (
-          name LIKE :q ESCAPE '\\' OR COALESCE(product_code,'') LIKE :q ESCAPE '\\' OR COALESCE(barcode,'') LIKE :q ESCAPE '\\'
+          {_URUN_AD} LIKE :q ESCAPE '\\' OR {_URUN_KOD} LIKE :q ESCAPE '\\' OR {_URUN_BARKOD} LIKE :q ESCAPE '\\'
         )
         ORDER BY name LIMIT :limit
     """), params).mappings().all()
@@ -129,11 +138,11 @@ def global_search(
         'path': f"/urunler?q={row['name']}",
     } for row in products)
 
-    orders = db.execute(text("""
+    orders = db.execute(text(f"""
         SELECT o.id, o.document_no, o.order_date, o.final_total, c.name customer_name
         FROM orders o JOIN customers c ON c.id=o.customer_id AND c.company_id=o.company_id
         WHERE o.company_id=:cid AND (
-          COALESCE(o.document_no,'') LIKE :q ESCAPE '\\' OR c.name LIKE :q ESCAPE '\\' OR CAST(o.id AS TEXT) LIKE :q ESCAPE '\\'
+          {_SATIS_BELGE} LIKE :q ESCAPE '\\' OR {_SATIS_CARI} LIKE :q ESCAPE '\\' OR CAST(o.id AS TEXT) LIKE :q ESCAPE '\\'
         )
         ORDER BY o.id DESC LIMIT :limit
     """), params).mappings().all()
@@ -144,11 +153,11 @@ def global_search(
         'path': f"/satislar?q={row['document_no'] or row['id']}",
     } for row in orders)
 
-    purchases = db.execute(text("""
+    purchases = db.execute(text(f"""
         SELECT p.id, p.document_no, p.purchase_date, p.final_total, s.name supplier_name
         FROM purchases p JOIN suppliers s ON s.id=p.supplier_id AND s.company_id=p.company_id
         WHERE p.company_id=:cid AND (
-          COALESCE(p.document_no,'') LIKE :q ESCAPE '\\' OR s.name LIKE :q ESCAPE '\\' OR CAST(p.id AS TEXT) LIKE :q ESCAPE '\\'
+          {_ALIS_BELGE} LIKE :q ESCAPE '\\' OR {_ALIS_CARI} LIKE :q ESCAPE '\\' OR CAST(p.id AS TEXT) LIKE :q ESCAPE '\\'
         )
         ORDER BY p.id DESC LIMIT :limit
     """), params).mappings().all()
