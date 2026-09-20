@@ -194,6 +194,17 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
         "whatsapp_pending.cancelled",
         "whatsapp_pending.expired",
         "whatsapp_pending.failed",
+            # F10-1a TARAF BAGLANTISI (goc 20260918_0090). DORDU DE
+            # `whatsapp_party` kaynagina bagli: konu bir KULLANICI degil bir
+            # CARIDIR ve kaynak kimligi `whatsapp_party_links.id`dir. Kod
+            # olaylarinda baglanti henuz YOKTUR, kimlik NULL kalir.
+            # Baglantiyi ACAN satirin AKTORU de NULL: ciftcinin bir
+            # `app_users` kimligi yoktur (kesif §5.5) ve `activity_logs.
+            # user_id` geri yuklemede zaten yumusak referanstir.
+            "party.whatsapp_pairing_code_created",
+            "party.whatsapp_pairing_code_cancelled",
+            "party.whatsapp_link_activated",
+            "party.whatsapp_link_deactivated",
     }
     assert set(ACTION_TYPES) == expected
     # 58 -> 59: product.base_unit_update (kantar fişi v2).
@@ -252,10 +263,18 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
     # geldiginde gecmis kayitlarin tipi DEGISMEK zorunda kalmaz.
     # 75 -> 76: 5.1c KIRACI GERI YUKLEME (`company.restored`).
     # 76 -> 78: CS1 ÇEK/SENET PORTFÖYÜ (`cek_senet.created`, `cek_senet.durum`).
-    assert len(ACTION_TYPES) == 78, sorted(ACTION_TYPES)
+    # 78 -> 82: F10-1a TARAF BAGLANTISI (goc 20260918_0090), DORT olay
+    # (kod uretildi/iptal, baglanti acildi/kapatildi). Kume UYE UYE de
+    # yukarida cakili; sayi tek basina bir takasi goremezdi.
+    assert len(ACTION_TYPES) == 82, sorted(ACTION_TYPES)
     assert "whatsapp_pending" in RESOURCE_TYPES
+    # F10-1a: TEK yeni kaynak tipi. `user` YENIDEN KULLANILMADI ve bu
+    # olculmus bir karardir: kaynak baglantisi kullanici kartina gitseydi,
+    # VAR OLMAYAN bir kullaniciya isaret ederdi (konu bir CARIDIR).
+    assert "whatsapp_party" in RESOURCE_TYPES
     # 22 -> 23: CS1 (`cek_senet`; kaynak kimliği `cek_senetler.id`).
-    assert len(RESOURCE_TYPES) == 23, sorted(RESOURCE_TYPES)
+    # 23 -> 24: F10-1a'nin `whatsapp_party` tipi (goc 20260918_0090).
+    assert len(RESOURCE_TYPES) == 24, sorted(RESOURCE_TYPES)
     assert all(ACTION_TYPES.values()), ACTION_TYPES
     assert "activity_log" in RESOURCE_TYPES
     # POS fişi de bir ``orders`` satırıdır: ayrı bir kaynak tipi eklenmez,

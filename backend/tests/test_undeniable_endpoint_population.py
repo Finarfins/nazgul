@@ -145,6 +145,42 @@ SELF_SCOPED_WRITE_EXEMPTIONS = frozenset({
     ("DELETE", "/api/push/devices/{device_id}"),
 })
 
+#: DÖRDÜNCÜ ÇAPA — VE NEDEN DÖRDÜNCÜ BİR KATEGORİ GEREKTİ (F10-1a).
+#:
+#: Üç `/api/whatsapp/party-*` yazan ucu yukarıdaki İKİ cümlenin de KURAMAZ:
+#:
+#:   * "Middleware izni ATIL" (yedek uçları) DEĞİL: `satis` ve `depo` bu
+#:     uçlardan GERÇEKTEN geçer — geçmeleri ürün kararıdır, çiftçi bağlantısı
+#:     satış/alım personelinin işidir (keşif §7, K4).
+#:   * "Her rol geçer ama yalnız KENDİ satırına" (push uçları) da DEĞİL:
+#:     yazılan satırın öznesi çağıran değil, bir CARİDİR.
+#:
+#: Bu uçların gerçeği ÜÇÜNCÜ bir cümledir ve öncekilerden DAHA GÜÇLÜDÜR:
+#: **middleware izni evrensel (`read`) ama router GERÇEKTEN ROL İLE
+#: REDDEDER** — hangi rolü reddedeceği gövdeden/satırdan türeyen
+#: `party_type`a bağlı olduğu için middleware'de sorulamaz (yol tablosu
+#: gövdeyi görmez). `rapor` rolü `read` taşır, ara katmandan GEÇER ve
+#: handler'da 403 alır.
+#:
+#: İDDİA EDİLMİYOR, ÖLÇÜLÜYOR (aşağıdaki smoke, YÖN H/I):
+#:   * YÖN H — `rapor` (evrensel izni TAŞIR, `GET /api/products` ile
+#:     kanıtlanıyor) ÜÇ ucun ÜÇÜNDEN de 403 alır. DELETE'ler için cevap
+#:     id'den BAĞIMSIZ olarak 403'tür ve bu, `_herhangi_taraf_izni` ön
+#:     kapısının tanığıdır: ön kapı silinirse sıra "önce 404" olur ve
+#:     defteri hiç göremeyen bir rol satır kimliklerini SAYABİLİR.
+#:   * YÖN I — `satis` CUSTOMER tarafında GEÇER (201), SUPPLIER tarafında
+#:     403 alır. Bu, "middleware izni gerçek kapı DEĞİL" cümlesinin ve
+#:     kapının ROL İLE reddedebildiğinin tanığıdır; `_taraf_izni` çağrısı
+#:     silinirse KIRMIZI olur.
+#:
+#: `GET /api/whatsapp/party-links` bu kümede DEĞİL: GET'ler bu dosyanın
+#: yazma kuralına hiç girmez (`GET /api/push/devices` ile AYNI gerekçe).
+PARTY_ROLE_WRITE_EXEMPTIONS = frozenset({
+    ("POST", "/api/whatsapp/party-pairing-codes"),
+    ("DELETE", "/api/whatsapp/party-pairing-codes/{kod_id}"),
+    ("DELETE", "/api/whatsapp/party-links/{baglanti_id}"),
+})
+
 #: ÜÇÜNCÜ ÇAPA SINIFI — VE NEDEN GEREKTİ (WA1).
 #:
 #: ÖLÇÜLDÜ, VARSAYILMADI: `_gated_operations()` `PUBLIC_API` üyelerini
@@ -296,6 +332,7 @@ def test_no_unanchored_write_is_gated_by_a_universal_permission() -> None:
         and required_permission(method, concrete) in UNIVERSAL_PERMISSIONS
         and (method, path) not in INERT_WRITE_EXEMPTIONS
         and (method, path) not in SELF_SCOPED_WRITE_EXEMPTIONS
+        and (method, path) not in PARTY_ROLE_WRITE_EXEMPTIONS
     )
     assert not offenders, (
         "Evrensel izinle korunan ve ÇAPALANMAMIŞ yazan uç(lar) var; middleware "
@@ -359,7 +396,11 @@ def test_UC_capa_AYRIK() -> None:
     """Bir uç aynı anda iki gerekçeye ait olamaz — gerekçeler birbirini yalanlar."""
     assert PUBLIC_SESSION_WRITE_EXEMPTIONS & PUBLIC_WEBHOOK_EXEMPTIONS == frozenset()
     kapisiz = PUBLIC_SESSION_WRITE_EXEMPTIONS | PUBLIC_WEBHOOK_EXEMPTIONS
-    kapili = INERT_WRITE_EXEMPTIONS | SELF_SCOPED_WRITE_EXEMPTIONS
+    kapili = (
+        INERT_WRITE_EXEMPTIONS
+        | SELF_SCOPED_WRITE_EXEMPTIONS
+        | PARTY_ROLE_WRITE_EXEMPTIONS
+    )
     assert kapisiz & kapili == frozenset()
 
 
@@ -380,12 +421,22 @@ def test_iki_capa_AYRIK() -> None:
     kendi satırına" der.
     """
     assert INERT_WRITE_EXEMPTIONS & SELF_SCOPED_WRITE_EXEMPTIONS == frozenset()
+    # F10-1a: ÜÇÜNCÜ gerekçe de ötekilerle çelişir — "her rol geçer" (push),
+    # "hiçbir rol geçemez" (yedek) ve "bazı roller geçer, ROL ile reddedilir"
+    # (taraf) aynı uca aynı anda uygulanamaz.
+    assert INERT_WRITE_EXEMPTIONS & PARTY_ROLE_WRITE_EXEMPTIONS == frozenset()
+    assert SELF_SCOPED_WRITE_EXEMPTIONS & PARTY_ROLE_WRITE_EXEMPTIONS == frozenset()
 
 
 def test_every_anchored_exemption_still_exists_and_still_needs_the_anchor() -> None:
     """Çapa BAYATLAMAZ: silinmiş ya da artık evrensel olmayan bir giriş kırmızıdır."""
     gated = {(method, path): concrete for method, path, concrete in _gated_operations()}
-    for method, path in sorted(INERT_WRITE_EXEMPTIONS | SELF_SCOPED_WRITE_EXEMPTIONS):
+    tum_capalar = (
+        INERT_WRITE_EXEMPTIONS
+        | SELF_SCOPED_WRITE_EXEMPTIONS
+        | PARTY_ROLE_WRITE_EXEMPTIONS
+    )
+    for method, path in sorted(tum_capalar):
         assert (method, path) in gated, (
             f"{method} {path} artık yetki kapısından geçmiyor; çapa bayat"
         )
@@ -548,6 +599,69 @@ assert sahte.status_code == 403, ("YON-F bozuk imza", sahte.status_code, sahte.t
 ciplak = wc.post(WH, content=GOVDE, headers={"Content-Type": "application/json"})
 assert ciplak.status_code == 403, ("YON-G imzasiz", ciplak.status_code, ciplak.text)
 assert ciplak.status_code == sahte.status_code, (ciplak.status_code, sahte.status_code)
+
+# --- YON H/I: TARAF UCLARINDA REDDEDEN SEY ROLDUR (F10-1a) ---------------
+# Dorduncu capa sinifi. Ustteki uc cumlenin hicbirini kurmuyor: middleware
+# izni `read` ATIL DEGIL (satis GECER), yazilan satirin oznesi CAGIRAN da
+# degil (bir CARIDIR). Olculen sey su: ara katman gecirir, ROUTER ROL ILE
+# REDDEDER — ve hangi rolu reddedecegi `party_type`tan turedigi icin
+# middleware'de sorulamaz.
+PARTY_KOD = "/api/whatsapp/party-pairing-codes"
+PARTY_LINK = "/api/whatsapp/party-links"
+
+musteri = c.post("/api/customers", headers=AH, json={"name": "Atil Ciftci Musteri"})
+assert musteri.status_code == 201, ("KURULUM musteri", musteri.status_code, musteri.text)
+tedarikci = c.post("/api/suppliers", headers=AH, json={"name": "Atil Ciftci Tedarikci"})
+assert tedarikci.status_code == 201, ("KURULUM tedarikci", tedarikci.status_code, tedarikci.text)
+MUSTERI_ID = musteri.json()["id"]
+TEDARIKCI_ID = tedarikci.json()["id"]
+
+# `rapor`: evrensel izni (`read`) TASIR ama iki taraf iznini de TASIMAZ.
+r_created = c.post("/api/users", headers=AH, json={
+    "username": "atil_rapor", "display_name": "Atil Rapor",
+    "password": "AtilKapi!2026x", "role": "rapor"})
+assert r_created.status_code == 201, ("KURULUM rapor kullanici", r_created.status_code, r_created.text)
+rc = TestClient(m.app)
+r_login = rc.post("/api/auth/login",
+                  json={"username": "atil_rapor", "password": "AtilKapi!2026x"})
+assert r_login.status_code == 200, ("KURULUM rapor login", r_login.status_code, r_login.text)
+r_rot = rc.post(
+    "/api/auth/change-password",
+    json={"current_password": "AtilKapi!2026x", "new_password": "AtilKapi!2026y"},
+    headers={"Authorization": "Bearer " + r_login.json()["access_token"]},
+)
+assert r_rot.status_code == 200, ("KURULUM rapor rotation", r_rot.status_code, r_rot.text)
+RH = {"Authorization": "Bearer " + r_rot.json()["access_token"]}
+
+# Kurulum varsayimi: rol middleware iznini GERCEKTEN tasiyor.
+r_okuma = rc.get("/api/products", headers=RH)
+assert r_okuma.status_code == 200, ("KURULUM rapor read", r_okuma.status_code, r_okuma.text)
+
+# YON H: `rapor` UC UCUN UCUNDEN de 403 alir.
+h_post = rc.post(PARTY_KOD, headers=RH, json={
+    "party_type": "CUSTOMER", "party_id": MUSTERI_ID, "phone": "0532 111 22 33"})
+assert h_post.status_code == 403, ("YON-H rapor post", h_post.status_code, h_post.text)
+# DELETE'lerde cevap id'den BAGIMSIZ 403'tur: `_herhangi_taraf_izni` ON
+# KAPISI satiri OKUMADAN reddeder. On kapi silinirse sira "once 404" olur ve
+# bu iki satir KIRMIZI olur — defteri hic goremeyen bir rol, 404/403 farkiyla
+# satir kimliklerini sayabilir hale gelirdi.
+h_del_kod = rc.delete("%s/%d" % (PARTY_KOD, 987654), headers=RH)
+assert h_del_kod.status_code == 403, ("YON-H rapor kod silme", h_del_kod.status_code, h_del_kod.text)
+h_del_link = rc.delete("%s/%d" % (PARTY_LINK, 987654), headers=RH)
+assert h_del_link.status_code == 403, ("YON-H rapor baglanti silme", h_del_link.status_code, h_del_link.text)
+
+# YON I: `satis` CUSTOMER tarafinda GECER, SUPPLIER tarafinda 403 alir.
+# Kararin BEDELI burada: `_taraf_izni` silinirse ikinci satir KIRMIZI olur.
+i_acik = sc.post(PARTY_KOD, headers=SH, json={
+    "party_type": "CUSTOMER", "party_id": MUSTERI_ID, "phone": "0532 111 22 33"})
+assert i_acik.status_code == 201, ("YON-I satis musteri", i_acik.status_code, i_acik.text)
+i_kapali = sc.post(PARTY_KOD, headers=SH, json={
+    "party_type": "SUPPLIER", "party_id": TEDARIKCI_ID, "phone": "0532 444 55 66"})
+assert i_kapali.status_code == 403, ("YON-I satis tedarikci", i_kapali.status_code, i_kapali.text)
+# Ayni rol KENDI tarafindaki satiri silebiliyor: red TARAFTAN geliyor, ROLUN
+# kendisinden degil.
+i_sil = sc.delete("%s/%d" % (PARTY_KOD, i_acik.json()["kod_id"]), headers=SH)
+assert i_sil.status_code == 200, ("YON-I satis kendi tarafi", i_sil.status_code, i_sil.text)
 
 print("ATIL-KAPI-TAMAM")
 '''

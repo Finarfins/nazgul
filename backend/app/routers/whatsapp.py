@@ -539,16 +539,41 @@ def baglanti_kapat(
 TARAF_IZINLERI: dict[str, str] = {"CUSTOMER": "sales", "SUPPLIER": "purchases"}
 
 
+def _rol(request: Request) -> str:
+    user = getattr(request.state, "user", None)
+    return str(user.get("role") or "") if isinstance(user, dict) else ""
+
+
 def _require_permission(request: Request, permission: str) -> None:
     """Rol kapısı. Ad `DENYING_GUARDS` kataloğundadır (yetki nüfus sayımı)."""
-    user = getattr(request.state, "user", None)
-    role = str(user.get("role") or "") if isinstance(user, dict) else ""
-    if not has_permission(role, permission):
+    if not has_permission(_rol(request), permission):
         raise HTTPException(403, "Bu işlem için yetkiniz yok")
 
 
 def _taraf_izni(request: Request, party_type: str) -> None:
     _require_permission(request, TARAF_IZINLERI[party_type])
+
+
+def _herhangi_taraf_izni(request: Request) -> None:
+    """İKİ taraftan EN AZ BİRİNİ taşımayan çağıranı SATIR OKUNMADAN reddeder.
+
+    ÖN KAPI ve gerekçesi ölçülmüş bir sızıntıdır, bir süs değil: `{id}` taşıyan
+    iki DELETE'in hangi izni istediği SATIRIN `party_type`ından türüyor, yani
+    izin ancak satır okunduktan SONRA bilinebilir. Bu ön kapı olmasaydı sıra
+    "önce 404, sonra 403" olurdu ve `rapor` gibi İKİ İZNİ DE taşımayan bir rol,
+    var olmayan id'ye 404, var olana 403 alarak hiç göremeyeceği bir defterin
+    KİMLİKLERİNİ SAYABİLİRDİ. Ön kapıyla o rolün cevabı id'den BAĞIMSIZ olarak
+    403'tür.
+
+    KALAN SINIR AÇIKÇA YAZILI: `sales` taşıyan bir rol, KENDİ firmasındaki bir
+    SUPPLIER satırının id'sini 404/403 farkından çıkarabilir. Kapatmanın tek
+    yolu yanlış tarafa da 404 döndürmekti; o zaman aynı uç ailesi aynı reddi
+    iki farklı kodla anlatırdı (POST 403, DELETE 404). Sızan şey KENDİ
+    kiracısında bir satırın VARLIĞIDIR — içerik değil — ve bu kabul edilmiştir.
+    """
+    izinler = sorted(set(TARAF_IZINLERI.values()))
+    if not any(has_permission(_rol(request), izin) for izin in izinler):
+        raise HTTPException(403, "Bu işlem için yetkiniz yok")
 
 
 def _taraf_hatasi(hata: taraf.TarafHatasi) -> HTTPException:
@@ -644,6 +669,7 @@ def taraf_kodu_iptal(
     bulunamazsa izin denetimine HİÇ girilmez — 404 ile 403 arasındaki fark
     başka firmanın kod envanterini sızdırmaz.
     """
+    _herhangi_taraf_izni(request)
     cid = company_id(request)
     satir = db.execute(
         select(
@@ -744,6 +770,7 @@ def taraf_baglantisi_kapat(
     firmanın bağlantısını kapatabilirdi. İzin, kod iptalindeki SIRA ile
     aynı yoldan satırın kendi `party_type`ından gelir.
     """
+    _herhangi_taraf_izni(request)
     cid = company_id(request)
     satir = db.execute(
         select(
