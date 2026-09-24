@@ -1,6 +1,8 @@
 fastapi>=0.115,<1
 uvicorn[standard]>=0.30,<1
-sqlalchemy>=2.0,<3
+# H83: 2.1.0'da JSON().python_type -> object (2.0'da dict); kiracı dışa aktarım
+# tip dalı (test_str_dalina_dusen_sutun_tipi_yok) kırılıyor. Üst sınır H84'te kalkar.
+sqlalchemy>=2.0,<2.1
 pydantic>=2.7,<3
 pydantic-settings>=2.2,<3
 psycopg[binary]>=3.2,<4

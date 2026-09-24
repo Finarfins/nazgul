@@ -49,3 +49,12 @@ def test_lock_pins_every_direct_dependency():
     pins = _locked_pins()
     missing = sorted(name for name in _direct_names() if name not in pins)
     assert not missing, f"requirements.lock missing pins for: {missing} (recompile the lock)"
+
+
+def test_sqlalchemy_upper_bound_below_2_1():
+    """H83: SQLAlchemy 2.1.0 changed ``JSON().python_type`` from ``dict`` to
+    ``object``; CI installs the loose requirements and went red on every
+    branch. Keep the ``<2.1`` ceiling until H84 audits 2.1 and removes it."""
+    satirlar = [s.strip() for s in REQS.read_text(encoding="utf-8").splitlines()
+                if _norm(re.split(r"[<>=!~\[; ]", s.strip(), maxsplit=1)[0]) == "sqlalchemy"]
+    assert satirlar == ["sqlalchemy>=2.0,<2.1"], satirlar
