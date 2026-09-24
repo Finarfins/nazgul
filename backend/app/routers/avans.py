@@ -287,12 +287,14 @@ def list_supplier_advances(
 ):
     """Tedarikçinin avansları; `open_only` yalnız KALANI OLANLARI verir.
 
-    Satırlar `avans_servis.tedarikci_avans_satirlari`ndan gelir — çiftçi
-    aracı (`whatsapp/ciftci_yurutucu.ciftci_avans`) AYNI fonksiyonu okur,
-    SQL'in ikinci bir kopyası YOKTUR. Süzgeç orada iki SABİT metin
-    arasından SEÇİLİR, birleştirilerek KURULMAZ: kullanıcı girdisi hiçbir
-    yolla SQL'e giremez.
+    Süzgeç iki SABİT metin arasından SEÇİLİR, birleştirilerek KURULMAZ:
+    kullanıcı girdisi hiçbir yolla SQL'e giremez.
     """
+    # Satırlar `avans_servis.tedarikci_avans_satirlari`ndan gelir — çiftçi
+    # aracı (`whatsapp/ciftci_yurutucu.ciftci_avans`) AYNI fonksiyonu okur,
+    # SQL'in ikinci bir kopyası YOKTUR; iki sabit metin de orada durur.
+    # Açıklama BİLEREK docstring'de DEĞİL: docstring OpenAPI'ye (ve
+    # `types.gen.ts`e) akar, sözleşme bu düzeltmede BAYT BAYT aynı kalmalı.
     cid = company_id(request)
     _tedarikci_var(db, cid, supplier_id)
     satirlar = tedarikci_avans_satirlari(
