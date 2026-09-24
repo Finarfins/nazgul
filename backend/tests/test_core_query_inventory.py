@@ -1199,7 +1199,7 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     # `<tablo>.c.company_id == cid` yuklemini ACIKCA tasir; yanit satirlari
     # okumasi `despatch_lines`e (company_id, id) ile birlesir.
     ("app/routers/despatch_notes.py", "_sevk_satiri_haritasi", "select",
-     "dda3e81f357495949624b293a526c54a6531db82bd828a80c9a182cf4563f41c"): (1, "despatch_lines", "arg0"),  # satır [951]
+     "9c9ba74a7ef76d1fd9b602354ee400b4004fd5a906a93fe6eb566c0bc210c7a6"): (1, "despatch_lines", "arg0"),  # satır [1028] H60: projeksiyona `quantity`
     ("app/routers/despatch_notes.py", "yaniti_kaydet", "select",
      "302813e8554e7f1d46e666e94f627d2eee4759156b743a15b05c49691819217a"): (2, "despatch_responses", "arg0"),  # satır [1014, 1053]
     ("app/routers/despatch_notes.py", "_irsaliyeyi_kilitle", "update",
@@ -1439,8 +1439,13 @@ EXPECTED_OP_COUNTS = {"select": 170, "update": 68, "delete": 12}
 # sonrasi YENIDEN turetildi; ilk olcum `f953964` uzerinde
 # 494f7b8b -> 9b7a7b76). Parmak izi EN SON turetildi: once 15 sorgu envantere
 # ADIYLA girdi, sonra tarayicinin ciktisindan alindi. ff03df02 -> fa4c5e26.
+
+# H60 (GOC YOK): 250 -> 250, `_sevk_satiri_haritasi`nin SELECT'inin
+# projeksiyonuna `despatch_lines.quantity` eklendi (yanit miktar mutabakati
+# ayni okumadan; YENI sorgu YOK, kiraci yuklemi `company_id == cid` AYNI);
+# TABAN develop `8a6e3e1`; tarayicinin ciktisindan. fa4c5e26 -> 214d1cf5.
 INVENTORY_FINGERPRINT = (
-    "fa4c5e269411bdefa5f1e3215313b5a38bbd141efacc5d7eedce5e35029e9462"
+    "214d1cf5ffac46832eb5a72d0ba82a0d81f51d9c212923029ad3b6e23f2dc414"
 )
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.

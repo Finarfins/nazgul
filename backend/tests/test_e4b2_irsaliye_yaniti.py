@@ -870,6 +870,114 @@ def test_SYNC_KISMI_KABUL_yazar_ve_IKINCI_sync_IDEMPOTENT(
         (2, "Arpa", "5.0000", "3.7500", "1.2500", "Hasarlı ambalaj"),
     ]
     assert yanit["lines"][0]["product_id"] == 901
+    # H60: 10 = 10 + 0 ve 5 = 3.75 + 1.25 — mutabakat TUTUYOR, uyarı yok.
+    assert yanit["warnings"] == []
+    assert [s["quantity_mismatch"] for s in yanit["lines"]] == [False, False]
+
+
+# ==========================================================================
+# H60 — YANIT MİKTAR MUTABAKATI: UYARI, 4xx DEĞİL, DURUM DEĞİŞİKLİĞİ DEĞİL
+# ==========================================================================
+#
+# MUTASYON TABLOSU (ELLE KOŞULDU, PR gövdesinde):
+#   * `irsaliye_yaniti`nda `govde["warnings"]` hesabını boş listeye çevirmek
+#         -> `test_H60_MIKTAR_UYUSMAZLIGI_uyari_200_durum_AYNI` KIRMIZI
+#   * sync'teki `logger.warning(... miktar uyuşmazlığı ...)`ı silmek
+#         -> aynı test KIRMIZI (log satırı yok)
+#   * `_miktar_uyusmazligi`nda eşitliği `alinan + reddedilen <= sevk` yapmak
+#     (yalnız eksiği say) -> `test_H60_FAZLA_alinan_da_uyusmazlik` KIRMIZI
+
+
+def _miktarli_kismi_kabul(irsaliye: dict, *, alinan_1="10", alinan_2="3.75") -> bytes:
+    """`kismi_kabul` fixture'ı, alınan miktarları BELLEKTE değiştirilmiş.
+    Fixture dosyası DEĞİŞMEZ (SENTETİK başlık kapısı dosyaları sayıyor)."""
+    belge = _belge(
+        "kismi_kabul", irsaliye_no=irsaliye["despatch_number"], irsaliye_ettn=irsaliye["despatch_uuid"]
+    ).decode("utf-8")
+    for eski, yeni in (("10", alinan_1), ("3.75", alinan_2)):
+        etiket = f'<cbc:ReceivedQuantity unitCode="C62">{eski}</cbc:ReceivedQuantity>'
+        assert belge.count(etiket) == 1, etiket
+        belge = belge.replace(
+            etiket, f'<cbc:ReceivedQuantity unitCode="C62">{yeni}</cbc:ReceivedQuantity>'
+        )
+    return belge.encode("utf-8")
+
+
+def test_H60_MIKTAR_UYUSMAZLIGI_uyari_200_durum_AYNI(
+    istemci, admin_basliklari, irsaliye, saglayici_kur, caplog
+) -> None:
+    """Satır 2: sevk 5, alınan 3 + reddedilen 1.25 = 4.25. Yanıt YİNE yazılır,
+    durum YİNE PARTIALLY_ACCEPTED; `GET .../response` uyarıyı taşır, sync bir
+    kez log düşer, ikinci sync (aynı belge) log DÜŞMEZ."""
+    import logging
+
+    h = admin_basliklari
+    saglayici_kur(_Saglayici(belgeler=[_miktarli_kismi_kabul(irsaliye, alinan_2="3")]))
+    with caplog.at_level(logging.WARNING, logger="app.routers.despatch_notes"):
+        ilk = _sync(istemci, h, irsaliye["id"])
+    assert ilk.status_code == 200, ilk.text
+    assert ilk.json()["edespatch_status"] == "PARTIALLY_ACCEPTED"
+    assert ilk.json()["receipt_advice"]["recorded"] == 1
+    kayitlar = [k for k in caplog.records if "miktar uyuşmazlığı" in k.getMessage()]
+    assert len(kayitlar) == 1, [k.getMessage() for k in caplog.records]
+    assert "satırlar=[2]" in kayitlar[0].getMessage()
+    assert f"irsaliye={irsaliye['id']}" in kayitlar[0].getMessage()
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="app.routers.despatch_notes"):
+        ikinci = _sync(istemci, h, irsaliye["id"])
+    assert ikinci.status_code == 200, ikinci.text
+    assert ikinci.json()["receipt_advice"]["recorded"] == 0
+    assert not [k for k in caplog.records if "miktar uyuşmazlığı" in k.getMessage()]
+
+    yanit = istemci.get(f"/api/despatch-notes/{irsaliye['id']}/response", headers=h)
+    assert yanit.status_code == 200, yanit.text
+    govde = yanit.json()
+    assert govde["edespatch_status"] == "PARTIALLY_ACCEPTED"
+    assert govde["warnings"] == [
+        {
+            "code": "YANIT_MIKTAR_UYUSMAZLIGI",
+            "line_no": 2,
+            "despatched_quantity": "5.0000",
+            "received_quantity": "3.0000",
+            "rejected_quantity": "1.2500",
+            "difference": "-0.7500",
+        }
+    ]
+    assert [(s["line_no"], s["quantity_mismatch"]) for s in govde["lines"]] == [
+        (1, False), (2, True),
+    ]
+
+
+def test_H60_FAZLA_alinan_da_uyusmazlik(
+    istemci, admin_basliklari, irsaliye, saglayici_kur
+) -> None:
+    """Satır 1: sevk 10, alınan 12 + 0. Fazla da uyuşmazlıktır (iki yönlü)."""
+    h = admin_basliklari
+    saglayici_kur(_Saglayici(belgeler=[_miktarli_kismi_kabul(irsaliye, alinan_1="12")]))
+    assert _sync(istemci, h, irsaliye["id"]).status_code == 200
+    govde = istemci.get(f"/api/despatch-notes/{irsaliye['id']}/response", headers=h).json()
+    assert [(u["line_no"], u["difference"]) for u in govde["warnings"]] == [(1, "2.0000")]
+
+
+def test_H60_yardimci_iki_yonlu_ve_olcek_esit() -> None:
+    """Birim: iki yön ve ölçek eşitliği (`5` == `5.0000`)."""
+    from decimal import Decimal as D
+
+    from app.routers.despatch_notes import _miktar_uyusmazligi
+
+    assert _miktar_uyusmazligi(1, D("5"), D("3.75"), D("1.25")) is None
+    assert _miktar_uyusmazligi(1, "5.0000", "5", "0") is None
+    eksik = _miktar_uyusmazligi(3, D("5"), D("3"), D("1"))
+    assert eksik is not None and eksik["difference"] == "-1.0000" and eksik["line_no"] == 3
+    assert _miktar_uyusmazligi(1, D("5"), D("6"), D("0"))["difference"] == "1.0000"
+
+
+def test_H60_YANIT_YOKKEN_warnings_BOS(istemci, admin_basliklari, irsaliye) -> None:
+    govde = istemci.get(
+        f"/api/despatch-notes/{irsaliye['id']}/response", headers=admin_basliklari
+    ).json()
+    assert govde["response"] is None and govde["lines"] == [] and govde["warnings"] == []
 
 
 @pytest.mark.parametrize(

@@ -104,6 +104,7 @@ from .routers import (
     work_order_billing,
     workflow,
 )
+from .gunluk_akisi import KodlamayaDayanikliAkis
 from .maintenance import hold_sqlite_runtime_lock, is_maintenance_active, maintenance_status
 from .field_stok_zamanlayici import (
     baslat_field_stok_zamanlayici,
@@ -118,8 +119,10 @@ logger = logging.getLogger("yerel_hesap")
 # Give the application logger its own stdout handler so unhandled-exception
 # tracebacks always reach container logs, independent of whatever root/uvicorn/
 # alembic logging configuration is (or is not) applied later in startup.
+# H70: cp1252 konsolda Türkçe satırlar `UnicodeEncodeError`la KAYBOLUYORDU;
+# `KodlamayaDayanikliAkis` kodlanamayan karakteri kaçışla yazar (`app/gunluk_akisi.py`).
 if not logger.handlers:
-    _stdout_handler = logging.StreamHandler(sys.stdout)
+    _stdout_handler = KodlamayaDayanikliAkis(sys.stdout)
     _stdout_handler.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
     )

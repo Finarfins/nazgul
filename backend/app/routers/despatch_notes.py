@@ -110,6 +110,7 @@ from ..einvoice.endpoints import IZIBIZ_EDESPATCH_PDF_UNVERIFIED
 from ..invoice_service import log_invoice_action
 from ..sinirlar import INT4_UST
 from ..tenancy import company_id
+from ..zaman import utc as _utc
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/despatch-notes", tags=["despatch-notes"])
@@ -248,8 +249,8 @@ def _gorunum(satir: dict) -> dict:
     (`"2026-09-16 10:00:00+00:00"`, boşluklu), SQLite ham `text()` okumasında
     naive bir METİN (`"2026-09-16 10:00:00"`, offset'siz). `_utc` ikisini de
     kabul eder, ikisini de aynı ana çevirir. Tarih (`issue_date`) `YYYY-MM-DD`
-    kalır. `invoices.py::_einvoice_view` hâlâ `str()` kullanıyor; o fatura
-    sözleşmesi bu dilimin kapsamında değil.
+    kalır. H73: `_utc` artık `app/zaman.py`de; fatura uçları da aynı biçimi
+    oradan yazıyor.
     """
     cikti: dict = {}
     for ad in GORUNEN_ALANLAR:
@@ -971,18 +972,8 @@ ZIMNI_KABUL_SURESI = timedelta(days=7)
 #: kendi karşılaştırmasından doğanlar.
 YANIT_SATIRI_ESLESMEDI = "YANIT_SATIRI_ESLESMEDI"
 YANIT_BELGE_REFERANSI_UYUSMUYOR = "YANIT_BELGE_REFERANSI_UYUSMUYOR"
-
-
-def _utc(deger) -> datetime | None:
-    """SQLite naive döndürür (yazarken UTC'ye normalleştirilmişti), PG oturum
-    diliminde döndürür; ikisi de UTC'ye çekilir."""
-    if deger is None:
-        return None
-    if not isinstance(deger, datetime):
-        deger = datetime.fromisoformat(str(deger).replace("Z", "+00:00"))
-    if deger.tzinfo is None:
-        deger = deger.replace(tzinfo=timezone.utc)
-    return deger.astimezone(timezone.utc)
+#: H60 — UYARI kodu, hata DEĞİL: `GET .../response`un `warnings`inde döner.
+YANIT_MIKTAR_UYUSMAZLIGI = "YANIT_MIKTAR_UYUSMAZLIGI"
 
 
 def _zimni_kabul_tarihi(irsaliye: dict) -> str | None:
@@ -1022,13 +1013,21 @@ def _bizim_irsaliyemiz_mi(belge: edespatch.YanitBelgesi, irsaliye: dict) -> bool
     return False
 
 
-def _sevk_satiri_haritasi(db: Session, cid: int, irsaliye_id: int) -> dict[int, int]:
-    """`line_no -> despatch_lines.id` — yanıt satırının eşleme anahtarı
-    (`edespatch` bölüm 3 başlığı: `DespatchLineReference/LineID`)."""
+def _sevk_satiri_haritasi(
+    db: Session, cid: int, irsaliye_id: int
+) -> dict[int, tuple[int, Decimal]]:
+    """`line_no -> (despatch_lines.id, sevk edilen miktar)` — yanıt satırının
+    eşleme anahtarı (`edespatch` bölüm 3 başlığı: `DespatchLineReference/LineID`).
+
+    H60: miktar AYNI okumadan gelir, yeni bir sorgu açılmaz; yanıtın
+    `alınan + reddedilen` toplamı bununla karşılaştırılır
+    (`_miktar_uyusmazligi`)."""
     return {
-        int(r["line_no"]): int(r["id"])
+        int(r["line_no"]): (int(r["id"]), _miktar(r["quantity"]))
         for r in db.execute(
-            select(despatch_lines.c.id, despatch_lines.c.line_no).where(
+            select(
+                despatch_lines.c.id, despatch_lines.c.line_no, despatch_lines.c.quantity
+            ).where(
                 despatch_lines.c.company_id == cid,
                 despatch_lines.c.despatch_id == irsaliye_id,
             )
@@ -1037,7 +1036,7 @@ def _sevk_satiri_haritasi(db: Session, cid: int, irsaliye_id: int) -> dict[int, 
 
 
 def _yaniti_esle(
-    belge: edespatch.YanitBelgesi, harita: dict[int, int], irsaliye: dict
+    belge: edespatch.YanitBelgesi, harita: dict[int, tuple[int, Decimal]], irsaliye: dict
 ) -> list[tuple[edespatch.YanitSatiri, int]]:
     """Her yanıt satırını bir sevk satırına bağla; bağlanamayan her satır HATA.
 
@@ -1054,15 +1053,39 @@ def _yaniti_esle(
                 "Yanıt satırı başka bir irsaliyeyi gösteriyor",
                 line=satir.satir_no,
             )
-        kimlik = harita.get(satir.satir_no)
-        if kimlik is None:
+        sevk_satiri = harita.get(satir.satir_no)
+        if sevk_satiri is None:
             raise edespatch.ReceiptAdviceError(
                 YANIT_SATIRI_ESLESMEDI,
                 "Yanıt satırı bu irsaliyenin hiçbir satırına karşılık gelmiyor",
                 line=satir.satir_no,
             )
-        eslesen.append((satir, kimlik))
+        eslesen.append((satir, sevk_satiri[0]))
     return eslesen
+
+
+def _miktar_uyusmazligi(satir_no, sevk, alinan, reddedilen) -> dict | None:
+    """H60 — yanıt satırında `alınan + reddedilen` sevk edilen miktara eşit mi?
+
+    Eşit değilse bir UYARI sözlüğü, eşitse `None`. Bu bir UYARIDIR: yanıt
+    yine yazılır, 4xx yok, durum makinesi kımıldamaz (E4b-2 kararı, 17 Eylül:
+    "warn-flag in the response view"). Fark İKİ YÖNLÜ ölçülür — eksik
+    (alıcı bir kısmı hiç anmamış) de fazla (sevk edilenden çok alınmış) da
+    uyuşmazlıktır. Karşılaştırma `_miktar` ölçeğinde (4 hane) `Decimal`.
+    Yanıtta HİÇ anılmayan sevk satırı burada ölçülmez: karşılaştırma yanıt
+    satırı başınadır.
+    """
+    sevk, alinan, reddedilen = _miktar(sevk), _miktar(alinan), _miktar(reddedilen)
+    if alinan + reddedilen == sevk:
+        return None
+    return {
+        "code": YANIT_MIKTAR_UYUSMAZLIGI,
+        "line_no": int(satir_no),
+        "despatched_quantity": str(sevk),
+        "received_quantity": str(alinan),
+        "rejected_quantity": str(reddedilen),
+        "difference": str(alinan + reddedilen - sevk),
+    }
 
 
 def yaniti_kaydet(
@@ -1264,6 +1287,21 @@ def edespatch_sync(despatch_id: int, request: Request, db: Session = Depends(get
         if not yaniti_kaydet(db, cid, despatch_id, belge, ham, eslesen, simdi, ek_not=ek_not):
             continue
         kaydedilen += 1
+        uyusmazliklar = [
+            u
+            for s, _ in eslesen
+            if (u := _miktar_uyusmazligi(
+                s.satir_no, harita[s.satir_no][1], s.alinan, s.reddedilen
+            ))
+        ]
+        if uyusmazliklar:
+            # H60: YALNIZ yeni yazılan belge için, bir kez (tekrar sync'te
+            # `yaniti_kaydet` False döner, buraya gelinmez). Log satır
+            # numarasından ibaret; ad, VKN ve miktar yazılmaz.
+            logger.warning(
+                "e-İrsaliye yanıtı miktar uyuşmazlığı (irsaliye=%s, yanıt=%s, satırlar=%s)",
+                despatch_id, belge.numara, [u["line_no"] for u in uyusmazliklar],
+            )
         yeni = edespatch.durumu_ilerlet(durum, hedef)
         if yeni != durum and yeni == hedef:
             durum = yeni
@@ -1364,6 +1402,9 @@ def irsaliye_yaniti(despatch_id: int, request: Request, db: Session = Depends(ge
         "responses_count": len(yanitlar),
         "response": None,
         "lines": [],
+        # H60: etkili yanıtın satır başına `alınan + reddedilen != sevk`
+        # uyuşmazlıkları. UYARI — gövde yine 200, durum yine aynı.
+        "warnings": [],
     }
     if not yanitlar:
         return govde
@@ -1412,8 +1453,18 @@ def irsaliye_yaniti(despatch_id: int, request: Request, db: Session = Depends(ge
             "received_quantity": str(_miktar(s["received_quantity"])),
             "rejected_quantity": str(_miktar(s["rejected_quantity"])),
             "reject_reason": s["reject_reason"],
+            "quantity_mismatch": _miktar_uyusmazligi(
+                s["line_no"], s["quantity"], s["received_quantity"], s["rejected_quantity"]
+            ) is not None,
         }
         for s in satirlar
+    ]
+    govde["warnings"] = [
+        u
+        for s in satirlar
+        if (u := _miktar_uyusmazligi(
+            s["line_no"], s["quantity"], s["received_quantity"], s["rejected_quantity"]
+        ))
     ]
     return govde
 

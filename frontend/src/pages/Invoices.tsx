@@ -4,6 +4,7 @@ import {Alert,Box,Chip,MenuItem,Pagination,Paper,Stack,TextField,Typography} fro
 import type {GridColDef} from '@mui/x-data-grid';
 import {api,errorDetail,money} from '../api';
 import ResponsiveTable from '../components/ResponsiveTable';
+import {yerelGun} from '../utils/tarih';
 
 type EInvoiceStatus='NONE'|'PENDING'|'SENT'|'ACCEPTED'|'REJECTED'|'ERROR';
 type InvoiceRow={
@@ -30,7 +31,7 @@ const EINVOICE_STATUS:Record<EInvoiceStatus,{label:string;color:'default'|'info'
  ERROR:{label:'Hata',color:'error'},
 };
 
-const date=(value?:string)=>value?String(value).slice(0,10):'-';
+const date=(value?:string)=>yerelGun(value);
 const invoiceStatusChip=(value:string)=>{
  const view=INVOICE_STATUS[value]||{label:value||'-',color:'default' as const};
  return <Chip size="small" label={view.label} color={view.color}/>;

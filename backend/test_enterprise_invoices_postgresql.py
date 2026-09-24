@@ -79,3 +79,13 @@ def test_invoice_numbering_and_generation_concurrency(monkeypatch:pytest.MonkeyP
     with SessionLocal() as db:
         assert db.execute(text('SELECT COUNT(*) FROM invoices WHERE company_id=:cid'),{'cid':cid}).scalar_one()==8
         assert db.execute(text('SELECT COUNT(*) FROM invoice_history WHERE company_id=:cid AND action=\'CREATED\''),{'cid':cid}).scalar_one()==8
+    # H73: PG TIMESTAMPTZ'yi OTURUM diliminde döndürür (yerelde `+03:00` ölçüldü)
+    # ve `_einvoice_view` eskiden `str()` ile boşluklu yazıyordu; tel biçimi artık
+    # iki uçta da UTC ISO-8601 (`app/zaman.py`).
+    import re
+    utc_iso=re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?\+00:00$')
+    ornek=results[0][1]
+    for alan in ('created_at','updated_at','einvoice_updated_at'): assert utc_iso.match(str(ornek[alan])),(alan,ornek[alan])
+    with TestClient(app) as client:
+        durum=client.get(f"/api/invoices/{ornek['id']}/einvoice/status",headers=h).json()
+    assert utc_iso.match(str(durum['einvoice_updated_at'])),durum
