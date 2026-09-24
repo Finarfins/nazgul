@@ -5,7 +5,7 @@ akışın DAVRANIŞINI ölçüyor (dağıtım, rıza kapısı, `DUR`, kapsam mes
 kiracı yalıtımı); bu dosya yalnız GELİŞTİRME DİYALEKTİNDE GÖRÜNMEYEN
 şeyleri ölçer.
 
---- BU İKİZ NEDEN VAR — DÖRT GEREKÇE, DÖRDÜ DE YALNIZ BURADA GÖRÜNÜR ----
+--- BU İKİZ NEDEN VAR — BEŞ GEREKÇE, BEŞİ DE YALNIZ BURADA GÖRÜNÜR ------
 
 1. **UPSERT'İN POSTGRESQL DALI SQLite HATTINDA HİÇ KOŞMUYOR.**
    `ciftci_yurutucu.mesaj_deneme_say` lehçeye göre İKİ AYRI gövdeye
@@ -30,12 +30,19 @@ kiracı yalıtımı); bu dosya yalnız GELİŞTİRME DİYALEKTİNDE GÖRÜNMEYEN
    kuruş farkı YALNIZ burada görünür. Keşif §6.3 aynı gerekçeyi kantar
    dilimi için de yazıyor (`_fis_neti`).
 
+5. **ÇOK FİRMALI RIZA AKIŞI GERÇEK PG'DE (runtime lens düzeltme 2).**
+   Lens çok firmalı çiftçinin rıza VEREMEDİĞİNİ SQLite'ta VE PG'de
+   ölçtü. Düzeltmenin PG'de de tuttuğu burada, dağıtıcının KENDİSİYLE
+   (`service._claim` + `service._mesaj_isle`) ölçülüyor: rıza defterinin
+   yazma yolu (`set_consent`), `consent_at` damgası ve denetim satırı
+   gerçek PG'de koşuyor.
+
 --- KAPSAM DIŞI, BİLEREK -------------------------------------------------
 
-Dağıtıcının kendisi (`service.bekleyenleri_isle`) burada KOŞTURULMUYOR:
-davranışı SQLite ikizi ölçüyor ve iki yerde ölçmek, biri değişip öteki
-kaldığında hangisinin doğru olduğunu BİLİNEMEZ kılardı. Burada ölçülen şey
-ŞEMA ve DİYALEKTTİR.
+`service.bekleyenleri_isle` burada KOŞTURULMUYOR: paylaşık bir şemada
+kuyruğun TAMAMINI işler, yani komşu ikizin satırlarına dokunurdu. Gerekçe
+5'in adımı yalnız KENDİ satırını kiralar ve işler. Akışın geri kalanını
+(kapsam mesajı, hız sınırı, kiracı yalıtımı) SQLite ikizi ölçüyor.
 """
 from __future__ import annotations
 
@@ -107,7 +114,19 @@ def _temizle(engine) -> None:
             text(f"DELETE FROM {SAYAC} WHERE phone IN (:p,:q)"),
             {"p": NUMARA, "q": IKINCI_NUMARA},
         )
-        for tablo in ("supplier_advances", "payments", "suppliers", "customers"):
+        b.execute(
+            text("DELETE FROM whatsapp_inbound WHERE sender_phone IN (:p,:q)"),
+            {"p": NUMARA, "q": IKINCI_NUMARA},
+        )
+        for tablo in (
+            "whatsapp_party_links",
+            "notification_consent_events",
+            "notification_consents",
+            "supplier_advances",
+            "payments",
+            "suppliers",
+            "customers",
+        ):
             b.execute(
                 text(f"DELETE FROM {tablo} WHERE company_id IN {firma_alt}"),
                 {"o": onek},
@@ -115,8 +134,8 @@ def _temizle(engine) -> None:
         # `activity_logs` YALNIZ-EKLEMEDIR (BEFORE DELETE tetikleyicisi, göç
         # `20260727_0030`): denetim satırı taşıyan firma SİLİNEMEZ. F10-1a
         # ikizinin kuralı AYNEN: öyle bir firma PASİFE alınır, ötekiler
-        # silinir. Bu dosya denetim satırı yazmıyor ama kural yine de
-        # uygulanıyor — yarın bir adım yazarsa temizlik SESSİZCE kırılmasın.
+        # silinir. Rıza akışı adımı (gerekçe 5) `party.whatsapp_consent_*`
+        # denetim satırı YAZIYOR; firması bu dal ile pasife çekilir.
         b.execute(
             text(
                 "UPDATE companies SET is_active = FALSE WHERE name LIKE :o"
@@ -638,3 +657,149 @@ def test_AVANS_TOPLAMLARI_UCUN_KENDI_JSONUYLA_AYNI_GERCEK_PGde(
     assert veri["kalan"] == sum(Decimal(s["remaining_amount"]) for s in satirlar)
     assert veri["alinan"] == Decimal("60000.30")
     assert veri["kalan"] == Decimal("6234.61")
+
+
+# ------------------------------------------------- çok firmalı rıza ---
+
+
+def test_COK_FIRMALI_RIZA_AKISI_DAGITICIDAN_GERCEK_PGde(motor) -> None:
+    """Lens dizisi dağıtıcıdan, gerçek PG'de: 1. firma GRANTED, 2. firma NO_RECORD.
+
+    Dizi: EKSTRE / EVET / 1 EVET / 1 evet / 1. EVET / 1 HAYIR, sonra
+    "2 HAYIR" ve `DUR`. Düzeltmeden önce ilk altı adım SIFIR rıza satırıyla
+    bitiyordu (runtime lens NO-GO, tur 1 — PG'de de ölçüldü).
+
+    Yalnız KENDİ satırı kiralanır (`_claim`) ve işlenir (`_mesaj_isle`):
+    paylaşık şemada komşunun kuyruğuna dokunulmaz (başlık, kapsam dışı).
+    """
+    from app.config import settings
+    from app.whatsapp import service
+
+    class _Sahte:
+        def __init__(self) -> None:
+            self.gonderilenler: list[str] = []
+
+        def metin_gonder(self, alici: str, metin: str) -> None:
+            self.gonderilenler.append(metin)
+
+    an = datetime.now(timezone.utc)
+    with motor.begin() as b:
+
+        def firma(ek: str) -> int:
+            return int(
+                b.execute(
+                    text(
+                        "INSERT INTO companies(name,is_active,created_at)"
+                        " VALUES(:n,TRUE,:t) RETURNING id"
+                    ),
+                    {"n": KOSU + ek, "t": an},
+                ).scalar_one()
+            )
+
+        def tedarikci(cid: int, acilis: int) -> int:
+            return int(
+                b.execute(
+                    text(
+                        "INSERT INTO suppliers(name,is_active,company_id,"
+                        "opening_balance,risk_limit,payment_term_days)"
+                        " VALUES(:a,TRUE,:c,:o,0,0) RETURNING id"
+                    ),
+                    {"a": KOSU + "-ciftci", "c": cid, "o": acilis},
+                ).scalar_one()
+            )
+
+        def baglanti(cid: int, sid: int) -> int:
+            return int(
+                b.execute(
+                    text(
+                        "INSERT INTO whatsapp_party_links(company_id,party_type,"
+                        "party_id,phone,is_active,created_at,updated_at)"
+                        " VALUES(:c,'SUPPLIER',:s,:p,TRUE,:t,:t) RETURNING id"
+                    ),
+                    {"c": cid, "s": sid, "p": NUMARA, "t": an},
+                ).scalar_one()
+            )
+
+        firma_1, firma_2 = firma("-rz1"), firma("-rz2")
+        ted_1, ted_2 = tedarikci(firma_1, 10000), tedarikci(firma_2, 77000)
+        link_1, link_2 = baglanti(firma_1, ted_1), baglanti(firma_2, ted_2)
+
+    Oturum = sessionmaker(bind=motor)
+    saglayici = _Sahte()
+
+    def konus(metin: str) -> str:
+        with Oturum() as db:
+            satir = db.execute(
+                text(
+                    "INSERT INTO whatsapp_inbound(wamid,sender_phone,"
+                    "phone_number_id,text,status,attempt_count,received_at)"
+                    " VALUES(:w,:p,:n,:m,'RECEIVED',0,:t) RETURNING id"
+                ),
+                {
+                    "w": f"{KOSU}-{uuid4().hex}",
+                    "p": NUMARA,
+                    "n": settings.whatsapp_phone_number_id or "",
+                    "m": metin,
+                    "t": datetime.now(timezone.utc),
+                },
+            ).scalar_one()
+            db.commit()
+            jeton = service._claim(db, int(satir))
+            assert jeton is not None
+            once = len(saglayici.gonderilenler)
+            service._mesaj_isle(db, int(satir), jeton, saglayici)
+            assert len(saglayici.gonderilenler) == once + 1, metin
+            return saglayici.gonderilenler[-1]
+
+    def durum(cid: int, sid: int):
+        with motor.connect() as b:
+            return b.execute(
+                text(
+                    "SELECT status FROM notification_consents WHERE company_id=:c"
+                    " AND party_type='SUPPLIER' AND party_id=:s"
+                    " AND channel='WHATSAPP'"
+                ),
+                {"c": cid, "s": sid},
+            ).scalar_one_or_none()
+
+    def damga(link: int):
+        with motor.connect() as b:
+            return b.execute(
+                text("SELECT consent_at FROM whatsapp_party_links WHERE id=:i"),
+                {"i": link},
+            ).scalar_one()
+
+    konus("EKSTRE")
+    assert '"1 EVET"' in konus("EVET")
+    assert durum(firma_1, ted_1) is None and durum(firma_2, ted_2) is None
+
+    assert "Onayınız alındı" in konus("1 EVET")
+    for tekrar in ("1 evet", "1. EVET", "1 HAYIR"):
+        konus(tekrar)
+    assert durum(firma_1, ted_1) == "GRANTED"
+    assert durum(firma_2, ted_2) is None
+    assert damga(link_1) is not None and damga(link_2) is None
+
+    assert "10.000,00" in konus("1 EKSTRE")
+    kvkk = konus("2 EKSTRE")
+    assert kvkk.endswith("2 EVET / 2 HAYIR"), kvkk
+    assert "77.000,00" not in kvkk
+
+    konus("2 HAYIR")
+    assert durum(firma_2, ted_2) == "REVOKED"
+    assert durum(firma_1, ted_1) == "GRANTED"
+
+    assert "kapatıldı" in konus("DUR")
+    assert durum(firma_1, ted_1) == "REVOKED"
+    assert durum(firma_2, ted_2) == "REVOKED"
+    with motor.connect() as b:
+        acik = b.execute(
+            text(
+                "SELECT COUNT(*) FROM whatsapp_party_links"
+                " WHERE id IN (:a,:b) AND is_active"
+            ),
+            {"a": link_1, "b": link_2},
+        ).scalar_one()
+    assert int(acik) == 0
+    # DUR damgayı SİLMEZ (tarihçe).
+    assert damga(link_1) is not None

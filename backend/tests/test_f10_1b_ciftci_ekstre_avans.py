@@ -36,6 +36,13 @@ sınırsız mesaj ÜRETEMEZ.
   * `whatsapp_message_attempts`e `company_id` eklemek
                                     -> PLATFORM ve FİRMALAR ARASI kapıları
                                        KIRMIZI
+  * `EVET`/`HAYIR`ı sıra öneki ATILMAMIŞ tam metne eşlemek (lens NO-GO 1)
+                                    -> ÇOK FİRMALI LENS DİZİSİ, 2 HAYIR ve
+                                       SEÇİM SORULUR kapıları KIRMIZI
+  * Öneksiz `EVET`i N>1'de ilk adaya ya da bütün adaylara yazmak
+                                    -> ÖNEKSİZ EVET/HAYIR kapısı KIRMIZI
+  * `EVET`te `consent_at`i yazmamak / bir izin kararında onu OKUMAK
+                                    -> CONSENT_AT kapıları KIRMIZI
 """
 from __future__ import annotations
 
@@ -776,16 +783,37 @@ def test_PERSONEL_KAZANIR_ayni_numara_ikisine_de_bagliyken(oturum, dunya):
     assert gonderilen[-1][1] != CIFTCI_KAPSAM_MESAJI
 
 
+def _riza_durumu(db, cid: int, sid: int) -> str | None:
+    """`(firma, tedarikçi)` rıza satırının durumu; satır YOKSA ``None`` (NO_RECORD)."""
+    from sqlalchemy import text
+
+    return db.execute(
+        text(
+            "SELECT status FROM notification_consents WHERE company_id=:c"
+            " AND party_type='SUPPLIER' AND party_id=:p AND channel='WHATSAPP'"
+        ),
+        {"c": cid, "p": sid},
+    ).scalar_one_or_none()
+
+
+def _iki_firmali_ciftci(db, dunya) -> tuple[int, int]:
+    """AYNI numara İKİ firmada, RIZA YOK. Sıra `taraf_coz`un sırasıdır (A=1, B=2)."""
+    a = _baglanti_ac(db, dunya["firma_a"], "SUPPLIER", dunya["tedarikci_a"])
+    b = _baglanti_ac(db, dunya["firma_b"], "SUPPLIER", dunya["tedarikci_b"])
+    return a, b
+
+
 def test_COK_FIRMADA_SECIM_SORULUYOR_RASTGELE_SECILMIYOR(oturum, dunya):
     """İki firmada aktif numara → NUMARALI liste; hiçbir firmanın rakamı YOK.
 
     MUTASYON: `_firma_coz`da `adaylar[0]`ı seçmek bunu KIRMIZI yapar — ve
     o mutant YANLIŞ TENANT'ın verisini döndürürdü.
+
+    RIZA WHATSAPP'TAN VERİLİYOR, `_riza_ver` İLE DEĞİL: bu testin önceki
+    hâli rızayı doğrudan deftere yazıyordu ve bu yüzden çok firmalı
+    çiftçinin rıza VEREMEDİĞİNİ hiç görmedi (runtime lens NO-GO, tur 1).
     """
-    _baglanti_ac(oturum, dunya["firma_a"], "SUPPLIER", dunya["tedarikci_a"])
-    _baglanti_ac(oturum, dunya["firma_b"], "SUPPLIER", dunya["tedarikci_b"])
-    _riza_ver(oturum, dunya["firma_a"], "SUPPLIER", dunya["tedarikci_a"])
-    _riza_ver(oturum, dunya["firma_b"], "SUPPLIER", dunya["tedarikci_b"])
+    _iki_firmali_ciftci(oturum, dunya)
 
     gonderilen, _ = _konus(oturum, "ekstre")
     metin = gonderilen[-1][1]
@@ -793,11 +821,286 @@ def test_COK_FIRMADA_SECIM_SORULUYOR_RASTGELE_SECILMIYOR(oturum, dunya):
     assert "Alim Merkezi" in metin and "Komsu Merkez" in metin
     assert "10.000,00" not in metin and "77.000,00" not in metin
 
-    # SIRA ÖNEKİ firmayı çözüyor ve HER BİRİ KENDİ sayısını veriyor.
+    # SIRA ÖNEKİ firmayı çözüyor ve HER BİRİ KENDİ rızasını KENDİ sayısıyla veriyor.
+    _konus(oturum, "1 EVET")
+    _konus(oturum, "2 EVET")
     gonderilen, _ = _konus(oturum, "1 ekstre")
     assert "10.000,00" in gonderilen[-1][1]
+    assert "77.000,00" not in gonderilen[-1][1]
     gonderilen, _ = _konus(oturum, "2 ekstre")
     assert "77.000,00" in gonderilen[-1][1]
+    assert "10.000,00" not in gonderilen[-1][1]
+
+
+def test_COK_FIRMALI_CIFTCI_LENS_DIZISI_RIZAYI_YALNIZ_BIRINCI_FIRMAYA_VERIYOR(
+    oturum, dunya
+):
+    """Runtime lens'in TAM dizisi: EKSTRE / EVET / 1 EVET / 1 evet / 1. EVET / 1 HAYIR.
+
+    Düzeltmeden önce bu dizi SIFIR rıza satırıyla bitiyordu: `evet_mi`
+    TAM metne bakıyordu ve "1 EVET"i tanımıyordu. Şimdi: 1. firma GRANTED,
+    2. firma NO_RECORD (satır YOK).
+
+    "1 HAYIR"ın 1. firmayı GERİ ÇEKMEMESİ tekrar kuralının (b) kendisidir:
+    `HAYIR` yalnız kayıt YOKKEN yazar — firma BAŞINA.
+
+    MUTASYON: `ciftci_cevap`ta `evet_mi(komut)`u `evet_mi(metin)`e geri
+    çevirmek üçüncü adımı KIRMIZI yapar (sonsuz KVKK döngüsü).
+    """
+    from sqlalchemy import text
+
+    from app.whatsapp.ciftci_niyet import RIZA_ALINDI_MESAJI
+
+    _iki_firmali_ciftci(oturum, dunya)
+
+    gonderilen, _ = _konus(oturum, "EKSTRE")
+    assert "Sorunuzun başına firma numarasını" in gonderilen[-1][1]
+
+    # ÖNEKSİZ EVET N>1'de HİÇBİR ŞEY YAZMAZ, önekli örneği öğretir.
+    gonderilen, _ = _konus(oturum, "EVET")
+    assert '"1 EVET"' in gonderilen[-1][1]
+    assert _riza_durumu(oturum, dunya["firma_a"], dunya["tedarikci_a"]) is None
+    assert _riza_durumu(oturum, dunya["firma_b"], dunya["tedarikci_b"]) is None
+
+    gonderilen, _ = _konus(oturum, "1 EVET")
+    assert gonderilen[-1][1] == RIZA_ALINDI_MESAJI
+
+    for tekrar in ("1 evet", "1. EVET", "1 HAYIR"):
+        _konus(oturum, tekrar)
+
+    assert _riza_durumu(oturum, dunya["firma_a"], dunya["tedarikci_a"]) == "GRANTED"
+    assert _riza_durumu(oturum, dunya["firma_b"], dunya["tedarikci_b"]) is None
+
+    # Tekrar kuralı firma başına: "1 evet" / "1. EVET" versiyonu şişirmedi.
+    assert (
+        int(
+            oturum.execute(
+                text("SELECT version FROM notification_consents WHERE company_id=:c"),
+                {"c": dunya["firma_a"]},
+            ).scalar_one()
+        )
+        == 1
+    )
+
+    # "1 EKSTRE" RAKAM döner; "2 EKSTRE" 2. firmanın KENDİ KVKK metnini alır.
+    gonderilen, _ = _konus(oturum, "1 EKSTRE")
+    assert "10.000,00" in gonderilen[-1][1]
+
+    gonderilen, _ = _konus(oturum, "2 EKSTRE")
+    metin = gonderilen[-1][1]
+    assert "Komsu Merkez" in metin and "Alim Merkezi" not in metin
+    assert metin.endswith("2 EVET / 2 HAYIR"), metin
+    assert "77.000,00" not in metin and "10.000,00" not in metin
+    assert _riza_durumu(oturum, dunya["firma_b"], dunya["tedarikci_b"]) is None
+
+
+def test_COK_FIRMADA_ONEKLI_EKSTRE_O_FIRMANIN_KVKK_METNINI_ALIYOR(oturum, dunya):
+    """Rızasız "1 EKSTRE" → 1. firmanın ADIYLA KVKK metni, "1 EVET / 1 HAYIR" ile biter."""
+    _iki_firmali_ciftci(oturum, dunya)
+
+    gonderilen, _ = _konus(oturum, "1 EKSTRE")
+    metin = gonderilen[-1][1]
+    assert "Alim Merkezi" in metin and "Komsu Merkez" not in metin
+    assert metin.endswith("1 EVET / 1 HAYIR"), metin
+    assert "10.000,00" not in metin
+
+
+def test_COK_FIRMADA_ONEKSIZ_EVET_HAYIR_HICBIR_SEY_YAZMIYOR(oturum, dunya):
+    """Öneksiz `EVET`/`HAYIR` N>1'de: rıza satırı YOK, denetim satırı YOK.
+
+    Şef kararı: bütün firmalara YAYMAK yok, birini TAHMİN etmek yok.
+    MUTASYON: `_firma_coz`da öneksiz EVET'i `adaylar[0]`a bağlamak ya da
+    bütün adaylara yazmak bunu KIRMIZI yapar.
+    """
+    from sqlalchemy import text
+
+    _iki_firmali_ciftci(oturum, dunya)
+
+    for kelime in ("EVET", "evet", "HAYIR", "hayır"):
+        gonderilen, _ = _konus(oturum, kelime)
+        metin = gonderilen[-1][1]
+        assert '"1 EVET"' in metin and '"1 HAYIR"' in metin, kelime
+        assert "Alim Merkezi" in metin and "Komsu Merkez" in metin, kelime
+
+    for cid in (dunya["firma_a"], dunya["firma_b"]):
+        assert (
+            oturum.execute(
+                text("SELECT COUNT(*) FROM notification_consents WHERE company_id=:c"),
+                {"c": cid},
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            oturum.execute(
+                text(
+                    "SELECT COUNT(*) FROM activity_logs WHERE company_id=:c"
+                    " AND action_type LIKE 'party.whatsapp_consent_%'"
+                ),
+                {"c": cid},
+            ).scalar_one()
+            == 0
+        )
+
+
+def test_COK_FIRMADA_2_HAYIR_YALNIZ_IKINCI_FIRMAYA_REVOKED_YAZIYOR(oturum, dunya):
+    """"2 HAYIR" → 2. firma REVOKED, 1. firma NO_RECORD; geri dönüş metni "2 EVET"."""
+    _iki_firmali_ciftci(oturum, dunya)
+
+    gonderilen, _ = _konus(oturum, "2 HAYIR")
+    assert "2 EVET" in gonderilen[-1][1]
+    assert _riza_durumu(oturum, dunya["firma_b"], dunya["tedarikci_b"]) == "REVOKED"
+    assert _riza_durumu(oturum, dunya["firma_a"], dunya["tedarikci_a"]) is None
+
+    # Reddedilmiş firmaya soru: GENEL kapalı metni, ONUN önekiyle.
+    gonderilen, _ = _konus(oturum, "2 EKSTRE")
+    assert "gönderemiyoruz" in gonderilen[-1][1]
+    assert "2 EVET" in gonderilen[-1][1]
+    assert "77.000,00" not in gonderilen[-1][1]
+
+    # Fikir değiştirilebilir — YALNIZ o firmada.
+    _konus(oturum, "2 EVET")
+    assert _riza_durumu(oturum, dunya["firma_b"], dunya["tedarikci_b"]) == "GRANTED"
+    assert _riza_durumu(oturum, dunya["firma_a"], dunya["tedarikci_a"]) is None
+
+
+@pytest.mark.parametrize("komut", ["DUR", "1 DUR", "İPTAL"])
+def test_COK_FIRMADA_DUR_GLOBAL_IKISINI_DE_KAPATIYOR(oturum, dunya, komut):
+    """`DUR` (önekli yazılışı da) BÜTÜN adaylarda rızayı çeker VE bağlantıyı kapatır."""
+    from sqlalchemy import text
+
+    _iki_firmali_ciftci(oturum, dunya)
+    _konus(oturum, "1 EVET")
+    _konus(oturum, "2 EVET")
+
+    gonderilen, _ = _konus(oturum, komut)
+    assert "kapatıldı" in gonderilen[-1][1]
+    assert _riza_durumu(oturum, dunya["firma_a"], dunya["tedarikci_a"]) == "REVOKED"
+    assert _riza_durumu(oturum, dunya["firma_b"], dunya["tedarikci_b"]) == "REVOKED"
+    assert (
+        int(
+            oturum.execute(
+                text(f"SELECT COUNT(*) FROM {BAGLANTI_TABLO} WHERE is_active=1")
+            ).scalar_one()
+        )
+        == 0
+    )
+
+
+# ------------------------------------------------------------ consent_at ---
+
+
+def test_CONSENT_AT_EVETTE_YAZILIYOR_yonetici_listesinde_GORUNUYOR(
+    oturum, dunya, uygulama
+):
+    """`EVET` → `consent_at` O bağlantıda dolar; yönetici listesi onu gösterir.
+
+    Çok firmalı kurguda ölçülüyor: "1 EVET" YALNIZ 1. bağlantıyı damgalar.
+    `DUR` damgayı SİLMEZ (tarihçe, `taraf` modül başı).
+    """
+    from sqlalchemy import text
+
+    a, b = _iki_firmali_ciftci(oturum, dunya)
+
+    def damga(link_id: int):
+        return oturum.execute(
+            text(f"SELECT consent_at FROM {BAGLANTI_TABLO} WHERE id=:i"),
+            {"i": link_id},
+        ).scalar_one()
+
+    _konus(oturum, "1 EKSTRE")
+    assert damga(a) is None
+    _konus(oturum, "1 EVET")
+    assert damga(a) is not None
+    assert damga(b) is None
+
+    r = uygulama.post(
+        "/api/auth/login",
+        json={"username": dunya["kad"], "password": dunya["parola"]},
+    )
+    assert r.status_code == 200, r.text
+    basliklar = {
+        "Authorization": "Bearer " + r.json()["access_token"],
+        "X-Company-ID": str(dunya["firma_a"]),
+    }
+    liste = uygulama.get(
+        "/api/whatsapp/party-links",
+        headers=basliklar,
+        params={"party_type": "SUPPLIER", "party_id": dunya["tedarikci_a"]},
+    )
+    assert liste.status_code == 200, liste.text
+    satirlar = liste.json()
+    assert [s["id"] for s in satirlar] == [a]
+    assert satirlar[0]["consent_at"] is not None
+
+    _konus(oturum, "DUR")
+    assert damga(a) is not None, "DUR damgayi silmemeli (tarihce)"
+
+
+def test_CONSENT_AT_IZDIR_KARAR_DEGIL_tek_okuyucu_yonetici_listesi(oturum, dunya):
+    """`consent_at`i çevirmek `evaluate_consent`in kararını DEĞİŞTİRMEZ.
+
+    İKİ YÖNDE: GRANTED rızada damgayı SİLMEK veriyi kesmez; REVOKED rızada
+    damgayı DOLDURMAK veriyi açmaz. Ve kaynakta `.consent_at` OKUYAN tek
+    dosya yöneticinin listesidir — yarın bir izin kararı damgaya
+    bakmaya başlarsa bu kapı KIRMIZI olur.
+    """
+    from sqlalchemy import text
+
+    from app.notifications import consents
+
+    link = _baglanti_ac(oturum, dunya["firma_a"], "SUPPLIER", dunya["tedarikci_a"])
+
+    def karar() -> bool:
+        return consents.evaluate_consent(
+            oturum,
+            company_id=dunya["firma_a"],
+            party_type="SUPPLIER",
+            party_id=dunya["tedarikci_a"],
+            channel="WHATSAPP",
+            recipient=NUMARA,
+        )["allowed"]
+
+    def damgala(deger) -> None:
+        oturum.execute(
+            text(f"UPDATE {BAGLANTI_TABLO} SET consent_at=:d WHERE id=:i"),
+            {"d": deger, "i": link},
+        )
+        oturum.commit()
+
+    _konus(oturum, "EVET")
+    assert karar() is True
+
+    damgala(None)
+    assert karar() is True
+    gonderilen, _ = _konus(oturum, "ekstre")
+    assert "10.000,00" in gonderilen[-1][1]
+
+    consents.set_consent(
+        oturum,
+        company_id=dunya["firma_a"],
+        party_type="SUPPLIER",
+        party_id=dunya["tedarikci_a"],
+        channel="WHATSAPP",
+        granted=False,
+        source="PHONE",
+        source_ref=None,
+        recipient=NUMARA,
+        user_id=None,
+    )
+    damgala(datetime.now(timezone.utc))
+    assert karar() is False
+    gonderilen, _ = _konus(oturum, "ekstre")
+    assert "10.000,00" not in gonderilen[-1][1]
+
+    okuyanlar = set()
+    for yol in (BACKEND / "app").rglob("*.py"):
+        agac = ast.parse(yol.read_text(encoding="utf-8"))
+        if any(
+            isinstance(d, ast.Attribute) and d.attr == "consent_at"
+            for d in ast.walk(agac)
+        ):
+            okuyanlar.add(yol.relative_to(BACKEND).as_posix())
+    assert okuyanlar == {"app/routers/whatsapp.py"}, okuyanlar
 
 
 def test_MEDYA_CIFTCIDEN_GELIRSE_FATURA_OZETI_DONMUYOR(oturum, dunya):
