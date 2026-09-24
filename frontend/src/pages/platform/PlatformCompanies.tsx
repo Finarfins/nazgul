@@ -8,7 +8,12 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import {api} from '../../api';
 import type {components} from '../../api/types.gen';
 
-import {EylemDugmesi,HataPaneli,PlatformBaslik,Sayfalama,tarihSaat,useGecikmeliDeger,useEylemBildirimi,usePlatformVerisi} from './ortak';
+import {tarihSaat} from './ortak/bicim';
+import {useEylemBildirimi} from './ortak/bildirim';
+import {HataPaneli,PlatformBaslik} from './ortak/cerceve';
+import {EylemDugmesi} from './ortak/eylem';
+import {Sayfalama} from './ortak/tablo';
+import {useGecikmeliDeger,usePlatformVerisi} from './ortak/veri';
 
 type SirketListesi=components['schemas']['PlatformSirketListesi'];
 type SirketDurumu=components['schemas']['SirketDurumu'];

@@ -5,7 +5,9 @@ import {Link as RouterLink} from 'react-router-dom';
 
 import type {components} from '../../api/types.gen';
 
-import {HataPaneli,PlatformBaslik,usePlatformVerisi,yasMetni} from './ortak';
+import {yasMetni} from './ortak/bicim';
+import {HataPaneli,PlatformBaslik} from './ortak/cerceve';
+import {usePlatformVerisi} from './ortak/veri';
 
 type PlatformOzeti=components['schemas']['PlatformOzeti'];
 

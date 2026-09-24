@@ -6,7 +6,8 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 
 import type {components} from '../../api/types.gen';
 
-import {HataPaneli,PlatformBaslik,usePlatformVerisi} from './ortak';
+import {HataPaneli,PlatformBaslik} from './ortak/cerceve';
+import {usePlatformVerisi} from './ortak/veri';
 
 type EBelgeSagligi=components['schemas']['EBelgeSagligi'];
 

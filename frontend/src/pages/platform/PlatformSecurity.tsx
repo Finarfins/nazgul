@@ -11,7 +11,11 @@ import {
  BOS_SUZGECLER,DENETIM_LIMITLERI,PENCERELER,denetimParametreleri,ipGruplari,suzgecHatalari,
  type DenetimSatiri,type DenetimSuzgecleri,
 } from './filtreler';
-import {EylemDugmesi,HataPaneli,PlatformBaslik,tarihSaat,useEylemBildirimi,useGecikmeliDeger,usePlatformVerisi} from './ortak';
+import {tarihSaat} from './ortak/bicim';
+import {useEylemBildirimi} from './ortak/bildirim';
+import {HataPaneli,PlatformBaslik} from './ortak/cerceve';
+import {EylemDugmesi} from './ortak/eylem';
+import {useGecikmeliDeger,usePlatformVerisi} from './ortak/veri';
 
 type HizSiniriOzeti=components['schemas']['HizSiniriOzeti'];
 type HizSiniriTemizligi=components['schemas']['HizSiniriTemizligi'];
