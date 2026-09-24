@@ -824,6 +824,51 @@ def test_H53_ELLE_NUMARA_TEKRAR_409_kucuk_harf_ve_baska_fatura(istemci, admin_ba
     assert oto.json()["despatch_number"] == "IRS2034000000006"
 
 
+def test_H74_ESKI_KUCUK_HARFLI_kayit_BUYUK_harfli_numarayi_409la_keser(
+    istemci, admin_basliklari
+) -> None:
+    """`_belge_numarasi`ndaki `func.upper(despatch_number) == numara`nın
+    TEK kapısı.
+
+    H53 testi bunu ÖLÇMÜYORDU: uç yazarken numarayı büyük harfe çeviriyor,
+    yani depodaki her satır zaten büyük harfliydi ve `func.upper` olmadan da
+    eşitlik tutuyordu. Burada depoya H53 ÖNCESİ bir kayıt gibi KÜÇÜK harfli bir
+    numara doğrudan yazılıyor; aynı numara büyük harfle istendiğinde çakışma
+    ancak `UPPER()` ile görülür.
+
+    MUTASYON (ELLE KOŞULDU, PR gövdesinde): `func.upper(...)`ı düz
+    `despatch_notes.c.despatch_number == numara` yapmak -> ikinci istek 201,
+    bu test KIRMIZI.
+    """
+    from sqlalchemy import text
+
+    from app.db import SessionLocal
+
+    h = admin_basliklari
+    f, kalem = _tek_kalem(h, "Yulaf")
+    ilk = istemci.post(
+        "/api/despatch-notes", headers=h,
+        json=_bir_birim(f, kalem, issue_date="2035-03-01", despatch_number="IRS2035000000007"),
+    )
+    assert ilk.status_code == 201, ilk.text
+    with SessionLocal() as db:
+        guncellenen = db.execute(
+            text("UPDATE despatch_notes SET despatch_number='irs2035000000007'"
+                 " WHERE id=:id AND company_id=:cid"),
+            {"id": ilk.json()["id"], "cid": int(h["X-Company-ID"])},
+        ).rowcount
+        db.commit()
+    assert guncellenen == 1
+    tekrar = istemci.post(
+        "/api/despatch-notes", headers=h,
+        json=_bir_birim(f, kalem, issue_date="2035-03-02", despatch_number="IRS2035000000007"),
+    )
+    assert tekrar.status_code == 409, tekrar.text
+    assert _kod(tekrar) == "IRSALIYE_NO_TEKRAR"
+    assert tekrar.json()["detail"]["despatch_number"] == "IRS2035000000007"
+    assert istemci.get(f"/api/despatch-notes?invoice_id={f}", headers=h).json()["total"] == 1
+
+
 def test_H53_ELLE_NUMARA_TEKRAR_baska_FIRMADA_serbest(istemci, admin_basliklari) -> None:
     """Tekillik FİRMA kapsamlı: başka firmanın aynı numarası engel değil."""
     from sqlalchemy import text
