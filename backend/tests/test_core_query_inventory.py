@@ -1259,6 +1259,11 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     # hicbir sutun SECILMEZ.
     ("app/whatsapp/ciftci_yurutucu.py", "_firma_adi", "select",
      "384b330fb3df5fe860ce15362cc438926b487477dbebcccd52e3d5c928cdfa10"): (1, "companies", "arg0"),
+    # F10-1b DUZELTME 2 (runtime lens): `EVET`te `consent_at` damgasi. IZ,
+    # karar degil (`taraf` modul basi). KIRACI YUKLEMLI
+    # (`whatsapp_party_links.c.company_id == company_id`).
+    ("app/whatsapp/taraf.py", "riza_damgasi_yaz", "update",
+     "7bf159b68ea051fe24fe51fe09131d26e4277f0a4fc8a088c40734cbd8f4d60f"): (1, "whatsapp_party_links", "arg0"),
 }
 
 # 20260910 5.1c KIRACI GERI YUKLEME (GOC YOK): 176 -> 184, +6 select +2 update,
@@ -1338,10 +1343,13 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # IKI PARMAK IZI KIMILDADI, SAYI DEGIL: `taraf.kod_kullan`in SELECT'i
 # `created_by` sutununu de seciyor (H78) ve `taraf.taraf_coz`unki `id`yi
 # (riza olaylarinin kaynak kimligi). Yuklemler AYNI kaldi.
-TOTAL_CORE_QUERIES = 251
+# F10-1b DUZELTME 2 (runtime lens): 251 -> 252, +1 update
+# (`taraf.riza_damgasi_yaz`, `consent_at` izi). Tarayicinin ciktisindan.
+TOTAL_CORE_QUERIES = 252
 # F10-1b (goc 20260920_0091): select 170 -> 171 (`ciftci_yurutucu.
 # _firma_adi`); `update` ve `delete` KIMILDAMADI — ciftci dali OKUMADIR.
-EXPECTED_OP_COUNTS = {"select": 171, "update": 68, "delete": 12}
+# F10-1b DUZELTME 2: update 68 -> 69 (`taraf.riza_damgasi_yaz`).
+EXPECTED_OP_COUNTS = {"select": 171, "update": 69, "delete": 12}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1466,8 +1474,10 @@ EXPECTED_OP_COUNTS = {"select": 171, "update": 68, "delete": 12}
 # _firma_adi`); TABAN develop `63e57f6` (#159/H60 sonrasi YENIDEN
 # turetildi; ilk olcum `8a6e3e1` uzerinde fa4c5e26 -> a234212e).
 # Tarayicinin ciktisindan alindi, aritmetikle degil. 214d1cf5 -> ce68d341.
+# F10-1b DUZELTME 2 (+1 update, `riza_damgasi_yaz`): tarayicinin
+# ciktisindan. ce68d341 -> c7f3d672.
 INVENTORY_FINGERPRINT = (
-    "ce68d341805f63c2304cdb1b936ae1c8314dffe6baf2928eca39af58b842c222"
+    "c7f3d672c096fe82bf74474f562cf04244e916097f01e1b55796500ffddd0823"
 )
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.

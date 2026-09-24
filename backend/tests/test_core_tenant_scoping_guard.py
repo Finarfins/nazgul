@@ -2142,7 +2142,11 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # ucu `app/whatsapp/taraf.py`, ucu `app/routers/whatsapp.py`nin `party-`
 # uclarinda. IKISI lisansli istisnadir (ozet aramasi + numara taramasi);
 # kalan ON DORDU kiraci yuklemini ACIKCA tasir.
-BEKLENEN_CORE_IFADE_SAYISI = 208
+# 208 -> 209: F10-1b DUZELTME 2 (runtime lens; TABAN develop `63e57f6`,
+# tarayicinin ciktisindan). BIR ifade, lisans istemedi:
+# `app/whatsapp/taraf.py::riza_damgasi_yaz` (`consent_at` UPDATE'i),
+# `whatsapp_party_links.c.company_id == company_id` yuklemini ACIKCA tasir.
+BEKLENEN_CORE_IFADE_SAYISI = 209
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
     # H47: CS2 dekont toplami (`statement._cek_dekont_borcu`) Core'a cevrildi.
