@@ -31,7 +31,7 @@ import PlatformOutbox from './PlatformOutbox';
 import PlatformSecurity from './PlatformSecurity';
 import {BOS_SUZGECLER,denetimParametreleri,gunBasi} from './filtreler';
 import PlatformUsers from './PlatformUsers';
-import {ZATEN_BU_DURUMDA} from './ortak';
+import {ZATEN_BU_DURUMDA} from './ortak/eylem';
 
 const sunucuHatasi=(status:number,detail:string)=>({response:{status,data:{detail}}});
 

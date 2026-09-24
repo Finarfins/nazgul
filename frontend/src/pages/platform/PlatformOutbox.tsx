@@ -8,7 +8,11 @@ import ReplayIcon from '@mui/icons-material/Replay';
 import {api} from '../../api';
 import type {components} from '../../api/types.gen';
 
-import {EylemDugmesi,HataPaneli,PlatformBaslik,useEylemBildirimi,usePlatformVerisi,yasMetni} from './ortak';
+import {yasMetni} from './ortak/bicim';
+import {useEylemBildirimi} from './ortak/bildirim';
+import {HataPaneli,PlatformBaslik} from './ortak/cerceve';
+import {EylemDugmesi} from './ortak/eylem';
+import {usePlatformVerisi} from './ortak/veri';
 
 type KuyrukSagligi=components['schemas']['KuyrukSagligi'];
 type KuyrukYenidenSonucu=components['schemas']['KuyrukYenidenSonucu'];

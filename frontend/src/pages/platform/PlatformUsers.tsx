@@ -10,7 +10,12 @@ import MarkEmailReadIcon from '@mui/icons-material/MarkEmailRead';
 import {api} from '../../api';
 import type {components} from '../../api/types.gen';
 
-import {EylemDugmesi,HataPaneli,PlatformBaslik,Sayfalama,tarihSaat,useGecikmeliDeger,useEylemBildirimi,usePlatformVerisi} from './ortak';
+import {tarihSaat} from './ortak/bicim';
+import {useEylemBildirimi} from './ortak/bildirim';
+import {HataPaneli,PlatformBaslik} from './ortak/cerceve';
+import {EylemDugmesi} from './ortak/eylem';
+import {Sayfalama} from './ortak/tablo';
+import {useGecikmeliDeger,usePlatformVerisi} from './ortak/veri';
 
 type KullaniciListesi=components['schemas']['PlatformKullaniciListesi'];
 type DogrulamaListesi=components['schemas']['BekleyenDogrulamaListesi'];
