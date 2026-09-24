@@ -70,6 +70,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..avans_engine import makbuz_odenen, makbuz_tescili, makbuzu_serilestir
+from ..avans_servis import tedarikci_avans_satirlari
 from ..avans_schemas import (
     ExchangeRegistrationWrite,
     ProducerReceiptPaymentWrite,
@@ -286,29 +287,17 @@ def list_supplier_advances(
 ):
     """Tedarikçinin avansları; `open_only` yalnız KALANI OLANLARI verir.
 
-    Süzgeç iki SABİT metin arasından SEÇİLİR, birleştirilerek KURULMAZ:
-    kullanıcı girdisi hiçbir yolla SQL'e giremez.
+    Satırlar `avans_servis.tedarikci_avans_satirlari`ndan gelir — çiftçi
+    aracı (`whatsapp/ciftci_yurutucu.ciftci_avans`) AYNI fonksiyonu okur,
+    SQL'in ikinci bir kopyası YOKTUR. Süzgeç orada iki SABİT metin
+    arasından SEÇİLİR, birleştirilerek KURULMAZ: kullanıcı girdisi hiçbir
+    yolla SQL'e giremez.
     """
     cid = company_id(request)
     _tedarikci_var(db, cid, supplier_id)
-    if open_only:
-        sorgu = text(
-            "SELECT id,supplier_id,payment_id,amount,remaining_amount,"
-            "receipt_id,applied_at,note FROM supplier_advances "
-            "WHERE company_id=:cid AND supplier_id=:sid AND remaining_amount>0 "
-            "ORDER BY id LIMIT :limit OFFSET :offset"
-        )
-    else:
-        sorgu = text(
-            "SELECT id,supplier_id,payment_id,amount,remaining_amount,"
-            "receipt_id,applied_at,note FROM supplier_advances "
-            "WHERE company_id=:cid AND supplier_id=:sid "
-            "ORDER BY id LIMIT :limit OFFSET :offset"
-        )
-    satirlar = db.execute(
-        sorgu,
-        {"cid": cid, "sid": supplier_id, "limit": limit, "offset": offset},
-    ).mappings().all()
+    satirlar = tedarikci_avans_satirlari(
+        db, cid, supplier_id, open_only=open_only, limit=limit, offset=offset
+    )
     return {
         "items": [
             {

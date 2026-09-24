@@ -23,8 +23,9 @@ kiracı yalıtımı); bu dosya yalnız GELİŞTİRME DİYALEKTİNDE GÖRÜNMEYEN
    ölçüldü). `attempt_count >= 0` burada ihlal denenip `IntegrityError`
    bekleniyor.
 
-4. **`SUM(NUMERIC)` ARİTMETİĞİ.** `ciftci_avans` `supplier_advances.amount`
-   ve `remaining_amount` üzerinde `SUM` çalıştırıyor. SQLite'ta bu
+4. **`NUMERIC` ARİTMETİĞİ.** `ciftci_avans` `supplier_advances.amount`
+   ve `remaining_amount` değerlerini (düzeltme 1'den beri
+   `avans_servis`in ORTAK satırlarından) `Decimal` olarak topluyor. SQLite'ta bu
    sütunlar kayan noktaya çözülebiliyor; PostgreSQL'de `NUMERIC`tir ve
    kuruş farkı YALNIZ burada görünür. Keşif §6.3 aynı gerekçeyi kantar
    dilimi için de yazıyor (`_fis_neti`).
@@ -435,8 +436,9 @@ def test_AVANS_TOPLAMLARI_NUMERIC_KURUSU_KORUYOR(motor, dunya) -> None:
 def test_AVANS_KIRACI_YUKLEMI_GERCEK_PGde(motor, dunya) -> None:
     """KOMŞU firmanın avans satırı toplama GİRMİYOR.
 
-    MUTASYON ADIYLA: `ciftci_avans`ın SQL'inden `a.company_id=:cid`i
-    düşürmek bunu KIRMIZI yapar.
+    MUTASYON ADIYLA: `avans_servis`in ortak SQL'inden `a.company_id=:cid`i
+    düşürmek bunu KIRMIZI yapar (düzeltme 1'e kadar yüklem
+    `ciftci_avans`ın kendi SQL kopyasındaydı).
     """
     from app.whatsapp.ciftci_yurutucu import ciftci_avans
     from app.whatsapp.taraf import TarafKimlik
@@ -553,3 +555,86 @@ def test_MUSTERI_TARAFI_AVANS_SORGUSUNU_HIC_KOSTURMUYOR(motor, dunya) -> None:
     assert veri["adet"] == 0
     assert veri["alinan"] == Decimal("0")
     assert veri["son"] is None
+
+
+def test_AVANS_TOPLAMLARI_UCUN_KENDI_JSONUYLA_AYNI_GERCEK_PGde(
+    motor, dunya, monkeypatch
+) -> None:
+    """Çiftçi toplamları = ucun KENDİ döndürdüğü satırların toplamı (düzeltme 1).
+
+    SQLite ikizi aynı eşitliği HTTP üzerinden ölçüyor; burada uç
+    fonksiyonu (`list_supplier_advances`) DOĞRUDAN çağrılıyor çünkü bu
+    dosyanın firması KOŞU önekli ve açılış yöneticisinin firması DEĞİL —
+    `X-Company-ID` onu 403'le reddederdi. Uç fonksiyonun döndürdüğü sözlük
+    FastAPI'nin JSON'a çevirdiği nesnenin KENDİSİDİR (`_tutar` sabit
+    ölçekli METİN üretir), yani karşılaştırılan şey ucun cevabıdır.
+
+    Sayfa boyu 2'ye indiriliyor ki üç kuruşlu satır İKİ sayfaya düşsün:
+    `LIMIT/OFFSET`in gerçek PG'deki birleşimi de ölçülmüş olur.
+    """
+    from types import SimpleNamespace
+
+    from app import avans_servis
+    from app.routers.avans import list_supplier_advances
+    from app.whatsapp.ciftci_yurutucu import ciftci_avans
+    from app.whatsapp.taraf import TarafKimlik
+
+    an = datetime.now(timezone.utc)
+    with motor.begin() as b:
+        for tutar, kalan, gun in (
+            ("10000.10", "5000.05", "2026-09-02"),
+            ("20000.10", "0.00", "2026-08-11"),
+            ("30000.10", "1234.56", "2026-07-03"),
+        ):
+            odeme = b.execute(
+                text(
+                    "INSERT INTO payments(entity_type,entity_id,amount,"
+                    "payment_date,payment_method,company_id)"
+                    " VALUES('supplier',:e,:a,:d,'cash',:c) RETURNING id"
+                ),
+                {"e": dunya["tedarikci"], "a": tutar, "d": gun, "c": dunya["firma"]},
+            ).scalar_one()
+            b.execute(
+                text(
+                    "INSERT INTO supplier_advances(company_id,supplier_id,"
+                    "payment_id,amount,remaining_amount,created_at,updated_at)"
+                    " VALUES(:c,:s,:p,:a,:r,:t,:t)"
+                ),
+                {
+                    "c": dunya["firma"],
+                    "s": dunya["tedarikci"],
+                    "p": odeme,
+                    "a": tutar,
+                    "r": kalan,
+                    "t": an,
+                },
+            )
+
+    monkeypatch.setattr(avans_servis, "SAYFA_UST_SINIRI", 2)
+    Oturum = sessionmaker(bind=motor)
+    with Oturum() as db:
+        uc = list_supplier_advances(
+            SimpleNamespace(state=SimpleNamespace(company_id=dunya["firma"])),
+            dunya["tedarikci"],
+            open_only=False,
+            limit=200,
+            offset=0,
+            db=db,
+        )
+        veri = ciftci_avans(
+            db,
+            TarafKimlik(
+                company_id=dunya["firma"],
+                party_type="SUPPLIER",
+                party_id=dunya["tedarikci"],
+            ),
+            {},
+        )
+
+    satirlar = uc["items"]
+    assert len(satirlar) == 3
+    assert veri["adet"] == len(satirlar)
+    assert veri["alinan"] == sum(Decimal(s["amount"]) for s in satirlar)
+    assert veri["kalan"] == sum(Decimal(s["remaining_amount"]) for s in satirlar)
+    assert veri["alinan"] == Decimal("60000.30")
+    assert veri["kalan"] == Decimal("6234.61")

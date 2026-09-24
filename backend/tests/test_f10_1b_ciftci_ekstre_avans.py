@@ -1141,6 +1141,100 @@ def test_AVANS_TOPLAMLARI_UCUN_KENDI_SAYILARIYLA_AYNI(oturum, dunya, uygulama):
     assert veri["adet"] == len(satirlar)
 
 
+def test_AVANS_TOPLAMLARI_SAYFALARIN_BIRLESIMINDEN(oturum, dunya, monkeypatch):
+    """Toplam BİR sayfanın değil BÜTÜN sayfaların toplamıdır (düzeltme 1).
+
+    Sayfa boyu 1'e indiriliyor ki iki avans İKİ sayfaya düşsün.
+    MUTASYON: `avans_servis.tedarikci_tum_avanslari`nın ilk sayfadan sonra
+    dönmesi (ya da `offset`i ilerletmemesi) bunu KIRMIZI yapar — 200'den
+    fazla avansı olan bir çiftçiye eksik rakam söylenirdi.
+    """
+    from app import avans_servis
+    from app.whatsapp.ciftci_yurutucu import ciftci_avans
+    from app.whatsapp.taraf import TarafKimlik
+
+    _avans_yaz(
+        oturum, dunya["firma_a"], dunya["tedarikci_a"], "75000", "30000", "2026-09-02"
+    )
+    _avans_yaz(
+        oturum, dunya["firma_a"], dunya["tedarikci_a"], "20000", "5000", "2026-08-11"
+    )
+    monkeypatch.setattr(avans_servis, "SAYFA_UST_SINIRI", 1)
+
+    veri = ciftci_avans(
+        oturum,
+        TarafKimlik(
+            company_id=dunya["firma_a"],
+            party_type="SUPPLIER",
+            party_id=dunya["tedarikci_a"],
+        ),
+        {},
+    )
+    assert veri["adet"] == 2
+    assert veri["alinan"] == Decimal("95000")
+    assert veri["kalan"] == Decimal("35000")
+    assert str(veri["son"])[:10] == "2026-09-02"
+
+
+def test_AVANS_SQL_KOPYASI_YOK_IKI_YUZEY_TEK_FONKSIYONU_OKUYOR():
+    """Avans satırlarının SQL'i YALNIZ `app/avans_servis.py`dedir (düzeltme 1).
+
+    AGY kontrat merceği: çiftçi aracı ucun SELECT'inin bir KOPYASINI
+    taşıyordu ve iki kopya biri düzeltildiğinde SESSİZCE ayrışırdı.
+    Kapı İKİ yönlü: `app/whatsapp/` altında `supplier_advances` geçen
+    HİÇBİR dize sabiti yok (belge dizileri hariç — onlar SQL değil), ve
+    iki yüzey de ortak fonksiyonu ÇAĞIRIYOR.
+    """
+    def _dize_sabitleri(yol: Path) -> list[str]:
+        agac = ast.parse(yol.read_text(encoding="utf-8"))
+        belge = set()
+        for dugum in ast.walk(agac):
+            if isinstance(
+                dugum,
+                (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+            ):
+                ilk = dugum.body[0] if dugum.body else None
+                if isinstance(ilk, ast.Expr) and isinstance(ilk.value, ast.Constant):
+                    belge.add(id(ilk.value))
+        return [
+            d.value
+            for d in ast.walk(agac)
+            if isinstance(d, ast.Constant)
+            and isinstance(d.value, str)
+            and id(d) not in belge
+        ]
+
+    def _cagrilan_adlar(yol: Path) -> set[str]:
+        agac = ast.parse(yol.read_text(encoding="utf-8"))
+        return {
+            d.func.id
+            for d in ast.walk(agac)
+            if isinstance(d, ast.Call) and isinstance(d.func, ast.Name)
+        }
+
+    sizan = [
+        (yol.name, dize)
+        for yol in sorted((BACKEND / "app" / "whatsapp").glob("*.py"))
+        for dize in _dize_sabitleri(yol)
+        if "supplier_advances" in dize
+    ]
+    assert sizan == []
+
+    assert "tedarikci_tum_avanslari" in _cagrilan_adlar(
+        BACKEND / "app" / "whatsapp" / "ciftci_yurutucu.py"
+    )
+    assert "tedarikci_avans_satirlari" in _cagrilan_adlar(
+        BACKEND / "app" / "routers" / "avans.py"
+    )
+    # Ucun eski iki liste metni geri gelmesin: `remaining_amount>0`
+    # süzgeci YALNIZ ortak serviste yaşar.
+    assert not [
+        d
+        for d in _dize_sabitleri(BACKEND / "app" / "routers" / "avans.py")
+        if "remaining_amount>0" in d
+    ]
+
+
 def test_AVANS_CEVABI_PAYMENT_ID_VE_NOT_TASIMIYOR(oturum, dunya):
     """Cevapta `payment_id` ve `note` HİÇ GEÇMEZ (keşif §4b)."""
     _baglanti_ac(oturum, dunya["firma_a"], "SUPPLIER", dunya["tedarikci_a"])

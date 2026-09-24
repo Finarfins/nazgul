@@ -84,10 +84,11 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..activity_log import log_activity
+from ..avans_servis import tedarikci_tum_avanslari
 from ..auth import utcnow
 from ..notifications import consents
 from ..tenancy import companies
@@ -231,37 +232,6 @@ def ciftci_ekstre(
     }
 
 
-#: Avans toplamları. `routers/avans.py::list_supplier_advances`in SELECT'i
-#: SATIRLARI veriyor; burada AYNI yüklemle TOPLAMLARI alıyoruz — uç
-#: ÇAĞRILMIYOR (o bir `Request` ve bir yetki yüklemi ister; ikisi de bu
-#: dalda YOK). Eşitlik bir kapıyla ölçülüyor:
-#: `test_AVANS_TOPLAMLARI_UCUN_KENDI_SAYILARIYLA_AYNI`.
-#:
-#: `payment_id` ve `note` SEÇİLMEZ (keşif §4b: `note` personel notu
-#: olabilir). Tarih `payments.payment_date`ten gelir çünkü
-#: `supplier_advances`in kendi tarih sütunu YOKTUR — `applied_at` avansın
-#: ALINDIĞI değil MAHSUP EDİLDİĞİ andır.
-#:
-#: JOIN yüklemi BİLEŞİKTİR (`company_id` + `id`):
-#: `fk_supplier_advances_payment_same_company` kısıtı bunu zaten garanti
-#: ediyor, sorgu onu TEKRAR ediyor ki kiracı sınırı SORGUNUN KENDİSİNDE
-#: yazılı olsun.
-#:
-#: DÜZ SQL, `text()` — ve bu bir tercih değil ölçüm: `supplier_advances`in
-#: bir Core `Table` nesnesi YOKTUR (`core_schema.py`de tanımlı değil) ve
-#: ucun kendisi de `text()` kullanıyor. Bir Core nesnesi uydurmak, şemanın
-#: ikinci bir tanımını açmak olurdu.
-_AVANS_TOPLAM_SQL = text(
-    "SELECT COALESCE(SUM(a.amount),0) AS alinan,"
-    " COALESCE(SUM(a.remaining_amount),0) AS kalan,"
-    " COUNT(a.id) AS adet,"
-    " MAX(p.payment_date) AS son"
-    " FROM supplier_advances a"
-    " JOIN payments p ON p.company_id=a.company_id AND p.id=a.payment_id"
-    " WHERE a.company_id=:cid AND a.supplier_id=:sid"
-)
-
-
 def ciftci_avans(
     db: Session, kimlik: TarafKimlik, argumanlar: dict[str, Any]
 ) -> dict[str, Any]:
@@ -276,14 +246,26 @@ def ciftci_avans(
     if kimlik.party_type != schema.TARAF_SUPPLIER:
         return {"adet": 0, "alinan": Decimal("0"), "kalan": Decimal("0"), "son": None}
 
-    satir = db.execute(
-        _AVANS_TOPLAM_SQL, {"cid": kimlik.company_id, "sid": kimlik.party_id}
-    ).mappings().one()
+    # Satırlar personel ucunun (`routers/avans.py::list_supplier_advances`)
+    # okuduğu fonksiyonun AYNISINDAN gelir; burada YALNIZ toplanır. Avans
+    # SQL'inin ikinci bir kopyası YOKTUR — kopya, iki yüzeyin aynı çiftçi
+    # için farklı rakam söylediği güne kadar sessiz kalırdı. Eşitlik
+    # kapısı: `test_AVANS_TOPLAMLARI_UCUN_KENDI_SAYILARIYLA_AYNI`.
+    #
+    # Satır `payment_id` ve `note` TAŞIR ama bu fonksiyonun dönüşüne
+    # GİRMEZ (keşif §4b: `note` personel notu olabilir); dönüş yalnız
+    # dört toplamdır. Tarih `payments.payment_date`tir çünkü
+    # `supplier_advances`in kendi tarih sütunu YOKTUR (`avans_servis`
+    # başlığı).
+    satirlar = tedarikci_tum_avanslari(db, kimlik.company_id, kimlik.party_id)
+    tarihler = [str(r["payment_date"]) for r in satirlar if r["payment_date"]]
     return {
-        "adet": int(satir["adet"] or 0),
-        "alinan": Decimal(str(satir["alinan"] or 0)),
-        "kalan": Decimal(str(satir["kalan"] or 0)),
-        "son": satir["son"] or None,
+        "adet": len(satirlar),
+        "alinan": sum((Decimal(str(r["amount"] or 0)) for r in satirlar), Decimal("0")),
+        "kalan": sum(
+            (Decimal(str(r["remaining_amount"] or 0)) for r in satirlar), Decimal("0")
+        ),
+        "son": max(tarihler) if tarihler else None,
     }
 
 
