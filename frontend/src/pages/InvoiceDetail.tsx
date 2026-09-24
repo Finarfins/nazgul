@@ -9,6 +9,7 @@ import SendIcon from '@mui/icons-material/Send';
 import {api,errorDetail,money} from '../api';
 import ResponsiveTable from '../components/ResponsiveTable';
 import {DespatchNotePanel} from './DespatchNotePanel';
+import {yerelGun} from '../utils/tarih';
 
 // Fatura kalemleri: 4 sütun. 390px'te ResponsiveTable kart düzenine geçer.
 const itemColumns:GridColDef[]=[
@@ -101,7 +102,7 @@ export default function InvoiceDetail(){
    <Grid size={{xs:12,sm:6,md:3}}><Typography variant="caption" color="text.secondary">Müşteri</Typography><Typography fontWeight={700}>{invoice.customer?.name||'-'}</Typography></Grid>
    <Grid size={{xs:12,sm:6,md:3}}><Typography variant="caption" color="text.secondary">Para Birimi</Typography><Typography fontWeight={700}>{invoice.currency}</Typography></Grid>
    <Grid size={{xs:12,sm:6,md:3}}><Typography variant="caption" color="text.secondary">Genel Toplam</Typography><Typography fontWeight={700}>{money(invoice.totals?.grand_total)}</Typography></Grid>
-   <Grid size={{xs:12,sm:6,md:3}}><Typography variant="caption" color="text.secondary">Oluşturulma</Typography><Typography fontWeight={700}>{invoice.created_at?String(invoice.created_at).slice(0,10):'-'}</Typography></Grid>
+   <Grid size={{xs:12,sm:6,md:3}}><Typography variant="caption" color="text.secondary">Oluşturulma</Typography><Typography fontWeight={700}>{yerelGun(invoice.created_at)}</Typography></Grid>
   </Grid></Paper>
   <EInvoiceStatusPanel invoiceId={invoiceId}/>
   {/* e-İRSALİYE (E4a): faturanın HEMEN ARDINDAN. Fatura mali belge, irsaliye

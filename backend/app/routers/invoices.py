@@ -17,6 +17,7 @@ from ..invoice_schemas import InvoiceCancelRequest,InvoiceGenerateRequest
 from ..invoice_service import generate_invoice,log_invoice_action
 from ..service_receivable_engine import reconcile_service_receivable
 from ..tenancy import company_id
+from ..zaman import utc_iso,zamanlari_iso
 
 logger=logging.getLogger(__name__)
 router=APIRouter(prefix="/invoices",tags=["invoices"])
@@ -29,7 +30,10 @@ def _invoice(db:Session,cid:int,invoice_id:int)->dict:
 
 def _detail(db:Session,cid:int,invoice_id:int)->dict:
     invoice=_invoice(db,cid,invoice_id); items=[dict(x) for x in db.execute(text("SELECT * FROM invoice_items WHERE invoice_id=:id AND company_id=:cid ORDER BY id"),{"id":invoice_id,"cid":cid}).mappings().all()]
-    result=dict(invoice)
+    # H73: `*_at` sütunları iki lehçede TEK biçim — UTC ISO-8601
+    # (`2026-09-24T21:22:20.054785+00:00`). Ölçüldü: SQLite boşluklu METİN,
+    # PG oturum dilimli (`+03:00`) `datetime` veriyordu. Bkz. `app/zaman.py`.
+    result=zamanlari_iso(invoice); items=[zamanlari_iso(x) for x in items]
     for field in JSON_FIELDS: result[field.removesuffix("_snapshot")]=json.loads(result.pop(field))
     result["items"]=items; return result
 
@@ -62,7 +66,7 @@ def list_invoices(request:Request,q:str="",status:str|None=None,invoice_type:str
     rows=db.execute(text(f"SELECT id,invoice_number,invoice_type,status,currency,exchange_rate,customer_snapshot,totals_snapshot,created_at FROM invoices WHERE {where} ORDER BY {sort} {direction},id {direction} LIMIT :limit OFFSET :offset"),params).mappings().all()
     items=[]
     for row in rows:
-        item=dict(row); item["customer"]=json.loads(item.pop("customer_snapshot")); item["totals"]=json.loads(item.pop("totals_snapshot")); items.append(item)
+        item=zamanlari_iso(dict(row)); item["customer"]=json.loads(item.pop("customer_snapshot")); item["totals"]=json.loads(item.pop("totals_snapshot")); items.append(item)
     return {"items":items,"page":page,"page_size":page_size,"total":total,"pages":((total+page_size-1)//page_size)}
 
 @router.get("/{invoice_id}")
@@ -71,7 +75,7 @@ def detail(invoice_id:int,request:Request,db:Session=Depends(get_db)):
 
 @router.get("/{invoice_id}/history")
 def history(invoice_id:int,request:Request,db:Session=Depends(get_db)):
-    cid=company_id(request); _invoice(db,cid,invoice_id); return [dict(x) for x in db.execute(text("SELECT * FROM invoice_history WHERE invoice_id=:id AND company_id=:cid ORDER BY id"),{"id":invoice_id,"cid":cid}).mappings().all()]
+    cid=company_id(request); _invoice(db,cid,invoice_id); return [zamanlari_iso(dict(x)) for x in db.execute(text("SELECT * FROM invoice_history WHERE invoice_id=:id AND company_id=:cid ORDER BY id"),{"id":invoice_id,"cid":cid}).mappings().all()]
 
 # --- e-belge iptal kapısı -------------------------------------------------
 # GERÇEK BİR BELGE, GERÇEK BİR SIRA. Bir fatura e-Arşiv/e-Fatura olarak
@@ -219,7 +223,7 @@ def _einvoice_view(invoice:dict)->dict:
     out={}
     for key in EINVOICE_FIELDS:
         value=invoice.get(key)
-        out[key]=str(value) if value is not None and key.endswith("_at") else value
+        out[key]=utc_iso(value) if value is not None and key.endswith("_at") else value
     # Frontend sinyali: gönderim bugün mümkün mü? Salt-okunur, kimlik bilgisi
     # taşımaz. Butonu gizlemek isteyen arayüz bunu okur; bu PR'da frontend
     # değişikliği YOK.

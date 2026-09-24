@@ -110,6 +110,7 @@ from ..einvoice.endpoints import IZIBIZ_EDESPATCH_PDF_UNVERIFIED
 from ..invoice_service import log_invoice_action
 from ..sinirlar import INT4_UST
 from ..tenancy import company_id
+from ..zaman import utc as _utc
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/despatch-notes", tags=["despatch-notes"])
@@ -248,8 +249,8 @@ def _gorunum(satir: dict) -> dict:
     (`"2026-09-16 10:00:00+00:00"`, boşluklu), SQLite ham `text()` okumasında
     naive bir METİN (`"2026-09-16 10:00:00"`, offset'siz). `_utc` ikisini de
     kabul eder, ikisini de aynı ana çevirir. Tarih (`issue_date`) `YYYY-MM-DD`
-    kalır. `invoices.py::_einvoice_view` hâlâ `str()` kullanıyor; o fatura
-    sözleşmesi bu dilimin kapsamında değil.
+    kalır. H73: `_utc` artık `app/zaman.py`de; fatura uçları da aynı biçimi
+    oradan yazıyor.
     """
     cikti: dict = {}
     for ad in GORUNEN_ALANLAR:
@@ -971,18 +972,6 @@ ZIMNI_KABUL_SURESI = timedelta(days=7)
 #: kendi karşılaştırmasından doğanlar.
 YANIT_SATIRI_ESLESMEDI = "YANIT_SATIRI_ESLESMEDI"
 YANIT_BELGE_REFERANSI_UYUSMUYOR = "YANIT_BELGE_REFERANSI_UYUSMUYOR"
-
-
-def _utc(deger) -> datetime | None:
-    """SQLite naive döndürür (yazarken UTC'ye normalleştirilmişti), PG oturum
-    diliminde döndürür; ikisi de UTC'ye çekilir."""
-    if deger is None:
-        return None
-    if not isinstance(deger, datetime):
-        deger = datetime.fromisoformat(str(deger).replace("Z", "+00:00"))
-    if deger.tzinfo is None:
-        deger = deger.replace(tzinfo=timezone.utc)
-    return deger.astimezone(timezone.utc)
 
 
 def _zimni_kabul_tarihi(irsaliye: dict) -> str | None:
