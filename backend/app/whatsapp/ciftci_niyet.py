@@ -132,35 +132,67 @@ CIFTCI_KAPSAM_MESAJI = (
 )
 
 
-def kvkk_metni(firma_adi: str) -> str:
+def _komut(kelime: str, sira: int | None) -> str:
+    """``"EVET"`` → tek firmada ``"EVET"``, çok firmada ``"<sira> EVET"``.
+
+    Çok firmalı çiftçiye ÖNEKSİZ bir `EVET` öğretmek, işe yaramayan bir
+    komut öğretmek olurdu: öneksiz `EVET` N>1'de HİÇBİR firmaya rıza
+    yazmaz (`ciftci_yurutucu._firma_coz`), yalnız listeyi geri getirir.
+    """
+    return kelime if sira is None else f"{sira} {kelime}"
+
+
+def kvkk_metni(firma_adi: str, sira: int | None = None) -> str:
     """Rıza sorusu. Firmayı ADIYLA anar, ne gönderileceğini SAYAR, çıkışı yazar.
 
     TEK YER: metin bir sabit değil bir fonksiyondur çünkü firma adı
     taşıyor; iki ayrı yerde kurulsaydı biri güncellenip öteki kalırdı.
+
+    ``sira`` çok firmalı çiftçinin seçtiği firmanın numarasıdır ve metin o
+    durumda ``"<n> EVET / <n> HAYIR"`` ile BİTER: rıza (firma, taraf)
+    başınadır ve cevap, sorunun ADINI andığı firmaya gitmek zorundadır.
     """
-    return (
+    evet, hayir = _komut("EVET", sira), _komut("HAYIR", sira)
+    metin = (
         f"{firma_adi} adına bu numaraya bakiye, ekstre ve avans bilgilerinizi "
-        "göndermemiz için onayınız gerekiyor (KVKK). Onaylıyorsanız EVET, "
-        "istemiyorsanız HAYIR yazın. Dilediğiniz zaman DUR yazarak "
+        f"göndermemiz için onayınız gerekiyor (KVKK). Onaylıyorsanız {evet}, "
+        f"istemiyorsanız {hayir} yazın. Dilediğiniz zaman DUR yazarak "
         "durdurabilirsiniz."
     )
+    if sira is not None:
+        metin += f"\n{evet} / {hayir}"
+    return metin
 
 
 RIZA_ALINDI_MESAJI = (
     "Onayınız alındı. Artık bakiye, ekstre ve avans bilgilerinizi "
     "sorabilirsiniz. Çıkmak için DUR yazın."
 )
-RIZA_REDDEDILDI_MESAJI = (
-    "Anlaşıldı, bu numaraya bilgi göndermeyeceğiz. Fikrinizi değiştirirseniz "
-    "EVET yazmanız yeterli."
-)
-#: `REVOKED` / `RECIPIENT_CHANGED` / `RECIPIENT_INVALID` — ÜÇÜ DE AYNI
-#: metni alır. Ayırt edilemezlik `eslestirme.RED_MESAJI`nin sınıfındadır:
-#: farklı metin, dışarıdaki birine defterin içini anlatırdı.
-RIZA_KAPALI_MESAJI = (
-    "Bu numaraya bilgi gönderemiyoruz. Bilgi almak isterseniz EVET yazın "
-    "ya da alım merkezinizle görüşün."
-)
+
+
+def riza_reddedildi_mesaji(sira: int | None = None) -> str:
+    """`HAYIR` cevabı; geri dönüş komutu seçilen firmanın önekini taşır."""
+    return (
+        "Anlaşıldı, bu numaraya bilgi göndermeyeceğiz. Fikrinizi değiştirirseniz "
+        f"{_komut('EVET', sira)} yazmanız yeterli."
+    )
+
+
+def riza_kapali_mesaji(sira: int | None = None) -> str:
+    """`REVOKED` / `RECIPIENT_CHANGED` / `RECIPIENT_INVALID` — ÜÇÜ DE AYNI metin.
+
+    Ayırt edilemezlik `eslestirme.RED_MESAJI`nin sınıfındadır: farklı
+    metin, dışarıdaki birine defterin içini anlatırdı.
+    """
+    return (
+        f"Bu numaraya bilgi gönderemiyoruz. Bilgi almak isterseniz "
+        f"{_komut('EVET', sira)} yazın ya da alım merkezinizle görüşün."
+    )
+
+
+#: Tek firmalı çiftçinin metinleri (önek YOK).
+RIZA_REDDEDILDI_MESAJI = riza_reddedildi_mesaji()
+RIZA_KAPALI_MESAJI = riza_kapali_mesaji()
 DUR_MESAJI = (
     "Kaydınız kapatıldı ve bu numaraya bilgi göndermeyeceğiz. "
     "Yeniden bağlanmak için alım merkezinizden eşleştirme kodu isteyin."
@@ -193,6 +225,19 @@ def firma_secin_mesaji(adlar: list[str]) -> str:
         "Kaydınız birden çok firmada bulunuyor:\n"
         + "\n".join(satirlar)
         + "\nSorunuzun başına firma numarasını yazın — örn. \"1 EKSTRE\"."
+    )
+
+
+def firma_secin_riza_mesaji(adlar: list[str]) -> str:
+    """Çok firmalı çiftçi ÖNEKSİZ `EVET`/`HAYIR` yazdı: liste + önekli örnek.
+
+    Rıza HİÇBİR firmaya yazılmaz (Şef kararı): öneksiz bir `EVET`i bütün
+    firmalara yaymak, çiftçinin ADINI GÖRMEDİĞİ firmalara da onay vermek
+    olurdu; birini TAHMİN etmek ise rastgele seçimin ta kendisidir.
+    """
+    return (
+        firma_secin_mesaji(adlar)
+        + "\nOnay için de firma numarasını yazın — örn. \"1 EVET\" ya da \"1 HAYIR\"."
     )
 
 

@@ -57,6 +57,14 @@ masraf yüzeyi. `EVET` her zaman `GRANTED` yazabildiği için reddeden
 kapsam mesajına düşer; aksi hâlde tekrarlanan tek bir kelime sınırsız
 `version` artışı ve sınırsız olay satırı üretebilirdi.
 
+RIZA (FİRMA, TARAF) BAŞINADIR — ÇOK FİRMALI ÇİFTÇİ (Şef kararı, runtime
+lens düzeltme 2). KVKK metni firmayı ADIYLA anar, yani cevabı da o
+firmaya gider: "1 EKSTRE" rızasız 1. firma için KVKK metnini alır ve
+metin "1 EVET / 1 HAYIR" ile biter; "1 EVET" YALNIZ 1. firmaya GRANTED,
+"1 HAYIR" YALNIZ 1. firmaya REVOKED yazar. Öneksiz `EVET`/`HAYIR` N>1'de
+HİÇBİR ŞEY yazmaz (`_firma_coz`). `DUR`/`İPTAL` GLOBAL kalır. Tekrar
+kuralı (yukarıdaki paragraf) firma BAŞINA uygulanır.
+
 --- AKTÖR `NULL`, KAYNAK `whatsapp_party` -------------------------------
 
 `log_activity` bir `app_users.id` bekler; çiftçinin böyle bir kimliği
@@ -461,27 +469,51 @@ def _dur_isle(
     return ciftci_niyet.DUR_MESAJI
 
 
+@dataclass(frozen=True, slots=True)
+class _FirmaSecimi:
+    """`_firma_coz`un sonucu. ``kimlik is None`` → ``komut`` SORULACAK metindir.
+
+    ``komut`` sıra öneki ATILMIŞ metindir ve `EVET`/`HAYIR`/niyet eşleşmesi
+    YALNIZ ona yapılır. Runtime lens NO-GO (tur 1) tam olarak bunu ölçtü:
+    eşleşme TAM metne yapılıyordu, "1 EVET" `evet_mi`den geçmiyordu ve
+    çok firmalı hiçbir çiftçi rıza VEREMİYORDU — sonsuz KVKK döngüsü.
+
+    ``sira`` çok firmalı seçimin numarasıdır (tek adayda ``None``); cevap
+    metinleri çiftçiye aynı öneki öğretmek için onu taşır.
+    """
+
+    kimlik: TarafKimlik | None
+    komut: str
+    sira: int | None = None
+
+
 def _firma_coz(
     db: Session, metin: str, adaylar: list[TarafKimlik]
-) -> tuple[TarafKimlik | None, str]:
-    """Adaylardan BİRİNİ seçer; seçemezse ``(None, sorulacak metin)``.
+) -> _FirmaSecimi:
+    """Adaylardan BİRİNİ seçer; seçemezse sorulacak metni döner.
 
     RASTGELE SEÇİM YOKTUR — `taraf.taraf_coz`un cümlesi: belirsizlikte
     rastgele seçim, YANLIŞ tenant'ın verisini dönmek demektir. Seçim
     sözdiziminin neden `FİRMA SEÇ` DEĞİL de sıra öneki olduğu
     `ciftci_niyet.firma_secin_mesaji` başlığında ölçülerek yazılı.
+
+    ÖNEKSİZ `EVET`/`HAYIR` N>1'de HİÇBİR ŞEY YAZMAZ (Şef kararı): liste ve
+    önekli örnek döner. Bütün firmalara yaymak, çiftçinin adını görmediği
+    firmalara da onay vermek; birini tahmin etmek rastgele seçim olurdu.
     """
     if len(adaylar) == 1:
-        return adaylar[0], metin
+        return _FirmaSecimi(adaylar[0], metin)
 
     adlar = [_firma_adi(db, aday.company_id) for aday in adaylar]
     if ciftci_niyet.listele_mi(metin):
-        return None, ciftci_niyet.firma_secin_mesaji(adlar)
+        return _FirmaSecimi(None, ciftci_niyet.firma_secin_mesaji(adlar))
 
     sira, kalan = ciftci_niyet.sira_oneki_ayir(metin)
     if sira is None or not 1 <= sira <= len(adaylar):
-        return None, ciftci_niyet.firma_secin_mesaji(adlar)
-    return adaylar[sira - 1], kalan
+        if ciftci_niyet.evet_mi(metin) or ciftci_niyet.hayir_mi(metin):
+            return _FirmaSecimi(None, ciftci_niyet.firma_secin_riza_mesaji(adlar))
+        return _FirmaSecimi(None, ciftci_niyet.firma_secin_mesaji(adlar))
+    return _FirmaSecimi(adaylar[sira - 1], kalan, sira)
 
 
 def ciftci_cevap(
@@ -519,20 +551,28 @@ def ciftci_cevap(
         return CiftciSonucu(cevap="", cevapla=False, islendi=False)
     cevapla = sayac <= schema.MESAJ_CEVAP_SINIRI
 
-    if ciftci_niyet.dur_mu(metin):
+    # `DUR` GLOBALDİR (bütün adaylar, başlık) ve önekli yazılışı da ("1 DUR")
+    # AYNI komuttur: çıkmak isteyen çok firmalı çiftçi, firmaya soru
+    # sorduğu biçimle de çıkabilmeli.
+    if ciftci_niyet.dur_mu(metin) or ciftci_niyet.dur_mu(
+        ciftci_niyet.sira_oneki_ayir(metin)[1]
+    ):
         return CiftciSonucu(
             cevap=_dur_isle(db, adaylar, telefon, simdi),
             cevapla=cevapla,
             islendi=True,
         )
 
-    kimlik, kalan = _firma_coz(db, metin, adaylar)
+    secim = _firma_coz(db, metin, adaylar)
+    kimlik, komut, sira = secim.kimlik, secim.komut, secim.sira
     if kimlik is None:
-        return CiftciSonucu(cevap=kalan, cevapla=cevapla, islendi=True)
+        return CiftciSonucu(cevap=komut, cevapla=cevapla, islendi=True)
 
     karar = _riza_degerlendir(db, kimlik, telefon)
 
-    if ciftci_niyet.evet_mi(metin):
+    # `EVET`/`HAYIR` ÖNEKİ ATILMIŞ KOMUTLA eşleşir ve YALNIZ seçilen
+    # `(firma, taraf)`a yazar — rıza firma başınadır (Şef kararı).
+    if ciftci_niyet.evet_mi(komut):
         if karar["allowed"]:
             # Rıza ZATEN açık: tekrarlanan "EVET" sınırsız versiyon artışı
             # ve sınırsız olay satırı üretmesin (başlık).
@@ -540,18 +580,24 @@ def ciftci_cevap(
                 cevap=ciftci_niyet.CIFTCI_KAPSAM_MESAJI, cevapla=cevapla, islendi=True
             )
         _riza_yaz(db, kimlik, telefon, verildi=True)
+        # İZ, KARAR DEĞİL (`taraf` modül başı): damga yalnız GRANTED'da
+        # yazılır ve hiçbir izin kararı onu okumaz.
+        if kimlik.link_id:
+            taraf.riza_damgasi_yaz(db, kimlik.company_id, kimlik.link_id, simdi=simdi)
         return CiftciSonucu(
             cevap=ciftci_niyet.RIZA_ALINDI_MESAJI, cevapla=cevapla, islendi=True
         )
 
-    if ciftci_niyet.hayir_mi(metin):
+    if ciftci_niyet.hayir_mi(komut):
         # YALNIZ kayıt YOKKEN yazar: zaten `REVOKED` olan bir deftere
         # ikinci bir `REVOKED` yazmak, tekrarlanan tek kelimeyle sınırsız
         # versiyon artışı üretirdi (`EVET`in kuralıyla simetrik).
         if karar["reason"] == consents.NO_RECORD:
             _riza_yaz(db, kimlik, telefon, verildi=False)
         return CiftciSonucu(
-            cevap=ciftci_niyet.RIZA_REDDEDILDI_MESAJI, cevapla=cevapla, islendi=True
+            cevap=ciftci_niyet.riza_reddedildi_mesaji(sira),
+            cevapla=cevapla,
+            islendi=True,
         )
 
     if not karar["allowed"]:
@@ -559,9 +605,9 @@ def ciftci_cevap(
         # (`REVOKED`, `RECIPIENT_CHANGED`, `RECIPIENT_INVALID`) AYNI genel
         # metni alır — ayırt edilemezlik (`ciftci_niyet` başlığı).
         if karar["reason"] == consents.NO_RECORD:
-            cevap = ciftci_niyet.kvkk_metni(_firma_adi(db, kimlik.company_id))
+            cevap = ciftci_niyet.kvkk_metni(_firma_adi(db, kimlik.company_id), sira)
         else:
-            cevap = ciftci_niyet.RIZA_KAPALI_MESAJI
+            cevap = ciftci_niyet.riza_kapali_mesaji(sira)
         return CiftciSonucu(cevap=cevap, cevapla=cevapla, islendi=True)
 
     if medya_mi:
@@ -569,7 +615,7 @@ def ciftci_cevap(
             cevap=ciftci_niyet.CIFTCI_KAPSAM_MESAJI, cevapla=cevapla, islendi=True
         )
 
-    niyet = ciftci_niyet.coz(kalan, bugun=bugun)
+    niyet = ciftci_niyet.coz(komut, bugun=bugun)
     if niyet.mesaj is not None or niyet.arac is None:
         return CiftciSonucu(
             cevap=niyet.mesaj or ciftci_niyet.CIFTCI_KAPSAM_MESAJI,

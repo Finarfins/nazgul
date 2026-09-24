@@ -104,10 +104,18 @@ log = logging.getLogger("nazgul.whatsapp.taraf")
 #   diye yazılabilecek bir satır biçimi yoktur; satırı hiç açmamak DOĞRU
 #   temsildir ve `evaluate_consent` onu tam da gereken biçimde okur:
 #   `NO_RECORD` → fail-closed, ERP verisi DÖNMEZ.
-# * `whatsapp_party_links.consent_at` bu dilimde `NULL` KALIR. Sütun F10-1b
-#   için açıldı: `EVET` geldiğinde rıza satırı GRANTED olur ve damga o an
-#   dolar. NULL bir `consent_at`, "bu bağlantı henüz rıza taşımıyor"un
-#   kendisidir.
+# * `whatsapp_party_links.consent_at` bu modülde `NULL` açılır. Damgayı
+#   YALNIZ F10-1b'nin `EVET` yolu yazar (`riza_damgasi_yaz`, çağıran
+#   `ciftci_yurutucu.ciftci_cevap`): rıza satırı GRANTED olduğu an, O
+#   bağlantıya. `HAYIR`/`DUR` damgayı SİLMEZ — son rızanın ne zaman
+#   verildiği TARİHÇEDİR ve bağlantının hâlâ rıza taşıyıp taşımadığını
+#   söylemez.
+#
+#   CONSENT_AT BİR İZDİR, KARAR DEĞİLDİR: hiçbir kod yolu onu bir izin
+#   kararı için OKUMAZ; karar HER mesajda `consents.evaluate_consent`ten
+#   gelir. Tek okuyucu yöneticinin bağlantı listesidir
+#   (`routers/whatsapp.py`). Kapı
+#   `test_CONSENT_AT_IZDIR_KARAR_DEGIL_tek_okuyucu_yonetici_listesi`.
 
 
 class TarafHatasi(Exception):
@@ -410,6 +418,25 @@ def baglantiyi_kapat(
     return int(sonuc.rowcount or 0) == 1
 
 
+def riza_damgasi_yaz(
+    db: Session, company_id: int, baglanti_id: int, *, simdi: datetime | None = None
+) -> None:
+    """`consent_at`i ŞİMDİYE çeker — İZ, karar değil (modül başı). Commit ETMEZ.
+
+    KİRACI YÜKLEMİ TAŞIR: yazmanın hangi firmanın defterine dokunduğu
+    sorgunun kendisinde yazılı (`baglantiyi_kapat`ın kuralı).
+    """
+    an = simdi or utcnow()
+    db.execute(
+        update(whatsapp_party_links)
+        .where(
+            whatsapp_party_links.c.id == baglanti_id,
+            whatsapp_party_links.c.company_id == company_id,
+        )
+        .values(consent_at=an, updated_at=an)
+    )
+
+
 def _basarisiz(cevapla: bool, *, sinirlandi: bool = False) -> TarafSonucu:
     return TarafSonucu(basarili=False, cevapla=cevapla, sinirlandi=sinirlandi)
 
@@ -703,5 +730,6 @@ __all__ = [
     "kod_iptal",
     "kod_kullan",
     "kod_uret",
+    "riza_damgasi_yaz",
     "taraf_coz",
 ]
