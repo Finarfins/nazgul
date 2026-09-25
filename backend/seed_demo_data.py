@@ -91,7 +91,14 @@ def build_demo(database_url: str, *, force: bool = False) -> dict[str, int]:
             customer_ids.append(inserted_id(conn.execute(insert(customers).values(
                 name=name,
                 owner_name=f"Yetkili {idx}",
-                phone=f"+90 5{30 + idx % 20:02d} 55{idx:02d} {1000 + idx:04d}",
+                # K2 (keşif §2.2, DEVIR-2026-09-18 kararı): ON İKİ RAKAM.
+                # Eski biçim ON ÜÇ rakam üretiyordu ve `consents.
+                # normalize_msisdn` (sıkı) onu `None`a düşürüyordu — yani
+                # demo müşterisine WhatsApp rızası HİÇ yazılamıyordu ve
+                # F10-1 uçtan uca DENENEMİYORDU. `telefon.normalize_phone`
+                # (gevşek) aynı numarayı kabul ettiği için ayrışma
+                # sessizdi. Kapı: `test_TOHUM_TELEFONLARI_IKI_NORMALLESTIRICIDE_AYNI`.
+                phone=f"+90 5{30 + idx % 20:02d} 55{idx:02d} {100 + idx:03d}",
                 email=f"demo.musteri{idx}@example.com",
                 address=f"Tekirdağ / {['Çorlu','Muratlı','Hayrabolu','Saray','Malkara'][idx % 5]}",
                 tax_number=f"100000{idx:04d}",
@@ -113,7 +120,13 @@ def build_demo(database_url: str, *, force: bool = False) -> dict[str, int]:
             supplier_ids.append(inserted_id(conn.execute(insert(suppliers).values(
                 name=name,
                 owner_name=f"Tedarik Yetkilisi {idx}",
-                phone=f"+90 212 44{idx:02d} {2000 + idx:04d}",
+                # K2: İKİ kusur birden. `212` bir SABİT HAT önekidir ve
+                # `normalize_msisdn` abone numarasının `5` ile başlamasını
+                # ŞART koşar; ayrıca rakam sayısı ON ÜÇTÜ. Tedarikçi
+                # ÇİFTÇİNİN AVANS VE MAKBUZ TARAFIDIR (keşif §3.1), yani
+                # F10-1'in iki niyetinden ikisi de bu satırlardan okunur —
+                # cep önekine çevrilmesi zorunluydu.
+                phone=f"+90 53{idx % 10} 44{idx:02d} {200 + idx:03d}",
                 email=f"demo.tedarikci{idx}@example.com",
                 address="İstanbul / Türkiye",
                 tax_number=f"200000{idx:04d}",

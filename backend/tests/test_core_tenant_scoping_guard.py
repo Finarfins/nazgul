@@ -1800,7 +1800,7 @@ CEKIRDEK_KIRACI_ISTISNALARI: dict[tuple[str, str, str], str] = {
     (
         "backend/app/whatsapp/taraf.py",
         "kod_kullan",
-        "490f507628e0f09056fcd86f40e4c8cb4b5bba6fac99f6a8ff76dfc9c2aaadea",
+        "886102c079d264882f64182905e1310876992d575c917f9de31c3268f3275763",
     ): (
         "F10-1a taraf eslestirme kodunun OZETLE aranmasi (goc 20260918_0090). "
         "`eslestirme.kod_kullan` lisansiyla AYNI SINIF ve ayni gerekce: kiraci "
@@ -1812,12 +1812,17 @@ CEKIRDEK_KIRACI_ISTISNALARI: dict[tuple[str, str, str], str] = {
         "(SEC-1 kurali) ve telefon+pencere sayaci (`whatsapp_pairing_attempts`, "
         "personel yoluyla ORTAK) denemeyi 15 dakikada 5 ile sinirlar. Satir "
         "bulunduktan SONRA yazan her deyim (`_denemeyi_artir`, CAS UPDATE, "
-        "baglanti INSERT'i) kiraci yuklemi TASIR."
+        "baglanti INSERT'i) kiraci yuklemi TASIR. "
+        "Parmak izi 490f5076 -> 886102c0 F10-1b'de (H78) YALNIZ SECILEN SUTUN "
+        "KUMESIYLE kimildadi: SELECT artik `created_by`yi de seciyor cunku "
+        "baglanti satirinin `created_by`si o degerden TASINIYOR (sutunun "
+        "yorumu 'Kodu ureten personel' diyordu ama oraya `None` yaziliyordu). "
+        "YUKLEM (`code_digest == :ozet`) AYNI; istisnanin kapsami BUYUMEDI."
     ),
     (
         "backend/app/whatsapp/taraf.py",
         "taraf_coz",
-        "ae4de317636a0c2b57038c24f12fcb6624733a83547c1b0986b873cbbfc8cfde",
+        "51b8143aece895cb96504297ac291c3ed5572948643f785db2f02a65740ae87f",
     ): (
         "F10-1a: numaradan TARAF adaylarinin taranmasi (goc 20260918_0090). "
         "`eslestirme.kimlik_coz` lisansiyla AYNI SINIF: sorgunun KENDISI 'bu "
@@ -1826,7 +1831,13 @@ CEKIRDEK_KIRACI_ISTISNALARI: dict[tuple[str, str, str], str] = {
         "`phone` + `is_active`tir ve HICBIR ticari veri SECILMEZ (yalniz "
         "company_id/party_type/party_id). Her aday ayrica KIRACI YUKLEMLI bir "
         "zincirden gecer (`_firma_aktif` + `_taraf_dogrula`): pasif cari ya da "
-        "kapanmis firma icin kimlik COZULMEZ — fail-closed."
+        "kapanmis firma icin kimlik COZULMEZ — fail-closed. "
+        "Parmak izi ae4de317 -> 51b8143a F10-1b'de YALNIZ SECILEN SUTUN "
+        "KUMESIYLE kimildadi: SELECT artik `whatsapp_party_links.id`yi de "
+        "seciyor cunku KVKK riza olaylarinin denetim satiri o kimligi KAYNAK "
+        "KIMLIGI olarak istiyor (kesif §5.5) ve ikinci bir okuma ayni satiri "
+        "iki kez sormak olurdu. Yuklem (`phone` + `is_active`) AYNI ve "
+        "SECILEN sutunlarin hicbiri TICARI VERI degil."
     ),
     (
         "backend/app/whatsapp/eslestirme.py",
@@ -2131,7 +2142,11 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # ucu `app/whatsapp/taraf.py`, ucu `app/routers/whatsapp.py`nin `party-`
 # uclarinda. IKISI lisansli istisnadir (ozet aramasi + numara taramasi);
 # kalan ON DORDU kiraci yuklemini ACIKCA tasir.
-BEKLENEN_CORE_IFADE_SAYISI = 208
+# 208 -> 209: F10-1b DUZELTME 2 (runtime lens; TABAN develop `63e57f6`,
+# tarayicinin ciktisindan). BIR ifade, lisans istemedi:
+# `app/whatsapp/taraf.py::riza_damgasi_yaz` (`consent_at` UPDATE'i),
+# `whatsapp_party_links.c.company_id == company_id` yuklemini ACIKCA tasir.
+BEKLENEN_CORE_IFADE_SAYISI = 209
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
     # H47: CS2 dekont toplami (`statement._cek_dekont_borcu`) Core'a cevrildi.
@@ -2164,6 +2179,11 @@ BEKLENEN_KIRACI_TABLOLARI = frozenset({
     # yani `TENANT_TABLES`a girer ve bu kapiya GORUNUR. `whatsapp_inbound`
     # ve `whatsapp_pairing_attempts` (WA1) burada YOK ve olmamalari dogru:
     # ikisi de PLATFORM tablosudur, `company_id` sutunu tasimazlar.
+    # F10-1b'nin `whatsapp_message_attempts`i (goc 20260920_0091) AYNI
+    # SINIFTA ve AYNI gerekceyle burada YOK — ustelik bir adim daha
+    # guclusuyle: sinirin KORUDUGU sey bir firmanin verisi degil, BOT
+    # NUMARASININ mesaj butcesidir. `company_id` tasisaydi iki alim
+    # merkezine birden bagli bir ciftci sinirini IKIYE KATLARDI.
     "whatsapp_context",
     "whatsapp_links",
     "whatsapp_pairing_codes",

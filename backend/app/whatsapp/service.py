@@ -72,12 +72,14 @@ from ..auth import utcnow
 from ..config import settings
 from . import (
     baglam,
+    ciftci_yurutucu,
     eslestirme,
     fatura,
     kopru,
     niyet,
     saglayici as saglayici_modulu,
     schema,
+    taraf,
 )
 from .schema import whatsapp_inbound
 from .telefon import TelefonGecersiz, e164, normalize_phone
@@ -352,9 +354,39 @@ def _bagla_akisi(
       edilir: satır yeniden denenirse cevap ve maliyet fırtınası olurdu.
     * Gönderim hatası → rollback (yarım bağlantı bırakılmaz) VE sayaç
       ayrı işlemde geri konur (modül başlığı, mercek bulgusu).
+
+    İKİ DEFTER, TEK SAYAÇ ARTIŞI (F10-1b). Bir `BAĞLA <KOD>` mesajı iki
+    deftere birden ait OLABİLİR: `whatsapp_pairing_codes` (personel) ve
+    `whatsapp_party_pairing_codes` (cari). PERSONEL ÖNCE denenir —
+    `taraf.kod_kullan`ın kendi kuralıyla (`_personel_baglantisi_var`) ve
+    keşif §5.1'in gerekçesiyle aynı yönde: daraltıcı olan kazanır.
+
+    Ama sayaç PAYLAŞILIR (`whatsapp_pairing_attempts`, anahtar
+    `(phone, window_start)`) ve İKİ çağrı da kendi adım 1'inde onu
+    artırıyordu. ÖLÇÜLEN SONUÇ: tek bir yanlış kod, penceredeki sayacı
+    İKİ yakardı ve personelin 5'lik sınırı ÜÇ denemede ısırırdı. Bu
+    yüzden sayaç BURADA, BİR KEZ artırılır ve değer ikisine de
+    `deneme=` ile geçirilir. Kapı: `test_TEK_BAGLA_SAYACI_BIR_ARTIRIR`.
+
+    CEVAP AYIRT EDİLEMEZ KALIR: iki defterin red metni farklı sözcükler
+    taşır (`eslestirme.RED_MESAJI` "ERP yöneticinizden",
+    `taraf.RED_MESAJI` "alım merkezinden") ama BAŞARISIZLIKTA HER ZAMAN
+    personelinki gider — hangi defterde arandığı dışarıdan okunamaz.
+    Başarıda ise kullanıcı zaten hangi tarafa bağlandığını bilir ve
+    metinler ayrı olmalıdır: personel "borç, stok ve tahsilat", çiftçi
+    "bakiye, avans, kantar ve makbuz" duyar.
     """
     try:
-        sonuc = eslestirme.kod_kullan(db, telefon, ham_kod, simdi=an)
+        sayi = eslestirme.deneme_say(db, telefon, simdi=an)
+        sonuc = eslestirme.kod_kullan(db, telefon, ham_kod, simdi=an, deneme=sayi)
+        ciftci_mi = False
+        if not sonuc.basarili:
+            taraf_sonuc = taraf.kod_kullan(
+                db, telefon, ham_kod, simdi=an, deneme=sayi
+            )
+            if taraf_sonuc.basarili:
+                sonuc = taraf_sonuc
+                ciftci_mi = True
     except Exception as hata:  # noqa: BLE001 - kalıcı: aynı girdi aynı hata
         db.rollback()
         _sayaci_kalicilastir(oturum_fabrikasi, telefon, an)
@@ -373,7 +405,12 @@ def _bagla_akisi(
         _sonlandir(db, satir_id, jeton, status=schema.IGNORED, processed_at=_simdi())
         return 1
 
-    cevap = eslestirme.BASARI_MESAJI if sonuc.basarili else eslestirme.RED_MESAJI
+    if not sonuc.basarili:
+        cevap = eslestirme.RED_MESAJI
+    elif ciftci_mi:
+        cevap = taraf.BASARI_MESAJI
+    else:
+        cevap = eslestirme.BASARI_MESAJI
     try:
         saglayici.metin_gonder(telefon, cevap)
     except saglayici_modulu.KaliciGonderimHatasi as hata:
@@ -458,13 +495,57 @@ def _mesaj_isle(
             db, satir_id, jeton, telefon, ham_kod, saglayici, oturum_fabrikasi, an
         )
 
+    ciftci_sonuc: ciftci_yurutucu.CiftciSonucu | None = None
     try:
-        # 2) ``FİRMA LİSTELE`` / ``FİRMA SEÇ`` — niyet çözümünden ÖNCE,
+        # 2) KİMLİK TÜRÜ. PERSONEL ÖNCE ÇÖZÜLÜR ve bu bilinçlidir
+        #    (keşif §5.1): bir numara ikisine birden bağlıysa (muhasebeci
+        #    aynı zamanda müşteri) personel kimliği DAHA DAR bir zincirden
+        #    geçmiştir — `_hedef_dogrula`: aktif kullanıcı + aktif firma +
+        #    üyelik — ve DARALTICI OLAN KAZANIR.
+        #
+        #    `kimlik_secimi` SAF OKUMADIR (`baglam_oku` yalnız SELECT
+        #    yapar), bu yüzden `firma_komutu`dan önce çağrılması personel
+        #    davranışını DEĞİŞTİRMEZ: `firma_komutu` bir metin döndürürse
+        #    `secim` zaten kullanılmadan atılır ve `FİRMA SEÇ`in yazdığı
+        #    bağlam bir sonraki mesajda okunur — bugünkü sıra da buydu.
+        secim = baglam.kimlik_secimi(db, telefon, simdi=an)
+
+        #    ÇİFTÇİ DALI YALNIZ PERSONEL ÇÖZÜLEMEDİĞİNDE. `taraf_coz`
+        #    personel adayı VARKEN hiç çağrılmaz, yani personelin tek bir
+        #    kod yolu bile çiftçi dalına sapamaz.
+        adaylar = (
+            taraf.taraf_coz(db, telefon)
+            if secim.kimlik is None and not secim.firma_secimi_gerekli
+            else []
+        )
+
+        if adaylar:
+            # ÇİFTÇİ YOLU. `firma_komutu` BU DALDA ÇAĞRILMAZ ve bu bir
+            # atlama değil ölçüm: o fonksiyon `eslestirme.kimlik_coz`a
+            # bakar, yani çiftçiye HER ZAMAN boş liste bulur ve
+            # `TANINMAYAN_NUMARA_MESAJI` döndürürdü — bağlı bir çiftçiye
+            # "bu numara bir ERP hesabına bağlı değil" demek olurdu.
+            # Çiftçinin kendi firma seçimi `ciftci_yurutucu._firma_coz`da.
+            #
+            # `cevap_uret` BU DALDA ÇAĞRILMAZ: yedi personel aracı ve
+            # `niyet.tahsilat_coz` oradadır ve çiftçi hiçbirine
+            # erişemez (keşif §5.1).
+            from ..business_time import business_today
+
+            ciftci_sonuc = ciftci_yurutucu.ciftci_cevap(
+                db,
+                telefon,
+                metin,
+                adaylar,
+                medya_mi=medya_mi,
+                simdi=an,
+                bugun=business_today(),
+            )
+            cevap = ciftci_sonuc.cevap
+        # 3) ``FİRMA LİSTELE`` / ``FİRMA SEÇ`` — niyet çözümünden ÖNCE,
         #    çünkü ikisi de tam olarak çözümün BELİRSİZ olduğu durumda
         #    anlamlıdır. Gövde `baglam.firma_komutu`da, kopya değil.
-        cevap = baglam.firma_komutu(db, telefon, metin, simdi=an)
-        if cevap is None:
-            secim = baglam.kimlik_secimi(db, telefon, simdi=an)
+        elif (cevap := baglam.firma_komutu(db, telefon, metin, simdi=an)) is None:
             if secim.firma_secimi_gerekli:
                 cevap = baglam.FIRMA_SECIN_MESAJI
             elif secim.kimlik is None:
@@ -490,6 +571,25 @@ def _mesaj_isle(
         _sonlandir(
             db, satir_id, jeton, status=schema.DEAD,
             last_error=type(hata).__name__, processed_at=_simdi(),
+        )
+        return 1
+
+    # ÇİFTÇİ HIZ SINIRI — GÖNDERİMDEN ÖNCE. `_bagla_akisi`nin sessiz
+    # düşürmesiyle AYNI biçim: satır IGNORED ile kapanır ve DIŞ MESAJ
+    # GÖNDERİLMEZ. Sayaç (ve varsa `DUR`un yazdığı rıza/bağlantı
+    # değişikliği) BU transaction'da yazıldı; `_sonlandir` onu commit eder
+    # — rollback YOK, çünkü sınırın altında kalan yazmaların düşmesi
+    # sınırın kendisini de düşürürdü.
+    #
+    # İKİ EŞİK, İKİ `last_error`: `mesaj_siniri` (>20) mesaja HİÇ
+    # dokunulmadığını, `cevap_siniri` (>15) TAM İŞLENDİĞİNİ ama
+    # cevaplanmadığını söyler. İkisi de IGNORED'dır çünkü dışarıya hiçbir
+    # şey gitmedi; ayrımı okumak isteyen `last_error`a bakar.
+    if ciftci_sonuc is not None and not ciftci_sonuc.cevapla:
+        _sonlandir(
+            db, satir_id, jeton, status=schema.IGNORED,
+            last_error="cevap_siniri" if ciftci_sonuc.islendi else "mesaj_siniri",
+            processed_at=_simdi(),
         )
         return 1
 

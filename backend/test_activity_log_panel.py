@@ -205,6 +205,16 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
             "party.whatsapp_pairing_code_cancelled",
             "party.whatsapp_link_activated",
             "party.whatsapp_link_deactivated",
+            # F10-1b (goc 20260920_0091): KVKK RIZASI. Kaynak yine
+            # `whatsapp_party` ve kaynak kimligi yine `whatsapp_party_links.
+            # id`dir — riza satirinin KENDI kimligi DEGIL: panelin baglantisi
+            # "bu numara kim" kartina gitmeli. Riza defteri
+            # (`notification_consents`) kendi append-only olay gunlugunu
+            # ZATEN tutuyor; burada acilan sey ikinci bir riza defteri degil,
+            # ciftcinin FIRMA defterindeki izidir. AKTOR NULL: rizayi ciftci
+            # verir ve ciftcinin bir `app_users` satiri YOKTUR.
+            "party.whatsapp_consent_granted",
+            "party.whatsapp_consent_revoked",
     }
     assert set(ACTION_TYPES) == expected
     # 58 -> 59: product.base_unit_update (kantar fişi v2).
@@ -266,7 +276,10 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
     # 78 -> 82: F10-1a TARAF BAGLANTISI (goc 20260918_0090), DORT olay
     # (kod uretildi/iptal, baglanti acildi/kapatildi). Kume UYE UYE de
     # yukarida cakili; sayi tek basina bir takasi goremezdi.
-    assert len(ACTION_TYPES) == 82, sorted(ACTION_TYPES)
+    # 82 -> 84: F10-1b CIFTCI RIZASI (goc 20260920_0091), IKI olay
+    # (riza verildi / geri cekildi). Kume UYE UYE de yukarida cakili; sayi
+    # tek basina bir TAKASI (biri cikip biri girse) goremezdi.
+    assert len(ACTION_TYPES) == 84, sorted(ACTION_TYPES)
     assert "whatsapp_pending" in RESOURCE_TYPES
     # F10-1a: TEK yeni kaynak tipi. `user` YENIDEN KULLANILMADI ve bu
     # olculmus bir karardir: kaynak baglantisi kullanici kartina gitseydi,

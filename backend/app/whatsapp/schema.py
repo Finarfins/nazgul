@@ -168,6 +168,49 @@ whatsapp_pairing_attempts = Table(
 )
 
 
+#: F10-1b — ÇİFTÇİ MESAJ SAYACI (göç `20260920_0091`). Pencere ve sınırlar
+#: `PAIRING_*` ile AYNI büyüklük sınıfındadır (keşif §5.3, K6 kararı).
+#:
+#: SINIR YALNIZ ÇİFTÇİ YOLUNA UYGULANIR. Personel yolunda bugün numara
+#: başına sınır YOKTUR (keşif §1.5 ölçtü) ve bu PR onu DEĞİŞTİRMEZ:
+#: personel içeriden gelen, sayısı az ve kimliği daha dar bir zincirden
+#: geçmiş bir taraftır; çiftçi dış taraftır, sayısı çoktur ve her cevap
+#: Meta'ya ücretli bir mesajdır.
+MESAJ_PENCERE_DAKIKA = 15
+MESAJ_PENCERE_SINIRI = 20
+#: Cevap ÜRETİLEN mesaj sayısı. Sınırın ALTINDA ama bunun ÜSTÜNDE olan
+#: mesaj İŞLENİR (yani `DUR` hâlâ ısırır, rıza yazması hâlâ düşer) ama
+#: cevap VERİLMEZ — `PAIRING_CEVAP_SINIRI`nin gerekçesi (bu dosyada, 15
+#: satır yukarıda) burada AYNEN geçerlidir: ilk mesajlarda kullanıcı
+#: gerçek bir hata yapmış olabilir, ötesinde sessiz düşürme Meta mesaj
+#: maliyeti üzerinden kurulacak bir masraf saldırısını kapatır.
+MESAJ_CEVAP_SINIRI = 15
+
+whatsapp_message_attempts = Table(
+    "whatsapp_message_attempts",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    # KİRACIYA BAĞLI DEĞİL — `whatsapp_pairing_attempts` ile AYNI gerekçe ve
+    # burada bir adım daha güçlüsü: sınırın KORUDUĞU şey firmanın verisi
+    # değil, BOT NUMARASININ mesaj bütçesidir. `company_id` taşısaydı iki
+    # firmaya birden bağlı bir çiftçi (aynı numara, iki alım merkezi) sınırı
+    # İKİYE KATLARDI — kapı `test_SAYAC_NUMARA_BASINA_FIRMALAR_ARASI`.
+    Column("phone", String(20), nullable=False),
+    Column("window_start", DateTime(timezone=True), nullable=False),
+    Column("attempt_count", Integer, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("attempt_count >= 0", name="ck_whatsapp_message_attempts_count"),
+    # AYRI TABLO, `whatsapp_pairing_attempts`e `kind` SÜTUNU DEĞİL (K6):
+    # mevcut tablonun anahtarı `(phone, window_start)`tır ve `kind` eklemek
+    # o anahtarı DEĞİŞTİRMEK, yani yürürlükteki eşleştirme sınırını bir göç
+    # boyunca zayıflatmak olurdu.
+    UniqueConstraint(
+        "phone", "window_start", name="uq_whatsapp_message_attempts_pencere"
+    ),
+    Index("ix_whatsapp_message_attempts_pencere", "window_start"),
+)
+
+
 
 # ---------------------------------------------------------------------------
 # WA2 — EŞLEŞTİRME DEFTERİ (göç 20260910_0079). ÜÇÜ DE KİRACI TABLOSU.
@@ -655,6 +698,9 @@ __all__ = [
     "IGNORED",
     "LEASE_DAKIKA",
     "MAX_DENEME",
+    "MESAJ_CEVAP_SINIRI",
+    "MESAJ_PENCERE_DAKIKA",
+    "MESAJ_PENCERE_SINIRI",
     "INBOUND_STATUSES",
     "ISLEM_TURLERI",
     "PAIRING_CANCELLED",
@@ -679,6 +725,7 @@ __all__ = [
     "whatsapp_context",
     "whatsapp_inbound",
     "whatsapp_links",
+    "whatsapp_message_attempts",
     "whatsapp_pairing_attempts",
     "whatsapp_pairing_codes",
     "whatsapp_party_links",

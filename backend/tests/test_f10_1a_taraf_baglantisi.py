@@ -496,8 +496,17 @@ def _baglantilar(db, cid: int | None = None):
     )
 
 
-def test_DAVRANIS_kod_uret_KULLAN_baglanti_ve_RIZA_aciyor(oturum, dunya) -> None:
-    """Uçtan uca: kod → `BAĞLA` → bağlantı + rıza satırı + aktivite kaydı.
+def test_DAVRANIS_kod_uret_KULLAN_baglanti_acar_RIZA_ACMAZ(oturum, dunya) -> None:
+    """Uçtan uca: kod → `BAĞLA` → bağlantı + SIFIR rıza satırı + aktivite kaydı.
+
+    H77 (#154 mercek bulgusu): eski ad "...ve_RIZA_aciyor" idi ve testin
+    ÖLÇTÜĞÜNÜN TERSİNİ söylüyordu — gövde rıza defterinde SIFIR satır
+    olduğunu doğruluyor (`consent_at is None` ve `notification_consents`
+    boş). Yanlış ad, F10-1b'yi yazan kişiye "rıza eşleştirmede açılıyor"
+    diye okunabilirdi ve o kişi rıza kapısını HİÇ kurmayabilirdi.
+
+    Rızayı personelin ürettiği kod VERMEZ; çiftçinin ilk mesajı verir
+    (F10-1b, `ciftci_yurutucu` başlığı).
 
     Numara İNSAN YAZIMIYLA veriliyor ve KANONİK saklanıyor.
     """

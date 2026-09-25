@@ -153,6 +153,19 @@ ACTION_TYPES: dict[str, str] = {
     ),
     "party.whatsapp_link_activated": "WhatsApp cari bağlantısı açıldı",
     "party.whatsapp_link_deactivated": "WhatsApp cari bağlantısı kapatıldı",
+    # WhatsApp CARİ RIZASI (F10-1b). Kaynak yine `whatsapp_party` ve kaynak
+    # kimliği yine `whatsapp_party_links.id`dir — rıza satırının KENDİ
+    # kimliği DEĞİL. Gerekçe: panelin bağlantısı "bu numara kim" kartına
+    # gitmeli; rıza defteri (`notification_consents`) kendi olay
+    # günlüğünü (`notification_consent_events`) ZATEN append-only tutuyor
+    # ve versiyonu orada artıyor, yani burada ikinci bir rıza defteri
+    # AÇILMIYOR — açılan şey, çiftçinin FİRMA defterindeki izidir.
+    #
+    # AKTÖR `NULL` (keşif §5.5): rızayı çiftçi verir ve çiftçinin bir
+    # `app_users` satırı YOKTUR. `details` HASSAS YÜK TAŞIMAZ — mesaj
+    # metni ve telefon GİRMEZ (`routers/whatsapp.py:347-349`).
+    "party.whatsapp_consent_granted": "WhatsApp cari rızası verildi",
+    "party.whatsapp_consent_revoked": "WhatsApp cari rızası geri çekildi",
     # Panelin kendisi
     "activity_log.archive": "Aktivite kaydı arşivleme",
     "activity_log.unarchive": "Aktivite kaydı arşivden çıkarma",
