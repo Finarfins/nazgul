@@ -588,6 +588,25 @@ with TestClient(app, raise_server_exceptions=False) as client:
     sonraki_a = sayimlar(md, a_id)
     sonraki_c = sayimlar(md, c_id)
 
+    # H75 (göç 20260925_0092): dışa aktarım `_katli` sütunlarını YAZMAZ;
+    # geri yükleme onları kaynak kolonlardan AYNI işlemde yeniden hesaplar.
+    from sqlalchemy import text as _h75_sql
+    from app.arama import arama_katla
+    from app.arama_katli import KATLI_SUTUNLAR
+    h75 = {"zipte_katli": [], "bayat": [], "satir": {}}
+    for _t, _kolonlar in KATLI_SUTUNLAR.items():
+        for _x in zf.read(f"tables/{_t}.ndjson").decode("utf-8").splitlines():
+            if _x.strip():
+                h75["zipte_katli"] += [f"{_t}.{_k}" for _k in json.loads(_x) if _k.endswith("_katli")]
+        _secim = ",".join(_kolonlar) + "," + ",".join(f"{_k}_katli" for _k in _kolonlar)
+        with engine.connect() as conn:
+            _satirlar = conn.execute(_h75_sql(f"SELECT {_secim} FROM {_t} WHERE company_id=:c"), {"c": c_id}).all()
+        h75["satir"][_t] = len(_satirlar)
+        for _s in _satirlar:
+            for _i, _k in enumerate(_kolonlar):
+                if _s[len(_kolonlar) + _i] != arama_katla(_s[_i] or ""):
+                    h75["bayat"].append([_t, _k, _s[_i], _s[len(_kolonlar) + _i]])
+
     # Yeni firmanın HER yabancı anahtarı yeni firmanın kendi satırına gider.
     kiraci = kiraci_tablolari(md)
     fk_ihlal = []
@@ -838,6 +857,7 @@ with TestClient(app, raise_server_exceptions=False) as client:
         "b_aktif_once": b_aktif_once, "b_aktif_sonra": b_aktif_sonra,
         "b_ad": b_ad, "b_ad_once": b_ad_once,
         "eski_repr": eski_repr,
+        "h75": h75,
     })
     print("HAZIRLIK TAMAM")
 '''
@@ -962,6 +982,18 @@ def test_her_kiraci_tablosu_yolculukta(hazir) -> None:
         "kabulde_ama_dolu": sorted(set(BOS_KABUL) - set(bos)),
         "tohum_hatalari": hazir["tohum_basarisiz"],
     }
+
+
+def test_H75_katli_sutunlar_zipte_yok_geri_yuklemede_esit(hazir) -> None:
+    """H75: `_katli` TÜRETİLMİŞTİR — zip'e yazılmaz, geri yüklemede kaynak
+    kolonlardan yeniden hesaplanır. MUTASYON: `kiraci_disa_aktarim._sirali`
+    süzgecini kaldırmak `zipte_katli`yı, `geri_yukle`deki
+    `kiraci_katli_esitle` çağrısını kaldırmak `bayat`ı KIRMIZI yapar."""
+    h75 = hazir["h75"]
+    assert h75["zipte_katli"] == []
+    assert h75["bayat"] == []
+    # Boş yere yeşil olmasın: en az cari ve ürün satırı geri yüklenmiş olmalı.
+    assert h75["satir"]["customers"] > 0 and h75["satir"]["products"] > 0, h75["satir"]
 
 
 def test_yuvarlak_yolculuk_satir_sayilari_manifeste_esit(hazir) -> None:
