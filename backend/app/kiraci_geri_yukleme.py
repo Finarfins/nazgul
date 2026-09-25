@@ -86,6 +86,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.engine import Connection
 
+from .arama_katli import kiraci_katli_esitle
 from .auth import normalize_email, users, utcnow
 from .db import engine
 from .routers.kiraci_disa_aktarim import (
@@ -813,6 +814,9 @@ def geri_yukle(
                         haritalar, mevcut_kullanicilar, diyalekt, rapor,
                     )
                 _ertelenenleri_bagla(conn, md, yeni_cid, haritalar, rapor)
+                # H75: dışa aktarım `_katli` sütunlarını YAZMAZ; kaynak
+                # kolonlardan burada, AYNI işlemde yeniden hesaplanır.
+                kiraci_katli_esitle(conn, yeni_cid)
                 _uyelikleri_yaz(
                     conn, zf, yeni_cid, mevcut_kullanicilar, operator_user_id, rapor,
                     manifest.get("user_emails"),

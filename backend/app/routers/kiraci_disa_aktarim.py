@@ -70,6 +70,7 @@ from sqlalchemy import MetaData, Table, select
 from sqlalchemy.engine import Connection
 from sqlalchemy.schema import sort_tables
 
+from ..arama_katli import katli_sutun_mu
 from ..activity_log import log_activity
 from ..auth import users, utcnow
 from ..config import settings
@@ -213,7 +214,10 @@ def _sirali(tablo: Table):
     Sıra ŞART: sırasız bir okuma, aynı verinin iki dışa aktarımında farklı
     satır sırası üretir ve iki dosyayı karşılaştırılamaz kılar.
     """
-    secim = select(tablo)
+    # H75: `<kolon>_katli` TURETILMIS arama sutunlaridir; zip'e YAZILMAZ.
+    # Geri yukleme onlari kaynak kolonlardan yeniden hesaplar
+    # (`kiraci_geri_yukleme.geri_yukle` -> `arama_katli.kiraci_katli_esitle`).
+    secim = select(*[s for s in tablo.columns if not katli_sutun_mu(s.name)])
     for sutun in tablo.primary_key.columns:
         secim = secim.order_by(sutun)
     return secim

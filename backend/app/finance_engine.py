@@ -7,6 +7,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
+from .arama_katli import katli_esitle
 from .money import money
 
 metadata = MetaData()
@@ -168,5 +169,6 @@ def sync_payment_finance(db: Session, company_id: int, payment_id: int, entity_t
         reference_type='payment', reference_id=payment_id, transfer_group=None, created_at=utcnow(),
     ))
     txid = int(result.inserted_primary_key[0])
+    katli_esitle(db, 'finance_transactions', cid=company_id, ids=[txid])
     db.execute(text('UPDATE payments SET account_id=:aid,financial_transaction_id=:txid WHERE id=:id AND company_id=:cid'), {'aid': account_id, 'txid': txid, 'id': payment_id, 'cid': company_id})
     return txid

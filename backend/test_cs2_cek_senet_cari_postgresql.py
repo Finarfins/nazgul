@@ -42,7 +42,7 @@ pytestmark = pytest.mark.postgresql
 KOSU = uuid4().hex[:8]
 BELGE = "receivable_charge_documents"
 ONCE = "20260914_0085"
-BAS = "20260920_0091"  # F10-1b: bas 0091 (bu dosyanın göçü 0086)
+BAS = "20260925_0092"  # H75: bas 0092 (F10-1b: bas 0091 (bu dosyanın göçü 0086))
 
 
 def _url() -> str:

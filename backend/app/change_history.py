@@ -12,6 +12,8 @@ from sqlalchemy import Column, Index, Integer, MetaData, String, Table, Text, in
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.orm import Session
 
+from .arama_katli import KATLI_SUTUNLAR, katli_esitle, katli_sutun_mu
+
 logger = logging.getLogger("yerel_hesap.change_history")
 
 metadata = MetaData()
@@ -57,7 +59,13 @@ def _json_default(value: Any) -> str:
 
 
 def _snapshot(row: Mapping[str, Any] | RowMapping | None) -> dict[str, Any] | None:
-    return dict(row) if row is not None else None
+    # H75: `<kolon>_katli` TURETILMIS arama sutunudur. Anlik goruntuye
+    # girseydi (1) her ad degisikligi `changed_fields`te ikinci bir alan
+    # olarak gorunur, (2) `email_katli` gecmis ucunda maskesiz e-posta
+    # tasirdi. Geri yuklemede kaynak kolonlardan yeniden hesaplanir.
+    if row is None:
+        return None
+    return {k: v for k, v in dict(row).items() if not katli_sutun_mu(k)}
 
 
 def _dump(value: Mapping[str, Any] | None) -> str | None:
@@ -192,10 +200,13 @@ def restore_deleted(
         text(f"INSERT INTO {table_name} ({','.join(columns)}) VALUES ({placeholders})"),
         filtered_payload,
     )
+    if table_name in KATLI_SUTUNLAR:
+        katli_esitle(db, table_name, cid=company_id, ids=[log["entity_id"]])
     restored = db.execute(
         text(f"SELECT * FROM {table_name} WHERE id=:id AND company_id=:cid"),
         {"id": log["entity_id"], "cid": company_id},
     ).mappings().one()
+    restored = _snapshot(restored)
     record_change(
         db,
         request,

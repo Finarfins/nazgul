@@ -14,6 +14,7 @@ from openpyxl.styles import Font, PatternFill
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from ..arama_katli import katli_esitle
 from ..business_time import business_today
 from ..company_policies import (
     POLICY_MANAGER_OVERRIDE,
@@ -129,6 +130,7 @@ async def import_suppliers(request: Request, file: UploadFile = File(...), db: S
                 db.execute(text('UPDATE suppliers SET phone=:phone,email=:email,address=:address,tax_number=:tax_number,opening_balance=:opening_balance WHERE id=:id AND company_id=:cid'),values); updated+=1
             else:
                 db.execute(text('INSERT INTO suppliers(name,phone,email,address,tax_number,opening_balance,company_id) VALUES(:name,:phone,:email,:address,:tax_number,:opening_balance,:cid)'),values); inserted+=1
+        katli_esitle(db,'suppliers',cid=cid)
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -301,6 +303,7 @@ async def import_customers(request: Request, file: UploadFile = File(...), db: S
                 db.execute(text('UPDATE customers SET phone=:phone,email=:email,address=:address,tax_number=:tax_number,opening_balance=:opening_balance WHERE id=:id AND company_id=:cid'),values); updated+=1
             else:
                 db.execute(text('INSERT INTO customers(name,phone,email,address,tax_number,opening_balance,company_id) VALUES(:name,:phone,:email,:address,:tax_number,:opening_balance,:cid)'),values); inserted+=1
+        katli_esitle(db,'customers',cid=cid)
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -445,6 +448,7 @@ async def import_products(request: Request, file: UploadFile = File(...), db: Se
                     db.execute(text("INSERT INTO stock_movements(product_id,movement_type,quantity,movement_date,reference_type,reference_id,note,company_id,warehouse_id) VALUES(:id,'excel',:q,:movement_date,'import',NULL,'Excel ürün açılış stoku',:cid,:wid)"),{'id':pid,'q':params['stock'],'cid':cid,'wid':wid,'movement_date':business_today().isoformat()})
                 sync_product_stock(db,cid,pid); inserted+=1
         record_policy_overrides(db,company_id=cid,context=override,policy_names=override_policies,resource_type='imports:products',resource_id=None)
+        katli_esitle(db,'products',cid=cid)
         db.commit()
     except HTTPException:
         db.rollback(); raise
