@@ -129,6 +129,15 @@ test('tedarikçi detayı: testin ürettiği tedarikçi adı gövdede görünür 
   await page.waitForLoadState('networkidle');
   await renderKanitiniDogrula(page, rota, MARKER_SUPPLIER, testInfo);
 
+  // F10-1d: tedarikçi kartında WhatsApp bağlantısı ve bildirim izinleri
+  // (keşif §6.4). Adım var olan testin İÇİNDE — Partiler adımıyla aynı
+  // gerekçe: envanterdeki `spec` tasnifi TEK test adı taşır. Boş defter
+  // metni gerçek `GET /api/whatsapp/party-links?party_type=SUPPLIER`in 200
+  // döndüğünü ölçer; 403/500 olsaydı hata metni çizilirdi.
+  await expect(page.getByText('WhatsApp bağlantısı', {exact: true})).toBeVisible();
+  await expect(page.getByText('Bağlı numara yok.')).toBeVisible();
+  await expect(page.getByText('Bildirim izinleri (KVKK)')).toBeVisible();
+
   expect(
     new URL(page.url()).pathname,
     `${rota} başka bir rotaya yönlendirildi (izin duvarı?)`,
