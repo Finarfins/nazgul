@@ -43,6 +43,12 @@ sınırsız mesaj ÜRETEMEZ.
                                     -> ÖNEKSİZ EVET/HAYIR kapısı KIRMIZI
   * `EVET`te `consent_at`i yazmamak / bir izin kararında onu OKUMAK
                                     -> CONSENT_AT kapıları KIRMIZI
+  * `HAYIR`ı yalnız NO_RECORD'da yazmak (açık rızayı KAPATMAMAK; lens
+    tur 2)                          -> HAYIR AÇIK RIZAYI KAPATIYOR, ÇOK
+                                       FİRMALI LENS DİZİSİ ve 1 HAYIR
+                                       kapıları KIRMIZI
+  * Yönetici listesinde `consent_at`i `utc_iso`dan geçirmemek
+                                    -> CONSENT_AT EVETTE kapısı KIRMIZI
 """
 from __future__ import annotations
 
@@ -673,6 +679,92 @@ def test_HAYIR_REDDI_YAZIYOR_ve_KVKK_SORUSU_TEKRARLANMIYOR(oturum, dunya):
     assert "10.000,00" in gonderilen[-1][1]
 
 
+def test_HAYIR_ACIK_RIZAYI_KAPATIYOR_tekrari_YAZMIYOR_EVET_geri_aciyor(oturum, dunya):
+    """GRANTED → `HAYIR` → REVOKED v2 → kapalı metin; `HAYIR` yine → v2; `EVET` → v3.
+
+    Runtime lens tur 2: `HAYIR` açık rızada HİÇBİR ŞEY yazmıyordu, çiftçiye
+    "bu numaraya bilgi göndermeyeceğiz" deniyor ve sonraki EKSTRE rakam
+    dönüyordu. `consent_at` bu yolda DEĞİŞMEZ (iz, tarihçe).
+
+    MUTASYON: `ciftci_cevap`ın `HAYIR` dalında `karar["allowed"]` koşulunu
+    düşürmek (yalnız NO_RECORD'da yazmak) bunu KIRMIZI yapar.
+    """
+    from sqlalchemy import text
+
+    from app.whatsapp.ciftci_niyet import RIZA_KAPALI_MESAJI
+
+    link = _baglanti_ac(oturum, dunya["firma_a"], "SUPPLIER", dunya["tedarikci_a"])
+    _konus(oturum, "ekstre")  # KVKK sorusu
+    _konus(oturum, "EVET")
+
+    def defter() -> tuple[str, int, int]:
+        satir = (
+            oturum.execute(
+                text(
+                    "SELECT id,status,version FROM notification_consents"
+                    " WHERE company_id=:c AND party_type='SUPPLIER' AND party_id=:p"
+                ),
+                {"c": dunya["firma_a"], "p": dunya["tedarikci_a"]},
+            )
+            .mappings()
+            .one()
+        )
+        olay = oturum.execute(
+            text(
+                "SELECT COUNT(*) FROM notification_consent_events WHERE consent_id=:i"
+            ),
+            {"i": satir["id"]},
+        ).scalar_one()
+        return satir["status"], int(satir["version"]), int(olay)
+
+    def geri_cekme_denetimi() -> int:
+        return int(
+            oturum.execute(
+                text(
+                    "SELECT COUNT(*) FROM activity_logs WHERE company_id=:c"
+                    " AND action_type='party.whatsapp_consent_revoked'"
+                ),
+                {"c": dunya["firma_a"]},
+            ).scalar_one()
+        )
+
+    def damga():
+        return oturum.execute(
+            text(f"SELECT consent_at FROM {BAGLANTI_TABLO} WHERE id=:i"),
+            {"i": link},
+        ).scalar_one()
+
+    durum, surum, olay_once = defter()
+    assert (durum, surum) == ("GRANTED", 1)
+    damga_once = damga()
+    assert damga_once is not None
+    gonderilen, _ = _konus(oturum, "ekstre")
+    assert "10.000,00" in gonderilen[-1][1]
+
+    gonderilen, _ = _konus(oturum, "HAYIR")
+    assert "göndermeyeceğiz" in gonderilen[-1][1]
+    durum, surum, olay = defter()
+    assert (durum, surum) == ("REVOKED", 2)
+    assert olay == olay_once + 1
+    assert geri_cekme_denetimi() == 1
+    assert damga() == damga_once, "consent_at iz olarak KALIR"
+
+    gonderilen, _ = _konus(oturum, "ekstre")
+    assert gonderilen[-1][1] == RIZA_KAPALI_MESAJI
+    assert "10.000,00" not in gonderilen[-1][1]
+
+    # Tekrarlanan HAYIR: defter KIMILDAMAZ, denetim satırı DÜŞMEZ.
+    _konus(oturum, "HAYIR")
+    assert defter() == ("REVOKED", 2, olay)
+    assert geri_cekme_denetimi() == 1
+
+    gonderilen, _ = _konus(oturum, "EVET")
+    assert "Onayınız alındı" in gonderilen[-1][1]
+    assert defter()[:2] == ("GRANTED", 3)
+    gonderilen, _ = _konus(oturum, "ekstre")
+    assert "10.000,00" in gonderilen[-1][1]
+
+
 def test_DUR_RIZAYI_VE_BAGLANTIYI_IKISINI_BIRDEN_KAPATIYOR(oturum, dunya):
     """`DUR` → rıza REVOKED **VE** bağlantı `is_active=False`; sonrası BAĞSIZ.
 
@@ -838,11 +930,13 @@ def test_COK_FIRMALI_CIFTCI_LENS_DIZISI_RIZAYI_YALNIZ_BIRINCI_FIRMAYA_VERIYOR(
     """Runtime lens'in TAM dizisi: EKSTRE / EVET / 1 EVET / 1 evet / 1. EVET / 1 HAYIR.
 
     Düzeltmeden önce bu dizi SIFIR rıza satırıyla bitiyordu: `evet_mi`
-    TAM metne bakıyordu ve "1 EVET"i tanımıyordu. Şimdi: 1. firma GRANTED,
-    2. firma NO_RECORD (satır YOK).
+    TAM metne bakıyordu ve "1 EVET"i tanımıyordu. Şimdi: 1. firma GRANTED
+    (v1), 2. firma NO_RECORD (satır YOK).
 
-    "1 HAYIR"ın 1. firmayı GERİ ÇEKMEMESİ tekrar kuralının (b) kendisidir:
-    `HAYIR` yalnız kayıt YOKKEN yazar — firma BAŞINA.
+    Dizinin SONUNDAKİ "1 HAYIR" 1. firmayı KAPATIR (GRANTED → REVOKED v2;
+    runtime lens tur 2). Düzeltme 2'de burada "GRANTED kalır" iddiası
+    duruyordu ve çiftçiye "göndermeyeceğiz" dendiği hâlde sonraki EKSTRE
+    rakam dönüyordu. 2. firma YİNE NO_RECORD — `HAYIR` da firma BAŞINADIR.
 
     MUTASYON: `ciftci_cevap`ta `evet_mi(komut)`u `evet_mi(metin)`e geri
     çevirmek üçüncü adımı KIRMIZI yapar (sonsuz KVKK döngüsü).
@@ -865,26 +959,35 @@ def test_COK_FIRMALI_CIFTCI_LENS_DIZISI_RIZAYI_YALNIZ_BIRINCI_FIRMAYA_VERIYOR(
     gonderilen, _ = _konus(oturum, "1 EVET")
     assert gonderilen[-1][1] == RIZA_ALINDI_MESAJI
 
-    for tekrar in ("1 evet", "1. EVET", "1 HAYIR"):
+    for tekrar in ("1 evet", "1. EVET"):
         _konus(oturum, tekrar)
 
     assert _riza_durumu(oturum, dunya["firma_a"], dunya["tedarikci_a"]) == "GRANTED"
     assert _riza_durumu(oturum, dunya["firma_b"], dunya["tedarikci_b"]) is None
 
-    # Tekrar kuralı firma başına: "1 evet" / "1. EVET" versiyonu şişirmedi.
-    assert (
-        int(
+    def surum() -> int:
+        return int(
             oturum.execute(
                 text("SELECT version FROM notification_consents WHERE company_id=:c"),
                 {"c": dunya["firma_a"]},
             ).scalar_one()
         )
-        == 1
-    )
 
-    # "1 EKSTRE" RAKAM döner; "2 EKSTRE" 2. firmanın KENDİ KVKK metnini alır.
+    # Tekrar kuralı firma başına: "1 evet" / "1. EVET" versiyonu şişirmedi.
+    assert surum() == 1
+
+    # "1 EKSTRE" RAKAM döner.
     gonderilen, _ = _konus(oturum, "1 EKSTRE")
     assert "10.000,00" in gonderilen[-1][1]
+
+    # "1 HAYIR" AÇIK rızayı KAPATIR ve sonraki "1 EKSTRE" rakam DÖNMEZ.
+    gonderilen, _ = _konus(oturum, "1 HAYIR")
+    assert "göndermeyeceğiz" in gonderilen[-1][1]
+    assert _riza_durumu(oturum, dunya["firma_a"], dunya["tedarikci_a"]) == "REVOKED"
+    assert surum() == 2
+    assert _riza_durumu(oturum, dunya["firma_b"], dunya["tedarikci_b"]) is None
+    gonderilen, _ = _konus(oturum, "1 EKSTRE")
+    assert "10.000,00" not in gonderilen[-1][1]
 
     gonderilen, _ = _konus(oturum, "2 EKSTRE")
     metin = gonderilen[-1][1]
@@ -963,6 +1066,29 @@ def test_COK_FIRMADA_2_HAYIR_YALNIZ_IKINCI_FIRMAYA_REVOKED_YAZIYOR(oturum, dunya
     assert _riza_durumu(oturum, dunya["firma_a"], dunya["tedarikci_a"]) is None
 
 
+def test_COK_FIRMADA_1_HAYIR_YALNIZ_BIRINCI_ACIK_RIZAYI_KAPATIYOR(oturum, dunya):
+    """İki firma GRANTED; "1 HAYIR" → 1. firma REVOKED, 2. firma GRANTED KALIR.
+
+    Runtime lens tur 2'nin çok firmalı hâli: `HAYIR`ın açık rızayı kapatması
+    da firma BAŞINADIR — öneki atılmış komut YALNIZ seçilen `(firma, taraf)`a
+    yazar. "2 EKSTRE" rakamını VERMEYE devam eder.
+    """
+    _iki_firmali_ciftci(oturum, dunya)
+    _konus(oturum, "1 EVET")
+    _konus(oturum, "2 EVET")
+
+    gonderilen, _ = _konus(oturum, "1 HAYIR")
+    assert "göndermeyeceğiz" in gonderilen[-1][1]
+    assert _riza_durumu(oturum, dunya["firma_a"], dunya["tedarikci_a"]) == "REVOKED"
+    assert _riza_durumu(oturum, dunya["firma_b"], dunya["tedarikci_b"]) == "GRANTED"
+
+    gonderilen, _ = _konus(oturum, "1 EKSTRE")
+    assert "10.000,00" not in gonderilen[-1][1]
+    gonderilen, _ = _konus(oturum, "2 EKSTRE")
+    assert "77.000,00" in gonderilen[-1][1]
+    assert "10.000,00" not in gonderilen[-1][1]
+
+
 @pytest.mark.parametrize("komut", ["DUR", "1 DUR", "İPTAL"])
 def test_COK_FIRMADA_DUR_GLOBAL_IKISINI_DE_KAPATIYOR(oturum, dunya, komut):
     """`DUR` (önekli yazılışı da) BÜTÜN adaylarda rızayı çeker VE bağlantıyı kapatır."""
@@ -1030,7 +1156,11 @@ def test_CONSENT_AT_EVETTE_YAZILIYOR_yonetici_listesinde_GORUNUYOR(
     assert liste.status_code == 200, liste.text
     satirlar = liste.json()
     assert [s["id"] for s in satirlar] == [a]
-    assert satirlar[0]["consent_at"] is not None
+    # TEL BİÇİMİ UTC (H73, `app/zaman.py`): SQLite naive döndürür ve
+    # yardımcıdan geçmeseydi sonek TAŞIMAZDI; PG ikizi `+03:00`ı ölçüyor.
+    tel = satirlar[0]["consent_at"]
+    assert isinstance(tel, str) and tel.endswith("+00:00"), tel
+    assert datetime.fromisoformat(tel).utcoffset() == timedelta(0)
 
     _konus(oturum, "DUR")
     assert damga(a) is not None, "DUR damgayi silmemeli (tarihce)"

@@ -662,12 +662,20 @@ def test_AVANS_TOPLAMLARI_UCUN_KENDI_JSONUYLA_AYNI_GERCEK_PGde(
 # ------------------------------------------------- çok firmalı rıza ---
 
 
-def test_COK_FIRMALI_RIZA_AKISI_DAGITICIDAN_GERCEK_PGde(motor) -> None:
-    """Lens dizisi dağıtıcıdan, gerçek PG'de: 1. firma GRANTED, 2. firma NO_RECORD.
+def test_COK_FIRMALI_RIZA_AKISI_DAGITICIDAN_GERCEK_PGde(motor, monkeypatch) -> None:
+    """Lens dizisi dağıtıcıdan, gerçek PG'de: önekli rıza firma BAŞINA açılır/kapanır.
 
-    Dizi: EKSTRE / EVET / 1 EVET / 1 evet / 1. EVET / 1 HAYIR, sonra
-    "2 HAYIR" ve `DUR`. Düzeltmeden önce ilk altı adım SIFIR rıza satırıyla
-    bitiyordu (runtime lens NO-GO, tur 1 — PG'de de ölçüldü).
+    Dizi: EKSTRE / EVET / 1 EVET / 1 evet / 1. EVET, sonra "2 EVET",
+    "1 HAYIR" (AÇIK rızayı kapatır: REVOKED v2, 2. firma GRANTED KALIR;
+    runtime lens tur 2), tekrar "1 HAYIR" (v2 kalır), "1 EVET" (v3),
+    "2 HAYIR" ve `DUR`. Düzeltme 1'den önce ilk beş adım SIFIR rıza
+    satırıyla bitiyordu (runtime lens NO-GO, tur 1 — PG'de de ölçüldü).
+
+    Yönetici listesinin `consent_at`i burada UTC tel biçimiyle ölçülür:
+    PG `TIMESTAMPTZ`yi OTURUM diliminde döndürür (`+03:00`); `utc_iso`dan
+    geçmeseydi sonek `+00:00` OLMAZDI (H73, `app/zaman.py`). İzin kapısı
+    (`_taraf_izni`) bu adımda DEVRE DIŞIDIR — ölçülen şey serileştirmedir;
+    kapının kendisini SQLite ikizi gerçek HTTP ile ölçüyor.
 
     Yalnız KENDİ satırı kiralanır (`_claim`) ve işlenir (`_mesaj_isle`):
     paylaşık şemada komşunun kuyruğuna dokunulmaz (başlık, kapsam dışı).
@@ -769,14 +777,27 @@ def test_COK_FIRMALI_RIZA_AKISI_DAGITICIDAN_GERCEK_PGde(motor) -> None:
                 {"i": link},
             ).scalar_one()
 
+    def surum(cid: int, sid: int) -> int:
+        with motor.connect() as b:
+            return int(
+                b.execute(
+                    text(
+                        "SELECT version FROM notification_consents WHERE company_id=:c"
+                        " AND party_type='SUPPLIER' AND party_id=:s"
+                        " AND channel='WHATSAPP'"
+                    ),
+                    {"c": cid, "s": sid},
+                ).scalar_one()
+            )
+
     konus("EKSTRE")
     assert '"1 EVET"' in konus("EVET")
     assert durum(firma_1, ted_1) is None and durum(firma_2, ted_2) is None
 
     assert "Onayınız alındı" in konus("1 EVET")
-    for tekrar in ("1 evet", "1. EVET", "1 HAYIR"):
+    for tekrar in ("1 evet", "1. EVET"):
         konus(tekrar)
-    assert durum(firma_1, ted_1) == "GRANTED"
+    assert durum(firma_1, ted_1) == "GRANTED" and surum(firma_1, ted_1) == 1
     assert durum(firma_2, ted_2) is None
     assert damga(link_1) is not None and damga(link_2) is None
 
@@ -784,6 +805,46 @@ def test_COK_FIRMALI_RIZA_AKISI_DAGITICIDAN_GERCEK_PGde(motor) -> None:
     kvkk = konus("2 EKSTRE")
     assert kvkk.endswith("2 EVET / 2 HAYIR"), kvkk
     assert "77.000,00" not in kvkk
+
+    konus("2 EVET")
+    assert durum(firma_2, ted_2) == "GRANTED"
+
+    # "1 HAYIR" AÇIK rızayı KAPATIR — YALNIZ 1. firmada (runtime lens tur 2).
+    damga_1 = damga(link_1)
+    assert "göndermeyeceğiz" in konus("1 HAYIR")
+    assert durum(firma_1, ted_1) == "REVOKED" and surum(firma_1, ted_1) == 2
+    assert durum(firma_2, ted_2) == "GRANTED"
+    assert damga(link_1) == damga_1, "consent_at iz olarak KALIR"
+    assert "10.000,00" not in konus("1 EKSTRE")
+    assert "77.000,00" in konus("2 EKSTRE")
+
+    konus("1 HAYIR")
+    assert surum(firma_1, ted_1) == 2, "REVOKED deftere ikinci yazim YOK"
+    assert "Onayınız alındı" in konus("1 EVET")
+    assert durum(firma_1, ted_1) == "GRANTED" and surum(firma_1, ted_1) == 3
+    assert "10.000,00" in konus("1 EKSTRE")
+
+    # YÖNETİCİ LİSTESİ: `consent_at` gerçek PG'de UTC `+00:00` tel biçimiyle.
+    from types import SimpleNamespace
+
+    from app.routers import whatsapp as wa_router
+
+    monkeypatch.setattr(wa_router, "_taraf_izni", lambda request, party_type: None)
+    istek = SimpleNamespace(state=SimpleNamespace(company_id=firma_1))
+    with Oturum() as db:
+        liste = wa_router.taraf_baglantilarini_listele(
+            istek, party_type="SUPPLIER", party_id=ted_1, db=db
+        )
+    assert [s["id"] for s in liste] == [link_1]
+    tel = liste[0]["consent_at"]
+    assert isinstance(tel, str) and tel.endswith("+00:00"), tel
+    assert datetime.fromisoformat(tel) == damga(link_1)
+
+    # Dizi 15 mesajı doldurdu: 16. mesaj hız sınırıyla İŞLENİR ama
+    # CEVAPLANMAZ (`MESAJ_CEVAP_SINIRI`). Kalan adımlar sınırı değil rızayı
+    # ölçüyor; sayaç KENDİ numarasıyla sıfırlanır (`_temizle`in kuralı).
+    with motor.begin() as b:
+        b.execute(text(f"DELETE FROM {SAYAC} WHERE phone=:p"), {"p": NUMARA})
 
     konus("2 HAYIR")
     assert durum(firma_2, ted_2) == "REVOKED"
