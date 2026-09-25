@@ -511,17 +511,30 @@ def test_fis_neti_ITHAL_EDILIYOR_kopyalanmiyor() -> None:
 
     İTHALIN KULLANILDIĞI da ölçülüyor: kullanılmayan bir `import` kuralı
     tek yerde tutmaz, yalnız öyle görünmesini sağlar.
+
+    F10-1c: fiş okuması `app/mustahsil_okuma.py`ye taşındı ki çiftçinin
+    WhatsApp kantar aracı da AYNI fonksiyondan geçsin. Zincir iki halkadır
+    ve İKİSİ de ölçülür: router `fis_neti`yi ORTAK modülden ithal edip
+    çağırır, ortak modül `_turetilmis_net`i `farm`dan ithal edip çağırır.
     """
     kaynak = ROUTER.read_text(encoding="utf-8")
-    assert "from .farm import _turetilmis_net" in kaynak
+    assert "from ..mustahsil_okuma import" in kaynak
     kod = _kod_metni(ROUTER)
-    assert "_turetilmis_net(" in kod, "İthal edilmiş ama ÇAĞRILMAMIŞ."
-    # Formül router'da YENİDEN yazılmamalı: bileşimin imzası `/ 100` ile
-    # oran çarpımıdır ve burada hiç geçmemeli.
-    assert "rate_percent /" not in kod and "/ 100" not in kod, (
-        "Kesinti bileşimi router'da yeniden yazılmış görünüyor; kural "
-        "`farm._turetilmis_net`te KALMALI."
+    assert "fis_neti(" in kod, "İthal edilmiş ama ÇAĞRILMAMIŞ."
+
+    ortak = BACKEND / "app" / "mustahsil_okuma.py"
+    assert "from .routers.farm import _kesinti_orani_toplami, _turetilmis_net" in (
+        ortak.read_text(encoding="utf-8")
     )
+    ortak_kod = _kod_metni(ortak)
+    assert "_turetilmis_net(" in ortak_kod, "İthal edilmiş ama ÇAĞRILMAMIŞ."
+    # Formül router'da da ortak modülde de YENİDEN yazılmamalı: bileşimin
+    # imzası `/ 100` ile oran çarpımıdır ve ikisinde de hiç geçmemeli.
+    for metin in (kod, ortak_kod):
+        assert "rate_percent /" not in metin and "/ 100" not in metin, (
+            "Kesinti bileşimi yeniden yazılmış görünüyor; kural "
+            "`farm._turetilmis_net`te KALMALI."
+        )
 
 
 # ---------------------------------------------------------------------------

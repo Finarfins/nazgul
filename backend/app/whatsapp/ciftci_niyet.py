@@ -1,7 +1,8 @@
-"""Çiftçi niyet çözücüsü: mesaj → İKİ okuma aracından biri (F10-1b).
+"""Çiftçi niyet çözücüsü: mesaj → DÖRT okuma aracından biri (F10-1b, F10-1c).
 
-`niyet.py` PERSONELİN yedi aracını çözer; bu modül ÇİFTÇİNİN ikisini
-(`ciftci_ekstre`, `ciftci_avans`) çözer. İkisi AYRI dosyada yaşar ve bu
+`niyet.py` PERSONELİN yedi aracını çözer; bu modül ÇİFTÇİNİN dördünü
+(`ciftci_ekstre`, `ciftci_avans`, `ciftci_kantar`, `ciftci_makbuz`)
+çözer. İkisi AYRI dosyada yaşar ve bu
 ölçülmüş bir karardır — keşif
 `docs/f10-1-ciftci-selfservice-kesif-2026-09-17.md` §5.1: *"İki araç kümesi
 ASLA aynı sözlüğü paylaşmaz."*
@@ -46,6 +47,21 @@ YIL SEÇİMİ DETERMİNİSTİK: adı geçen ay bu yıl HENÜZ BAŞLAMADIYSA ÖNC
 yılın o ayıdır. "Mart'ta ARALIK yazan çiftçi geçen aralığı sorar" —
 gelecekteki bir ayın ekstresi BOŞ dönerdi ve kullanıcı nedenini hiç
 öğrenemezdi.
+
+--- KANTAR / MAKBUZ KÖKLERİ (F10-1c, keşif §4c/§4d) ----------------------
+
+`KANTAR`, `TARTI`, `TONAJ` ve `MAKBUZ`, `MUSTAHSIL`. EKLENMEYENLER ve
+gerekçeleri keşifte ölçülü: `FIS` `SORU_SOZLUGU`ndaki `FATURA`/`KOD`/
+`NUMARA` ile aynı kovaya düşer ve ek toleransı 6 ile `FIYAT`ı yutma riski
+taşır; `KILO`/`ADET` eklenmez (`ADET` zaten `STOK_KOKLER`dedir); `FATURA`
+`SORU_SOZLUGU`nda durak kelimedir.
+
+MAKBUZ NUMARASI mesajdan ALINIR ama bu bir CARİ ADI çıkarımı DEĞİLDİR:
+yalnız belge numarası BİÇİMİNDEKİ (`MM-000318`, `MM-2026-000318`) tek bir
+jeton kabul edilir ve sorgu yine `TarafKimlik`in üçlüsüyle koşar — numara
+yalnız çiftçinin KENDİ kesilmiş makbuzları ARASINDA seçim yapar. Başka
+birinin numarası "kayıt bulunmuyor" alır, kaydı hiç olmayan çiftçinin
+aldığı metnin AYNISI (varlık kâhini YOK).
 """
 
 from __future__ import annotations
@@ -69,6 +85,21 @@ EKSTRE_KOKLER: frozenset[str] = frozenset({"EKSTRE"}) | CARI_KOKLER
 
 #: Avans kökleri (keşif §4b).
 AVANS_KOKLER: frozenset[str] = frozenset({"AVANS", "KAPORA", "PESINAT"})
+
+#: Kantar kökleri (keşif §4c). `FIS`, `KILO`, `ADET` BİLEREK YOK (başlık).
+KANTAR_KOKLER: frozenset[str] = frozenset({"KANTAR", "TARTI", "TONAJ"})
+
+#: Müstahsil makbuzu kökleri (keşif §4d). `FATURA` BİLEREK YOK (başlık).
+MAKBUZ_KOKLER: frozenset[str] = frozenset({"MAKBUZ", "MUSTAHSIL"})
+
+#: "KANTAR LISTE" / "MAKBUZ LISTE" — son beş kayıt, satır başına bir.
+_LISTE_KOKLER: frozenset[str] = frozenset({"LISTE"})
+
+#: Belge numarası BİÇİMİ, katlanmış jeton üzerinde: harf öneki + en az bir
+#: "-rakam" grubu. `document_engine.next_document_no` `MM-000318` üretir;
+#: keşfin örneği `MM-2026-000318`dir — ikisi de geçer. Dar tutmak bilinçli:
+#: serbest bir kelime ASLA numara sayılmaz.
+_BELGE_NO_RE = re.compile(r"^[A-Z]{1,10}(?:-[0-9]+)+$")
 
 #: "HESAP ÖZETİ" — YALNIZ BİTİŞİK ÇİFT (başlık).
 _HESAP_OZETI_CIFTI: tuple[str, str] = ("HESAP", "OZET")
@@ -154,7 +185,8 @@ def kvkk_metni(firma_adi: str, sira: int | None = None) -> str:
     """
     evet, hayir = _komut("EVET", sira), _komut("HAYIR", sira)
     metin = (
-        f"{firma_adi} adına bu numaraya bakiye, ekstre ve avans bilgilerinizi "
+        f"{firma_adi} adına bu numaraya bakiye, ekstre, avans, kantar fişi ve "
+        "müstahsil makbuzu bilgilerinizi "
         f"göndermemiz için onayınız gerekiyor (KVKK). Onaylıyorsanız {evet}, "
         f"istemiyorsanız {hayir} yazın. Dilediğiniz zaman DUR yazarak "
         "durdurabilirsiniz."
@@ -165,7 +197,8 @@ def kvkk_metni(firma_adi: str, sira: int | None = None) -> str:
 
 
 RIZA_ALINDI_MESAJI = (
-    "Onayınız alındı. Artık bakiye, ekstre ve avans bilgilerinizi "
+    "Onayınız alındı. Artık bakiye, ekstre, avans, kantar fişi ve müstahsil "
+    "makbuzu bilgilerinizi "
     "sorabilirsiniz. Çıkmak için DUR yazın."
 )
 
@@ -322,7 +355,7 @@ def _hesap_ozeti(jetonlar: list[str]) -> bool:
 
 
 def coz(metin: str, *, bugun: date) -> CiftciNiyeti:
-    """Mesajı İKİ araçtan birine ya da bir MESAJA çevirir. Fail-closed.
+    """Mesajı DÖRT araçtan birine ya da bir MESAJA çevirir. Fail-closed.
 
     Taraf tipi BURAYA GİRMEZ: hangi aracın hangi tarafta anlamlı olduğu
     bir YÜRÜTME sorusudur ve cevabı `ciftci_yurutucu`dadır. Burada
@@ -339,6 +372,20 @@ def coz(metin: str, *, bugun: date) -> CiftciNiyeti:
     # ekstre cevabı o soruyu sessizce yutardı.
     if any(_kok_eslesir(jeton, AVANS_KOKLER) for jeton in jetonlar):
         return CiftciNiyeti(arac="ciftci_avans", argumanlar={})
+
+    # KANTAR makbuzdan ÖNCE: "kantar makbuzu" soran çiftçi fişini soruyor ve
+    # kantar cevabı zaten makbuz numarasını taşıyor. İkisi de ekstreden
+    # ÖNCE: "makbuz borcum" bir makbuz sorusudur, `BORC` kökü onu yutmasın.
+    liste = any(_kok_eslesir(jeton, _LISTE_KOKLER) for jeton in jetonlar)
+    if any(_kok_eslesir(jeton, KANTAR_KOKLER) for jeton in jetonlar):
+        return CiftciNiyeti(arac="ciftci_kantar", argumanlar={"liste": liste})
+
+    if any(_kok_eslesir(jeton, MAKBUZ_KOKLER) for jeton in jetonlar):
+        numara = next((j for j in jetonlar if _BELGE_NO_RE.match(j)), None)
+        return CiftciNiyeti(
+            arac="ciftci_makbuz",
+            argumanlar={"liste": liste and numara is None, "receipt_no": numara},
+        )
 
     if any(_kok_eslesir(jeton, EKSTRE_KOKLER) for jeton in jetonlar) or _hesap_ozeti(
         jetonlar
@@ -358,6 +405,8 @@ __all__ = [
     "CiftciNiyeti",
     "DUR_MESAJI",
     "EKSTRE_KOKLER",
+    "KANTAR_KOKLER",
+    "MAKBUZ_KOKLER",
     "RIZA_ALINDI_MESAJI",
     "RIZA_KAPALI_MESAJI",
     "RIZA_REDDEDILDI_MESAJI",

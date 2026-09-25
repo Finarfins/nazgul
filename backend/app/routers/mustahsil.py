@@ -74,10 +74,17 @@ from ..mustahsil import MustahsilHatasi, makbuz_topla, satir_hesapla
 from ..mustahsil_schemas import ProducerReceiptWrite
 from ..tenancy import company_id
 from ..units import BirimCozulemedi, resolve as birim_coz
-# Kantar fişinin türetilen neti KOPYALANMAZ, İTHAL EDİLİR. Formülün ikinci
-# bir kopyası, bileşim kuralı (toplamsal/sıralı) bir gün düzeltildiğinde
+# Makbuz ve kantar fişi OKUMALARI ortak modülden gelir (F10-1c): çiftçinin
+# WhatsApp araçları AYNI fonksiyonları çağırır. Fişin türetilen neti de
+# oradadır ve `farm._turetilmis_net`i İTHAL EDER — formülün ikinci bir
+# kopyası, bileşim kuralı (toplamsal/sıralı) bir gün düzeltildiğinde
 # makbuzu fişten AYIRIRDI ve hangisinin doğru olduğu sorulamazdı.
-from .farm import _turetilmis_net
+from ..mustahsil_okuma import (
+    fis_neti,
+    makbuz_kalemleri,
+    makbuz_listesi,
+    makbuz_satiri,
+)
 # Avans mahsubu, vergi yükümlülüğü ve iptal engelleri D2'nin ÇEKİRDEĞİNDEN
 # gelir (`app/avans_engine.py`), buraya KOPYALANMAZ: iki kopya, biri
 # düzeltildiğinde ötekini sessizce eski hâlinde bırakırdı.
@@ -88,17 +95,6 @@ router = APIRouter(tags=["producer-receipts"])
 MAKBUZ_ONEK = "MM"
 _SAYFA = Query(default=50, ge=1, le=200)
 _ATLA = Query(default=0, ge=0, le=100_000)
-
-_MAKBUZ_SUTUNLARI = (
-    "id,supplier_id,purchase_id,ticket_id,receipt_no,issued_at,gross_amount,"
-    "withholding_total,social_security_total,net_payable,advance_applied_total,"
-    "status,note"
-)
-_KALEM_SUTUNLARI = (
-    "id,product_id,description,entered_quantity,entered_unit,entered_factor,"
-    "base_quantity,ticket_net_snapshot,unit_price,line_gross,withholding_rate,"
-    "withholding_amount,social_security_rate,social_security_amount,line_net"
-)
 
 
 def _simdi() -> datetime:
@@ -172,29 +168,14 @@ def _makbuz_satiri(db: Session, cid: int, makbuz_id: int) -> dict[str, Any]:
     Başka firmanın makbuzu 404 verir, 403 DEĞİL: 403 belgenin VAR OLDUĞUNU
     söylerdi ve bu, kiracı sınırının sızdırdığı bir bilgidir.
     """
-    satir = db.execute(
-        text(
-            f"SELECT {_MAKBUZ_SUTUNLARI} FROM producer_receipts "
-            "WHERE company_id=:cid AND id=:rid"
-        ),
-        {"cid": cid, "rid": makbuz_id},
-    ).mappings().first()
+    satir = makbuz_satiri(db, cid, makbuz_id)
     if satir is None:
         raise HTTPException(404, "Müstahsil makbuzu bulunamadı")
-    return dict(satir)
+    return satir
 
 
 def _kalemler(db: Session, cid: int, makbuz_id: int) -> list[dict[str, Any]]:
-    return [
-        dict(r)
-        for r in db.execute(
-            text(
-                f"SELECT {_KALEM_SUTUNLARI} FROM producer_receipt_items "
-                "WHERE company_id=:cid AND receipt_id=:rid ORDER BY id"
-            ),
-            {"cid": cid, "rid": makbuz_id},
-        ).mappings().all()
-    ]
+    return makbuz_kalemleri(db, cid, makbuz_id)
 
 
 def _gorunum(
@@ -279,30 +260,13 @@ def _fis_neti(db: Session, cid: int, ticket_id: int) -> Decimal:
     """Kantar fişinin TÜRETİLEN neti — fişin kendi kağıt netinden DEĞİL.
 
     `farm._turetilmis_net` İTHAL EDİLİYOR (kopyalanmıyor): bileşim kuralı
-    tek yerde durmalı.
+    tek yerde durmalı. Hesap `mustahsil_okuma.fis_neti`dedir; çiftçinin
+    kantar aracı da AYNI fonksiyondan geçer (F10-1c).
     """
-    satir = db.execute(
-        text(
-            "SELECT gross_entered_quantity FROM field_harvest_tickets "
-            "WHERE company_id=:cid AND id=:tid"
-        ),
-        {"cid": cid, "tid": ticket_id},
-    ).mappings().first()
-    if satir is None:
+    net = fis_neti(db, cid, ticket_id)
+    if net is None:
         raise HTTPException(404, "Kantar fişi bulunamadı")
-    kesintiler = [
-        dict(r)
-        for r in db.execute(
-            text(
-                "SELECT rate_percent FROM field_harvest_ticket_deductions "
-                "WHERE company_id=:cid AND ticket_id=:tid"
-            ),
-            {"cid": cid, "tid": ticket_id},
-        ).mappings().all()
-    ]
-    return _turetilmis_net(
-        Decimal(str(satir["gross_entered_quantity"])), kesintiler
-    )
+    return net
 
 
 @router.post("/producer-receipts", status_code=201)
@@ -465,26 +429,16 @@ def list_producer_receipts(
     sorusunun cevabında hiç kesilmemiş bir kağıt olamaz.
     """
     cid = company_id(request)
-    sql = (
-        f"SELECT {_MAKBUZ_SUTUNLARI} FROM producer_receipts WHERE company_id=:cid"
+    satirlar = makbuz_listesi(
+        db,
+        cid,
+        supplier_id=supplier_id,
+        status=status,
+        baslangic=_tarih_suzgeci(date_from, "date_from"),
+        bitis=_tarih_suzgeci(date_to, "date_to"),
+        limit=limit,
+        offset=offset,
     )
-    params: dict[str, Any] = {"cid": cid, "limit": limit, "offset": offset}
-    if supplier_id is not None:
-        sql += " AND supplier_id=:sid"
-        params["sid"] = supplier_id
-    if status is not None:
-        sql += " AND status=:status"
-        params["status"] = status
-    baslangic = _tarih_suzgeci(date_from, "date_from")
-    if baslangic is not None:
-        sql += " AND issued_at IS NOT NULL AND issued_at>=:df"
-        params["df"] = baslangic
-    bitis = _tarih_suzgeci(date_to, "date_to")
-    if bitis is not None:
-        sql += " AND issued_at IS NOT NULL AND issued_at<=:dt"
-        params["dt"] = bitis
-    sql += " ORDER BY id DESC LIMIT :limit OFFSET :offset"
-    satirlar = [dict(r) for r in db.execute(text(sql), params).mappings().all()]
     return [_gorunum(s, _kalemler(db, cid, s["id"])) for s in satirlar]
 
 
