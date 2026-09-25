@@ -53,6 +53,11 @@ yeniden alırdı — hem rahatsız edici hem Meta maliyeti üzerinden bir
 masraf yüzeyi. `EVET` her zaman `GRANTED` yazabildiği için reddeden
 çiftçi fikrini değiştirebilir.
 
+`HAYIR` AÇIK bir rızayı da KAPATIR (GRANTED → REVOKED, versiyon +1, olay
+satırı; runtime lens tur 2). Çiftçiye "bu numaraya bilgi göndermeyeceğiz"
+denen her yolda defter o cümleyi doğrulamalıdır. `consent_at` iz olarak
+KALIR (tarihçe); zaten `REVOKED` olan deftere ikinci yazım YAPILMAZ.
+
 `EVET` YALNIZ rıza AÇIK DEĞİLKEN yazar. Zaten açıkken gelen "EVET"
 kapsam mesajına düşer; aksi hâlde tekrarlanan tek bir kelime sınırsız
 `version` artışı ve sınırsız olay satırı üretebilirdi.
@@ -589,10 +594,13 @@ def ciftci_cevap(
         )
 
     if ciftci_niyet.hayir_mi(komut):
-        # YALNIZ kayıt YOKKEN yazar: zaten `REVOKED` olan bir deftere
-        # ikinci bir `REVOKED` yazmak, tekrarlanan tek kelimeyle sınırsız
+        # Kayıt YOKKEN (`REVOKED` v1) ve rıza AÇIKKEN (GRANTED → REVOKED)
+        # yazar. Runtime lens tur 2: açık rızada hiçbir şey yazılmıyordu,
+        # çiftçiye "göndermeyeceğiz" deniyor ve sonraki EKSTRE rakam
+        # dönüyordu — KVKK beyanı yanlıştı. Zaten `REVOKED` olan deftere
+        # ikinci bir `REVOKED` YAZILMAZ: tekrarlanan tek kelime sınırsız
         # versiyon artışı üretirdi (`EVET`in kuralıyla simetrik).
-        if karar["reason"] == consents.NO_RECORD:
+        if karar["allowed"] or karar["reason"] == consents.NO_RECORD:
             _riza_yaz(db, kimlik, telefon, verildi=False)
         return CiftciSonucu(
             cevap=ciftci_niyet.riza_reddedildi_mesaji(sira),

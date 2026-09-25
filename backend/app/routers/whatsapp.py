@@ -120,6 +120,7 @@ from ..whatsapp.schema import (
     whatsapp_party_links,
     whatsapp_party_pairing_codes,
 )
+from ..zaman import utc_iso
 from .auth import _consume_ip_limit
 
 log = logging.getLogger("nazgul.whatsapp.webhook")
@@ -753,7 +754,9 @@ def taraf_baglantilarini_listele(
             "party_id": int(s["party_id"]),
             "phone_masked": _maskeli_telefon(s["phone"]),
             "is_active": bool(s["is_active"]),
-            "consent_at": s["consent_at"],
+            # H73 (`app/zaman.py`): PG oturum dilimiyle (`+03:00`), SQLite
+            # naive döner; tel biçimi iki lehçede de UTC `...+00:00`.
+            "consent_at": utc_iso(s["consent_at"]),
             "created_at": s["created_at"],
         }
         for s in satirlar
