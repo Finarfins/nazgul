@@ -214,10 +214,7 @@ def _sirali(tablo: Table):
     Sıra ŞART: sırasız bir okuma, aynı verinin iki dışa aktarımında farklı
     satır sırası üretir ve iki dosyayı karşılaştırılamaz kılar.
     """
-    # H75: `<kolon>_katli` TURETILMIS arama sutunlaridir; zip'e YAZILMAZ.
-    # Geri yukleme onlari kaynak kolonlardan yeniden hesaplar
-    # (`kiraci_geri_yukleme.geri_yukle` -> `arama_katli.kiraci_katli_esitle`).
-    secim = select(*[s for s in tablo.columns if not katli_sutun_mu(s.name)])
+    secim = select(tablo)
     for sutun in tablo.primary_key.columns:
         secim = secim.order_by(sutun)
     return secim
@@ -228,7 +225,10 @@ def _satirlar(conn: Connection, tablo: Table, cid: int) -> Iterator[dict[str, An
     sonuc = conn.execution_options(stream_results=True).execute(secim)
     for parca in sonuc.partitions(_PARCA):
         for satir in parca:
-            yield dict(satir._mapping)
+            # H75: `<kolon>_katli` TURETILMIS arama sutunlaridir; zip'e
+            # YAZILMAZ. Geri yukleme onlari kaynak kolonlardan yeniden hesaplar
+            # (`kiraci_geri_yukleme.geri_yukle` -> `arama_katli.kiraci_katli_esitle`).
+            yield {k: v for k, v in satir._mapping.items() if not katli_sutun_mu(k)}
 
 
 def _kullanici_epostalari(conn: Connection, kimlikler: set[int]) -> list[dict[str, Any]]:

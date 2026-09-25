@@ -363,5 +363,5 @@ def test_maskeli_rol_email_katliyi_HAM_gormez(istemci, depo, yazilmis, tablo, yo
     assert ham and "@" in ham
     govde = _ok(istemci.get(yol.format(kimlik), headers=depo))
     assert ham not in repr(govde)
-    if "email_katli" in govde:
-        assert govde["email_katli"] == maskele_eposta(ham)
+    # Kart `SELECT *` satırını `entity` altında döndürür (entity_detail).
+    assert govde["entity"]["email_katli"] == maskele_eposta(ham)
