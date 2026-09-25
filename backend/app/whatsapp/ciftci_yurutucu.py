@@ -1,10 +1,34 @@
-"""Çiftçi yürütücüsü: rıza kapısı, hız sınırı ve İKİ okuma aracı (F10-1b).
+"""Çiftçi yürütücüsü: rıza kapısı, hız sınırı ve DÖRT okuma aracı (F10-1b/1c).
 
-`yurutucu.py` personelin YEDİ aracını koşturur; bu modül çiftçinin İKİSİNİ
-(`ciftci_ekstre`, `ciftci_avans`) koşturur ve onların ÖNÜNDEKİ iki kapıyı
-kurar. Tasarımın tamamı
-`docs/f10-1-ciftci-selfservice-kesif-2026-09-17.md` §4a, §4b, §5.2, §5.3 ve
+`yurutucu.py` personelin YEDİ aracını koşturur; bu modül çiftçinin DÖRDÜNÜ
+(`ciftci_ekstre`, `ciftci_avans`, `ciftci_kantar`, `ciftci_makbuz`)
+koşturur ve onların ÖNÜNDEKİ iki kapıyı kurar. Tasarımın tamamı
+`docs/f10-1-ciftci-selfservice-kesif-2026-09-17.md` §4a–§4e, §5.2, §5.3 ve
 §5.4'tedir.
+
+--- KANTAR VE MAKBUZ: YALNIZ KESİLMİŞ MAKBUZ ÜZERİNDEN (F10-1c) ----------
+
+Kantar fişinin TARAF SÜTUNU YOKTUR (keşif §3.1). Bu yüzden çiftçiye YALNIZ
+`producer_receipts.ticket_id` üzerinden KENDİ (`supplier_id`) ve KESİLMİŞ
+(`status='issued'`) makbuzuna bağlı fişler gösterilir (K5). Sahipsiz fiş,
+parsel zinciri ve `buyer_name` eşleşmesi SORGULANMAZ — fişte çiftçinin
+adı yazsa bile. Taslak ve iptal edilmiş makbuz GÖRÜNMEZ: kesilmemiş bir
+kağıdı göstermek verilmemiş bir sözü vermek olurdu (keşif §4d).
+
+`CUSTOMER` tarafı ikisini de sorabilir ve NÖTR "kayıt bulunmuyor" alır —
+kaydı olmayan TEDARİKÇİNİN aldığı metnin AYNISI (`ciftci_avans`ın
+kuralı). Başka birinin makbuz numarası da AYNI metni alır: numara yalnız
+çiftçinin KENDİ satırları arasında seçim yapar, var olup olmadığını
+söylemez.
+
+SQL `app/mustahsil_okuma.py`dedir ve router ile ORTAKTIR; fişin neti
+`farm._turetilmis_net`ten o modül üzerinden gelir. Burada SQL de formül
+de YOKTUR (kapı `test_KANTAR_MAKBUZ_SQL_KOPYASI_YOK_FIS_NETI_ORTAK`).
+
+Kırpılanlar (keşif §4c/§4d): fişin `buyer_name`/`notes`u hiç SEÇİLMEZ;
+makbuzun `purchase_id`/`note`u aracın dönüşüne GİRMEZ. Çiftçinin KENDİ
+kalem fiyatı (`unit_price`) gösterilir (K3); `products.sale_price`
+okunmaz.
 
 --- İKİ BEYAZ LİSTE ASLA BİRLEŞMEZ ---------------------------------------
 
@@ -103,6 +127,7 @@ from sqlalchemy.orm import Session
 from ..activity_log import log_activity
 from ..avans_servis import tedarikci_tum_avanslari
 from ..auth import utcnow
+from ..business_time import ISTANBUL
 from ..notifications import consents
 from ..tenancy import companies
 from . import ciftci_niyet, schema, taraf
@@ -116,7 +141,9 @@ log = logging.getLogger(__name__)
 #: Çiftçinin koşturabileceği araçların TAMAMI. `niyet.ARAC_BEYAZ_LISTESI`
 #: ile KESİŞİMİ BOŞTUR ve bu bir kapıyla ölçülüyor
 #: (`test_IKI_BEYAZ_LISTE_KESISMIYOR`).
-CIFTCI_BEYAZ_LISTESI: frozenset[str] = frozenset({"ciftci_ekstre", "ciftci_avans"})
+CIFTCI_BEYAZ_LISTESI: frozenset[str] = frozenset(
+    {"ciftci_ekstre", "ciftci_avans", "ciftci_kantar", "ciftci_makbuz"}
+)
 
 #: WhatsApp kanalının rıza defterindeki adı. `consents.CONSENT_REQUIRED_CHANNELS`
 #: üyesidir (ölçüldü, `notifications/schema.py:72`).
@@ -190,7 +217,7 @@ def mesaj_deneme_say(
 
 
 # ---------------------------------------------------------------------------
-# ARAÇLAR — İKİSİ DE OKUMA
+# ARAÇLAR — DÖRDÜ DE OKUMA
 # ---------------------------------------------------------------------------
 
 #: `TarafKimlik.party_type` → `statement.build_statement`in `entity_type`i.
@@ -282,6 +309,127 @@ def ciftci_avans(
     }
 
 
+#: "LISTE" cevabının satır sayısı (keşif §4c: "KANTAR LISTE" → son beş).
+LISTE_ADEDI = 5
+#: Çiftçiye gösterilen TEK makbuz durumu (başlık). Sözlük, iç durum adının
+#: (`issued`) mesaja sızmaması içindir.
+_KESILDI = "issued"
+_DURUM_TR = {_KESILDI: "kesildi"}
+#: Kantar aracının makbuz sayfası. Aynı fişe bağlı iki makbuz TEK fiş sayılır;
+#: sayfalama, tekrarlı fişler yüzünden beş farklı fişe ulaşmak içindir.
+_FIS_SAYFASI = 20
+
+
+def ciftci_kantar(
+    db: Session, kimlik: TarafKimlik, argumanlar: dict[str, Any]
+) -> dict[str, Any]:
+    """Kantar fişi (keşif §4c, K5). YALNIZ kesilmiş makbuza bağlı fişler.
+
+    Sıra makbuzun sırasıdır (`id` AZALAN): "son fişiniz" = en son KESİLEN
+    makbuzun fişi. Fişin kendi `weighed_at`i NULL olabildiği için sıra
+    oradan kurulmaz.
+
+    İÇE AKTARMA GÖVDEDE: `mustahsil_okuma` `routers.farm` üzerinden
+    `fastapi`yi çeker (`ciftci_ekstre`nin kuralı).
+    """
+    liste = bool(argumanlar.get("liste"))
+    if kimlik.party_type != schema.TARAF_SUPPLIER:
+        return {"liste": liste, "fisler": []}
+
+    from ..mustahsil_okuma import fis_ozeti, makbuz_listesi
+
+    adet = LISTE_ADEDI if liste else 1
+    fisler: list[dict[str, Any]] = []
+    gorulen: set[int] = set()
+    offset = 0
+    while len(fisler) < adet:
+        sayfa = makbuz_listesi(
+            db,
+            kimlik.company_id,
+            supplier_id=kimlik.party_id,
+            status=_KESILDI,
+            yalniz_fisli=True,
+            limit=_FIS_SAYFASI,
+            offset=offset,
+        )
+        for makbuz in sayfa:
+            fis_id = int(makbuz["ticket_id"])
+            if fis_id in gorulen:
+                continue
+            gorulen.add(fis_id)
+            ozet = fis_ozeti(db, kimlik.company_id, fis_id)
+            if ozet is None:
+                # Bileşik FK bunu imkânsız kılar; olursa fiş YOK sayılır.
+                continue
+            fisler.append(
+                {
+                    "ticket_no": ozet["ticket_no"],
+                    "weighed_at": ozet["weighed_at"],
+                    "entered_unit": ozet["entered_unit"],
+                    "brut": ozet["brut"],
+                    "kesinti_orani": ozet["kesinti_orani"],
+                    "net": ozet["net"],
+                    "receipt_no": makbuz["receipt_no"],
+                    "status": makbuz["status"],
+                }
+            )
+            if len(fisler) == adet:
+                break
+        if len(sayfa) < _FIS_SAYFASI:
+            break
+        offset += _FIS_SAYFASI
+    return {"liste": liste, "fisler": fisler}
+
+
+def ciftci_makbuz(
+    db: Session, kimlik: TarafKimlik, argumanlar: dict[str, Any]
+) -> dict[str, Any]:
+    """Müstahsil makbuzu (keşif §4d). YALNIZ tedarikçi, YALNIZ `issued`.
+
+    ``receipt_no`` verilmişse yalnız O numara, yine çiftçinin KENDİ kesilmiş
+    makbuzları arasında aranır; bulunamazsa sonuç "hiç kaydı yok" ile
+    AYIRT EDİLEMEZ (boş liste).
+
+    Dönüş keşfin alan listesidir; `purchase_id` ve `note` GİRMEZ. Tekil
+    görünümde çiftçinin KENDİ kalem fiyatları (`unit_price`) eklenir (K3).
+    """
+    liste = bool(argumanlar.get("liste"))
+    if kimlik.party_type != schema.TARAF_SUPPLIER:
+        return {"liste": liste, "makbuzlar": []}
+
+    from ..mustahsil_okuma import makbuz_kalemleri, makbuz_listesi
+
+    satirlar = makbuz_listesi(
+        db,
+        kimlik.company_id,
+        supplier_id=kimlik.party_id,
+        status=_KESILDI,
+        receipt_no=argumanlar.get("receipt_no"),
+        limit=LISTE_ADEDI if liste else 1,
+    )
+    makbuzlar = [
+        {
+            "receipt_no": s["receipt_no"],
+            "issued_at": s["issued_at"],
+            "gross_amount": Decimal(str(s["gross_amount"])),
+            "withholding_total": Decimal(str(s["withholding_total"])),
+            "social_security_total": Decimal(str(s["social_security_total"])),
+            "net_payable": Decimal(str(s["net_payable"])),
+            "status": s["status"],
+            "birim_fiyatlar": (
+                []
+                if liste
+                else [
+                    Decimal(str(k["unit_price"]))
+                    for k in makbuz_kalemleri(db, kimlik.company_id, int(s["id"]))
+                ]
+            ),
+        }
+        for s in satirlar
+    ]
+    return {"liste": liste, "makbuzlar": makbuzlar}
+
+
 #: Araç adı → gövde. Anahtar kümesi `CIFTCI_BEYAZ_LISTESI` ile BİREBİR
 #: aynı olmak ZORUNDA — `yurutucu.ARAC_GOVDELERI`nin kuralı ve aynı
 #: gerekçe: eksik bir gövde, beyaz listeden geçmiş bir aracın `KeyError`
@@ -289,6 +437,8 @@ def ciftci_avans(
 CIFTCI_ARAC_GOVDELERI = {
     "ciftci_ekstre": ciftci_ekstre,
     "ciftci_avans": ciftci_avans,
+    "ciftci_kantar": ciftci_kantar,
+    "ciftci_makbuz": ciftci_makbuz,
 }
 
 
@@ -359,7 +509,134 @@ def _avans_yaz(veri: dict[str, Any]) -> str:
     return "\n".join(satirlar)
 
 
-_SABLONLAR = {"ciftci_ekstre": _ekstre_yaz, "ciftci_avans": _avans_yaz}
+#: NÖTR metinler — CUSTOMER tarafı, kaydı olmayan tedarikçi ve başkasının
+#: makbuz numarası AYNI metni alır (başlık; kapı bayt karşılaştırmasıdır).
+KANTAR_YOK_MESAJI = "Bu numara için kantar fişi kaydı bulunmuyor."
+MAKBUZ_YOK_MESAJI = "Bu numara için müstahsil makbuzu kaydı bulunmuyor."
+
+
+def _tarih_tr(deger: Any) -> str:
+    """`datetime` ya da ISO metni → İstanbul günü ``"11.09.2026"``; yoksa ``""``.
+
+    PG `TIMESTAMPTZ`yi `datetime`, SQLite metin döndürür; ikisi de aynı güne
+    çevrilir. Gün İSTANBUL'dadır: gece yarısına yakın kesilen bir makbuz
+    UTC gününde gösterilseydi çiftçinin elindeki kağıttan bir gün
+    ayrışırdı. Ayrıştırılamayan metin `_gun_tr`a düşer (istisna YOK).
+    """
+    if deger is None or deger == "":
+        return ""
+    an = deger
+    if not isinstance(an, datetime):
+        metin = str(deger).strip()
+        try:
+            an = datetime.fromisoformat(metin.replace("Z", "+00:00"))
+        except ValueError:
+            return _gun_tr(metin[:10])
+    if an.tzinfo is None:
+        an = an.replace(tzinfo=timezone.utc)
+    return an.astimezone(ISTANBUL).strftime("%d.%m.%Y")
+
+
+def _sayi_tr(deger: Decimal, *, en_az: int) -> str:
+    """Türkçe biçim, ölçek KORUNARAK: ``23575.5125`` → ``"23.575,5125"``.
+
+    Sondaki sıfırlar ``en_az`` basamağa kadar atılır (``23575.5000`` →
+    ``"23.575,50"``) ama anlamlı basamak ASLA yuvarlanmaz: cevaptaki net,
+    router'ın `_fis_neti`sinin döndürdüğü sayının KENDİSİDİR (kapı gram
+    düzeyinde karşılaştırıyor).
+    """
+    isaret = "-" if deger < 0 else ""
+    tam, _, kesir = format(abs(deger), "f").partition(".")
+    kesir = kesir.rstrip("0").ljust(en_az, "0")
+    gruplu = f"{int(tam):,}".replace(",", ".")
+    return f"{isaret}{gruplu},{kesir}" if kesir else f"{isaret}{gruplu}"
+
+
+def _fis_basligi(fis: dict[str, Any]) -> str:
+    """``"#4412, 11.09.2026"`` — numarası ya da tarihi olmayan fişte eksik parça ATLANIR."""
+    ekler = [f"#{fis['ticket_no']}"] if fis["ticket_no"] else []
+    gun = _tarih_tr(fis["weighed_at"])
+    if gun:
+        ekler.append(gun)
+    return ", ".join(ekler)
+
+
+def _durum_tr(durum: str) -> str:
+    return _DURUM_TR.get(durum, durum)
+
+
+def _kantar_yaz(veri: dict[str, Any]) -> str:
+    """Keşif §4c'nin şablonu (≤5 satır). `buyer_name`/`notes` HİÇ GEÇMEZ."""
+    fisler = veri["fisler"]
+    if not fisler:
+        return KANTAR_YOK_MESAJI
+    if veri["liste"]:
+        satirlar = []
+        for fis in fisler:
+            baslik = _fis_basligi(fis)
+            parcalar = [baslik] if baslik else []
+            parcalar.append(
+                f"NET {_sayi_tr(fis['net'], en_az=2)} {fis['entered_unit'].lower()}"
+            )
+            parcalar.append(fis["receipt_no"])
+            satirlar.append(" · ".join(parcalar))
+        return "\n".join(satirlar)
+    fis = fisler[0]
+    birim = fis["entered_unit"].lower()
+    baslik = _fis_basligi(fis)
+    return "\n".join(
+        [
+            f"Son kantar fişiniz ({baslik}):" if baslik else "Son kantar fişiniz:",
+            f"Brüt {_sayi_tr(fis['brut'], en_az=2)} {birim} · "
+            f"Kesinti %{_sayi_tr(fis['kesinti_orani'], en_az=0)}",
+            f"NET: {_sayi_tr(fis['net'], en_az=2)} {birim}",
+            f"Makbuz: {fis['receipt_no']} ({_durum_tr(fis['status'])})",
+            'Daha eskisi için "KANTAR LISTE" yazın.',
+        ]
+    )
+
+
+def _makbuz_yaz(veri: dict[str, Any]) -> str:
+    """Keşif §4d'nin şablonu (≤5 satır). `purchase_id`/`note` HİÇ GEÇMEZ."""
+    makbuzlar = veri["makbuzlar"]
+    if not makbuzlar:
+        return MAKBUZ_YOK_MESAJI
+    if veri["liste"]:
+        satirlar = []
+        for m in makbuzlar:
+            parcalar = [m["receipt_no"]]
+            gun = _tarih_tr(m["issued_at"])
+            if gun:
+                parcalar.append(gun)
+            parcalar.append(f"NET {para_tr(m['net_payable'])} TL")
+            satirlar.append(" · ".join(parcalar))
+        return "\n".join(satirlar)
+    m = makbuzlar[0]
+    ekler = [_tarih_tr(m["issued_at"]), _durum_tr(m["status"])]
+    brut = f"Brüt {para_tr(m['gross_amount'])} TL"
+    if m["birim_fiyatlar"]:
+        # Çiftçinin KENDİ kalem fiyatları (K3), kalem sırasıyla, tekrarsız.
+        fiyatlar = list(dict.fromkeys(m["birim_fiyatlar"]))
+        brut += " · Birim fiyat " + " / ".join(para_tr(f) for f in fiyatlar) + " TL"
+    return "\n".join(
+        [
+            f"Müstahsil makbuzunuz {m['receipt_no']} "
+            f"({', '.join(e for e in ekler if e)}):",
+            brut,
+            f"Stopaj {para_tr(m['withholding_total'])} TL · "
+            f"Bağ-Kur {para_tr(m['social_security_total'])} TL",
+            f"NET ÖDENECEK: {para_tr(m['net_payable'])} TL",
+            'PDF için alım merkezinize başvurun; eskiler için "MAKBUZ LISTE".',
+        ]
+    )
+
+
+_SABLONLAR = {
+    "ciftci_ekstre": _ekstre_yaz,
+    "ciftci_avans": _avans_yaz,
+    "ciftci_kantar": _kantar_yaz,
+    "ciftci_makbuz": _makbuz_yaz,
+}
 
 
 def cevap_yaz(arac: str, veri: dict[str, Any]) -> str:
@@ -651,9 +928,14 @@ __all__ = [
     "CiftciSonucu",
     "CiftciYurutucu",
     "KANAL",
+    "KANTAR_YOK_MESAJI",
+    "LISTE_ADEDI",
+    "MAKBUZ_YOK_MESAJI",
     "cevap_yaz",
     "ciftci_avans",
     "ciftci_cevap",
     "ciftci_ekstre",
+    "ciftci_kantar",
+    "ciftci_makbuz",
     "mesaj_deneme_say",
 ]

@@ -136,9 +136,15 @@ def test_IKI_BEYAZ_LISTE_KESISMIYOR() -> None:
     from app.whatsapp.ciftci_yurutucu import CIFTCI_BEYAZ_LISTESI
     from app.whatsapp.niyet import ARAC_BEYAZ_LISTESI
 
-    assert CIFTCI_BEYAZ_LISTESI == {"ciftci_ekstre", "ciftci_avans"}
+    # F10-1c kantar ve makbuzu ekledi; kesişimsizlik kuralı AYNEN sürüyor.
+    assert CIFTCI_BEYAZ_LISTESI == {
+        "ciftci_ekstre",
+        "ciftci_avans",
+        "ciftci_kantar",
+        "ciftci_makbuz",
+    }
     assert not (CIFTCI_BEYAZ_LISTESI & ARAC_BEYAZ_LISTESI)
-    # Personel listesi bu PR'da KIMILDAMADI.
+    # Personel listesi KIMILDAMADI (F10-1b ve F10-1c).
     assert len(ARAC_BEYAZ_LISTESI) == 7
 
 
