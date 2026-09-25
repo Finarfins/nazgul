@@ -12,7 +12,7 @@ from sqlalchemy import Column, Index, Integer, MetaData, String, Table, Text, in
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.orm import Session
 
-from .arama_katli import KATLI_SUTUNLAR, katli_esitle, katli_sutun_mu
+from .arama_katli import KATLI_SUTUNLAR, katli_ad, katli_esitle, katli_sutun_mu
 
 logger = logging.getLogger("yerel_hesap.change_history")
 
@@ -200,7 +200,11 @@ def restore_deleted(
         text(f"INSERT INTO {table_name} ({','.join(columns)}) VALUES ({placeholders})"),
         filtered_payload,
     )
-    if table_name in KATLI_SUTUNLAR:
+    # H75: katlanmis arama sutunlari anlik goruntude YOKTUR; AYNI canli
+    # sutun kesisimi kuraliyla (SEC-10) yalniz tablo onlari TASIYORSA
+    # kaynak kolonlardan yeniden hesaplanir.
+    katli = {katli_ad(k) for k in KATLI_SUTUNLAR.get(table_name, ())}
+    if katli and katli <= live_columns:
         katli_esitle(db, table_name, cid=company_id, ids=[log["entity_id"]])
     restored = db.execute(
         text(f"SELECT * FROM {table_name} WHERE id=:id AND company_id=:cid"),

@@ -31,7 +31,16 @@ def _create_auxiliary_tables(db: Session) -> None:
     (``statement.py:_makbuz_borcu``) ve o sorgu da KOŞULSUZDUR. Sorguyu
     "tablo varsa" diye sarmalamak, tablo bir gün gerçekten eksik olduğunda
     borcu SESSİZCE sıfırlardı — eksik tablo gürültülü düşmelidir.
+
+    H75 (göç 20260925_0092): cari/tedarikçi listesinin arama parçası
+    ``<kolon>_katli`` sütunlarını okur; onlar da YALNIZ Alembic'te yaşar ve
+    ``metadata.create_all`` onları kurmaz.
     """
+    from app.arama_katli import KATLI_SUTUNLAR, katli_ad
+
+    for tablo in ("customers", "suppliers"):
+        for kolon in KATLI_SUTUNLAR[tablo]:
+            db.execute(text(f"ALTER TABLE {tablo} ADD COLUMN {katli_ad(kolon)} TEXT"))
     db.execute(
         text(
             """
