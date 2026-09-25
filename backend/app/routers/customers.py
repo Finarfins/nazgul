@@ -58,9 +58,12 @@ def _values(payload: CustomerCreate) -> dict:
 # artik KALICI katlanmis sutunlardan okunur (`app/arama_katli.py`, goc
 # 20260925_0092); `translate` istek SQL'inden cikti. Yalniz SABIT kolon
 # adlari; `q` `:q` ile baglanir.
-_MUSTERI_AD = 'c.name_katli'
-_MUSTERI_YETKILI = 'c.owner_name_katli'
-_MUSTERI_EPOSTA = 'c.email_katli'
+# `COALESCE(..,'')`: `_katli` NULL olan bir satir (kacan bir yazici) bos `q`
+# ile (`LIKE '%%'`) listeden DUSMESIN; eski istek-ani katlama ifadesi NOT NULL
+# kolonda hep eslesiyordu (test_charge_document_balance olctu).
+_MUSTERI_AD = "COALESCE(c.name_katli,'')"
+_MUSTERI_YETKILI = "COALESCE(c.owner_name_katli,'')"
+_MUSTERI_EPOSTA = "COALESCE(c.email_katli,'')"
 _MUSTERI_ARAMA_MASKELI = f"({_MUSTERI_AD} LIKE :q ESCAPE '\\' OR {_MUSTERI_YETKILI} LIKE :q ESCAPE '\\')"
 _MUSTERI_ARAMA_TAM = f"""({_MUSTERI_AD} LIKE :q ESCAPE '\\' OR {_MUSTERI_YETKILI} LIKE :q ESCAPE '\\'
        OR COALESCE(c.phone,'') LIKE :q ESCAPE '\\'

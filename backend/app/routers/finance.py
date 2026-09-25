@@ -135,9 +135,11 @@ def _validate_payment(payload: PaymentCreate):
 # Kullanici metni yalniz `:q` ile baglanir.
 _ODEME_CARI_KATLI = "COALESCE(CASE WHEN p.entity_type='customer' THEN c.name_katli ELSE s.name_katli END,'')"
 _HAREKET_ACIKLAMA_KATLI = "COALESCE(t.description_katli,'')"
-_TEDARIKCI_AD = 's.name_katli'
-_TEDARIKCI_YETKILI = 's.owner_name_katli'
-_TEDARIKCI_EPOSTA = 's.email_katli'
+# `COALESCE(..,'')`: `_katli` NULL olan satir bos `q` ile listeden DUSMESIN
+# (`customers.py`deki notla ayni gerekce).
+_TEDARIKCI_AD = "COALESCE(s.name_katli,'')"
+_TEDARIKCI_YETKILI = "COALESCE(s.owner_name_katli,'')"
+_TEDARIKCI_EPOSTA = "COALESCE(s.email_katli,'')"
 _TEDARIKCI_ARAMA_MASKELI = f"({_TEDARIKCI_AD} LIKE :q ESCAPE '\\' OR {_TEDARIKCI_YETKILI} LIKE :q ESCAPE '\\')"
 _TEDARIKCI_ARAMA_TAM = f"""({_TEDARIKCI_AD} LIKE :q ESCAPE '\\' OR {_TEDARIKCI_YETKILI} LIKE :q ESCAPE '\\'
        OR COALESCE(s.phone,'') LIKE :q ESCAPE '\\'

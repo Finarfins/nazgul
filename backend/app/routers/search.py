@@ -21,6 +21,8 @@ router = APIRouter(prefix='/search', tags=['search'])
 # baglanir; katlanmamis bir barkod kolonu PG'de (LIKE buyuk/kucuk harf
 # duyarli) kucuk harfli barkodu kaybederdi. Telefon ve `CAST(id AS TEXT)`
 # rakamdir, katlama onlara dokunmaz.
+# `COALESCE(..,'')`: `_katli` NULL olan satir (kacan yazici) bosluklu `q`
+# (`'%%'`) ile DUSMESIN; `customers.py`deki notla ayni gerekce.
 
 
 def _normalized_identifier_sql(column: str, dialect: str = "sqlite") -> str:
@@ -96,7 +98,7 @@ def global_search(
             SELECT id, name, phone, email
             FROM customers
             WHERE company_id=:cid AND (
-              name_katli LIKE :q ESCAPE '\\' OR owner_name_katli LIKE :q ESCAPE '\\'
+              COALESCE(name_katli,'') LIKE :q ESCAPE '\\' OR COALESCE(owner_name_katli,'') LIKE :q ESCAPE '\\'
             )
             ORDER BY name LIMIT :limit
         """), params).mappings().all()
@@ -105,8 +107,8 @@ def global_search(
             SELECT id, name, phone, email
             FROM customers
             WHERE company_id=:cid AND (
-              name_katli LIKE :q ESCAPE '\\' OR owner_name_katli LIKE :q ESCAPE '\\'
-              OR COALESCE(phone,'') LIKE :q ESCAPE '\\' OR email_katli LIKE :q ESCAPE '\\'
+              COALESCE(name_katli,'') LIKE :q ESCAPE '\\' OR COALESCE(owner_name_katli,'') LIKE :q ESCAPE '\\'
+              OR COALESCE(phone,'') LIKE :q ESCAPE '\\' OR COALESCE(email_katli,'') LIKE :q ESCAPE '\\'
             )
             ORDER BY name LIMIT :limit
         """), params).mappings().all()
@@ -121,7 +123,7 @@ def global_search(
         SELECT id, name, product_code, barcode, stock, unit
         FROM products
         WHERE company_id=:cid AND COALESCE(active, TRUE)=TRUE AND (
-          name_katli LIKE :q ESCAPE '\\' OR product_code_katli LIKE :q ESCAPE '\\' OR barcode_katli LIKE :q ESCAPE '\\'
+          COALESCE(name_katli,'') LIKE :q ESCAPE '\\' OR COALESCE(product_code_katli,'') LIKE :q ESCAPE '\\' OR COALESCE(barcode_katli,'') LIKE :q ESCAPE '\\'
         )
         ORDER BY name LIMIT :limit
     """), params).mappings().all()
@@ -135,7 +137,7 @@ def global_search(
         SELECT o.id, o.document_no, o.order_date, o.final_total, c.name customer_name
         FROM orders o JOIN customers c ON c.id=o.customer_id AND c.company_id=o.company_id
         WHERE o.company_id=:cid AND (
-          o.document_no_katli LIKE :q ESCAPE '\\' OR c.name_katli LIKE :q ESCAPE '\\' OR CAST(o.id AS TEXT) LIKE :q ESCAPE '\\'
+          COALESCE(o.document_no_katli,'') LIKE :q ESCAPE '\\' OR COALESCE(c.name_katli,'') LIKE :q ESCAPE '\\' OR CAST(o.id AS TEXT) LIKE :q ESCAPE '\\'
         )
         ORDER BY o.id DESC LIMIT :limit
     """), params).mappings().all()
@@ -150,7 +152,7 @@ def global_search(
         SELECT p.id, p.document_no, p.purchase_date, p.final_total, s.name supplier_name
         FROM purchases p JOIN suppliers s ON s.id=p.supplier_id AND s.company_id=p.company_id
         WHERE p.company_id=:cid AND (
-          p.document_no_katli LIKE :q ESCAPE '\\' OR s.name_katli LIKE :q ESCAPE '\\' OR CAST(p.id AS TEXT) LIKE :q ESCAPE '\\'
+          COALESCE(p.document_no_katli,'') LIKE :q ESCAPE '\\' OR COALESCE(s.name_katli,'') LIKE :q ESCAPE '\\' OR CAST(p.id AS TEXT) LIKE :q ESCAPE '\\'
         )
         ORDER BY p.id DESC LIMIT :limit
     """), params).mappings().all()
