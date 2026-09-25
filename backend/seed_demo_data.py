@@ -217,7 +217,9 @@ def build_demo(database_url: str, *, force: bool = False) -> dict[str, int]:
                 lines.append((pid, q, unit_price, line_subtotal, line_vat, line_total))
                 subtotal += line_subtotal
             subtotal = money(subtotal)
-            vat_total = money(subtotal * Decimal("0.20"))
+            # Başlık KDV'si SATIRLARIN toplamıdır (F9-5-fix H82): ara toplamın
+            # %20'si satır KDV'lerinin toplamından kuruş kayabiliyordu.
+            vat_total = money(sum((line[4] for line in lines), Decimal("0")))
             total = money(subtotal + vat_total)
             paid = money(total * Decimal(str(rng.choice([0, 0.25, 0.5, 1]))))
             purchase_id = inserted_id(conn.execute(insert(purchases).values(
@@ -287,7 +289,9 @@ def build_demo(database_url: str, *, force: bool = False) -> dict[str, int]:
                 lines.append((pid, q, unit_price, discount_pct, discount_amount, line_subtotal, line_vat, line_total))
                 subtotal += line_subtotal
             subtotal = money(subtotal)
-            vat_total = money(subtotal * Decimal("0.20"))
+            # Başlık KDV'si SATIRLARIN toplamıdır (F9-5-fix H82): ara toplamın
+            # %20'si 60 satıştan 11'inde satır KDV'lerinin toplamından kuruş kayıyordu.
+            vat_total = money(sum((line[6] for line in lines), Decimal("0")))
             total = money(subtotal + vat_total)
             payment_pattern = rng.choice(["cash", "card", "bank_transfer", "credit", "split"])
             if payment_pattern == "credit":

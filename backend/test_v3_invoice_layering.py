@@ -129,7 +129,11 @@ with TestClient(app) as c:
  # The generated invoice reuses the same figures end-to-end.
  gen=c.post('/api/invoices/generate',headers=h,json={'work_order_id':wid,'branch_prefix':'LAY'})
  assert gen.status_code==201,gen.text
- assert Decimal(gen.json()['totals']['grand_total'])==direct['totals']['grand_total']
+ # F9-5-fix (H79): the invoice adds labor VAT the billing preview does not
+ # carry (2 x 150 at 20% = 60.00); every other figure is the preview's.
+ labor_vat=sum(Decimal(str(i['tax_amount'])) for i in gen.json()['items'] if i['item_type']=='LABOR')
+ assert labor_vat==Decimal('60.00'),gen.json()['items']
+ assert Decimal(gen.json()['totals']['grand_total'])==direct['totals']['grand_total']+labor_vat
  # Tenant isolation is preserved through the delegation.
  other=c.post('/api/companies',headers=h,json={'name':'Layer B'}).json()
  assert c.get(f"/api/work-orders/{wid}/invoice",headers={**h,'X-Company-ID':str(other['id'])}).status_code==404

@@ -108,7 +108,8 @@ with TestClient(app) as c:
  inv=c.post('/api/invoices/generate',headers=h,json={'work_order_id':wid,'branch_prefix':'SR'})
  assert inv.status_code==201,inv.text
  assert [item['item_type'] for item in inv.json()['items']]==['LABOR']
- assert Decimal(str(inv.json()['totals']['grand_total']))==Decimal('200.00')
+ # F9-5-fix (H79): labor 2 x 100 carries 20% VAT -> 240.00 (was 200.00 at 0%).
+ assert Decimal(str(inv.json()['totals']['grand_total']))==Decimal('240.00')
  iid=inv.json()['id']
  with SessionLocal() as db:
   count=db.execute(text("""SELECT COUNT(*) FROM receivable_charge_documents
@@ -156,7 +157,9 @@ with TestClient(app) as c:
   assert len(docs)==3
   assert [row['revision_no'] for row in docs]==[1,2,3]
   assert docs[0]['status']=='reversed' and docs[1]['reversal_of_document_id'] is not None
-  assert Decimal(str(docs[2]['gross_amount']))==Decimal('360.00')
+  # F9-5-fix (H79+H80): FIXED 20 lowers the matrah 200 -> 180, VAT 20% = 36,
+  # 216.00 EUR x 2 = 432.00 (was (200 - 20) x 2 = 360.00 with 0% labor VAT).
+  assert Decimal(str(docs[2]['gross_amount']))==Decimal('432.00')
   assert docs[2]['currency']=='EUR' and Decimal(str(docs[2]['exchange_rate']))==Decimal('2')
   active_id=int(docs[2]['reversal_of_document_id'] or 0) if False else int(db.execute(text("""SELECT id FROM receivable_charge_documents
     WHERE company_id=:cid AND work_order_id=:wid AND status='posted' AND reversal_of_document_id IS NULL"""),{'cid':cid,'wid':wid}).scalar_one())

@@ -17,16 +17,23 @@ def test_global_discount_is_allocated_and_reconciles(tmp_path: Path) -> None:
     grand_total == pre-discount total − global_discount. The no-discount path
     keeps each PART item total equal to the stored work_order_parts.total_price
     (F1 parity).
+
+    F9-5-fix (H79/H80): the discount is allocated on the line MATRAH and each
+    line's tax is recomputed on the discounted base; labor carries 20% VAT, so
+    the pre-discount total includes it. ``global_discount`` stays the drop in
+    the payable; a FIXED value is a matrah discount.
     """
     env = os.environ.copy()
     env["DATABASE_URL"] = f"sqlite:///{(tmp_path / 'gdisc.db').as_posix()}"
     env["PYTHONPATH"] = str(BACKEND)
     smoke = r'''
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from app.db import SessionLocal
+from app.invoice_service import SERVICE_LABOR_VAT_RATE
 from app.main import app
+from app.money import compute_line
 
 D=lambda v: Decimal(str(v))
 
@@ -66,13 +73,15 @@ with TestClient(app) as c:
         for r in rows:
             raw=(D(r['quantity'])*D(r['unit_price'])).quantize(Decimal('0.01'))
             assert D(r['total'])==raw-D(r['discount_amount'])+D(r['tax_amount']), ('line identity',dict(r))
+            base=raw-D(r['discount_amount'])
+            assert D(r['tax_amount'])==(base*D(r['tax_rate'])/100).quantize(Decimal('0.01'),rounding=ROUND_HALF_UP), ('tax on discounted base',dict(r))
         return rows
 
-    # Pre-discount grand total for this work order: labor 300 + P1 216 + P2 23.10 = 539.10
+    # Pre-discount grand total for this work order: labor 300 + 20% VAT = 360 + P1 216 + P2 23.10 = 599.10
     # (P2: raw=21.00, tax10%=2.10, total=23.10)
     def pre_total(iid):
         with SessionLocal() as db:
-            return D(db.execute(text("SELECT total_labor_cost FROM work_orders WHERE id=:id"),{'id':iid}).scalar_one()) + \
+            return compute_line(1,db.execute(text("SELECT total_labor_cost FROM work_orders WHERE id=:id"),{'id':iid}).scalar_one(),0,SERVICE_LABOR_VAT_RATE).total + \
                    sum((D(x) for x in db.execute(text("SELECT total_price FROM work_order_parts WHERE work_order_id=:id"),{'id':iid}).scalars().all()),Decimal('0'))
 
     # --- PERCENT discount 12.5% ---
@@ -88,9 +97,14 @@ with TestClient(app) as c:
     g2=c.post('/api/invoices/generate',headers=h,json={'work_order_id':w2,'global_discount_type':'FIXED','global_discount_value':'10'})
     assert g2.status_code==201,g2.text
     t2=g2.json()['totals']; pre2=pre_total(w2)
-    assert D(t2['global_discount'])==Decimal('10.00')
-    assert D(t2['grand_total'])==pre2-Decimal('10.00')
-    reconcile(g2.json()['id'],t2)
+    assert pre2==Decimal('599.10'), pre2
+    assert D(t2['grand_total'])==pre2-D(t2['global_discount'])
+    rows2=reconcile(g2.json()['id'],t2)
+    # FIXED 10 is a MATRAH discount: the document shares on the lines sum to 10.00
+    # (P1 keeps its own 20.00 line discount) and the payable drops by more.
+    shares=sum((D(r['discount_amount']) for r in rows2),Decimal('0'))-Decimal('20.00')
+    assert shares==Decimal('10.00'), shares
+    assert D(t2['global_discount'])>Decimal('10.00'), t2
 
     # --- No discount: F1 parity preserved (PART item total == stored total_price) ---
     w3=build(warranty='NONE',percent='0')

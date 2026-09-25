@@ -171,7 +171,9 @@ def test_labor_update_cannot_interleave_with_invoice_generation(
 
             # The invoice always gets created (it is the work order's only one).
             assert generate_status == 201, invoice
-            invoice_grand = Decimal(invoice["totals"]["grand_total"])
+            # The invoice has labor only; since F9-5-fix (H79) that labor
+            # carries VAT, so the frozen labor is the NET grand total.
+            invoice_grand = Decimal(invoice["totals"]["grand_total"]) - Decimal(invoice["totals"]["tax"])
 
             wo = client.get(f"/api/work-orders/{order_id}", headers=h).json()
             wo_labor = Decimal(str(wo["total_labor_cost"]))

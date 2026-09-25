@@ -300,7 +300,8 @@ with TestClient(app) as client:
     issued = invoice.json()
     labor_items = [item for item in issued['items'] if item['item_type'] == 'LABOR']
     assert len(labor_items) == 2, labor_items
-    labor_sum = sum(Decimal(str(item['total'])) for item in labor_items)
+    # NET labor (total - tax_amount): since F9-5-fix (H79) a LABOR item carries VAT.
+    labor_sum = sum(Decimal(str(item['total'])) - Decimal(str(item['tax_amount'])) for item in labor_items)
     assert labor_sum == LINES_ONLY, labor_items
     assert labor_sum != LINES_ONLY + HEADER_AMOUNT
     assert issued['totals']['labor_source'] == 'lines'
@@ -312,7 +313,7 @@ with TestClient(app) as client:
     assert invoice_a.status_code == 201, invoice_a.text
     header_items = [item for item in invoice_a.json()['items'] if item['item_type'] == 'LABOR']
     assert len(header_items) == 1, header_items
-    assert Decimal(str(header_items[0]['total'])) == HEADER_AMOUNT
+    assert Decimal(str(header_items[0]['total'])) - Decimal(str(header_items[0]['tax_amount'])) == HEADER_AMOUNT
     assert invoice_a.json()['totals']['labor_source'] == 'header'
 
     # ---- Faturalı iş emrinde satır mutasyonu 409 -----------------------------

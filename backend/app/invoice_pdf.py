@@ -57,7 +57,10 @@ def build_invoice_pdf(invoice:dict,items:list[dict])->bytes:
         ("GRID",(0,0),(-1,-1),.3,colors.grey),("FONTNAME",(0,0),(-1,0),PDF_FONT_BOLD),("FONTNAME",(0,1),(-1,-1),PDF_FONT),("ALIGN",(1,1),(-1,-1),"RIGHT"),
         ("FONTSIZE",(0,0),(-1,-1),8),("VALIGN",(0,0),(-1,-1),"TOP")]))
     story += [table,Spacer(1,5*mm)]
-    subtotal=money(totals.get("labor",0))+money(totals.get("parts",0))
+    # Ara Toplam = Genel Toplam + Global İndirim, so the three lines always add
+    # up. For invoices issued before F9-5-fix this equals labor + parts exactly
+    # (labor had no VAT); since then labor carries VAT that "labor" (net) lacks.
+    subtotal=money(totals["grand_total"])+money(totals.get("global_discount",0))
     summary=Table([[Image(qrbuf,25*mm,25*mm),code128.Code128(number,barHeight=12*mm,barWidth=.35),
         Paragraph(f"Ara Toplam: {escape(_metin(subtotal))} {escape(_metin(invoice['currency']))}<br/>"
                   f"Global İndirim: {escape(_metin(totals.get('global_discount',0)))}<br/><b>Genel Toplam: {escape(_metin(totals['grand_total']))} {escape(_metin(invoice['currency']))}</b><br/>"
