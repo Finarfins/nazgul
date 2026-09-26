@@ -55,6 +55,32 @@ def inserted_id(result) -> int:
     return int(result.inserted_primary_key[0])
 
 
+TOHUM_TELEFON_SINIRI = 10_000
+
+
+def _seed_telefon(idx: int, grup: str) -> str:
+    """Demo carisinin telefonu: her `idx < 10_000` için GEÇERLİ ve TEKİL.
+
+    H87: eski satır içi desenler `{idx:02d}` / `{100 + idx:03d}` ile
+    idx ≥ 100'de ON İKİ ulusal rakam üretiyordu ve `normalize_msisdn` onu
+    `None`a düşürüyordu. idx < 100 dalı BAYT BAYT eski çıktıdır (F10-1 K2
+    kapısı bu desenleri kaynakta arar); idx ≥ 100 dalı eskinin hiç
+    kullanmadığı `551`/`552` operatör önekine geçer — ON ulusal rakam,
+    `5` ile başlar, grup + idx ile tekil.
+    """
+    if not 1 <= idx < TOHUM_TELEFON_SINIRI:
+        raise ValueError(f"tohum telefon sırası 1..{TOHUM_TELEFON_SINIRI - 1} olmalı: {idx}")
+    if grup == "musteri":
+        if idx < 100:
+            return f"+90 5{30 + idx % 20:02d} 55{idx:02d} {100 + idx:03d}"
+        return f"+90 551 {idx:04d} 100"
+    if grup == "tedarikci":
+        if idx < 100:
+            return f"+90 53{idx % 10} 44{idx:02d} {200 + idx:03d}"
+        return f"+90 552 {idx:04d} 200"
+    raise ValueError(f"bilinmeyen tohum telefon grubu: {grup!r}")
+
+
 def build_demo(database_url: str, *, force: bool = False) -> dict[str, int]:
     settings.database_url = database_url
     engine = create_engine(database_url, pool_pre_ping=True)
@@ -98,7 +124,8 @@ def build_demo(database_url: str, *, force: bool = False) -> dict[str, int]:
                 # F10-1 uçtan uca DENENEMİYORDU. `telefon.normalize_phone`
                 # (gevşek) aynı numarayı kabul ettiği için ayrışma
                 # sessizdi. Kapı: `test_TOHUM_TELEFONLARI_IKI_NORMALLESTIRICIDE_AYNI`.
-                phone=f"+90 5{30 + idx % 20:02d} 55{idx:02d} {100 + idx:03d}",
+                # H87: biçim `_seed_telefon`da; idx ≥ 100 de geçerli.
+                phone=_seed_telefon(idx, "musteri"),
                 email=f"demo.musteri{idx}@example.com",
                 address=f"Tekirdağ / {['Çorlu','Muratlı','Hayrabolu','Saray','Malkara'][idx % 5]}",
                 tax_number=f"100000{idx:04d}",
@@ -125,8 +152,8 @@ def build_demo(database_url: str, *, force: bool = False) -> dict[str, int]:
                 # ŞART koşar; ayrıca rakam sayısı ON ÜÇTÜ. Tedarikçi
                 # ÇİFTÇİNİN AVANS VE MAKBUZ TARAFIDIR (keşif §3.1), yani
                 # F10-1'in iki niyetinden ikisi de bu satırlardan okunur —
-                # cep önekine çevrilmesi zorunluydu.
-                phone=f"+90 53{idx % 10} 44{idx:02d} {200 + idx:03d}",
+                # cep önekine çevrilmesi zorunluydu. H87: `_seed_telefon`.
+                phone=_seed_telefon(idx, "tedarikci"),
                 email=f"demo.tedarikci{idx}@example.com",
                 address="İstanbul / Türkiye",
                 tax_number=f"200000{idx:04d}",
