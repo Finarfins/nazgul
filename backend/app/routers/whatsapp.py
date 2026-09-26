@@ -755,9 +755,10 @@ def taraf_baglantilarini_listele(
             "phone_masked": _maskeli_telefon(s["phone"]),
             "is_active": bool(s["is_active"]),
             # H73 (`app/zaman.py`): PG oturum dilimiyle (`+03:00`), SQLite
-            # naive döner; tel biçimi iki lehçede de UTC `...+00:00`.
+            # naive döner; tel biçimi iki lehçede de UTC `...+00:00`. H89:
+            # `created_at` da AYNI yoldan — listenin tek iki `*_at` alanı.
             "consent_at": utc_iso(s["consent_at"]),
-            "created_at": s["created_at"],
+            "created_at": utc_iso(s["created_at"]),
         }
         for s in satirlar
     ]
