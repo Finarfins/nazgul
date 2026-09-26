@@ -18,9 +18,6 @@ import os
 
 import pytest
 
-from sqlalchemy import event
-from sqlalchemy.pool import Pool
-
 from tests.pg_ikiz_yardimci import PG_OTURUM_DILIMI, pg_secenekleri
 
 #: H94 — dilim ve seçenek dizesi `tests.pg_ikiz_yardimci`de TEK yerde durur.
@@ -32,7 +29,6 @@ from tests.pg_ikiz_yardimci import PG_OTURUM_DILIMI, pg_secenekleri
 os.environ["PGOPTIONS"] = pg_secenekleri(os.environ.get("PGOPTIONS", ""))
 
 
-@event.listens_for(Pool, "connect")
 def _h94_baglanti_dilimi(dbapi_baglanti, _kayit) -> None:
     """H94 kapısı, İKİZİN KENDİ motorunda: her yeni PG bağlantısı İstanbul mu?
 
@@ -63,6 +59,17 @@ def _h94_baglanti_dilimi(dbapi_baglanti, _kayit) -> None:
             f"'{PG_OTURUM_DILIMI}'. Bağlantı kendi `options`ını veriyorsa "
             "dizeyi `tests.pg_ikiz_yardimci.pg_secenekleri` ile kurun."
         )
+
+
+# SQLAlchemy YALNIZ PG işinde içe aktarılır: `alembic-chain`, `durum-kaydi`
+# ve imaj test aşaması yalnız pytest kurar; conftest'in modül düzeyinde
+# `sqlalchemy` istemesi üçünü de toplama anında ModuleNotFoundError ile
+# düşürdü (ÖLÇÜLDÜ, #164 CI 36274966768). PG işi sqlalchemy'siz koşamaz.
+if os.environ.get("REQUIRE_PG") == "1":
+    from sqlalchemy import event
+    from sqlalchemy.pool import Pool
+
+    event.listen(Pool, "connect", _h94_baglanti_dilimi)
 
 collect_ignore = [
     "test_detail_workflows.py",
