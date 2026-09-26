@@ -1282,7 +1282,7 @@ async function createSliceTwoSeedUret(): Promise<SliceTwoSeed> {
     );
     expect(agingCustomer, 'seeded receivable customer must exist').toBeTruthy();
     expect(agingCustomer.documents.length, 'seeded receivable must expose a document').toBeGreaterThan(0);
-    const expectedInvoiceReceivableNo = `${workOrderNo}-R3`;
+    const expectedInvoiceReceivableNo = `${workOrderNo}-R1`;
     const agingDocument = agingCustomer.documents.find((document: {
       document_no: string | null;
       document_type: string;

@@ -45,6 +45,10 @@ if os.environ.get("H91_MUTASYON") == "1":
     from decimal import Decimal
     import app.billing_service as bs
     bs.SERVICE_LABOR_VAT_RATE = Decimal("0")
+if os.environ.get("H91_MUTASYON_UPDATE_YOK") == "1":
+    # Mutasyon: ayni tutarda fatura kesildiginde guncellemeyi dusur
+    import app.service_receivable_engine as sre
+    sre._update_same_charge_document = lambda *args, **kwargs: None
 from fastapi.testclient import TestClient
 from app.main import app
 from tests.h91_onizleme_senaryo import olc, oturum
@@ -57,11 +61,12 @@ print("H91_OLCUM_OK")
 '''
 
 
-def _kos(tmp: Path, *, mutasyon: bool) -> dict:
+def _kos(tmp: Path, *, mutasyon: bool = False, update_yok: bool = False) -> dict:
     env = os.environ.copy()
     env["DATABASE_URL"] = f"sqlite:///{(tmp / 'h91.db').as_posix()}"
     env["PYTHONPATH"] = str(BACKEND)
     env["H91_MUTASYON"] = "1" if mutasyon else "0"
+    env["H91_MUTASYON_UPDATE_YOK"] = "1" if update_yok else "0"
     cikti = tmp / "olcum.json"
     sonuc = subprocess.run(
         [sys.executable, "-c", _ALT_SUREC, str(cikti)],
@@ -105,8 +110,10 @@ def test_4_completed_alacagi_kdv_dahil_ve_fatura_revizyonu_bos(olcum):
         sonra = olcum[kurgu]["alacak_fatura_sonrasi"]
         # COMPLETED: tek belge, müşteri BRÜTÜ borçlanır (A 240.00, B 419.37).
         assert [b["gross_amount"] for b in tamam] == [BEKLENEN[kurgu]["customer_amount"]], tamam
-        # Fatura aynı tutarı söyler → revizyon YOK (ters kayıt + yeni belge çifti yok).
-        assert sonra == tamam, (kurgu, sonra)
+        # Fatura aynı tutarı söyler → revizyon YOK (ters kayıt + yeni belge çifti yok; defter satır sayısı değişmez).
+        assert len(sonra) == len(tamam) == 1
+        assert [(b["revision_no"], b["status"], b["gross_amount"], b["reversal"]) for b in sonra] == \
+               [(b["revision_no"], b["status"], b["gross_amount"], b["reversal"]) for b in tamam]
 
 
 def test_5_iskonto_alacagi_faturaya_gore_revize_eder(olcum):
@@ -197,3 +204,66 @@ def test_10_billing_service_de_aritmetik_yalniz_price_service_lines_icinde():
         assert not disarida, (ad, [getattr(d, "name", d) for d in disarida])
     # Özet fiyatlamayı TEK kez çağırır ve payable rakamlarını ondan alır.
     assert len(_cagrilar(_islev(agac, "build_invoice_summary"), "price_service_lines")) == 1
+
+
+# (5) Alacak ↔ fatura bağlantısı ve yaşlandırma --------------------------------
+
+def test_11_fatura_sonrasi_alacak_ve_yaslandirma_baglantisi(olcum):
+    """Fatura sonrası alacak bağlantısı ve yaşlandırma raporu kontrolü.
+
+    Aynı tutarda fatura kesildiğinde (A, B): defter satır sayısı değişmez
+    (tek -R1 satırı), -R1 satırı faturayı referanslar, yaşlandırma raporu
+    fatura numarasını (-R1 satırında) ve genel toplamı gösterir.
+    Değişen tutarda (C iskonto, D ek parça): tam olarak bir ters kayıt + bir
+    yeniden kayıt (+/-/+), repost satırı faturayı referanslar.
+    """
+    for kurgu in ("A", "B"):
+        f = olcum[kurgu]["fatura"]
+        fid = str(f["id"])
+        fno = f["invoice_number"]
+        tamam = olcum[kurgu]["alacak_tamamlaninca"]
+        sonra = olcum[kurgu]["alacak_fatura_sonrasi"]
+        # Defter satır sayısı DEĞİŞMEZ (tek -R1 satırı)
+        assert len(sonra) == len(tamam) == 1
+        assert sonra[0]["revision_no"] == "1" and sonra[0]["status"] == "posted"
+        # COMPLETED'da faturayı bilmez; fatura kesilince -R1 faturayı referanslar
+        assert tamam[0]["source"] == "computed" and tamam[0]["invoice_id"] == ""
+        assert sonra[0]["source"] == "invoice" and sonra[0]["invoice_id"] == fid
+        assert sonra[0]["invoice_number"] == fno
+        # Yaşlandırma raporu: -R1 satırı faturanın genel toplamını taşır
+        cid = int(f["customer"]["id"])
+        musteri = next(c for c in olcum[kurgu]["yaslandirma"]["customers"] if c["customer_id"] == cid)
+        wo_no = olcum[kurgu]["work_order_no"]
+        belge = next(d for d in musteri["documents"] if d["document_type"] == "service_fee" and d["document_no"] == f"{wo_no}-R1")
+        assert D(belge["remaining"]) == D(f["totals"]["customer_amount"])
+
+    for kurgu in ("C", "D"):
+        f = olcum[kurgu]["fatura"]
+        fid = str(f["id"])
+        fno = f["invoice_number"]
+        sonra = olcum[kurgu]["alacak_fatura_sonrasi"]
+        assert len(sonra) == 3
+        # Tam olarak bir ters kayıt + bir yeniden kayıt
+        assert sonra[0]["status"] == "reversed"
+        assert sonra[1]["status"] == "posted" and sonra[1]["reversal"] == "1"
+        assert sonra[2]["status"] == "posted" and sonra[2]["reversal"] == "0"
+        assert sonra[2]["revision_no"] == "3"
+        # Repost faturayı referanslar
+        assert sonra[2]["source"] == "invoice" and sonra[2]["invoice_id"] == fid
+        assert sonra[2]["invoice_number"] == fno
+        cid = int(f["customer"]["id"])
+        musteri = next(c for c in olcum[kurgu]["yaslandirma"]["customers"] if c["customer_id"] == cid)
+        wo_no = olcum[kurgu]["work_order_no"]
+        belge = next(d for d in musteri["documents"] if d["document_type"] == "service_fee" and d["document_no"] == f"{wo_no}-R3")
+        assert D(belge["remaining"]) == D(f["totals"]["customer_amount"])
+
+
+def test_12_mutasyon_ayni_tutarda_guncelleme_olmazsa_kirmizi(tmp_path):
+    """Mutasyon: aynı tutarda fatura kesildiğinde UPDATE kaldırılırsa -R1 faturaya bağlanmaz."""
+    bozuk_olcum = _kos(tmp_path, update_yok=True)
+    for kurgu in ("A", "B"):
+        sonra = bozuk_olcum[kurgu]["alacak_fatura_sonrasi"]
+        # UPDATE düşürüldüğünde -R1 faturayı referanslamaz (hâlâ "computed" kalır)
+        assert sonra[0]["source"] != "invoice" or sonra[0]["invoice_id"] == "", \
+            f"Mutasyon başarısız: UPDATE yokken {kurgu} faturaya bağlanmış görünüyor"
+

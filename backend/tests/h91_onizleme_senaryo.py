@@ -70,19 +70,30 @@ def _yalniz_iscilik(c, w: dict) -> int:
 
 
 def _alacak_belgeleri(cid: int, is_emri: int) -> list[dict[str, str]]:
+    import json
     from sqlalchemy import text
 
     from app.db import SessionLocal
 
     with SessionLocal() as db:
         satirlar = db.execute(text(
-            """SELECT revision_no,status,gross_amount,reversal_of_document_id
+            """SELECT revision_no,status,gross_amount,reversal_of_document_id,calculation_snapshot
             FROM receivable_charge_documents
             WHERE company_id=:cid AND work_order_id=:wid AND charge_type='service_fee'
             ORDER BY revision_no"""), {"cid": cid, "wid": is_emri}).mappings().all()
-    return [{"revision_no": str(s["revision_no"]), "status": str(s["status"]),
-             "gross_amount": format(D(s["gross_amount"]).quantize(Decimal("0.01")), "f"),
-             "reversal": "1" if s["reversal_of_document_id"] is not None else "0"} for s in satirlar]
+    sonuc = []
+    for s in satirlar:
+        snap = json.loads(s["calculation_snapshot"]) if s["calculation_snapshot"] else {}
+        sonuc.append({
+            "revision_no": str(s["revision_no"]),
+            "status": str(s["status"]),
+            "gross_amount": format(D(s["gross_amount"]).quantize(Decimal("0.01")), "f"),
+            "reversal": "1" if s["reversal_of_document_id"] is not None else "0",
+            "source": str(snap.get("source") or ""),
+            "invoice_id": str(snap.get("invoice_id") or ""),
+            "invoice_number": str(snap.get("invoice_number") or ""),
+        })
+    return sonuc
 
 
 def _tamamlanmisa_parca_ekle(c, w: dict, is_emri: int) -> None:
@@ -114,8 +125,17 @@ def _kurgu(c, w: dict, cid: int, is_emri: int, iskonto: dict | None = None, *, o
     onizleme = r.json()
     fatura = c.post("/api/invoices/generate", headers=w["h"], json={"work_order_id": is_emri, **(iskonto or {})})
     assert fatura.status_code == 201, fatura.text
-    return {"onizleme": onizleme, "fatura": fatura.json(),
-            "alacak_tamamlaninca": tamamlaninca, "alacak_fatura_sonrasi": _alacak_belgeleri(cid, is_emri)}
+    fatura_data = fatura.json()
+    yaslandirma = c.get("/api/reports/receivables-aging", headers=w["h"]).json()
+    wo_no = str(onizleme["work_order"]["work_order_no"])
+    return {
+        "onizleme": onizleme,
+        "fatura": fatura_data,
+        "alacak_tamamlaninca": tamamlaninca,
+        "alacak_fatura_sonrasi": _alacak_belgeleri(cid, is_emri),
+        "yaslandirma": yaslandirma,
+        "work_order_no": wo_no,
+    }
 
 
 def olc(c, h: dict, ek: str) -> dict:

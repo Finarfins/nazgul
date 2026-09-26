@@ -102,7 +102,7 @@ def _source_snapshot(
     due_date = document_date + timedelta(days=term_days)
     invoice = db.execute(
         text(
-            """SELECT id,currency,exchange_rate
+            """SELECT id,invoice_number,currency,exchange_rate
             FROM invoices
             WHERE company_id=:cid AND work_order_id=:work_order_id
               AND status='ISSUED' AND cancelled_at IS NULL
@@ -127,6 +127,7 @@ def _source_snapshot(
         source: dict[str, object] = {
             "source": "invoice",
             "invoice_id": int(invoice["id"]),
+            "invoice_number": str(invoice["invoice_number"]),
             "invoice_customer_amount": format(invoice_amount, "f"),
             "currency": currency,
             "exchange_rate": format(rate, "f"),
@@ -345,6 +346,29 @@ def _same_charge(
     )
 
 
+def _update_same_charge_document(
+    db: Session,
+    company_id: int,
+    active_id: int,
+    source: tuple[date, date, Decimal, str, Decimal, str, str],
+) -> None:
+    _doc_date, _due_date, _gross, _curr, _rate, snapshot, fingerprint = source
+    db.execute(
+        text(
+            """UPDATE receivable_charge_documents
+            SET calculation_snapshot=:snapshot,
+                calculation_fingerprint=:fingerprint
+            WHERE company_id=:cid AND id=:id"""
+        ),
+        {
+            "cid": company_id,
+            "id": active_id,
+            "snapshot": snapshot,
+            "fingerprint": fingerprint,
+        },
+    )
+
+
 def reconcile_service_receivable(
     db: Session,
     company_id: int,
@@ -376,7 +400,11 @@ def reconcile_service_receivable(
         )
         return _service_document(db, company_id, document_id)
 
-    if str(active["calculation_fingerprint"]) == source[-1] or _same_charge(active, source):
+    if str(active["calculation_fingerprint"]) == source[-1]:
+        return _service_document(db, company_id, int(active["id"]))
+
+    if _same_charge(active, source):
+        _update_same_charge_document(db, company_id, int(active["id"]), source)
         return _service_document(db, company_id, int(active["id"]))
 
     next_revision = _next_revision(db, company_id, work_order_id)
