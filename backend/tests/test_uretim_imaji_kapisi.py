@@ -21,6 +21,7 @@ EXPECTED_RUNTIME_REMOVAL = (
     "/app/backend/non_twin_skip_exceptions.json "
     "/app/backend/sandbox "
     "/app/backend/requirements-dev.txt "
+    "/app/backend/requirements-dev.lock "
     "/app/backend/LEGACY_TEST_MIGRATION_PLAN.md "
     "/app/backend/tools/capture_frontend_fixtures.py"
 )

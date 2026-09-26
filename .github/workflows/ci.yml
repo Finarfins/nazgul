@@ -100,7 +100,9 @@ jobs:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "pytest>=8.2,<9" "pytest-asyncio>=0.23,<1"
+          # H85: pytest de kilitten gelir; gevşek aralık yok.
+          python -m pip install --require-hashes -r requirements.lock
+          python -m pip install --require-hashes -r requirements-dev.lock
           python -m pytest -p pytest_asyncio.plugin tests/test_alembic_chain_integrity.py tests/test_goc_zinciri.py -q
 
   # BAYAT SIRA kapısı. `alembic-chain` ile AYNI sebeple açık birleşme kurar:
@@ -236,7 +238,9 @@ jobs:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "pytest>=8.2,<9" "pytest-asyncio>=0.23,<1"
+          # H85: pytest de kilitten gelir; gevşek aralık yok.
+          python -m pip install --require-hashes -r requirements.lock
+          python -m pip install --require-hashes -r requirements-dev.lock
           python -m pytest -p pytest_asyncio.plugin tests/test_durum_kaydi.py -q
 
   backend-quality-canonical:
@@ -252,10 +256,18 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
-            backend/requirements.txt
-            backend/requirements-dev.txt
+            backend/requirements.lock
+            backend/requirements-dev.lock
       - run: python -m pip install --upgrade pip
-      - run: python -m pip install -r requirements-dev.txt
+      # H85: kurulum KİLİTTEN (hash'li). Gevşek `requirements*.txt` kurulumu
+      # SQLAlchemy 2.1.0'ı yayın günü sessizce CI'a soktu (H83). Önce üretim
+      # kilidi (Dockerfile ile aynı), sonra yalnız test eklentileri; ortak
+      # pinlerin eşitliği tests/test_h85_lock_tutarliligi.py'de.
+      - name: Bağımlılıkları kilitten kur
+        run: |
+          python -m pip install --require-hashes -r requirements.lock
+          python -m pip install --require-hashes -r requirements-dev.lock
+          python -m pip check
       - run: python -m compileall -q app alembic run_isolated_tests.py isolated_test_reporter.py aggregate_isolated_test_reports.py
       - name: Collect canonical isolated-test manifest in one process
         env:
@@ -353,10 +365,18 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
-            backend/requirements.txt
-            backend/requirements-dev.txt
+            backend/requirements.lock
+            backend/requirements-dev.lock
       - run: python -m pip install --upgrade pip
-      - run: python -m pip install -r requirements-dev.txt
+      # H85: kurulum KİLİTTEN (hash'li). Gevşek `requirements*.txt` kurulumu
+      # SQLAlchemy 2.1.0'ı yayın günü sessizce CI'a soktu (H83). Önce üretim
+      # kilidi (Dockerfile ile aynı), sonra yalnız test eklentileri; ortak
+      # pinlerin eşitliği tests/test_h85_lock_tutarliligi.py'de.
+      - name: Bağımlılıkları kilitten kur
+        run: |
+          python -m pip install --require-hashes -r requirements.lock
+          python -m pip install --require-hashes -r requirements-dev.lock
+          python -m pip check
       - run: python -m compileall -q app alembic run_isolated_tests.py isolated_test_reporter.py aggregate_isolated_test_reports.py
       - name: Run every active backend test in isolation
         env:
@@ -445,10 +465,18 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
-            backend/requirements.txt
-            backend/requirements-dev.txt
+            backend/requirements.lock
+            backend/requirements-dev.lock
       - run: python -m pip install --upgrade pip
-      - run: python -m pip install -r requirements-dev.txt
+      # H85: kurulum KİLİTTEN (hash'li). Gevşek `requirements*.txt` kurulumu
+      # SQLAlchemy 2.1.0'ı yayın günü sessizce CI'a soktu (H83). Önce üretim
+      # kilidi (Dockerfile ile aynı), sonra yalnız test eklentileri; ortak
+      # pinlerin eşitliği tests/test_h85_lock_tutarliligi.py'de.
+      - name: Bağımlılıkları kilitten kur
+        run: |
+          python -m pip install --require-hashes -r requirements.lock
+          python -m pip install --require-hashes -r requirements-dev.lock
+          python -m pip check
       # Adımın KENDİ sınırı var ve başarısızlığı işi öldürmüyor. Gerekçe
       # ölçüldü: bu adım üç dalda altı shard'ı 30 dakika asılı bıraktı, iş
       # İPTAL oldu ve testlerin koştuğu adım ATLANDI — o head'lerde sıfır
@@ -901,15 +929,23 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
-            backend/requirements.txt
-            backend/requirements-dev.txt
+            backend/requirements.lock
+            backend/requirements-dev.lock
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: python -m pip install --upgrade pip
-      - run: python -m pip install -r backend/requirements-dev.txt
+      # H85: kurulum KİLİTTEN (hash'li). Gevşek `requirements*.txt` kurulumu
+      # SQLAlchemy 2.1.0'ı yayın günü sessizce CI'a soktu (H83). Önce üretim
+      # kilidi (Dockerfile ile aynı), sonra yalnız test eklentileri; ortak
+      # pinlerin eşitliği tests/test_h85_lock_tutarliligi.py'de.
+      - name: Bağımlılıkları kilitten kur
+        run: |
+          python -m pip install --require-hashes -r backend/requirements.lock
+          python -m pip install --require-hashes -r backend/requirements-dev.lock
+          python -m pip check
       # `--no-audit`: KAPSAM KAYBI YOK — gerekçe `frontend` işindekiyle AYNI.
       - run: npm ci --no-audit
         working-directory: frontend
@@ -952,15 +988,23 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
-            backend/requirements.txt
-            backend/requirements-dev.txt
+            backend/requirements.lock
+            backend/requirements-dev.lock
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: python -m pip install --upgrade pip
-      - run: python -m pip install -r backend/requirements-dev.txt
+      # H85: kurulum KİLİTTEN (hash'li). Gevşek `requirements*.txt` kurulumu
+      # SQLAlchemy 2.1.0'ı yayın günü sessizce CI'a soktu (H83). Önce üretim
+      # kilidi (Dockerfile ile aynı), sonra yalnız test eklentileri; ortak
+      # pinlerin eşitliği tests/test_h85_lock_tutarliligi.py'de.
+      - name: Bağımlılıkları kilitten kur
+        run: |
+          python -m pip install --require-hashes -r backend/requirements.lock
+          python -m pip install --require-hashes -r backend/requirements-dev.lock
+          python -m pip check
       # `--no-audit`: KAPSAM KAYBI YOK — gerekçe `frontend` işindekiyle AYNI.
       #
       # `npm ci`'nin örtük audit'i audit bulgusunda non-zero DÖNMEZ; bu işte
@@ -1113,7 +1157,7 @@ jobs:
             cd /app/backend
             # Bosluklu YOK; $yollar bilerek tirnaksiz genisletilir (kelime bolme).
             yollar="tests donmus_saat.py non_twin_skip_exceptions.json"
-            yollar="$yollar sandbox requirements-dev.txt"
+            yollar="$yollar sandbox requirements-dev.txt requirements-dev.lock"
             yollar="$yollar LEGACY_TEST_MIGRATION_PLAN.md"
             yollar="$yollar tools/capture_frontend_fixtures.py"
             kalan=""
@@ -1146,7 +1190,9 @@ jobs:
         working-directory: backend
         run: |
           set -euo pipefail
-          python -m pip install --quiet pytest pytest-asyncio
+          # H85: pytest de kilitten gelir; gevşek aralık yok.
+          python -m pip install --quiet --require-hashes -r requirements.lock
+          python -m pip install --quiet --require-hashes -r requirements-dev.lock
           python -m pytest tests/test_uretim_imaji_kapisi.py -m docker_imaj -q
       # Kapi etiketi ~526 MB tutuyor; runner diskini sonraki adimlara birak.
       - name: Kapi imaj etiketini temizle
