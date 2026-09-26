@@ -44,6 +44,7 @@ geri alinmis surumun arama SQL'i katlamayi yine istek aninda yapar.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 
 import sqlalchemy as sa
@@ -56,6 +57,8 @@ revision = "20260925_0092"
 down_revision = "20260920_0091"
 branch_labels = None
 depends_on = None
+
+_log = logging.getLogger("alembic.runtime.migration")
 
 #: GOC ANINDAKI kapali liste. `app.arama_katli.KATLI_SUTUNLAR` ile ayni
 #: oldugunu `tests/test_h75_katli_sutun_esitligi.py` olcer.
@@ -89,6 +92,12 @@ def upgrade() -> None:
             continue
         mevcut = {c["name"] for c in inspector.get_columns(tablo)}
         kaynaklar = [kolon for kolon in kolonlar if kolon in mevcut]
+        # Atlama SESSIZ olamaz: normal semada bu dal hic calismaz; kaymis sema
+        # yalniz test fiksturlerinde var. Yine de goc 0092'yi damgalar, bu
+        # yuzden her atlanan (tablo, kolon) goc gunlugune uyari olarak duser.
+        for kolon in kolonlar:
+            if kolon not in mevcut:
+                _log.warning("0092: %s.%s kaynak sütunu yok — %s_katli atlandı", tablo, kolon, kolon)
         for kolon in kaynaklar:
             if f"{kolon}_katli" not in mevcut:
                 op.add_column(tablo, sa.Column(f"{kolon}_katli", sa.Text(), nullable=True))
