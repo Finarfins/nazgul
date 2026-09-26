@@ -118,8 +118,9 @@ PR-4 tek satırlık bir sürüm değişikliği olarak kalıyor.
 
 Bir tarih değil, bir **ölçüt** kümesi. Dördü birlikte sağlanınca PR-4 açılır:
 
-- **K1.** PR-1 birleşti. `run_isolated_tests.py` 2.1.x altında 0 kırmızı dosya
-  veriyor (bugün: 1).
+- **K1.** done (#175). PR-1: sınıflandırıcı tip sınıfına bağlı. Bugünkü tek
+  kırmızı dosya (`test_kiraci_disa_aktarim.py`) 2.1.1 karalama venv'inde
+  öncesi kırmızı, sonrası 20/20. 2.0.51'de öncesi/sonrası 20/20.
 - **K2.** PR-2 ölçümü: bütün PG ikizleri 2.1.x + psycopg 3 + PG16 altında,
   dosya başına taze DB'de yeşil (bugün: **ölçülmedi**).
 - **K3.** done (#173). PR-3 birleşti: CI lock'tan kuruyor. Pin kalkınca sürüm
