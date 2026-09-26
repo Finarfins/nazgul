@@ -239,3 +239,56 @@ def test_yazicilar_PGde_esitler_ve_arama_katliyi_okur(motor, istek) -> None:
     assert musteriler("kazim") == set()
     assert musteriler("YENİ ÜNVAN") == {"Yeni Ünvan"}
     assert _bayat(motor, cid)[0] == []
+
+
+def _katli_anahtarlari(deger, yol: str = "$") -> list[str]:
+    bulunan: list[str] = []
+    if isinstance(deger, dict):
+        for ad, alt in deger.items():
+            if ad.endswith("_katli"):
+                bulunan.append(f"{yol}.{ad}")
+            bulunan += _katli_anahtarlari(alt, f"{yol}.{ad}")
+    elif isinstance(deger, list):
+        for alt in deger:
+            bulunan += _katli_anahtarlari(alt, f"{yol}[]")
+    return bulunan
+
+
+def test_H96_ALTI_TABLONUN_yaniti_PGde_KATLI_TASIMAZ(motor, istek) -> None:
+    """SQLite ikizinin (`tests/test_h75_...::test_H96_...`) PG karşılığı.
+
+    Ölçüldü: düzeltmeden önce PG'de de AYNI beş uç sızdırıyordu (kart,
+    ürün detayı, finans hareketleri, satış/alış `document`i). Veri bu
+    testin KENDİ firmasında kurulur; tek başına koşunca da boş değildir.
+    """
+    client, h, _cid = istek
+    m = _ok(client.post("/api/customers", headers=h, json=_cari("H96 Müşteri", email="h96@örnek.test")))["id"]
+    t = _ok(client.post("/api/suppliers", headers=h, json=_cari("H96 Tedarikçi", owner_name="İlkay")))["id"]
+    u = _ok(client.post("/api/products", headers=h, json={
+        "name": "H96 Ürün", "product_code": "h96-ı", "barcode": "h96-ş", "purchase_price": "1",
+        "sale_price": "2", "vat_rate": 20, "unit": "Adet"}))["id"]
+    kalem = [{"product_id": u, "quantity": "1", "unit_price": "2", "vat_rate": 20}]
+    siparis = _ok(client.post("/api/orders", headers=h, json={
+        "entity_id": m, "transaction_date": "2026-09-23", "document_no": "h96-satış",
+        "status": "draft", "items": kalem}))["id"]
+    alis = _ok(client.post("/api/purchases", headers=h, json={
+        "entity_id": t, "transaction_date": "2026-09-23", "document_no": "h96-alış", "items": kalem}))["id"]
+    hesap = _ok(client.post("/api/finance/accounts", headers=h, json={"name": "H96 Kasa"}))["id"]
+    _ok(client.post("/api/finance/transactions", headers=h, json={
+        "account_id": hesap, "txn_date": "2026-09-23", "direction": "in", "amount": "1.00",
+        "description": "H96 açıklama"}))
+
+    sizan = {}
+    for yol in (
+        "/api/customers", f"/api/customers/{m}",
+        "/api/suppliers", f"/api/suppliers/{t}",
+        "/api/products", f"/api/products/{u}",
+        "/api/orders", f"/api/orders/{siparis}",
+        "/api/purchases", f"/api/purchases/{alis}",
+        "/api/finance/transactions",
+    ):
+        govde = _ok(client.get(yol, headers=h))
+        assert govde, yol
+        if yollar := _katli_anahtarlari(govde):
+            sizan[yol] = yollar
+    assert sizan == {}

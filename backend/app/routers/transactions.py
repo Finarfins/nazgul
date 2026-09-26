@@ -19,7 +19,7 @@ from ..money import (
     quantity,
 )
 from ..activity_log import diff_details, format_money_tr, log_request_activity
-from ..arama_katli import katli_esitle
+from ..arama_katli import katli_esitle, katli_gizle
 from ..auth import has_permission, utcnow
 from ..business_time import business_today
 from ..change_history import record_change
@@ -1505,7 +1505,8 @@ def detail(kind: str, transaction_id: int, request: Request, db: Session = Depen
         ORDER BY id"""),
         {"cid": cid, "rt": reference_type, "rid": transaction_id},
     ).mappings().all()
-    return {"document": dict(document), "items": [dict(line) for line in lines], "payments": [dict(payment) for payment in payments]}
+    # H96: `h.*` -> H75 `document_no_katli` yanıta girmez (`katli_gizle`).
+    return {"document": katli_gizle(document), "items": [dict(line) for line in lines], "payments": [dict(payment) for payment in payments]}
 
 
 @router.delete("/{kind}/{transaction_id}", status_code=204)
