@@ -97,6 +97,68 @@ def _alacak_belgeleri(cid: int, is_emri: int) -> list[dict[str, str]]:
     return sonuc
 
 
+def _yeniden_uzlastir(cid: int, is_emri: int, uid: int) -> dict[str, int]:
+    """Fatura sonrası uzlaştırmayı doğrudan bir kez daha koştur; yazmaları say.
+
+    Parmak izi eşleştiği için ikinci koşu HİÇBİR alacak satırına yazmamalı:
+    ``before_cursor_execute`` dinleyicisi UPDATE/INSERT deyimlerini sayar.
+    """
+    from sqlalchemy import event
+
+    from app.db import SessionLocal, engine
+    from app.service_receivable_engine import reconcile_service_receivable
+
+    sayac = {"UPDATE": 0, "INSERT": 0}
+
+    def dinle(_conn, _cursor, statement, _params, _context, _many):
+        ilk = statement.lstrip().split(None, 1)[0].upper()
+        if ilk in sayac:
+            sayac[ilk] += 1
+
+    event.listen(engine, "before_cursor_execute", dinle)
+    try:
+        with SessionLocal() as db:
+            reconcile_service_receivable(db, cid, is_emri, actor_id=uid, allow_initial_create=False)
+            db.commit()
+    finally:
+        event.remove(engine, "before_cursor_execute", dinle)
+    return sayac
+
+
+def _bayat_cas(cid: int, is_emri: int) -> list[dict[str, str]]:
+    """Compare-and-set kapısı: okunan parmak izi/durum artık tutmuyorsa 409.
+
+    Eşzamanlı bir yazar satırı araya girip değiştirmiş gibi davranır: (a) aktif
+    satır, bayat bir önceki parmak iziyle; (b) ters kaydedilmiş (``reversed``)
+    satır, kendi GERÇEK parmak iziyle. İkisinde de UPDATE hiçbir satıra
+    dokunmamalı ve alacak zinciri aynen kalmalı.
+    """
+    from fastapi import HTTPException
+    from sqlalchemy import text
+
+    from app.db import SessionLocal
+    from app.service_receivable_engine import _update_same_charge_document
+
+    kaynak = (None, None, None, None, None, '{"source": "bayat"}', "bayat-iz")
+    sonuc = []
+    with SessionLocal() as db:
+        satirlar = db.execute(text(
+            """SELECT id,status,calculation_fingerprint
+            FROM receivable_charge_documents
+            WHERE company_id=:cid AND work_order_id=:wid AND charge_type='service_fee'
+              AND reversal_of_document_id IS NULL
+            ORDER BY revision_no"""), {"cid": cid, "wid": is_emri}).mappings().all()
+        for s in satirlar:
+            onceki = "eski-iz" if s["status"] == "posted" else str(s["calculation_fingerprint"])
+            try:
+                _update_same_charge_document(db, cid, int(s["id"]), kaynak, onceki)
+                sonuc.append({"status": str(s["status"]), "kod": "yazdi", "detay": ""})
+            except HTTPException as hata:
+                sonuc.append({"status": str(s["status"]), "kod": str(hata.status_code), "detay": str(hata.detail)})
+            db.rollback()
+    return sonuc
+
+
 def _tamamlanmisa_parca_ekle(c, w: dict, is_emri: int) -> None:
     """D kurgusu: COMPLETED iş emrine API'den P3 satırı (1 × 7, %10).
 
@@ -116,8 +178,13 @@ def _onizleme(c, w: dict, is_emri: int, iskonto: dict | None = None) -> Any:
     return c.get(f"/api/work-orders/{is_emri}/invoice", headers=w["h"], params=iskonto or {})
 
 
-def _kurgu(c, w: dict, cid: int, is_emri: int, iskonto: dict | None = None, *, once=None) -> dict:
-    """Önizleme → (isteğe bağlı değişiklik) → fatura; alacak zinciri iki anda."""
+def _kurgu(c, w: dict, cid: int, is_emri: int, iskonto: dict | None = None, *, once=None,
+           iptal: bool = False) -> dict:
+    """Önizleme → (isteğe bağlı değişiklik) → fatura; alacak zinciri iki anda.
+
+    Ardından: uzlaştırmanın yeniden koşumu (yazma sayısı), bayat CAS denemesi
+    ve ``iptal`` ise fatura iptali sonrası zincir.
+    """
     tamamlaninca = _alacak_belgeleri(cid, is_emri)
     if once is not None:
         once()
@@ -129,7 +196,7 @@ def _kurgu(c, w: dict, cid: int, is_emri: int, iskonto: dict | None = None, *, o
     fatura_data = fatura.json()
     yaslandirma = c.get("/api/reports/receivables-aging", headers=w["h"]).json()
     wo_no = str(onizleme["work_order"]["work_order_no"])
-    return {
+    sonuc = {
         "onizleme": onizleme,
         "fatura": fatura_data,
         "alacak_tamamlaninca": tamamlaninca,
@@ -137,6 +204,15 @@ def _kurgu(c, w: dict, cid: int, is_emri: int, iskonto: dict | None = None, *, o
         "yaslandirma": yaslandirma,
         "work_order_no": wo_no,
     }
+    sonuc["yeniden_yazma"] = _yeniden_uzlastir(cid, is_emri, w["uid"])
+    sonuc["alacak_yeniden"] = _alacak_belgeleri(cid, is_emri)
+    sonuc["bayat_cas"] = _bayat_cas(cid, is_emri)
+    sonuc["alacak_bayat_cas_sonrasi"] = _alacak_belgeleri(cid, is_emri)
+    if iptal:
+        r = c.post(f"/api/invoices/{fatura_data['id']}/cancel", headers=w["h"], json={"reason": "H101 iptal"})
+        assert r.status_code == 200, r.text
+        sonuc["alacak_iptal_sonrasi"] = _alacak_belgeleri(cid, is_emri)
+    return sonuc
 
 
 def olc(c, h: dict, ek: str) -> dict:
@@ -145,7 +221,7 @@ def olc(c, h: dict, ek: str) -> dict:
     cid = int(w["h"]["X-Company-ID"])
     out: dict[str, Any] = {
         "A": _kurgu(c, w, cid, _yalniz_iscilik(c, w)),
-        "B": _kurgu(c, w, cid, tamamlanmis_is_emri(c, w)),
+        "B": _kurgu(c, w, cid, tamamlanmis_is_emri(c, w), iptal=True),
         "C": _kurgu(c, w, cid, tamamlanmis_is_emri(c, w), ISKONTO_C),
     }
     d = tamamlanmis_is_emri(c, w)

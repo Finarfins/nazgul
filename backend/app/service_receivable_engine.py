@@ -351,22 +351,29 @@ def _update_same_charge_document(
     company_id: int,
     active_id: int,
     source: tuple[date, date, Decimal, str, Decimal, str, str],
+    previous_fingerprint: str,
 ) -> None:
     _doc_date, _due_date, _gross, _curr, _rate, snapshot, fingerprint = source
-    db.execute(
+    # Compare-and-set: only the posted row whose fingerprint we read may move.
+    # A reversed row or one another writer re-pointed meanwhile matches nothing.
+    updated = db.execute(
         text(
             """UPDATE receivable_charge_documents
             SET calculation_snapshot=:snapshot,
                 calculation_fingerprint=:fingerprint
-            WHERE company_id=:cid AND id=:id"""
+            WHERE company_id=:cid AND id=:id AND status='posted'
+              AND calculation_fingerprint=:previous"""
         ),
         {
             "cid": company_id,
             "id": active_id,
             "snapshot": snapshot,
             "fingerprint": fingerprint,
+            "previous": previous_fingerprint,
         },
     )
+    if updated.rowcount != 1:
+        raise HTTPException(409, "Servis cari borcu eşzamanlı olarak değiştirildi; lütfen yeniden deneyin")
 
 
 def reconcile_service_receivable(
@@ -404,7 +411,13 @@ def reconcile_service_receivable(
         return _service_document(db, company_id, int(active["id"]))
 
     if _same_charge(active, source):
-        _update_same_charge_document(db, company_id, int(active["id"]), source)
+        _update_same_charge_document(
+            db,
+            company_id,
+            int(active["id"]),
+            source,
+            str(active["calculation_fingerprint"]),
+        )
         return _service_document(db, company_id, int(active["id"]))
 
     next_revision = _next_revision(db, company_id, work_order_id)
