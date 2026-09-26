@@ -1357,7 +1357,63 @@ def edespatch_sync(despatch_id: int, request: Request, db: Session = Depends(get
     return govde
 
 
-@router.get("/{despatch_id}/response")
+class IrsaliyeYanitBelgesi(BaseModel):
+    """Etkili (ilk kaydedilen) yanıt belgesinin başlığı. `raw_xml` YOK."""
+
+    response_uuid: str
+    response_number: str
+    response_type: str
+    issue_date: str
+    notes: str | None
+    created_at: str
+
+
+class IrsaliyeYanitSatiri(BaseModel):
+    """Yanıt satırı, sevk satırıyla birleşmiş. Miktarlar METİN (4 hane)."""
+
+    despatch_line_id: int
+    line_no: int
+    product_id: int | None
+    item_name: str
+    despatched_quantity: str
+    received_quantity: str
+    rejected_quantity: str
+    reject_reason: str | None
+    quantity_mismatch: bool
+
+
+class IrsaliyeYanitUyarisi(BaseModel):
+    """H60 — `alınan + reddedilen != sevk` uyarısı (`_miktar_uyusmazligi`)."""
+
+    code: str
+    line_no: int
+    despatched_quantity: str
+    received_quantity: str
+    rejected_quantity: str
+    difference: str
+
+
+class IrsaliyeYanitiGorunumu(BaseModel):
+    """H88 — `GET .../response` gövdesi. ALANLAR BUGÜN DÖNENİN AYNISI.
+
+    SQLite ve PG'de 13'er gövde üzerinden ölçüldü (tip kümeleri iki lehçede
+    özdeş). Ölçümde hep dolu görünen `product_id` ve `notes` şemada NULL
+    olabildiği için isteğe bağlı. Alan SIRASI sözlüğün sırasıdır: tel biçimi
+    bayt bayt aynı kalır.
+    """
+
+    despatch_id: int
+    edespatch_status: str
+    response_status: str | None
+    response_received_at: str | None
+    implicit_accept_due_at: str | None
+    responses_count: int
+    response: IrsaliyeYanitBelgesi | None
+    lines: list[IrsaliyeYanitSatiri]
+    warnings: list[IrsaliyeYanitUyarisi]
+
+
+@router.get("/{despatch_id}/response", response_model=IrsaliyeYanitiGorunumu)
 def irsaliye_yaniti(despatch_id: int, request: Request, db: Session = Depends(get_db)):
     """İrsaliyenin ticari yanıtı: başlık + sevk satırlarıyla birleşmiş satırlar.
 
