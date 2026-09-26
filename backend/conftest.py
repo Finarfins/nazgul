@@ -18,19 +18,51 @@ import os
 
 import pytest
 
-#: H94 — PG ikizlerinin OTURUM dilimi. CI'ın PG servisi UTC'dir; PG
-#: `TIMESTAMPTZ`yi oturum diliminde döndürdüğü için `+03:00` gerilemeleri
-#: (H73: `utc_iso`dan geçmeyen bir `*_at`) orada GÖRÜNMEZDİ. `PGOPTIONS`
-#: libpq'nun ortam değişkenidir: psycopg ile açılan HER bağlantı (uygulamanın
-#: motoru, ikizin kendi `create_engine`i, alt süreçteki alembic) onu okur.
-#: Test modülleri içe aktarılmadan, yani ilk bağlantıdan ÖNCE yazılır. Sona
-#: eklenir: aynı parametrenin SONRAKİ `-c`si kazanır, önceden verilmiş bir
-#: `PGOPTIONS` başka ayarlarıyla korunur.
-PG_OTURUM_DILIMI = "Europe/Istanbul"
-_PG_DILIM_SECENEGI = f"-c timezone={PG_OTURUM_DILIMI}"
-os.environ["PGOPTIONS"] = " ".join(
-    p for p in (os.environ.get("PGOPTIONS", "").strip(), _PG_DILIM_SECENEGI) if p
-)
+from sqlalchemy import event
+from sqlalchemy.pool import Pool
+
+from tests.pg_ikiz_yardimci import PG_OTURUM_DILIMI, pg_secenekleri
+
+#: H94 — dilim ve seçenek dizesi `tests.pg_ikiz_yardimci`de TEK yerde durur.
+#: `PGOPTIONS` libpq'nun ortam değişkenidir: kendi `options`ını VERMEYEN her
+#: psycopg bağlantısı (uygulamanın motoru, ikizin çıplak `create_engine`i,
+#: alt süreçteki alembic) onu okur. Kendi `options`ını veren bağlantı OKUMAZ —
+#: o yol `pg_secenekleri` ile kapanır. Test modülleri içe aktarılmadan, yani
+#: ilk bağlantıdan ÖNCE yazılır; önceden verilmiş bir `PGOPTIONS` korunur.
+os.environ["PGOPTIONS"] = pg_secenekleri(os.environ.get("PGOPTIONS", ""))
+
+
+@event.listens_for(Pool, "connect")
+def _h94_baglanti_dilimi(dbapi_baglanti, _kayit) -> None:
+    """H94 kapısı, İKİZİN KENDİ motorunda: her yeni PG bağlantısı İstanbul mu?
+
+    Oturum fikstürünün çıplak bağlantısı yalnız `PGOPTIONS`u görür; ikizin
+    `connect_args={"options": ...}` ile açtığı motor onu ATLAR. ÖLÇÜLDÜ
+    (#164 tur 1): yedi ikizin böyle motorları sunucu UTC iken UTC'ydi ve
+    eski kapı yeşildi. Dinleyici `Pool` SINIFINA bağlıdır: ikizin, uygulamanın
+    ve yardımcıların açtığı HER havuzun HER yeni bağlantısı ölçülür.
+    `REQUIRE_PG=1` dışında (SQLite hattı) hiçbir şey yapmaz.
+    """
+    if os.environ.get("REQUIRE_PG") != "1":
+        return
+    if not type(dbapi_baglanti).__module__.startswith("psycopg"):
+        return
+    imlec = dbapi_baglanti.cursor()
+    try:
+        imlec.execute("SHOW TimeZone")
+        dilim = imlec.fetchone()[0]
+    finally:
+        imlec.close()
+        # `SHOW` psycopg'da örtük bir işlem açar; açık bırakılırsa
+        # `isolation_level="AUTOCOMMIT"` motoru "can't change 'autocommit'
+        # now: INTRANS" ile düşer. ÖLÇÜLDÜ (tam taramada iki ikiz).
+        dbapi_baglanti.rollback()
+    if dilim != PG_OTURUM_DILIMI:
+        raise RuntimeError(
+            f"H94: ikizin PG bağlantısının oturum dilimi '{dilim}', beklenen "
+            f"'{PG_OTURUM_DILIMI}'. Bağlantı kendi `options`ını veriyorsa "
+            "dizeyi `tests.pg_ikiz_yardimci.pg_secenekleri` ile kurun."
+        )
 
 collect_ignore = [
     "test_detail_workflows.py",

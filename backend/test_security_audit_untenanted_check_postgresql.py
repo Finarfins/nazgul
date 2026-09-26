@@ -23,6 +23,7 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
+from tests.pg_ikiz_yardimci import pg_secenekleri
 
 BACKEND = Path(__file__).resolve().parent
 PREVIOUS_REVISION = "20260812_0057"
@@ -40,7 +41,7 @@ def _alembic(database_url: str, schema: str, *args: str) -> None:
     env = dict(os.environ)
     env["DATABASE_URL"] = database_url
     env["PYTHONIOENCODING"] = "utf-8"
-    env["PGOPTIONS"] = f"-csearch_path={schema}"
+    env["PGOPTIONS"] = pg_secenekleri(f"-csearch_path={schema}")
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "-c", "alembic.ini", *args],
         cwd=BACKEND, env=env, text=True, capture_output=True, timeout=300,
@@ -118,7 +119,7 @@ def test_untenanted_audit_row_requires_no_identity_on_postgresql() -> None:
         connection.execute(text(f"CREATE SCHEMA {quoted}"))
 
     test_url = make_url(base_url).update_query_dict(
-        {"options": f"-csearch_path={schema}"}
+        {"options": pg_secenekleri(f"-csearch_path={schema}")}
     ).render_as_string(hide_password=False)
     engine = create_engine(test_url, pool_pre_ping=True)
 

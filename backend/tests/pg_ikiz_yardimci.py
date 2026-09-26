@@ -18,6 +18,30 @@ except ImportError:
     text = None  # type: ignore
 
 
+#: H94 — PG ikizlerinin OTURUM dilimi. CI'ın PG servisi UTC'dir; PG
+#: `TIMESTAMPTZ`yi oturum diliminde döndürdüğü için `+03:00` gerilemeleri
+#: (H73: `utc_iso`dan geçmeyen bir `*_at`) UTC'de GÖRÜNMEZDİ.
+PG_OTURUM_DILIMI = "Europe/Istanbul"
+
+
+def pg_secenekleri(*ekler: str) -> str:
+    """libpq `options` dizesi: çağıranın `-c`leri + H94 dilimi (SONDA).
+
+    TEK yol budur. libpq `PGOPTIONS`u YALNIZ bağlantı dizesinde `options`
+    YOKSA okur: `connect_args={"options": ...}`, URL'deki `?options=` ya da
+    alt süreçte YENİDEN yazılan `PGOPTIONS`, conftest'in ortama koyduğu
+    dilimi SESSİZCE düşürür ve ikiz yine sunucunun (CI'da UTC) diliminde
+    koşar. ÖLÇÜLDÜ (#164 tur 1): yedi ikizin tam da bu bağlantıları UTC'ydi.
+    Kendi `options`ını yazan her ikiz dizesini BURADAN alır;
+    `tests/test_h94_pg_dilim_secenekleri.py` başka bir yolu kırmızı yakar.
+
+    Dilim SONA eklenir: aynı parametrenin SONRAKİ `-c`si kazanır.
+    """
+    parcalar = [e.strip() for e in ekler if e and e.strip()]
+    parcalar.append(f"-c timezone={PG_OTURUM_DILIMI}")
+    return " ".join(parcalar)
+
+
 def kosu_eki() -> str:
     """Ardışık koşularda tekillik kısıtlarına takılmamak için benzersiz koşu son eki üretir."""
     return uuid.uuid4().hex[:8]

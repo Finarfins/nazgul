@@ -38,6 +38,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
+from tests.pg_ikiz_yardimci import pg_secenekleri
 
 BACKEND = Path(__file__).resolve().parent
 
@@ -68,7 +69,7 @@ def temiz_sema() -> tuple[str, str]:
         baglanti.execute(text(f"CREATE SCHEMA {tirnakli}"))
     url = (
         make_url(taban)
-        .update_query_dict({"options": f"-csearch_path={ad}"})
+        .update_query_dict({"options": pg_secenekleri(f"-csearch_path={ad}")})
         .render_as_string(hide_password=False)
     )
     try:
