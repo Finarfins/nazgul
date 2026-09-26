@@ -170,9 +170,12 @@ def test_katli_sql_istek_basina_CAGRILMAZ() -> None:
             if isinstance(d, ast.Assign):
                 modul_duzeyi += len(cagrilar(d))
     assert fonksiyon_ici == []
-    # search 10 + finance 5 + customers 3: sayı düşerse bir çağrı modül
-    # düzeyinden (atama dışı bir yere) kaçmıştır.
-    assert modul_duzeyi == 18
+    # H75 (göç 20260925_0092): katlama artık KALICI `<kolon>_katli`
+    # sütunlarındadır; router'lar `katli_sql` ÇAĞIRMAZ ve istek SQL'inde
+    # `translate` YOKTUR. Önceki pin 18'di (search 10 + finance 5 + customers 3).
+    assert modul_duzeyi == 0
+    for dosya in ("customers.py", "finance.py", "search.py"):
+        assert "translate(" not in (kok / dosya).read_text(encoding="utf-8"), dosya
 
 
 # --------------------------------------------------------------------------
@@ -244,6 +247,12 @@ def tohum(istemci, admin):
             db.execute(text(
                 f"INSERT INTO {tablo}(company_id,name,owner_name,opening_balance,is_active)"
                 " VALUES(:c,:n,'Mehmet Yılmaz',0,true)"), {"c": b_cid, "n": B_ADI})
+        # H75: ham INSERT uygulama yazıcısı DEĞİLDİR; katlanmış sütunlar
+        # eşitlenmezse B satırları hiçbir aramada eşleşmez ve aşağıdaki
+        # kiracı sızıntısı iddiaları BOŞ yere yeşil yanar.
+        from app.arama_katli import kiraci_katli_esitle
+
+        kiraci_katli_esitle(db, b_cid)
         db.commit()
     return {"b_cid": b_cid}
 

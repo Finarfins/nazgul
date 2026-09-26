@@ -8,6 +8,7 @@ from sqlalchemy import insert, select, text, update
 from sqlalchemy.orm import Session
 
 from ..activity_log import format_money_tr, log_request_activity
+from ..arama_katli import katli_esitle
 from ..units import turkce_katla
 from ..business_time import business_today
 from ..change_history import record_change
@@ -505,6 +506,7 @@ def create(payload: ProductCreate, request: Request, db: Session = Depends(get_d
             values,
         )
         product_id = int(result.scalar_one())
+        katli_esitle(db, "products", cid=cid, ids=[product_id])
         active_warehouses = db.execute(
             select(warehouses.c.id, warehouses.c.is_default).where(
                 warehouses.c.company_id == cid,
@@ -649,6 +651,7 @@ def update_product(
             ),
             values,
         )
+        katli_esitle(db, "products", cid=cid, ids=[product_id])
         if taban_birim_yazildi and yeni_taban != (old["base_unit"] or None):
             db.execute(
                 text(

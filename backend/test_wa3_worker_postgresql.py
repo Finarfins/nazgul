@@ -175,6 +175,12 @@ def dunya(motor):
                      " VALUES(:c,:a,:b,0,0,TRUE)"),
                 {"c": cid, "a": "Şaban Korkmaz", "b": bakiye},
             )
+            # H75: ham INSERT uygulama yazicisi DEGIL; katlanmis arama
+            # sutunlari elle esitlenir, yoksa `cari_durum` iki firmada da
+            # musteriyi BULAMAZ ve kiraci iddiasi bos kalir.
+            from app.arama_katli import kiraci_katli_esitle
+
+            kiraci_katli_esitle(b, cid)
         # Kritik stok ve satış geçmişi araçlarının GERÇEK satır görmesi için.
         urun = b.execute(
             text("INSERT INTO products(company_id,name,product_code,stock,unit,"
@@ -468,4 +474,4 @@ def test_GOC_TURU_up_down_up_GERCEK_PostgreSQLde(motor) -> None:
         surumler = b.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalars().all()
-    assert surumler == ["20260920_0091"], surumler
+    assert surumler == ["20260925_0092"], surumler

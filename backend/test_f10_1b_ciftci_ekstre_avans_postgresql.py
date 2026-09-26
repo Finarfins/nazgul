@@ -72,7 +72,7 @@ SAYAC_TEKIL = "uq_whatsapp_message_attempts_pencere"
 SAYAC_INDEKS = "ix_whatsapp_message_attempts_pencere"
 
 #: Alembic başı — zincirin ucu bu dilimle 0091 oldu.
-BAS = "20260920_0091"
+BAS = "20260925_0092"  # H75: bas 0092
 
 #: HER KOŞU KENDİ ÖNEKİNİ KULLANIR (WA2 ikizinin gerekçesi: PG ikizleri
 #: paylaşık bir şemada koşabiliyor ve sabit ad kapıyı koşu sırasına

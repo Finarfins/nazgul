@@ -15,6 +15,7 @@ from ..company_policies import (
     policy_override_logs,
 )
 from ..activity_log import format_money_tr, log_request_activity
+from ..arama_katli import katli_esitle
 from ..business_time import business_today
 from ..config import settings
 from ..db import get_db
@@ -164,6 +165,7 @@ def _retail_customer_id(db: Session, cid: int) -> int:
                 "cid": cid,
             },
         ).scalar_one()
+        katli_esitle(db, "customers", cid=cid, ids=[customer_id])
 
     try:
         db.execute(

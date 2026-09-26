@@ -166,6 +166,12 @@ def maskele_iban(deger: Any) -> Any:
 MASKELENEN_ALANLAR: dict[str, Callable[[Any], Any]] = {
     "phone": maskele_telefon,
     "email": maskele_eposta,
+    # H75 (goc 20260925_0092): `email_katli` e-postanin KATLANMIS (buyuk harf)
+    # KOPYASIDIR ve `SELECT *` okuyan her cari ucu onu tasir. Ayri bir anahtar
+    # oldugu icin `email` kurali ona KENDILIGINDEN uygulanmaz; eklenmeseydi
+    # maskeli rol (`depo`) ham e-postayi bu sutundan okurdu. `name_katli` /
+    # `owner_name_katli` maskelenmez: kaynaklari da maskelenmiyor.
+    "email_katli": maskele_eposta,
     "tax_number": maskele_vergi_no,
     "address": maskele_adres,
     # Bugun cari tablolarinda YOK; gerekce `maskele_iban` docstring'inde.

@@ -3,7 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..alan_maskeleme import maskele_cari_listesi, maskelenecek_mi
-from ..arama import arama_deseni, katli_sql
+from ..arama import arama_deseni
 from ..db import get_db
 from ..money import money
 from ..part_search import normalize_part_identifier, parse_part_search_query
@@ -13,23 +13,16 @@ from .products import list_products
 router = APIRouter(prefix='/search', tags=['search'])
 
 
-# H57: arama metin kolonlari `q` ile AYNI Turkce katlamadan gecer. Kalip
-# (`arama_deseni`) ve kolon ifadesi (`katli_sql`) ortak dikistedir
-# (`app/arama.py`); buradaki eski `_like` oraya tasindi. Ifadeler yalniz
-# SABIT kolon adlarindan kurulur; kullanici metni yalniz `:q` ile baglanir.
-_CARI_AD = katli_sql('name')
-_CARI_YETKILI = katli_sql("COALESCE(owner_name,'')")
-_CARI_EPOSTA = katli_sql("COALESCE(email,'')")
-_URUN_AD = katli_sql('name')
-_URUN_KOD = katli_sql("COALESCE(product_code,'')")
-# Barkod da katlanir: `q` artik katlanmis (BUYUK) baglanir; katlanmamis bir
-# barkod kolonu PG'de (LIKE buyuk/kucuk harf duyarli) kucuk harfli barkodu
-# kaybederdi. Telefon ve `CAST(id AS TEXT)` rakamdir, katlama onlara dokunmaz.
-_URUN_BARKOD = katli_sql("COALESCE(barcode,'')")
-_SATIS_BELGE = katli_sql("COALESCE(o.document_no,'')")
-_SATIS_CARI = katli_sql('c.name')
-_ALIS_BELGE = katli_sql("COALESCE(p.document_no,'')")
-_ALIS_CARI = katli_sql('s.name')
+# H57: arama metin kolonlari `q` ile AYNI Turkce katlamadan gecer; kalip
+# `arama_deseni` ile kurulur (`app/arama.py`). H75: kolon tarafi artik KALICI
+# katlanmis sutunlardir (`<kolon>_katli`, `app/arama_katli.py`, goc
+# 20260925_0092), yani bes arama sorgusu yeniden SABIT metindir ve
+# `translate` istek SQL'inde YOKTUR. Barkod da katlanir: `q` katlanmis (BUYUK)
+# baglanir; katlanmamis bir barkod kolonu PG'de (LIKE buyuk/kucuk harf
+# duyarli) kucuk harfli barkodu kaybederdi. Telefon ve `CAST(id AS TEXT)`
+# rakamdir, katlama onlara dokunmaz.
+# `COALESCE(..,'')`: `_katli` NULL olan satir (kacan yazici) bosluklu `q`
+# (`'%%'`) ile DUSMESIN; `customers.py`deki notla ayni gerekce.
 
 
 def _normalized_identifier_sql(column: str, dialect: str = "sqlite") -> str:
@@ -90,7 +83,9 @@ def global_search(
     #     `05** *** ** 12`den `q=012`, `q=4512`, ... diye ham numara geri
     #     cikarilabilirdi. Iki sorgu role gore secilen iki AYRI metindir; H57
     #     ile ikisi de katlanmis kolon ifadesini f-string ile tasir, yani
-    #     dinamik text() sayisi 2 -> 7 (bes arama sorgusu) oldu. Kiraci
+    #     dinamik text() sayisi 2 -> 7 (bes arama sorgusu) oldu; H75 ile
+    #     kolonlar KALICI `_katli` sutunlari oldugundan metinler yeniden
+    #     SABITTIR ve sayi 7 -> 2'ye dondu. Kiraci
     #     yuklemi (`company_id=:cid`) her birinde SABIT parcadadir. VKN bu
     #     ucta HIC eslesmiyordu (mercek olctu) ve hala eslesmiyor.
     #
@@ -99,21 +94,21 @@ def global_search(
     #     bulamiyordu. Maskesiz dal artik maskeli dalin UST KUMESIDIR.
     rol = istek_rolu(request)
     if maskelenecek_mi(rol):
-        customers = db.execute(text(f"""
+        customers = db.execute(text("""
             SELECT id, name, phone, email
             FROM customers
             WHERE company_id=:cid AND (
-              {_CARI_AD} LIKE :q ESCAPE '\\' OR {_CARI_YETKILI} LIKE :q ESCAPE '\\'
+              COALESCE(name_katli,'') LIKE :q ESCAPE '\\' OR COALESCE(owner_name_katli,'') LIKE :q ESCAPE '\\'
             )
             ORDER BY name LIMIT :limit
         """), params).mappings().all()
     else:
-        customers = db.execute(text(f"""
+        customers = db.execute(text("""
             SELECT id, name, phone, email
             FROM customers
             WHERE company_id=:cid AND (
-              {_CARI_AD} LIKE :q ESCAPE '\\' OR {_CARI_YETKILI} LIKE :q ESCAPE '\\'
-              OR COALESCE(phone,'') LIKE :q ESCAPE '\\' OR {_CARI_EPOSTA} LIKE :q ESCAPE '\\'
+              COALESCE(name_katli,'') LIKE :q ESCAPE '\\' OR COALESCE(owner_name_katli,'') LIKE :q ESCAPE '\\'
+              OR COALESCE(phone,'') LIKE :q ESCAPE '\\' OR COALESCE(email_katli,'') LIKE :q ESCAPE '\\'
             )
             ORDER BY name LIMIT :limit
         """), params).mappings().all()
@@ -124,11 +119,11 @@ def global_search(
             'path': f"/musteriler/{row['id']}",
         })
 
-    products = db.execute(text(f"""
+    products = db.execute(text("""
         SELECT id, name, product_code, barcode, stock, unit
         FROM products
         WHERE company_id=:cid AND COALESCE(active, TRUE)=TRUE AND (
-          {_URUN_AD} LIKE :q ESCAPE '\\' OR {_URUN_KOD} LIKE :q ESCAPE '\\' OR {_URUN_BARKOD} LIKE :q ESCAPE '\\'
+          COALESCE(name_katli,'') LIKE :q ESCAPE '\\' OR COALESCE(product_code_katli,'') LIKE :q ESCAPE '\\' OR COALESCE(barcode_katli,'') LIKE :q ESCAPE '\\'
         )
         ORDER BY name LIMIT :limit
     """), params).mappings().all()
@@ -138,11 +133,11 @@ def global_search(
         'path': f"/urunler?q={row['name']}",
     } for row in products)
 
-    orders = db.execute(text(f"""
+    orders = db.execute(text("""
         SELECT o.id, o.document_no, o.order_date, o.final_total, c.name customer_name
         FROM orders o JOIN customers c ON c.id=o.customer_id AND c.company_id=o.company_id
         WHERE o.company_id=:cid AND (
-          {_SATIS_BELGE} LIKE :q ESCAPE '\\' OR {_SATIS_CARI} LIKE :q ESCAPE '\\' OR CAST(o.id AS TEXT) LIKE :q ESCAPE '\\'
+          COALESCE(o.document_no_katli,'') LIKE :q ESCAPE '\\' OR COALESCE(c.name_katli,'') LIKE :q ESCAPE '\\' OR CAST(o.id AS TEXT) LIKE :q ESCAPE '\\'
         )
         ORDER BY o.id DESC LIMIT :limit
     """), params).mappings().all()
@@ -153,11 +148,11 @@ def global_search(
         'path': f"/satislar?q={row['document_no'] or row['id']}",
     } for row in orders)
 
-    purchases = db.execute(text(f"""
+    purchases = db.execute(text("""
         SELECT p.id, p.document_no, p.purchase_date, p.final_total, s.name supplier_name
         FROM purchases p JOIN suppliers s ON s.id=p.supplier_id AND s.company_id=p.company_id
         WHERE p.company_id=:cid AND (
-          {_ALIS_BELGE} LIKE :q ESCAPE '\\' OR {_ALIS_CARI} LIKE :q ESCAPE '\\' OR CAST(p.id AS TEXT) LIKE :q ESCAPE '\\'
+          COALESCE(p.document_no_katli,'') LIKE :q ESCAPE '\\' OR COALESCE(s.name_katli,'') LIKE :q ESCAPE '\\' OR CAST(p.id AS TEXT) LIKE :q ESCAPE '\\'
         )
         ORDER BY p.id DESC LIMIT :limit
     """), params).mappings().all()

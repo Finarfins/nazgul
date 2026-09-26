@@ -421,7 +421,7 @@ def test_GERCEK_zincir_bilinen_hali_YENIDEN_URETIYOR() -> None:
     # KIRMIZI olur ve yeni başın BİLİNÇLİ bir karar olmasını zorlar; başı
     # zincirden okuyan bir kapı, yanlış yere eklenmiş bir göçü de sessizce
     # onaylardı.
-    assert zincir.bas == "20260920_0091", zincir.bas
+    assert zincir.bas == "20260925_0092", zincir.bas
     assert zincir.kokler == ["20260712_0000"], zincir.kokler
     assert len(zincir.sira) == zincir.dosya_sayisi, (
         f"{len(zincir.sira)} yürüdü / {zincir.dosya_sayisi} dosya"
@@ -508,7 +508,7 @@ def test_CLI_kontrol_gercek_depoda_CIKIS_0() -> None:
     assert "TEK BAŞ VAR" in sonuc.stdout
     assert "HEPSİ ERİŞİLEBİLİR" in sonuc.stdout
     assert "SAYIM TUTUYOR" in sonuc.stdout
-    assert "20260920_0091" in sonuc.stdout
+    assert "20260925_0092" in sonuc.stdout
 
 
 def test_CLI_kontrol_BOZUK_zincirde_CIKIS_1_ve_IHLALI_ADLANDIRIR(tmp_path) -> None:

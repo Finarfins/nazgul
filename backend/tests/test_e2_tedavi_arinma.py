@@ -149,7 +149,7 @@ assert all(durum().values()), durum()
 # `downgrade` turu onu adıyla sürüyor.
 from alembic.script import ScriptDirectory
 baslar = ScriptDirectory.from_config(config).get_heads()
-assert tuple(baslar) == ("20260920_0091",), baslar
+assert tuple(baslar) == ("20260925_0092",), baslar
 print("GOC TURU TAMAM")
 """
 

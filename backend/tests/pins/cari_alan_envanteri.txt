@@ -47,7 +47,13 @@ GET /api/finance/accounts	finance	iban	H,H,H,H,H
 GET /api/finance/summary	finance	iban	H,H,H,H,H
 GET /api/invoices/{invoice_id}/einvoice/download	sales	address	F,F,F,D,D
 GET /api/invoices/{invoice_id}/pdf	sales	tax_number	F,F,F,D,D
-GET /api/search	read	email,phone	F,F,F,M,M
+# H75 KALICI KATLANMIS ARAMA SUTUNLARI (goc 20260925_0092). Tarayici `email_katli`yi
+# `global_search`in SABIT arama metninden okuyor: sutun YALNIZ `WHERE`dedir (musteri
+# aramasinin maskesiz dali), SELECT listesinde YOKTUR ve yanita cikmaz; alt yazi
+# hala maskeli `phone`/`email`den kurulur. `email_katli` `MASKELENEN_ALANLAR`a
+# `email` ile ayni kuralla eklendi, yani vektor DEGISMEDI (F,F,F,M,M). Maskeli
+# dal onu HIC eslemez (SEC-3b); davranis `test_h75_katli_sutun_esitligi.py`de.
+GET /api/search	read	email,email_katli,phone	F,F,F,M,M
 GET /api/suppliers	purchases	address,email,phone,tax_number	F,F,D,M,D
 GET /api/suppliers/{supplier_id}	purchases	address,email,phone,tax_number	F,F,D,M,D
 GET /api/suppliers/{supplier_id}/statement	purchases	address,email,phone,tax_number	F,F,D,M,D

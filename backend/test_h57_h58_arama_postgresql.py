@@ -182,6 +182,13 @@ def firmalar(motor):
         c.execute(text(
             "INSERT INTO products(company_id,name,unit,sale_price,active,barcode)"
             " VALUES(:c,:n,'Adet',1,true,:b)"), {"c": a, "n": BARKOD_URUN, "b": BARKOD})
+        # H75: ham INSERT uygulama yazıcısı DEĞİLDİR; katlanmış sütunlar
+        # eşitlenmezse bu satırlar hiçbir aramada eşleşmez (B'nin sızıntı
+        # iddiaları BOŞ yere yeşil, barkod iddiası kırmızı olur).
+        from app.arama_katli import kiraci_katli_esitle
+
+        kiraci_katli_esitle(c, a)
+        kiraci_katli_esitle(c, b)
     return {"a": a, "b": b, "admin": yonetici, "depo": depo}
 
 

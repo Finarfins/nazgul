@@ -364,6 +364,7 @@ from decimal import Decimal
 from fastapi.testclient import TestClient
 from sqlalchemy import text as _sql
 
+from app.arama_katli import kiraci_katli_esitle
 from app.db import SessionLocal
 from app.main import app
 
@@ -695,6 +696,8 @@ with TestClient(app) as client:
         db.execute(_sql(
             "INSERT INTO suppliers(name,company_id,opening_balance,is_active)"
             " VALUES('Kismi Ciftci',:c,0,:a)"), {'c':cid,'a':True})
+        # H75: ham INSERT -> katlanmis arama sutunlari elle esitlenir.
+        kiraci_katli_esitle(db, cid)
         kismi_ciftci = int(db.execute(_sql(
             "SELECT id FROM suppliers WHERE company_id=:c AND "
             "name='Kismi Ciftci'"), {'c':cid}).scalar_one())
@@ -746,6 +749,8 @@ with TestClient(app) as client:
         db.execute(_sql(
             "INSERT INTO suppliers(name,company_id,opening_balance,is_active)"
             " VALUES('Bakiye Ciftcisi',:c,0,:a)"), {'c':cid,'a':True})
+        # H75: ham INSERT -> katlanmis arama sutunlari elle esitlenir.
+        kiraci_katli_esitle(db, cid)
         bakiye_ciftci = int(db.execute(_sql(
             "SELECT id FROM suppliers WHERE company_id=:c AND "
             "name='Bakiye Ciftcisi'"), {'c':cid}).scalar_one())

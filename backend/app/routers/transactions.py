@@ -19,6 +19,7 @@ from ..money import (
     quantity,
 )
 from ..activity_log import diff_details, format_money_tr, log_request_activity
+from ..arama_katli import katli_esitle
 from ..auth import has_permission, utcnow
 from ..business_time import business_today
 from ..change_history import record_change
@@ -975,6 +976,8 @@ def _save(
                 },
             )
             transaction_id = int(result.scalar_one())
+        # H75: `document_no_katli` her iki dalda (INSERT/UPDATE) AYNI islemde.
+        katli_esitle(db, config["head"], cid=cid, ids=[transaction_id])
 
         apply_stock = payload.status in STOCK_STATUSES
         for product, item, line_subtotal, line_vat, line_total, line_discount in rows:

@@ -69,7 +69,7 @@ ONCEKI = "20260912_0082"
 #: Bugün ikisi AYNI değerdedir çünkü 0083 zincirin ucudur; tek sabitle
 #: yazılsaydı, başı güncelleyen biri bu dosyanın göç turunu da farkında
 #: olmadan BAŞKA bir göçe çevirirdi.
-BAS = "20260920_0091"  # F10-1b: bas 0091
+BAS = "20260925_0092"  # H75: bas 0092 (F10-1b: bas 0091)
 
 IRSALIYE = "despatch_notes"
 

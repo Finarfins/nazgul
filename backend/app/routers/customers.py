@@ -8,7 +8,8 @@ from ..crm import add_contact, add_note, add_task, delete_contact, delete_note, 
 from ..business_time import business_today
 from ..db import get_db
 from ..alan_maskeleme import maskelenecek_mi, maskeyi_geri_al
-from ..arama import arama_deseni, katli_sql
+from ..arama import arama_deseni
+from ..arama_katli import katli_esitle
 from ..entity_detail import cari_liste_satirlari, entity_detail, entity_documents
 from ..document_engine import SALES_IMPORT_NOTE, accounting_document_status_sql
 from ..receivables_engine import charge_due_date_sql
@@ -53,12 +54,16 @@ def _values(payload: CustomerCreate) -> dict:
     return values
 
 
-# H57/H58: `musteri_satirlari`nin iki arama parcasi. Metin kolonlari
-# `app/arama.py::katli_sql` ile katlanir; ifadeler modul yuklenirken BIR KEZ
-# kurulur (istek basina degil). Yalniz SABIT kolon adlari; `q` `:q` ile baglanir.
-_MUSTERI_AD = katli_sql('c.name')
-_MUSTERI_YETKILI = katli_sql("COALESCE(c.owner_name,'')")
-_MUSTERI_EPOSTA = katli_sql("COALESCE(c.email,'')")
+# H57/H58: `musteri_satirlari`nin iki arama parcasi. H75: metin kolonlari
+# artik KALICI katlanmis sutunlardan okunur (`app/arama_katli.py`, goc
+# 20260925_0092); `translate` istek SQL'inden cikti. Yalniz SABIT kolon
+# adlari; `q` `:q` ile baglanir.
+# `COALESCE(..,'')`: `_katli` NULL olan bir satir (kacan bir yazici) bos `q`
+# ile (`LIKE '%%'`) listeden DUSMESIN; eski istek-ani katlama ifadesi NOT NULL
+# kolonda hep eslesiyordu (test_charge_document_balance olctu).
+_MUSTERI_AD = "COALESCE(c.name_katli,'')"
+_MUSTERI_YETKILI = "COALESCE(c.owner_name_katli,'')"
+_MUSTERI_EPOSTA = "COALESCE(c.email_katli,'')"
 _MUSTERI_ARAMA_MASKELI = f"({_MUSTERI_AD} LIKE :q ESCAPE '\\' OR {_MUSTERI_YETKILI} LIKE :q ESCAPE '\\')"
 _MUSTERI_ARAMA_TAM = f"""({_MUSTERI_AD} LIKE :q ESCAPE '\\' OR {_MUSTERI_YETKILI} LIKE :q ESCAPE '\\'
        OR COALESCE(c.phone,'') LIKE :q ESCAPE '\\'
@@ -167,6 +172,7 @@ def create_customer(payload:CustomerCreate,request:Request,db:Session=Depends(ge
     result=db.execute(text('''INSERT INTO customers(name,owner_name,phone,email,address,tax_number,opening_balance,risk_limit,payment_term_days,notes,is_active,company_id)
       VALUES(:name,:owner_name,:phone,:email,:address,:tax_number,:opening_balance,:risk_limit,:payment_term_days,:notes,:is_active,:company_id) RETURNING id'''),values)
     customer_id=int(result.scalar_one())
+    katli_esitle(db,'customers',cid=values['company_id'],ids=[customer_id])
     db.commit();return {'id':customer_id,**payload.model_dump()}
 
 # The projection is shared with the supplier detail endpoint; see app/entity_detail.py.
@@ -199,6 +205,7 @@ def update_customer(customer_id:int,payload:CustomerCreate,request:Request,db:Se
       tax_number=:tax_number,opening_balance=:opening_balance,risk_limit=:risk_limit,payment_term_days=:payment_term_days,
       notes=:notes,is_active=:is_active WHERE id=:id AND company_id=:cid'''),values)
     if not result.rowcount:db.rollback();raise HTTPException(404,'Müşteri bulunamadı')
+    katli_esitle(db,'customers',cid=cid,ids=[customer_id])
     after=db.execute(text('SELECT * FROM customers WHERE id=:id AND company_id=:cid'),{'id':customer_id,'cid':cid}).mappings().first()
     record_change(db,request,company_id=cid,entity_type='customer',entity_id=customer_id,action='update',before=dict(before),after=dict(after))
     db.commit();return {'id':customer_id}

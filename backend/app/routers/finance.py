@@ -15,7 +15,8 @@ from ..document_engine import PAYMENT_METHODS
 from ..finance_engine import finance_accounts, finance_transactions, financial_instruments, ACCOUNT_TYPES, sync_payment_finance, remove_payment_finance, validate_payment_account, utcnow
 from ..crm import add_contact, add_note, add_task, delete_contact, delete_note, delete_task, set_task_status
 from ..alan_maskeleme import maskelenecek_mi, maskeyi_geri_al
-from ..arama import arama_deseni, katli_sql
+from ..arama import arama_deseni
+from ..arama_katli import katli_esitle
 from ..entity_detail import cari_liste_satirlari, entity_detail, entity_documents
 from ..config import settings
 from ..payment_allocation_engine import (
@@ -129,13 +130,16 @@ def _validate_payment(payload: PaymentCreate):
 
 
 # H57/H58: odeme ve hareket listelerinin arama kolonlari, `app/arama.py`nin
-# katlamasindan gecmis SABIT ifadeler; modul yuklenirken BIR KEZ kurulur (istek
-# basina degil). Kullanici metni yalniz `:q` ile baglanir.
-_ODEME_CARI_KATLI = katli_sql("COALESCE(CASE WHEN p.entity_type='customer' THEN c.name ELSE s.name END,'')")
-_HAREKET_ACIKLAMA_KATLI = katli_sql("COALESCE(t.description,'')")
-_TEDARIKCI_AD = katli_sql('s.name')
-_TEDARIKCI_YETKILI = katli_sql("COALESCE(s.owner_name,'')")
-_TEDARIKCI_EPOSTA = katli_sql("COALESCE(s.email,'')")
+# katlamasindan gecmis SABIT ifadeler. H75: katlama artik KALICI sutunlardadir
+# (`app/arama_katli.py`, goc 20260925_0092); `translate` istek SQL'inden cikti.
+# Kullanici metni yalniz `:q` ile baglanir.
+_ODEME_CARI_KATLI = "COALESCE(CASE WHEN p.entity_type='customer' THEN c.name_katli ELSE s.name_katli END,'')"
+_HAREKET_ACIKLAMA_KATLI = "COALESCE(t.description_katli,'')"
+# `COALESCE(..,'')`: `_katli` NULL olan satir bos `q` ile listeden DUSMESIN
+# (`customers.py`deki notla ayni gerekce).
+_TEDARIKCI_AD = "COALESCE(s.name_katli,'')"
+_TEDARIKCI_YETKILI = "COALESCE(s.owner_name_katli,'')"
+_TEDARIKCI_EPOSTA = "COALESCE(s.email_katli,'')"
 _TEDARIKCI_ARAMA_MASKELI = f"({_TEDARIKCI_AD} LIKE :q ESCAPE '\\' OR {_TEDARIKCI_YETKILI} LIKE :q ESCAPE '\\')"
 _TEDARIKCI_ARAMA_TAM = f"""({_TEDARIKCI_AD} LIKE :q ESCAPE '\\' OR {_TEDARIKCI_YETKILI} LIKE :q ESCAPE '\\'
        OR COALESCE(s.phone,'') LIKE :q ESCAPE '\\'
@@ -672,6 +676,7 @@ def create_supplier(payload:CustomerCreate,request:Request,db:Session=Depends(ge
     result=db.execute(text('''INSERT INTO suppliers(name,owner_name,phone,email,address,tax_number,opening_balance,risk_limit,payment_term_days,notes,is_active,company_id)
       VALUES(:name,:owner_name,:phone,:email,:address,:tax_number,:opening_balance,:risk_limit,:payment_term_days,:notes,:is_active,:company_id) RETURNING id'''),values)
     supplier_id=int(result.scalar_one())
+    katli_esitle(db,'suppliers',cid=values['company_id'],ids=[supplier_id])
     db.commit();return {'id':supplier_id,**payload.model_dump()}
 
 
@@ -706,6 +711,7 @@ def update_supplier(supplier_id:int,payload:CustomerCreate,request:Request,db:Se
       tax_number=:tax_number,opening_balance=:opening_balance,risk_limit=:risk_limit,payment_term_days=:payment_term_days,
       notes=:notes,is_active=:is_active WHERE id=:id AND company_id=:cid'''),values)
     if not result.rowcount: db.rollback(); raise HTTPException(404,'Tedarikçi bulunamadı')
+    katli_esitle(db,'suppliers',cid=cid,ids=[supplier_id])
     after=db.execute(text('SELECT * FROM suppliers WHERE id=:id AND company_id=:cid'),{'id':supplier_id,'cid':cid}).mappings().first()
     record_change(db,request,company_id=cid,entity_type='supplier',entity_id=supplier_id,action='update',before=dict(before),after=dict(after))
     db.commit();return {'id':supplier_id}
@@ -852,7 +858,8 @@ def create_finance_transaction(payload:FinancialTransactionCreate,request:Reques
     cid=company_id(request);_account_row(db,cid,payload.account_id)
     if payload.direction not in {'in','out'}: raise HTTPException(400,'Hareket yönü giriş veya çıkış olmalıdır')
     result=db.execute(insert(finance_transactions).values(company_id=cid,created_at=utcnow(),reference_type='manual',reference_id=None,transfer_group=None,**payload.model_dump()))
-    db.commit();return {'id':int(result.inserted_primary_key[0])}
+    txid=int(result.inserted_primary_key[0]);katli_esitle(db,'finance_transactions',cid=cid,ids=[txid])
+    db.commit();return {'id':txid}
 
 @router.delete('/finance/transactions/{transaction_id}',status_code=204)
 def delete_finance_transaction(transaction_id:int,request:Request,db:Session=Depends(get_db)):
@@ -869,8 +876,10 @@ def transfer(payload:FinancialTransferCreate,request:Request,db:Session=Depends(
     source=_account_row(db,cid,payload.source_account_id);target=_account_row(db,cid,payload.target_account_id)
     if source['currency']!=target['currency']: raise HTTPException(400,'Farklı para birimleri arasında kur bilgisi olmadan virman yapılamaz')
     group=f'TRF-{cid}-{int(utcnow().timestamp()*1000000)}'
+    yazilan=[]
     for aid,direction in [(payload.source_account_id,'out'),(payload.target_account_id,'in')]:
-        db.execute(insert(finance_transactions).values(company_id=cid,account_id=aid,txn_date=payload.txn_date,direction=direction,amount=payload.amount,category='transfer',payment_method='transfer',description=payload.description or 'Hesaplar arası virman',reference_type='transfer',reference_id=None,transfer_group=group,created_at=utcnow()))
+        yazilan.append(db.execute(insert(finance_transactions).values(company_id=cid,account_id=aid,txn_date=payload.txn_date,direction=direction,amount=payload.amount,category='transfer',payment_method='transfer',description=payload.description or 'Hesaplar arası virman',reference_type='transfer',reference_id=None,transfer_group=group,created_at=utcnow())).inserted_primary_key[0])
+    katli_esitle(db,'finance_transactions',cid=cid,ids=yazilan)
     db.commit();return {'transfer_group':group}
 
 @router.get('/finance/instruments')
@@ -909,6 +918,7 @@ def update_instrument_status(instrument_id:int,payload:FinancialInstrumentStatus
         direction='in' if row['direction']=='received' else 'out'
         result=db.execute(insert(finance_transactions).values(company_id=cid,account_id=account_id,txn_date=payload.transaction_date or row['due_date'],direction=direction,amount=row['amount'],category='instrument',payment_method=row['instrument_type'],description=f"{'Çek' if row['instrument_type']=='check' else 'Senet'} #{instrument_id}",reference_type='instrument',reference_id=instrument_id,transfer_group=None,created_at=utcnow()))
         txid=int(result.inserted_primary_key[0])
+        katli_esitle(db,'finance_transactions',cid=cid,ids=[txid])
     db.execute(text('UPDATE financial_instruments SET status=:s,account_id=:aid,financial_transaction_id=:txid WHERE id=:id AND company_id=:cid'),{'s':payload.status,'aid':account_id,'txid':txid,'id':instrument_id,'cid':cid})
     db.commit();return {'id':instrument_id,'status':payload.status}
 

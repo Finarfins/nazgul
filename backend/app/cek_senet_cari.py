@@ -65,6 +65,7 @@ from .cek_senet_engine import (
     TAHSILE_VERILDI,
 )
 from .cek_senet_schema import cek_senetler
+from .arama_katli import katli_esitle
 from .finance_engine import finance_transactions, sync_payment_finance
 from .money import money
 from .tenancy import companies
@@ -188,7 +189,9 @@ def tahsil_finans_hareketi(
             created_at=datetime.now(timezone.utc),
         )
     )
-    return int(sonuc.inserted_primary_key[0])
+    txid = int(sonuc.inserted_primary_key[0])
+    katli_esitle(db, "finance_transactions", cid=cid, ids=[txid])
+    return txid
 
 
 def borc_belgesi_gerekir_mi(evrak: dict[str, Any]) -> bool:

@@ -70,6 +70,7 @@ from sqlalchemy import MetaData, Table, select
 from sqlalchemy.engine import Connection
 from sqlalchemy.schema import sort_tables
 
+from ..arama_katli import katli_sutun_mu
 from ..activity_log import log_activity
 from ..auth import users, utcnow
 from ..config import settings
@@ -224,7 +225,10 @@ def _satirlar(conn: Connection, tablo: Table, cid: int) -> Iterator[dict[str, An
     sonuc = conn.execution_options(stream_results=True).execute(secim)
     for parca in sonuc.partitions(_PARCA):
         for satir in parca:
-            yield dict(satir._mapping)
+            # H75: `<kolon>_katli` TURETILMIS arama sutunlaridir; zip'e
+            # YAZILMAZ. Geri yukleme onlari kaynak kolonlardan yeniden hesaplar
+            # (`kiraci_geri_yukleme.geri_yukle` -> `arama_katli.kiraci_katli_esitle`).
+            yield {k: v for k, v in satir._mapping.items() if not katli_sutun_mu(k)}
 
 
 def _kullanici_epostalari(conn: Connection, kimlikler: set[int]) -> list[dict[str, Any]]:

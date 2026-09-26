@@ -301,6 +301,11 @@ def dunya(uygulama):
                      " VALUES(:c,:a,:b,0,0,1)"),
                 {"c": cid, "a": "Şaban Korkmaz", "b": bakiye},
             )
+            # H75: ham INSERT -> katlanmis arama sutunlari elle esitlenir;
+            # yoksa `cari_durum` ikisini de bulamaz ve kiraci iddiasi BOS olur.
+            from app.arama_katli import kiraci_katli_esitle
+
+            kiraci_katli_esitle(db, cid)
         db.commit()
 
     veri = {
@@ -885,6 +890,9 @@ def test_COK_ESLESMEDE_LISTE_DONUYOR_TEK_MUSTERI_DEGIL(oturum, dunya) -> None:
              "payment_term_days,is_active) VALUES(:c,:a,7,0,0,1)"),
         {"c": dunya["firma_a"], "a": "Şaban Demir"},
     )
+    from app.arama_katli import kiraci_katli_esitle
+
+    kiraci_katli_esitle(oturum, dunya["firma_a"])  # H75: ham INSERT
     _baglanti_yaz(oturum, dunya["firma_a"], dunya["kul_b"])
     _mesaj_yaz(oturum, "Şaban borç")
     oturum.commit()
