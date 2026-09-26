@@ -52,10 +52,16 @@ class PartsSummary(BaseModel):
 
 
 class InvoiceTotals(BaseModel):
+    # labor is NET (hours x rate); its VAT is labor_tax (H91). parts is the
+    # parts gross before any document discount. tax and grand_total are the
+    # invoice's own figures (billing_service.price_service_lines).
     labor: Decimal
+    labor_tax: Decimal
     parts: Decimal
     tax: Decimal
     discount: Decimal
+    global_discount: Decimal
+    global_discount_base: Decimal
     grand_total: Decimal
     labor_source: Literal["header", "lines"] = "header"
     labor_line_ids: list[int] = []
