@@ -215,7 +215,14 @@ def evaluate_consent(
         return _decision(False, REVOKED, consent_id, version)
 
     snapshot = normalize_recipient(consent.get("recipient_snapshot"), normalized_channel)
-    if snapshot is not None and snapshot != normalized_recipient:
+    if snapshot is None:
+        # H90 — sözleşme 1: "kime izin verildi" cevapsızsa izin YOK. Önce bu
+        # dal `snapshot is not None and ...` ile ATLANIYOR ve ALLOWED
+        # dönüyordu (fail-open; #155 tur 2 lens). `set_consent` GRANTED'ı
+        # görüntüsüz yazmaz, yani bu yol yalnız bozuk/el ile düzenlenmiş
+        # satırda açılır — tam da kararın kapalı kalması gereken yer.
+        return _decision(False, RECIPIENT_INVALID, consent_id, version)
+    if snapshot != normalized_recipient:
         # Numara değişmişse eski rıza yeni numarayı kapsamaz.
         return _decision(False, RECIPIENT_CHANGED, consent_id, version)
 

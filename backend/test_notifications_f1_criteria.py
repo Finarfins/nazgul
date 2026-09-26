@@ -1062,3 +1062,67 @@ def test_r6c_four_eyes_is_enforced_in_the_cas_where_clause(db: Session) -> None:
         text("SELECT status FROM notifications WHERE id=:i"), {"i": nid}
     ).scalar_one()
     assert status == "AWAITING_APPROVAL"
+
+
+# ---------------------------------------------------------------------------
+# H90 — sözleşme 1: normalize OLMAYAN rıza görüntüsü fail-CLOSED
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "kanal,gecerli,bozuk",
+    [
+        ("SMS", "+905321112233", None),
+        ("SMS", "+905321112233", "bilinmiyor"),
+        ("WHATSAPP", "905321112233", "0212 111 22 33"),
+        ("EMAIL", "ciftci@ornek.com.tr", "ciftci-at-ornek"),
+    ],
+)
+def test_h90_invalid_recipient_snapshot_fails_closed(
+    db: Session, kanal: str, gecerli: str, bozuk: str | None
+) -> None:
+    """GRANTED satırın görüntüsü `None`a indiğinde karar BLOCKED/RECIPIENT_INVALID.
+
+    Önce `snapshot is not None and ...` koşulu görüntü normalize olmayınca
+    denetimi ATLIYOR ve ALLOWED dönüyordu (#155 tur 2 lens bulgusu). Kanıt
+    alanları (`consent_id`/`consent_version`) yine dolu: satır VAR, ama
+    kapsadığı alıcı belirsiz.
+    """
+    from app.notifications import consents, set_consent
+
+    kayit = set_consent(
+        db,
+        company_id=1,
+        party_type="CUSTOMER",
+        party_id=4242,
+        channel=kanal,
+        granted=True,
+        source="FORM",
+        source_ref=None,
+        recipient=gecerli,
+        user_id=1,
+    )
+    db.commit()
+
+    def karar():
+        return consents.evaluate_consent(
+            db,
+            company_id=1,
+            party_type="CUSTOMER",
+            party_id=4242,
+            channel=kanal,
+            recipient=gecerli,
+        )
+
+    # Kontrol: sağlam görüntü İZİN verir (testin kendisi bozuk değil).
+    assert karar()["allowed"] is True
+
+    db.execute(
+        text("UPDATE notification_consents SET recipient_snapshot=:s WHERE id=:i"),
+        {"s": bozuk, "i": int(kayit["id"])},
+    )
+    db.commit()
+    sonuc = karar()
+    assert sonuc["allowed"] is False, sonuc
+    assert sonuc["decision"] == "BLOCKED"
+    assert sonuc["reason"] == consents.RECIPIENT_INVALID
+    assert sonuc["consent_id"] == int(kayit["id"])
+    assert sonuc["consent_version"] == int(kayit["version"])
