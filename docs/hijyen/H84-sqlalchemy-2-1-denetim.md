@@ -122,8 +122,10 @@ Bir tarih değil, bir **ölçüt** kümesi. Dördü birlikte sağlanınca PR-4 a
   veriyor (bugün: 1).
 - **K2.** PR-2 ölçümü: bütün PG ikizleri 2.1.x + psycopg 3 + PG16 altında,
   dosya başına taze DB'de yeşil (bugün: **ölçülmedi**).
-- **K3.** PR-3 birleşti: CI lock'tan kuruyor. Pin kalkınca sürüm artışı lock
-  diff'inde görünür oluyor, gevşek kurulumla sessizce gelmiyor.
+- **K3.** done (#173). PR-3 birleşti: CI lock'tan kuruyor. Pin kalkınca sürüm
+  artışı lock diff'inde görünür oluyor, gevşek kurulumla sessizce gelmiyor.
+  Test eklentileri `requirements-dev.lock`'tan (hash'li, ortak pinler
+  `requirements.lock` ile eşit). PR-4'te iki kilit birlikte yeniden derlenir.
 - **K4.** 2.1 serisinde kod tabanımızı etkileyen açık bir gerileme yok:
   yeni `2.1.x` changelog'u §2 tablosuna göre taranır ve tabloya satır eklenmez.
 
