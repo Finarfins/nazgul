@@ -162,15 +162,16 @@ def test_geri_doldurma_PGde_arama_katla_ile_AYNI(motor) -> None:
     assert sayilar["customers"] == sayilar["suppliers"] == sayilar["products"] == len(AKSANLI)
 
 
-def _kullanici(c, cid: int) -> str:
+def _kullanici(c, cid: int, rol: str = "admin", ek: str = "") -> str:
     from app.auth import hash_password
 
     an = datetime.now(timezone.utc)
-    ad = f"{ONEK.lower()}-admin"
+    ad = f"{ONEK.lower()}-{rol}{ek}"
     uid = c.execute(text(
         "INSERT INTO app_users(username,email,email_verified,display_name,password_hash,role,"
-        "is_active,must_change_password,created_at) VALUES(:k,:e,true,'H75',:p,'admin',true,false,:t)"
-        " RETURNING id"), {"k": ad, "e": f"{ad}@ornek.test", "p": hash_password(PAROLA), "t": an}).scalar_one()
+        "is_active,must_change_password,created_at) VALUES(:k,:e,true,'H75',:p,:r,true,false,:t)"
+        " RETURNING id"), {"k": ad, "e": f"{ad}@ornek.test", "p": hash_password(PAROLA), "r": rol,
+                           "t": an}).scalar_one()
     c.execute(text("INSERT INTO user_company_memberships(user_id,company_id,is_default,created_at)"
                    " VALUES(:u,:c,true,:t)"), {"u": uid, "c": cid, "t": an})
     return ad
@@ -292,3 +293,31 @@ def test_H96_ALTI_TABLONUN_yaniti_PGde_KATLI_TASIMAZ(motor, istek) -> None:
         if yollar := _katli_anahtarlari(govde):
             sizan[yol] = yollar
     assert sizan == {}
+
+
+@pytest.mark.parametrize("tablo", ["customers", "suppliers"])
+def test_maskeli_rol_PGde_email_katliyi_HAM_gormez(motor, istek, tablo) -> None:
+    """SQLite ikizinin (`tests/test_h75_...::test_maskeli_rol_email_katliyi_HAM_gormez`)
+    PG karşılığı — #164 tur 1'e kadar YALNIZ SQLite'ta vardı.
+
+    SEC-3b: maskeli rol (`depo`) ham `email_katli`yi HİÇBİR biçimde görmez;
+    H96'dan beri kart `_katli` anahtarını hiç taşımaz, maske kuralı ikinci
+    savunma olarak KALIR."""
+    from app.alan_maskeleme import maskele_cari, maskele_eposta
+
+    client, h, cid = istek
+    kimlik = _ok(client.post(f"/api/{tablo}", headers=h,
+                             json=_cari(f"H75 Maske {tablo}", email=f"maske-{tablo}@ÖRNEK.test")))["id"]
+    with motor.begin() as c:
+        ham = c.execute(text(f"SELECT email_katli FROM {tablo} WHERE id=:i"), {"i": kimlik}).scalar_one()
+        depo = _kullanici(c, cid, rol="depo", ek=f"-{tablo}")
+    assert ham and "@" in ham
+    giris = client.post("/api/auth/login", json={"username": depo, "password": PAROLA})
+    assert giris.status_code == 200, giris.text
+    client.cookies.clear()
+    hd = {"Authorization": "Bearer " + giris.json()["access_token"], "X-Company-ID": str(cid)}
+    govde = _ok(client.get(f"/api/{tablo}/{kimlik}", headers=hd))
+    assert ham not in repr(govde)
+    assert "email_katli" not in govde["entity"]
+    assert "email_katli" not in govde[tablo[:-1]]
+    assert maskele_cari({"email_katli": ham}, "depo")["email_katli"] == maskele_eposta(ham)

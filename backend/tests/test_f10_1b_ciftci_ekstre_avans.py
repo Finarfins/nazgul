@@ -1199,9 +1199,10 @@ def test_CONSENT_AT_EVETTE_YAZILIYOR_yonetici_listesinde_GORUNUYOR(
     assert isinstance(tel, str) and tel.endswith("+00:00"), tel
     assert datetime.fromisoformat(tel).utcoffset() == timedelta(0)
     # H89: `created_at` AYNI tel biçimi ve SAKLANAN ANIN KENDİSİ. Önce ham
-    # sütun dönüyordu: SQLite naive (`...T10:00:00`, sonek YOK), PG oturum
-    # dilimi (`+03:00`). MUTASYON: `utc_iso` sarmalayıcısını kaldırmak bunu
-    # kırmızı yapar.
+    # sütun dönüyordu: SQLite'ta HTTP üzerinden `Z` sonekli
+    # (`...T20:09:08.354287Z`, base router'la ÖLÇÜLDÜ), PG'de oturum dilimi
+    # (`+03:00`) — ikisi de `+00:00` tel biçimi DEĞİL. MUTASYON: `utc_iso`
+    # sarmalayıcısını kaldırmak bunu kırmızı yapar.
     from app.zaman import utc
 
     olusturma = satirlar[0]["created_at"]
