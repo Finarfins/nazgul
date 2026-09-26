@@ -79,8 +79,11 @@ def test_pg_alacak_revizyon_zinciri(olcum):
 
     for kurgu in ("A", "B"):
         tamam = olcum[kurgu]["alacak_tamamlaninca"]
+        sonra = olcum[kurgu]["alacak_fatura_sonrasi"]
         assert [b["gross_amount"] for b in tamam] == [BEKLENEN[kurgu]["customer_amount"]], tamam
-        assert olcum[kurgu]["alacak_fatura_sonrasi"] == tamam, kurgu
+        assert len(sonra) == len(tamam) == 1
+        assert [(b["revision_no"], b["status"], b["gross_amount"], b["reversal"]) for b in sonra] == \
+               [(b["revision_no"], b["status"], b["gross_amount"], b["reversal"]) for b in tamam]
     for kurgu, son in (("C", "377.43"), ("D", "424.76")):
         assert [(b["revision_no"], b["status"], b["gross_amount"], b["reversal"])
                 for b in olcum[kurgu]["alacak_fatura_sonrasi"]] == [
@@ -90,3 +93,41 @@ def test_pg_alacak_revizyon_zinciri(olcum):
 def test_pg_matrahi_asan_iskonto_onizlemede_de_422(olcum):
     asan = olcum["asan_onizleme"]
     assert asan["status"] == 422 and asan["body"]["detail"]["code"] == "ISKONTO_TOPLAMI_ASIYOR", asan
+
+
+def test_pg_fatura_sonrasi_alacak_ve_yaslandirma_baglantisi(olcum):
+    from decimal import Decimal
+    for kurgu in ("A", "B"):
+        f = olcum[kurgu]["fatura"]
+        fid = str(f["id"])
+        fno = f["invoice_number"]
+        tamam = olcum[kurgu]["alacak_tamamlaninca"]
+        sonra = olcum[kurgu]["alacak_fatura_sonrasi"]
+        assert len(sonra) == len(tamam) == 1
+        assert sonra[0]["revision_no"] == "1" and sonra[0]["status"] == "posted"
+        assert tamam[0]["source"] == "computed" and tamam[0]["invoice_id"] == ""
+        assert sonra[0]["source"] == "invoice" and sonra[0]["invoice_id"] == fid
+        assert sonra[0]["invoice_number"] == fno
+        cid = int(f["customer"]["id"])
+        musteri = next(c for c in olcum[kurgu]["yaslandirma"]["customers"] if c["customer_id"] == cid)
+        wo_no = olcum[kurgu]["work_order_no"]
+        belge = next(d for d in musteri["documents"] if d["document_type"] == "service_fee" and d["document_no"] == f"{wo_no}-R1")
+        assert Decimal(str(belge["remaining"])) == Decimal(str(f["totals"]["customer_amount"]))
+
+    for kurgu in ("C", "D"):
+        f = olcum[kurgu]["fatura"]
+        fid = str(f["id"])
+        fno = f["invoice_number"]
+        sonra = olcum[kurgu]["alacak_fatura_sonrasi"]
+        assert len(sonra) == 3
+        assert sonra[0]["status"] == "reversed"
+        assert sonra[1]["status"] == "posted" and sonra[1]["reversal"] == "1"
+        assert sonra[2]["status"] == "posted" and sonra[2]["reversal"] == "0"
+        assert sonra[2]["revision_no"] == "3"
+        assert sonra[2]["source"] == "invoice" and sonra[2]["invoice_id"] == fid
+        assert sonra[2]["invoice_number"] == fno
+        cid = int(f["customer"]["id"])
+        musteri = next(c for c in olcum[kurgu]["yaslandirma"]["customers"] if c["customer_id"] == cid)
+        wo_no = olcum[kurgu]["work_order_no"]
+        belge = next(d for d in musteri["documents"] if d["document_type"] == "service_fee" and d["document_no"] == f"{wo_no}-R3")
+        assert Decimal(str(belge["remaining"])) == Decimal(str(f["totals"]["customer_amount"]))
