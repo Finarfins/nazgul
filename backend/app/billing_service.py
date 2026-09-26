@@ -45,7 +45,8 @@ def price_service_lines(
     ``customer_amount`` is exactly Σ invoice ``customer_payable``.
 
     Raises ``HTTPException(422, ISKONTO_TOPLAMI_ASIYOR)`` when the discount
-    exceeds the matrah; an unknown discount type keeps raising ``ValueError``.
+    exceeds OR equals the matrah (H97: no zero-value invoice); an unknown
+    discount type keeps raising ``ValueError``.
     """
     coverage = percentage(coverage_percent)
     specs = [(entry["hours"], entry["hourly_rate"], ZERO, SERVICE_LABOR_VAT_RATE) for entry in labor_entries]
@@ -54,6 +55,11 @@ def price_service_lines(
     matrah = money(sum((line.taxable for line in lines), ZERO))
     try:
         global_discount = DiscountEngine.calculate(matrah, discount_value, kind=discount_type)
+        # DiscountEngine refuses only discount > matrah. A discount EQUAL to it
+        # (PERCENT 100, FIXED == matrah) would issue a zero-value invoice, which
+        # Harman Zamanı does not issue (H97); a zero discount is no discount.
+        if ZERO < global_discount.discount >= matrah:
+            raise ValueError("Belge iskontosu matrahı sıfırlıyor")
     except ValueError as exc:
         # The only other ValueError is an unknown discount type; that one is not
         # a "too large" case, so it keeps its old behaviour.
@@ -61,7 +67,7 @@ def price_service_lines(
             raise
         raise HTTPException(422, {"code": "ISKONTO_TOPLAMI_ASIYOR", "taxable_base": str(matrah),
             "discount_type": discount_type.upper(), "discount_value": str(discount_value),
-            "message": "Belge iskontosu faturanın iskontosuz matrahını (KDV hariç ara toplam) aşamaz."}) from exc
+            "message": "Belge iskontosu faturanın iskontosuz matrahını (KDV hariç ara toplam) aşamaz veya eşit olamaz."}) from exc
     allocations = distribute_amount(global_discount.discount, [line.taxable for line in lines])
     items = []
     for (_qty, _price, _discount, tax_rate), line, share in zip(specs, lines, allocations):
