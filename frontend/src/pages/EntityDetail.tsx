@@ -33,6 +33,7 @@ import EntityDocumentList from '../components/EntityDocumentList';
 import EntityStatementDialog from '../components/EntityStatementDialog';
 import SupplierPriceHistory,{SupplierPriceHistoryTab} from '../components/SupplierPriceHistory';
 import CustomerMachines,{CustomerMachinesTab} from '../components/CustomerMachines';
+import WhatsAppTarafKarti from '../components/WhatsAppTarafKarti';
 import {YeniEvrakDialog} from './cek-senet/CekSenetDialoglari';
 import {cekYontemiMi,evrakBaslangici} from './cek-senet/odemeKoprusu';
 
@@ -81,6 +82,7 @@ export default function EntityDetail({type}:{type:EntityType}){
   const [contact,setContact]=useState({name:'',role:'',phone:'',email:'',is_primary:false,notes:''});
   const [task,setTask]=useState({title:'',due_date:'',priority:'normal',assigned_to:'',notes:''});
   const endpoint=type==='customer'?`/customers/${id}`:`/suppliers/${id}`;
+  const partyType=type==='customer'?'CUSTOMER':'SUPPLIER';
   const load=()=>{setData(null);setError('');api.get(endpoint).then(r=>setData(r.data)).catch(e=>setError(errorDetail(e,'Cari bilgileri yüklenemedi.')))};
   useEffect(load,[endpoint]);
   useEffect(()=>{if(canPayments)api.get('/payments/accounts',{params:{active_only:true}}).then(r=>setAccounts(r.data)).catch(()=>setAccounts([]));else setAccounts([])},[canPayments]);
@@ -211,7 +213,13 @@ export default function EntityDetail({type}:{type:EntityType}){
         <Grid size={{xs:12,lg:5}}><Stack spacing={2}>
           <Card variant="outlined"><CardContent><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography variant="h6" fontWeight={900}>Açık Görevler</Typography><Button size="small" startIcon={<AddTaskIcon/>} onClick={()=>setTaskOpen(true)}>Ekle</Button></Stack>{(data.tasks||[]).filter((x:any)=>x.status==='open').slice(0,5).map((x:any)=><Stack key={x.id} direction="row" alignItems="center" spacing={1} sx={{py:1,minHeight:52}}><Checkbox checked={false} onChange={()=>setTaskStatus(x.id,'completed')} inputProps={{'aria-label':`${x.title} görevini tamamla`}}/><Box flex={1}><Typography fontSize={15} fontWeight={750}>{x.title}</Typography><Typography sx={metadataSx}>{x.due_date||'Tarih yok'} · {x.assigned_to||'Atanmamış'}</Typography></Box><Chip size="small" color={priorityColor[x.priority]||'default'} label={x.priority}/></Stack>)}{!(data.tasks||[]).some((x:any)=>x.status==='open')&&<Stack spacing={1} mt={1}><Typography color="text.secondary">Açık görev yok.</Typography><Button variant="outlined" size="small" onClick={()=>setTaskOpen(true)} sx={{alignSelf:'flex-start'}}>İlk görevi oluştur</Button></Stack>}</CardContent></Card>
           <Card variant="outlined"><CardContent><Typography variant="h6" fontWeight={900}>Müşteri Sağlığı</Typography><Typography sx={metadataSx} mt={1}>{s.risk_exceeded?'Risk limiti aşılmış. Tahsilat planı önerilir.':Number(s.overdue_amount)>0?'Vadesi geçen bakiye bulunuyor.':'Finansal risk görünmüyor.'}</Typography><Typography sx={metadataSx} mt={1}>{s.last_activity?`Son işlem ${s.last_activity} tarihinde.`:'Henüz işlem yok.'}</Typography>{canPayments&&Number(s.overdue_amount)>0&&<Button color="success" variant="outlined" size="small" startIcon={<PaymentsIcon/>} onClick={openPayment} sx={{mt:1.5}}>Tahsilat Al</Button>}</CardContent></Card>
-          {type==='customer'&&<NotificationConsentPanel partyId={Number(id)} defaultRecipient={data.phone}/>}
+          {/* F10-1d: çiftçi iki taraflı olabilir (müşteri VE tedarikçi); makbuz/avans
+              yüzü tedarikçidedir, rıza anahtarı ve WhatsApp bağlantısı orada da görünmeli.
+              Telefon `data.entity`tedir; maskeli değer ön dolguya girmez (SEC-3b).
+              İzin paneli `notifications` ister (GET /notifications/consents): depo
+              tedarikçiyi, rapor müşteriyi açar ama izinleri okuyamaz. */}
+          {can('notifications')&&<NotificationConsentPanel partyType={partyType} partyId={entityId} defaultRecipient={maskeli(e.phone)?null:e.phone}/>}
+          <WhatsAppTarafKarti partyType={partyType} partyId={entityId} defaultPhone={maskeli(e.phone)?null:e.phone}/>
         </Stack></Grid>
       </Grid>}
       {tab===1&&<Stack spacing={1}><EntityDocumentList entityType={type} entityId={entityId} onOpenDocument={openDocument}/>{(data.charge_documents||[]).length>0&&<><Typography variant="subtitle2" fontWeight={900} sx={{mt:1}}>Servis / Gecikme Bedelleri</Typography>{(data.charge_documents||[]).map((x:any)=><Stack key={`charge-${x.id}`} role={chargeOpenable(x)?'button':undefined} tabIndex={chargeOpenable(x)?0:undefined} aria-label={chargeOpenable(x)?`${x.document_no} servis iş emrini aç`:undefined} onClick={()=>openCharge(x)} onKeyDown={event=>{if(chargeOpenable(x)&&(event.key==='Enter'||event.key===' ')){event.preventDefault();openCharge(x)}}} direction={{xs:'column',sm:'row'}} justifyContent="space-between" alignItems={{sm:'center'}} gap={1} sx={{p:1.5,minHeight:58,border:'1px solid',borderColor:'divider',borderRadius:2,bgcolor:'action.hover',...(chargeOpenable(x)?{cursor:'pointer','&:hover':{bgcolor:'action.selected'},'&:focus-visible':{outline:'2px solid',outlineColor:'primary.main'}}:{})}}><Box><Stack direction="row" spacing={1} alignItems="center"><Chip size="small" color={x.charge_type==='service_fee'?'info':'warning'} label={x.charge_type==='service_fee'?'Servis':'Gecikme'}/><Typography fontSize={15} fontWeight={800}>{x.document_no}</Typography></Stack><Typography sx={metadataSx}>Vade {x.due_date}</Typography></Box><Stack direction="row" spacing={1} alignItems="center">{Number(x.applied)>0&&<Typography sx={metadataSx}>Tahsil {money(x.applied)}</Typography>}<Typography fontSize={16} fontWeight={900}>{money(x.remaining)}</Typography></Stack></Stack>)}</>}</Stack>}
