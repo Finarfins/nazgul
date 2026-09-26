@@ -46,15 +46,22 @@ with TestClient(app) as client:
                            'source':'header','line_ids':[],
                            'entries':[{'hours':'2.5000','hourly_rate':'100.00','line_id':None}]}
     assert data['parts']=={'parts_total':'64.76','parts_before_tax':'53.97','parts_tax':'10.79','parts_discount':'6.00'}
-    assert data['totals']=={'labor':'250.00','parts':'64.76','tax':'10.79','discount':'6.00','grand_total':'314.76',
+    # H91: the preview prices labor like the invoice (SERVICE_LABOR_VAT_RATE):
+    # labor 250.00 NET + 50.00 VAT; parts 64.76 (10.79 VAT) unchanged;
+    # tax 50.00 + 10.79 = 60.79; grand 250 + 50 + 64.76 = 364.76 (was 314.76).
+    assert data['totals']=={'labor':'250.00','labor_tax':'50.00','parts':'64.76','tax':'60.79','discount':'6.00',
+                            'global_discount':'0.00','global_discount_base':'0.00','grand_total':'364.76',
                             'labor_source':'header','labor_line_ids':[]}
-    assert data['warranty']=={'type':'PARTIAL','coverage_percent':'40.0000','customer_amount':'188.86','warranty_amount':'125.90','company_cost':'125.90'}
-    assert data['taxes']=='10.79'
+    # Warranty 40% per item like the invoice: 300.00 x 0.4 = 120.00 + 64.76 x 0.4
+    # = 25.90 -> 145.90; customer 364.76 - 145.90 = 218.86 (was 188.86 / 125.90).
+    assert data['warranty']=={'type':'PARTIAL','coverage_percent':'40.0000','customer_amount':'218.86','warranty_amount':'145.90','company_cost':'145.90'}
+    assert data['taxes']=='60.79'
     assert client.patch(f"/api/work-orders/{partial['id']}/status",headers=h,json={'status':'DELIVERED'}).status_code==200
     assert client.get(f"/api/work-orders/{partial['id']}/invoice",headers=h).status_code==200
 
+    # H91: 1 h x 100 = 100.00 + 20% labor VAT = 120.00 (was 100.00).
     for warranty_type,percent,customer_amount,warranty_amount in (
-        ('NONE','0','100.00','0.00'),('FULL','100','0.00','100.00')):
+        ('NONE','0','120.00','0.00'),('FULL','100','0.00','120.00')):
         order=client.post('/api/work-orders',headers=h,json={**base,'actual_hours':'1','warranty_type':warranty_type,'warranty_percent':percent}).json()
         for status in ('IN_PROGRESS','COMPLETED'):
             assert client.patch(f"/api/work-orders/{order['id']}/status",headers=h,json={'status':status}).status_code==200
@@ -68,7 +75,9 @@ with TestClient(app) as client:
         assert client.patch(f"/api/work-orders/{large['id']}/status",headers=h,json={'status':status}).status_code==200
     large_invoice=client.get(f"/api/work-orders/{large['id']}/invoice",headers=h)
     assert large_invoice.status_code==200,large_invoice.text
-    assert large_invoice.json()['totals']['grand_total']=='199999898000001.00'
+    # H91: labor 999999 x 99999999 = 99999899000001.00 + 20% VAT
+    # 19999979800000.20; part 99999999000000.00 at 0% -> 219999877800001.20.
+    assert large_invoice.json()['totals']['grand_total']=='219999877800001.20'
 '''
     result=subprocess.run([sys.executable,'-c',smoke],cwd=BACKEND,env=env,text=True,capture_output=True,timeout=180)
     assert result.returncode==0,result.stdout+'\n'+result.stderr

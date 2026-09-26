@@ -18,9 +18,11 @@ const workOrder=(status:string)=>({
  machine_id:3,machine_brand:'Sungur',machine_model:'X',technician_name:'Ali',opened_at:'2026-07-30',
  actual_hours:'2',labor_rate:'100',warranty_type:'NONE',warranty_percent:'0',
 });
+// H91: önizleme işçilik KDV'sini taşır — 2 × 100 = 200 + %20 = 40.00; parça
+// brütü 50.00 (5.00 KDV'li). tax = 40 + 5 = 45.00, genel toplam 290.00.
 const summary={
- customer:{id:5,name:'Bereket Tarım'},totals:{labor:'200.00',parts:'50.00',tax:'5.00',discount:'0.00',grand_total:'250.00',labor_source:'header'},
- warranty:{type:'NONE',coverage_percent:'0',customer_amount:'250.00',warranty_amount:'0.00'},
+ customer:{id:5,name:'Bereket Tarım'},totals:{labor:'200.00',labor_tax:'40.00',parts:'50.00',tax:'45.00',discount:'0.00',global_discount:'0.00',global_discount_base:'0.00',grand_total:'290.00',labor_source:'header'},
+ warranty:{type:'NONE',coverage_percent:'0',customer_amount:'290.00',warranty_amount:'0.00'},
 };
 const renderPage=()=>render(<MemoryRouter initialEntries={['/is-emirleri/42']}><Routes><Route path="/is-emirleri/:id" element={<WorkOrderDetail/>}/><Route path="/faturalar/:id" element={<div>Fatura detayına gidildi</div>}/></Routes></MemoryRouter>);
 
@@ -49,13 +51,19 @@ describe('WorkOrderDetail faturalandırma',()=>{
   if(status==='OPEN')expect(screen.getByText(/İş emri faturalandırmaya hazır değil/)).toBeInTheDocument();
  });
 
+ it('önizleme işçilik KDV satırını gösterir (H91)',async()=>{
+  mockLoads('COMPLETED');renderPage();
+  expect(await screen.findByText('İşçilik KDV')).toBeInTheDocument();
+  expect(screen.getByText('40.00 ₺')).toBeInTheDocument();
+ });
+
  it('onaydan sonra generate çağrısı yapar ve detaya yönlendirir',async()=>{
   mockLoads('COMPLETED');
   vi.mocked(api.post).mockResolvedValue({data:{id:91}} as any);
   renderPage();
   fireEvent.click(await screen.findByRole('button',{name:'Faturalandır'}));
   expect(screen.getAllByText('Bereket Tarım')).toHaveLength(2);
-  expect(screen.getAllByText('250.00 ₺').length).toBeGreaterThanOrEqual(3);
+  expect(screen.getAllByText('290.00 ₺').length).toBeGreaterThanOrEqual(3);
   fireEvent.click(screen.getByRole('button',{name:'Faturayı Oluştur'}));
   await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/invoices/generate',{work_order_id:42}));
   expect(await screen.findByText('Fatura detayına gidildi')).toBeInTheDocument();

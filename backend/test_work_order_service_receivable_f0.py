@@ -71,7 +71,10 @@ with TestClient(app) as c:
   assert len(docs)==1
   doc=docs[0]
   assert doc['charge_type']=='service_fee' and doc['status']=='posted'
-  assert Decimal(str(doc['gross_amount']))==Decimal('150.00')
+  # H91: the COMPLETED receivable is the VAT-inclusive customer share, priced
+  # like the invoice: labor 2 x 100 = 200 + 20% VAT = 240.00, warranty 25%
+  # -> customer 240.00 - 60.00 = 180.00 (was 200 x 0.75 = 150.00 at 0% VAT).
+  assert Decimal(str(doc['gross_amount']))==Decimal('180.00')
   assert str(doc['currency'])=='TRY' and Decimal(str(doc['exchange_rate']))==Decimal('1')
   due=date.fromisoformat(str(doc['due_date_snapshot']))
   document_date=date.fromisoformat(str(doc['period_end']))
@@ -81,11 +84,12 @@ with TestClient(app) as c:
   # bir gün geride kalıp period_end<=as_of filtresini kaçırıyordu (zaman-bağımlı
   # flake). Belgenin kendi iş günü deterministik ve doğru kesişim tarihidir.
   net=[x for x in calculate_net_receivables(db,cid,document_date) if x.document_type=='service_fee']
-  assert len(net)==1 and net[0].total==Decimal('150.00')
+  assert len(net)==1 and net[0].total==Decimal('180.00')
   _limit,current,projected=_credit_exposure(
     db,cid=cid,customer_id=customer['id'],final_total=Decimal('20'),
     paid_amount=Decimal('0'),status='completed',transaction_id=None)
-  assert current==Decimal('150.00') and projected==Decimal('170.00')
+  # H91: exposure is the 180.00 receivable above; projected adds the 20.
+  assert current==Decimal('180.00') and projected==Decimal('200.00')
  other=c.post('/api/companies',headers=h,json={'name':'Başka Tenant'}).json()
  with SessionLocal() as db:
   assert not [x for x in calculate_net_receivables(db,other['id'],document_date) if x.document_type=='service_fee']
@@ -191,7 +195,10 @@ with TestClient(app) as c:
   docs=db.execute(text("""SELECT gross_amount FROM receivable_charge_documents
     WHERE company_id=:cid AND work_order_id=:wid ORDER BY revision_no"""),{'cid':cid,'wid':wid}).all()
   assert len(docs)==5
-  assert sum(Decimal(str(row[0])) for row in docs)==Decimal('200.00')
+  # After cancel the receivable falls back to the computed preview, which since
+  # H91 is VAT-inclusive: 2 x 100 + 20% = 240.00 (was 200.00). The chain is
+  # +240 -240 +432 -432 +240.
+  assert sum(Decimal(str(row[0])) for row in docs)==Decimal('240.00')
 print('SERVICE_RECEIVABLE_RECONCILIATION_OK')
 ''',
     )

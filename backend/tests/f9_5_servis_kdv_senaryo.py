@@ -180,6 +180,14 @@ IZINLI_DEGISIMLER = {
     ("baslik", "totals", "grand_total"): ("539.10", "599.10"),
     ("baslik", "totals", "customer_amount"): ("377.37", "419.37"),
     ("baslik", "totals", "warranty_amount"): ("161.73", "179.73"),
+    # H91: faturanın dondurduğu `warranty` bloğu önizlemeden gelir ve önizleme
+    # işçiliği %0 KDV'yle fiyatlıyordu — fatura 599.10 derken blok 539.10'un
+    # bölüşümünü (377.37 / 161.73) taşıyordu. Artık faturanın kendi kalem
+    # bazlı bölüşümü: firma 108.00 + 64.80 + 6.93 = 179.73, müşteri
+    # 599.10 − 179.73 = 419.37 (= totals.customer_amount / warranty_amount).
+    ("baslik", "warranty", "customer_amount"): ("377.37", "419.37"),
+    ("baslik", "warranty", "warranty_amount"): ("161.73", "179.73"),
+    ("baslik", "warranty", "company_cost"): ("161.73", "179.73"),
 }
 
 
@@ -188,6 +196,8 @@ IZINLI_DEGISIMLER = {
 #: EKLENDİ — mevcut hiçbir anahtar yeniden adlandırılmadı.
 IZINLI_EKLENENLER = {
     ("baslik", "totals", "global_discount_base"): "0.00",
+    # H91: önizleme ile ortak fiyatlamadan gelen işçilik KDV'si (2 × 150 × %20).
+    ("baslik", "totals", "labor_tax"): "60.00",
 }
 
 
