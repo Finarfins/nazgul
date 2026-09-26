@@ -59,6 +59,7 @@ test_h51_irsaliye_listesi_postgresql.py
 test_h54_offset_tavani_postgresql.py
 test_h57_h58_arama_postgresql.py
 test_h75_katli_sutun_esitligi_postgresql.py
+test_h92_kantar_liste_postgresql.py
 test_h_irs_numara_zaman_postgresql.py
 test_harman_v2c_allocation_postgresql.py
 test_harman_vadeli_postgresql.py

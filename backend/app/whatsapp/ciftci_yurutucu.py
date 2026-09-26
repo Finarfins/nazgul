@@ -318,6 +318,15 @@ _DURUM_TR = {_KESILDI: "kesildi"}
 #: Kantar aracının makbuz sayfası. Aynı fişe bağlı iki makbuz TEK fiş sayılır;
 #: sayfalama, tekrarlı fişler yüzünden beş farklı fişe ulaşmak içindir.
 _FIS_SAYFASI = 20
+#: Bir kantar cevabı için okunacak kesilmiş+fişli makbuz satırı TAVANI (H92).
+#: Sayfalama "beş farklı fiş ya da satırlar bitene kadar" dönüyordu; tek bir
+#: fişe binlerce makbuz bağlayan bir geçmiş, WhatsApp işleyicisini çiftçinin
+#: makbuz tablosunun TAMAMINI gezmeye zorlardı. 500 satır = en çok 25
+#: sayfa sorgusu (her biri ≤20 satır). Olağan bir çiftçide fiş başına bir-iki
+#: makbuz düşer, yani beş fişe onlarca satırda ulaşılır ve tavan yalnız
+#: düşmanca/bozuk bir geçmişte devreye girer. Tavan KESİNDİR (son sayfa kırpılır) ve aşılınca
+#: liste o ana kadar bulunan fişlerle döner — hata YOK.
+_TARAMA_TAVANI = 500
 
 
 def ciftci_kantar(
@@ -328,6 +337,9 @@ def ciftci_kantar(
     Sıra makbuzun sırasıdır (`id` AZALAN): "son fişiniz" = en son KESİLEN
     makbuzun fişi. Fişin kendi `weighed_at`i NULL olabildiği için sıra
     oradan kurulmaz.
+
+    "LISTE" beş FARKLI fiştir: makbuzlar sayfa sayfa okunur ve aynı fişe
+    bağlı ikinci makbuz atlanır; tarama `_TARAMA_TAVANI` satırda durur (H92).
 
     İÇE AKTARMA GÖVDEDE: `mustahsil_okuma` `routers.farm` üzerinden
     `fastapi`yi çeker (`ciftci_ekstre`nin kuralı).
@@ -341,17 +353,19 @@ def ciftci_kantar(
     adet = LISTE_ADEDI if liste else 1
     fisler: list[dict[str, Any]] = []
     gorulen: set[int] = set()
-    offset = 0
-    while len(fisler) < adet:
+    taranan = 0
+    while len(fisler) < adet and taranan < _TARAMA_TAVANI:
+        istenen = min(_FIS_SAYFASI, _TARAMA_TAVANI - taranan)
         sayfa = makbuz_listesi(
             db,
             kimlik.company_id,
             supplier_id=kimlik.party_id,
             status=_KESILDI,
             yalniz_fisli=True,
-            limit=_FIS_SAYFASI,
-            offset=offset,
+            limit=istenen,
+            offset=taranan,
         )
+        taranan += len(sayfa)
         for makbuz in sayfa:
             fis_id = int(makbuz["ticket_id"])
             if fis_id in gorulen:
@@ -375,9 +389,8 @@ def ciftci_kantar(
             )
             if len(fisler) == adet:
                 break
-        if len(sayfa) < _FIS_SAYFASI:
+        if len(sayfa) < istenen:
             break
-        offset += _FIS_SAYFASI
     return {"liste": liste, "fisler": fisler}
 
 
