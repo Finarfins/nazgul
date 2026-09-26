@@ -8,7 +8,7 @@ from sqlalchemy import insert, select, text, update
 from sqlalchemy.orm import Session
 
 from ..activity_log import format_money_tr, log_request_activity
-from ..arama_katli import katli_esitle
+from ..arama_katli import katli_esitle, katli_gizle
 from ..units import turkce_katla
 from ..business_time import business_today
 from ..change_history import record_change
@@ -266,7 +266,8 @@ def detail(product_id: int, request: Request, db: Session = Depends(get_db)):
         {"id": product_id, "cid": cid},
     ).mappings().one()
     return {
-        "product": dict(row),
+        # H96: `SELECT *` -> H75 `_katli` arama sütunları yanıta girmez.
+        "product": katli_gizle(row),
         "movements": [dict(item) for item in moves],
         "warehouse_stocks": [dict(item) for item in stocks],
         "sales_history": [dict(item) for item in sales_history],
