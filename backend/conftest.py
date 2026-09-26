@@ -9,11 +9,28 @@ reference while their coverage is migrated to isolated pytest tests.
 It also enforces the PostgreSQL-parity invariant: when ``REQUIRE_PG=1`` is set
 (the ``backend-postgresql`` CI job, see .github/workflows/ci.yml) every test must
 run against a real PostgreSQL engine. See :func:`_require_postgresql_engine`.
+
+H94: every PostgreSQL session opened from a test process runs in
+``Europe/Istanbul``, not UTC. See :data:`PG_OTURUM_DILIMI`.
 """
 
 import os
 
 import pytest
+
+#: H94 — PG ikizlerinin OTURUM dilimi. CI'ın PG servisi UTC'dir; PG
+#: `TIMESTAMPTZ`yi oturum diliminde döndürdüğü için `+03:00` gerilemeleri
+#: (H73: `utc_iso`dan geçmeyen bir `*_at`) orada GÖRÜNMEZDİ. `PGOPTIONS`
+#: libpq'nun ortam değişkenidir: psycopg ile açılan HER bağlantı (uygulamanın
+#: motoru, ikizin kendi `create_engine`i, alt süreçteki alembic) onu okur.
+#: Test modülleri içe aktarılmadan, yani ilk bağlantıdan ÖNCE yazılır. Sona
+#: eklenir: aynı parametrenin SONRAKİ `-c`si kazanır, önceden verilmiş bir
+#: `PGOPTIONS` başka ayarlarıyla korunur.
+PG_OTURUM_DILIMI = "Europe/Istanbul"
+_PG_DILIM_SECENEGI = f"-c timezone={PG_OTURUM_DILIMI}"
+os.environ["PGOPTIONS"] = " ".join(
+    p for p in (os.environ.get("PGOPTIONS", "").strip(), _PG_DILIM_SECENEGI) if p
+)
 
 collect_ignore = [
     "test_detail_workflows.py",
@@ -75,6 +92,33 @@ def _require_postgresql_engine() -> None:
             "etmelidir.",
             pytrace=False,
         )
+
+@pytest.fixture(scope="session", autouse=True)
+def _pg_oturum_dilimi_istanbul() -> None:
+    """H94 kapısı: `REQUIRE_PG=1` işinde oturum dilimi GERÇEKTEN İstanbul mu?
+
+    `PGOPTIONS` sessizce ezilirse (ör. bir ikiz kendi `options`unu geçerse
+    ya da sürücü ortamı okumazsa) ikizler yine UTC'de koşar ve H73 sınıfı
+    gerilemeler yeniden görünmez olurdu. Oturum başına BİR sorgu.
+    """
+    if os.environ.get("REQUIRE_PG") != "1":
+        return
+
+    from sqlalchemy import text
+
+    from app.db import engine
+
+    if engine.dialect.name != "postgresql":
+        return  # `_require_postgresql_engine` bunu kendi adıyla kırmızı yakar.
+    with engine.connect() as baglanti:
+        dilim = baglanti.execute(text("SHOW TimeZone")).scalar_one()
+    if dilim != PG_OTURUM_DILIMI:
+        pytest.fail(
+            f"H94: PG oturum dilimi '{dilim}', beklenen '{PG_OTURUM_DILIMI}'. "
+            f"PGOPTIONS={os.environ.get('PGOPTIONS')!r}",
+            pytrace=False,
+        )
+
 
 @pytest.fixture()
 def acilis_sifresi():
