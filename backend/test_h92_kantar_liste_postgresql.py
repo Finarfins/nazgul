@@ -185,19 +185,27 @@ def _makbuzlar(motor, dunya, fisler: list[int], *, sid: int | None = None) -> No
             )
 
 
-def _kantar(motor, dunya, sayfalar: list[int], monkeypatch) -> list[str]:
+@pytest.fixture()
+def sayfalar(monkeypatch) -> list[int]:
+    """`makbuz_listesi`nin döndürdüğü satır sayıları (sayfa başına); TEK sarmal."""
     from app import mustahsil_okuma
-    from app.whatsapp.ciftci_yurutucu import ciftci_kantar
-    from app.whatsapp.taraf import TarafKimlik
 
     gercek = mustahsil_okuma.makbuz_listesi
+    olcum: list[int] = []
 
     def sarmal(*a, **k):
         satirlar = gercek(*a, **k)
-        sayfalar.append(len(satirlar))
+        olcum.append(len(satirlar))
         return satirlar
 
     monkeypatch.setattr(mustahsil_okuma, "makbuz_listesi", sarmal)
+    return olcum
+
+
+def _kantar(motor, dunya) -> list[str]:
+    from app.whatsapp.ciftci_yurutucu import ciftci_kantar
+    from app.whatsapp.taraf import TarafKimlik
+
     kimlik = TarafKimlik(
         company_id=dunya["firma"], party_type="SUPPLIER", party_id=dunya["ciftci"]
     )
@@ -207,7 +215,7 @@ def _kantar(motor, dunya, sayfalar: list[int], monkeypatch) -> list[str]:
 
 
 def test_BES_FARKLI_FIS_EN_YENI_20_MAKBUZ_UC_FIS_KAPSASA_BILE_PG(
-    motor, dunya, monkeypatch
+    motor, dunya, sayfalar
 ):
     """Brief'in senaryosu gerçek PG'de: liste F6, F5, F4, F3, F2."""
     f = {ad: _fis(motor, dunya, ad) for ad in ("F1", "F2", "F3", "F4", "F5", "F6")}
@@ -216,26 +224,24 @@ def test_BES_FARKLI_FIS_EN_YENI_20_MAKBUZ_UC_FIS_KAPSASA_BILE_PG(
     _makbuzlar(motor, dunya, [f["F1"]] * 5, sid=dunya["baskasi"])
     _makbuzlar(motor, dunya, [f[("F4", "F5", "F6")[k % 3]] for k in range(21)])
 
-    sayfalar: list[int] = []
-    assert _kantar(motor, dunya, sayfalar, monkeypatch) == [
+    assert _kantar(motor, dunya) == [
         "F6", "F5", "F4", "F3", "F2",
     ]
     assert sayfalar == [20, 4], sayfalar
 
 
-def test_TARAMA_TAVANI_KESIN_PG(motor, dunya, monkeypatch):
+def test_TARAMA_TAVANI_KESIN_PG(motor, dunya, sayfalar):
     """Tavan gerçek PG'de: 500. satırdaki eski fiş bulunur, 501.'deki bulunmaz."""
     eski = _fis(motor, dunya, "ESKI")
     sicak = _fis(motor, dunya, "SICAK")
     _makbuzlar(motor, dunya, [eski])
     _makbuzlar(motor, dunya, [sicak] * (TAVAN - 1))
 
-    sayfalar: list[int] = []
-    assert _kantar(motor, dunya, sayfalar, monkeypatch) == ["SICAK", "ESKI"]
+    assert _kantar(motor, dunya) == ["SICAK", "ESKI"]
     assert sum(sayfalar) == TAVAN, sayfalar
 
     _makbuzlar(motor, dunya, [sicak])
     sayfalar.clear()
-    assert _kantar(motor, dunya, sayfalar, monkeypatch) == ["SICAK"]
+    assert _kantar(motor, dunya) == ["SICAK"]
     assert sum(sayfalar) == TAVAN, sayfalar
     assert max(sayfalar) <= 20, sayfalar
