@@ -10,6 +10,7 @@ import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import SendIcon from '@mui/icons-material/Send';
 import SyncIcon from '@mui/icons-material/Sync';
 import {api,apiDetail,errorDetail} from '../api';
+import type {components} from '../api/types.gen';
 import {useAuth} from '../AuthContext';
 import {decimalPayload,quantityDecimal} from '../utils/documentMoney';
 import {formatDate} from './ReceivablesAging';
@@ -64,30 +65,21 @@ export type DespatchableItem={
  remaining:string;
 };
 
-export type DespatchResponseLine={
- despatch_line_id:number;
- line_no:number;
- product_id:number|null;
- item_name:string|null;
- despatched_quantity:string;
- received_quantity:string;
- rejected_quantity:string;
- reject_reason:string|null;
-};
+// H88: yanıt görünümü ÜRETİLEN şemadan (`IrsaliyeYanitiGorunumu`) türer; elle
+// yazılmış bir kopya sunucudan AYRIŞIRSA `tsc -b` onu artık yakalar. Yalnız
+// şemanın düz `string` ürettiği iki durum alanı buradaki birliklere daraltılır
+// (numaralandırma şemada YOK — `EDespatchStatus` notu).
+type UretilenYanit=components['schemas']['IrsaliyeYanitiGorunumu'];
+type UretilenYanitBelgesi=components['schemas']['IrsaliyeYanitBelgesi'];
 
-export type DespatchResponseView={
- despatch_id:number;
- edespatch_status:EDespatchStatus;
- response_status:ResponseStatus|null;
- response_received_at:string|null;
- implicit_accept_due_at:string|null;
- responses_count:number;
- response:{
-  response_uuid:string;response_number:string;response_type:ResponseStatus;
-  issue_date:string;notes:string|null;created_at:string;
- }|null;
- lines:DespatchResponseLine[];
-};
+export type DespatchResponseLine=components['schemas']['IrsaliyeYanitSatiri'];
+
+export type DespatchResponseView=
+ Omit<UretilenYanit,'edespatch_status'|'response_status'|'response'>&{
+  edespatch_status:EDespatchStatus;
+  response_status:ResponseStatus|null;
+  response:(Omit<UretilenYanitBelgesi,'response_type'>&{response_type:ResponseStatus})|null;
+ };
 
 type ChipColor='default'|'info'|'success'|'error'|'warning';
 
