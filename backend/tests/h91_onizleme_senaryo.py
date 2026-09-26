@@ -16,8 +16,9 @@ Kurgular (elle türetilmiş beklenenler `BEKLENEN`de):
 * **C — B + %10 belge iskontosu.**
 * **D — B, COMPLETED ile fatura arasında P3 satırı eklenir** (1 × 7, %10)
   (`POST /parts`; COMPLETED terminal DEĞİL — yalnız DELIVERED/CANCELLED,
-  `TERMINAL_WORK_ORDER_STATES`). Parça ekleme alacağı uzlaştırmaz; fatura
-  kesilince alacak faturaya göre REVİZE edilmeli.
+  `TERMINAL_WORK_ORDER_STATES`). H102'den beri parça ekleme alacağı ANINDA
+  revize eder (-R3 424.76); fatura aynı tutarı söyler, yeni satır açmaz ve
+  -R3'ü faturaya bağlar. Zincir (+/−/+) H91 ölçümüyle aynı kalır.
 
 Her şey HTTP'den; yalnız alacak belgelerini okumak için SQL kullanılır (bu
 modülde, alt süreç betiğinde SQL YOK).

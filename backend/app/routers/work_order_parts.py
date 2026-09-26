@@ -13,6 +13,7 @@ from ..change_history import record_change
 from ..db import get_db
 from ..inventory import adjust_warehouse_stock, release_warehouse_reservation
 from ..money import line_amount, money, quantity
+from ..service_receivable_engine import reconcile_service_receivable
 from ..tenancy import company_id
 from ..work_order_part_schemas import WorkOrderPartWrite
 from ..work_order_stock import (
@@ -38,7 +39,7 @@ def _require_work_order(
     work_order_id: int,
     *,
     mutable: bool = False,
-) -> None:
+) -> str:
     lock_clause = " FOR UPDATE" if mutable and db.get_bind().dialect.name == "postgresql" else ""
     row = db.execute(
         text(f"SELECT status FROM work_orders WHERE id=:id AND company_id=:cid{lock_clause}"),
@@ -53,6 +54,33 @@ def _require_work_order(
             # therefore no stock movement) until it is opened.
             raise HTTPException(409, "Planlanmış iş emrine parça eklenemez; önce iş emrini açın")
         ensure_work_order_unbilled(db, cid, work_order_id)
+    return str(row[0])
+
+
+def _reconcile_completed_receivable(
+    db: Session, request: Request, cid: int, work_order_id: int, status: str
+) -> None:
+    """Keep a COMPLETED work order's service receivable equal to its preview.
+
+    COMPLETED is not terminal, so parts can still change after the receivable
+    was born; without this the receivable kept the COMPLETED-time amount until
+    the invoice was issued (H102). The engine reverses + reposts only when the
+    customer share actually changed, so an amount-neutral edit adds no rows.
+    Before COMPLETED no receivable exists yet; once an invoice is issued the
+    parts are frozen (``ensure_work_order_unbilled``) and the invoice is the
+    source. A parts edit is never the birth event, hence no initial create.
+    Lock order matches the engine: the work order row is already held
+    ``FOR UPDATE`` by ``_require_work_order`` and is re-taken first inside.
+    """
+    if status != "COMPLETED":
+        return
+    reconcile_service_receivable(
+        db,
+        cid,
+        work_order_id,
+        actor_id=int(request.state.user["id"]),
+        allow_initial_create=False,
+    )
 
 
 def _validate_references(db: Session, cid: int, product_id: int, warehouse_id: int) -> None:
@@ -149,7 +177,7 @@ def create_part_in_transaction(
     work_order_id: int,
     payload: WorkOrderPartWrite,
 ) -> dict[str, Any]:
-    _require_work_order(db, cid, work_order_id, mutable=True)
+    status = _require_work_order(db, cid, work_order_id, mutable=True)
     _validate_references(db, cid, payload.product_id, payload.warehouse_id)
     now = utcnow()
     # RESERVE mode only claims availability. IMMEDIATE issues on add, but its
@@ -179,6 +207,7 @@ def create_part_in_transaction(
             )
         after = _part(db, cid, work_order_id, int(part_id))
         record_change(db, request, company_id=cid, entity_type="work_order_part", entity_id=int(part_id), action="create", before=None, after=after)
+        _reconcile_completed_receivable(db, request, cid, work_order_id, status)
         return after
     except IntegrityError as exc:
         raise HTTPException(409, "Bu ürün ve depo iş emrinde zaten kayıtlı") from exc
@@ -201,7 +230,7 @@ def create_part(work_order_id: int, payload: WorkOrderPartWrite, request: Reques
 @router.put("/{part_id}")
 def update_part(work_order_id: int, part_id: int, payload: WorkOrderPartWrite, request: Request, db: Session = Depends(get_db)):
     cid = company_id(request)
-    _require_work_order(db, cid, work_order_id, mutable=True)
+    wo_status = _require_work_order(db, cid, work_order_id, mutable=True)
     before = _part(db, cid, work_order_id, part_id)
     _ensure_line_editable(before)
     _validate_references(db, cid, payload.product_id, payload.warehouse_id)
@@ -225,6 +254,7 @@ def update_part(work_order_id: int, part_id: int, payload: WorkOrderPartWrite, r
              "reserved_quantity": new_quantity if reserved_line else Decimal("0"), "now": utcnow()})
         after = _part(db, cid, work_order_id, part_id)
         record_change(db, request, company_id=cid, entity_type="work_order_part", entity_id=part_id, action="update", before=before, after=after)
+        _reconcile_completed_receivable(db, request, cid, work_order_id, wo_status)
         db.commit()
         return after
     except HTTPException:
@@ -241,7 +271,7 @@ def update_part(work_order_id: int, part_id: int, payload: WorkOrderPartWrite, r
 @router.delete("/{part_id}", status_code=204)
 def delete_part(work_order_id: int, part_id: int, request: Request, db: Session = Depends(get_db)):
     cid = company_id(request)
-    _require_work_order(db, cid, work_order_id, mutable=True)
+    wo_status = _require_work_order(db, cid, work_order_id, mutable=True)
     before = _part(db, cid, work_order_id, part_id)
     status = str(before["line_status"])
     if status == LINE_RESERVED:
@@ -255,6 +285,7 @@ def delete_part(work_order_id: int, part_id: int, request: Request, db: Session 
     db.execute(text("DELETE FROM work_order_parts WHERE id=:id AND work_order_id=:work_order_id AND company_id=:cid"),
                {"id": part_id, "work_order_id": work_order_id, "cid": cid})
     record_change(db, request, company_id=cid, entity_type="work_order_part", entity_id=part_id, action="delete", before=before, after=None)
+    _reconcile_completed_receivable(db, request, cid, work_order_id, wo_status)
     db.commit()
 
 
@@ -306,7 +337,7 @@ def return_used_part(
 ):
     """RESERVED or ISSUED -> RETURNED. Terminal: correct by adding a new line."""
     cid = company_id(request)
-    _require_work_order(db, cid, work_order_id, mutable=True)
+    wo_status = _require_work_order(db, cid, work_order_id, mutable=True)
     before = _part(db, cid, work_order_id, part_id)
     status = str(before["line_status"])
     if status == LINE_RETURNED:
@@ -330,6 +361,8 @@ def return_used_part(
         after = _part(db, cid, work_order_id, part_id)
         record_change(db, request, company_id=cid, entity_type="work_order_part",
                       entity_id=part_id, action="return", before=before, after=after)
+        # A RETURNED line leaves the bill (billing_service skips it).
+        _reconcile_completed_receivable(db, request, cid, work_order_id, wo_status)
         db.commit()
         return after
     except HTTPException:
