@@ -42,7 +42,9 @@ with TestClient(app) as c:
  assert generated.status_code==201,generated.text; invoice=generated.json(); iid=invoice['id']
  assert invoice['invoice_number'].startswith('MRK-2026-') and invoice['currency']=='EUR'
  assert len(invoice['items'])==2 and invoice['customer']['name']=='Snapshot Müşteri'
- assert invoice['totals']['grand_total']=='506.00'
+ # F9-5-fix (H79+H80): matrah 300 labor + 180 part = 480; FIXED 10 splits 6.25/3.75,
+ # labor 293.75+58.75, part 176.25+35.25 -> 564.00 (was 300+216-10 = 506.00).
+ assert invoice['totals']['grand_total']=='564.00'
  duplicate=c.post('/api/invoices/generate',headers=h,json={'work_order_id':wo['id']}); assert duplicate.status_code==409,duplicate.text
  with engine.begin() as conn:
   conn.execute(text("UPDATE customers SET name='Değişen Müşteri' WHERE id=:id"),{'id':customer['id']})

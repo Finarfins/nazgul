@@ -265,6 +265,10 @@ def _service_labor(db: Session, cid: int, start: datetime, end: datetime) -> dic
     # slightly newer labor lines, but that only affects the *value* of an
     # already-classified row — it can no longer change which group it belongs
     # to, so nothing is counted twice or dropped.
+    #
+    # Invoiced labor REVENUE is the net line, total - tax_amount: since F9-5-fix
+    # (H79) a LABOR item carries VAT. Before it that tax was 0, so invoices
+    # issued earlier read unchanged.
     rows = db.execute(
         text(
             """
@@ -277,7 +281,7 @@ def _service_labor(db: Session, cid: int, start: datetime, end: datetime) -> dic
                        i.work_order_id AS work_order_id,
                        MIN(i.id) AS invoice_id,
                        COALESCE(SUM(
-                           CASE WHEN ii.item_type='LABOR' THEN ii.total ELSE 0 END
+                           CASE WHEN ii.item_type='LABOR' THEN ii.total-ii.tax_amount ELSE 0 END
                        ),0) AS labor_total
                 FROM invoices i
                 LEFT JOIN invoice_items ii

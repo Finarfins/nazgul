@@ -406,7 +406,7 @@ def test_NULL_ALANLAR_None_YAZMIYOR_ama_SIFIR_KAYBOLMUYOR() -> None:
     metin = _metin_pdf(pdf)
     assert "None" not in metin, metin
     # SIFIRLAR DURUYOR: hem tam sayı 0 hem `money()` çıktısı olan Decimal.
-    assert "Global İndirim: 0" in metin, metin
+    assert "İskonto: 0" in metin, metin
     assert "Garanti: 0" in metin, metin
 
 

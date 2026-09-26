@@ -57,10 +57,20 @@ def build_invoice_pdf(invoice:dict,items:list[dict])->bytes:
         ("GRID",(0,0),(-1,-1),.3,colors.grey),("FONTNAME",(0,0),(-1,0),PDF_FONT_BOLD),("FONTNAME",(0,1),(-1,-1),PDF_FONT),("ALIGN",(1,1),(-1,-1),"RIGHT"),
         ("FONTSIZE",(0,0),(-1,-1),8),("VALIGN",(0,0),(-1,-1),"TOP")]))
     story += [table,Spacer(1,5*mm)]
-    subtotal=money(totals.get("labor",0))+money(totals.get("parts",0))
+    # Standard Turkish order (KDVK m.25, iskonto before VAT):
+    #   Matrah − İskonto = KDV Matrahı;  KDV Matrahı + KDV = Genel Toplam.
+    # KDV Matrahı is Σ(line total − line tax), i.e. grand_total − tax, for every
+    # invoice ever issued. İskonto is the discount on the matrah
+    # ("global_discount_base", F9-5-fix round 2). Older invoices lack that key;
+    # their "global_discount" WAS the entered amount (it came off the line totals
+    # with tax unchanged), so falling back to it keeps both identities exact.
+    kdv=money(totals.get("tax",0)); genel=money(totals["grand_total"]); kdv_matrahi=money(genel-kdv)
+    iskonto=money(totals.get("global_discount_base",totals.get("global_discount",0)))
+    matrah=money(kdv_matrahi+iskonto); para=escape(_metin(invoice["currency"]))
     summary=Table([[Image(qrbuf,25*mm,25*mm),code128.Code128(number,barHeight=12*mm,barWidth=.35),
-        Paragraph(f"Ara Toplam: {escape(_metin(subtotal))} {escape(_metin(invoice['currency']))}<br/>"
-                  f"Global İndirim: {escape(_metin(totals.get('global_discount',0)))}<br/><b>Genel Toplam: {escape(_metin(totals['grand_total']))} {escape(_metin(invoice['currency']))}</b><br/>"
+        Paragraph(f"Matrah: {escape(_metin(matrah))} {para}<br/>İskonto: {escape(_metin(iskonto))}<br/>"
+                  f"KDV Matrahı: {escape(_metin(kdv_matrahi))} {para}<br/>KDV: {escape(_metin(kdv))}<br/>"
+                  f"<b>Genel Toplam: {escape(_metin(genel))} {para}</b><br/>"
                   f"Müşteri: {escape(_metin(totals['customer_amount']))} | Garanti: {escape(_metin(totals['warranty_amount']))}<br/>Garanti Türü: {escape(_metin(warranty['type']))}",styles["Right"]) ]],colWidths=[32*mm,65*mm,78*mm])
     story += [KeepTogether(summary),Spacer(1,4*mm),Paragraph(f"<b>Ödeme Koşulları:</b> {escape(_metin(invoice.get('payment_terms') or '-'))}",styles["Normal"]),
               Paragraph(f"<b>Notlar:</b> {escape(_metin(invoice.get('notes') or '-'))}",styles["Normal"]),Spacer(1,4*mm),
