@@ -81,12 +81,21 @@ def upgrade() -> None:
         _sqlite_islevini_kaydet(bind)
     inspector = sa.inspect(bind)
     for tablo, kolonlar in _SUTUNLAR:
+        # Kaynak kolonu (ya da tablosu) OLMAYAN bir sema atlanir -- OLCULDU:
+        # `test_numeric_migration_postgresql` 0000 oncesi dar bir `products`
+        # (ad kolonu YOK) kurup zinciri o semada kosuyor; kosulsuz UPDATE orada
+        # `UndefinedColumn: name` ile dusuyordu. Tam semada her kolon vardir.
+        if not inspector.has_table(tablo):
+            continue
         mevcut = {c["name"] for c in inspector.get_columns(tablo)}
-        for kolon in kolonlar:
+        kaynaklar = [kolon for kolon in kolonlar if kolon in mevcut]
+        for kolon in kaynaklar:
             if f"{kolon}_katli" not in mevcut:
                 op.add_column(tablo, sa.Column(f"{kolon}_katli", sa.Text(), nullable=True))
+        if not kaynaklar:
+            continue
         atama = ",".join(
-            f"{kolon}_katli={katli_sql(f'COALESCE({kolon},{chr(39) * 2})')}" for kolon in kolonlar
+            f"{kolon}_katli={katli_sql(f'COALESCE({kolon},{chr(39) * 2})')}" for kolon in kaynaklar
         )
         bind.execute(text(f"UPDATE {tablo} SET {atama}"))
 
@@ -95,6 +104,8 @@ def downgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     for tablo, kolonlar in reversed(_SUTUNLAR):
+        if not inspector.has_table(tablo):
+            continue
         mevcut = {c["name"] for c in inspector.get_columns(tablo)}
         for kolon in reversed(kolonlar):
             if f"{kolon}_katli" in mevcut:
