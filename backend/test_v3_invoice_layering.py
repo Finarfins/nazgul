@@ -66,9 +66,16 @@ def test_billing_service_is_http_neutral() -> None:
         or (isinstance(node, ast.Attribute) and node.attr == "Request")
         for node in ast.walk(tree)
     )
-    # The public entry point carries no HTTP request parameter.
-    params = list(_inspect.signature(billing_service.build_invoice_summary).parameters)
-    assert params == ["db", "cid", "work_order_id"], params
+    # The public entry point carries no HTTP request parameter. H91 added the
+    # keyword-only document discount (plain values, not HTTP objects) so the
+    # preview prices exactly what POST /invoices/generate will issue.
+    signature = _inspect.signature(billing_service.build_invoice_summary)
+    params = list(signature.parameters)
+    assert params == ["db", "cid", "work_order_id", "discount_type", "discount_value"], params
+    assert all(
+        signature.parameters[name].kind is _inspect.Parameter.KEYWORD_ONLY
+        for name in ("discount_type", "discount_value")
+    )
 
 
 def test_generate_invoice_uses_neutral_summary() -> None:
@@ -129,11 +136,11 @@ with TestClient(app) as c:
  # The generated invoice reuses the same figures end-to-end.
  gen=c.post('/api/invoices/generate',headers=h,json={'work_order_id':wid,'branch_prefix':'LAY'})
  assert gen.status_code==201,gen.text
- # F9-5-fix (H79): the invoice adds labor VAT the billing preview does not
- # carry (2 x 150 at 20% = 60.00); every other figure is the preview's.
+ # H91: the preview now carries the labor VAT itself (2 x 150 at 20% = 60.00,
+ # was the invoice-only delta F9-5-fix measured), so preview == invoice.
  labor_vat=sum(Decimal(str(i['tax_amount'])) for i in gen.json()['items'] if i['item_type']=='LABOR')
- assert labor_vat==Decimal('60.00'),gen.json()['items']
- assert Decimal(gen.json()['totals']['grand_total'])==direct['totals']['grand_total']+labor_vat
+ assert labor_vat==Decimal('60.00')==direct['totals']['labor_tax'],gen.json()['items']
+ assert Decimal(gen.json()['totals']['grand_total'])==direct['totals']['grand_total']
  # Tenant isolation is preserved through the delegation.
  other=c.post('/api/companies',headers=h,json={'name':'Layer B'}).json()
  assert c.get(f"/api/work-orders/{wid}/invoice",headers={**h,'X-Company-ID':str(other['id'])}).status_code==404

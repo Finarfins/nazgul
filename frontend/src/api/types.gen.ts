@@ -8942,6 +8942,10 @@ export interface components {
         InvoiceTotals: {
             /** Discount */
             discount: string;
+            /** Global Discount */
+            global_discount: string;
+            /** Global Discount Base */
+            global_discount_base: string;
             /** Grand Total */
             grand_total: string;
             /** Labor */
@@ -8957,6 +8961,8 @@ export interface components {
              * @enum {string}
              */
             labor_source: "header" | "lines";
+            /** Labor Tax */
+            labor_tax: string;
             /** Parts */
             parts: string;
             /** Tax */
@@ -24375,7 +24381,10 @@ export interface operations {
     };
     invoice_summary_api_work_orders__work_order_id__invoice_get: {
         parameters: {
-            query?: never;
+            query?: {
+                global_discount_type?: "PERCENT" | "FIXED";
+                global_discount_value?: number | string;
+            };
             header?: never;
             path: {
                 work_order_id: number;

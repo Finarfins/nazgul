@@ -8,18 +8,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .activity_log import format_money_tr, log_request_activity
 from .auth import utcnow
-from .billing_service import build_invoice_summary
-from .invoice_engines import DiscountEngine
+from .billing_service import SERVICE_LABOR_VAT_RATE, build_invoice_summary
 from .invoice_numbering import next_invoice_number
 from .invoice_schemas import InvoiceGenerateRequest
-from .money import HUNDRED, ZERO, compute_line, distribute_amount, money, percentage, quantity
+from .money import money, percentage, quantity
 from .service_receivable_engine import reconcile_service_receivable
 
-#: KDV rate of a service LABOR line (F9-5-fix H79). There is no per-company
-#: default VAT setting; this is the same value every core `vat_rate` column uses
-#: as server_default ("20", core_schema.py). The legal rate for service labor is
-#: NOT verified (DOĞRULANMADI) — a per-company setting is an F9-5a question.
-SERVICE_LABOR_VAT_RATE=Decimal("20")
+# Re-exported: the constant moved to billing_service in H91 (the billing preview
+# prices labor with it too); callers keep importing it from here.
+__all__=["SERVICE_LABOR_VAT_RATE","generate_invoice","log_invoice_action"]
 
 def _dump(value: Any)->str:
     return json.dumps(value,ensure_ascii=False,sort_keys=True,default=str)
@@ -40,7 +37,8 @@ def _labor_description(labor:dict,entry:dict)->str:
     return f"Servis İşçiliği #{entry['line_id']}"
 
 def generate_invoice(db:Session,request:Request,cid:int,payload:InvoiceGenerateRequest)->int:
-    summary=build_invoice_summary(db,cid,payload.work_order_id)
+    summary=build_invoice_summary(db,cid,payload.work_order_id,discount_type=payload.global_discount_type,
+        discount_value=payload.global_discount_value)
     company=db.execute(text("SELECT id,name,tax_number FROM companies WHERE id=:cid"),{"cid":cid}).mappings().one()
     technician=db.execute(text("""SELECT u.id,u.username,u.display_name FROM work_orders wo JOIN app_users u ON u.id=wo.technician_id
         WHERE wo.id=:id AND wo.company_id=:cid"""),{"id":payload.work_order_id,"cid":cid}).mappings().one()
@@ -50,60 +48,35 @@ def generate_invoice(db:Session,request:Request,cid:int,payload:InvoiceGenerateR
         {"id":payload.work_order_id,"cid":cid}).mappings().all()
     coverage=percentage(summary["warranty"]["coverage_percent"])
     labor=summary["labor"]
-    # Resolve every line once through the canonical helper, then allocate the
-    # document-level discount across the line MATRAH (taxable base): service lines
-    # are priced net (compute_line adds VAT on top), so the discount lowers the VAT
-    # base and each line's tax is recomputed on base - share with the same kuruş
-    # rounding as compute_line (F9-5-fix H80; before, tax_amount stayed the
-    # pre-discount line tax). The share is folded into discount_amount, so the
-    # per-line identity (total == raw - discount_amount + tax_amount) holds with
-    # the recomputed tax; with no discount every share is 0.00 and each item is
-    # byte-identical to compute_line. Header totals below are derived from the
-    # items — making Σ item totals == grand_total exact.
+    # The money is the billing preview's own (H91): build_invoice_summary priced
+    # every line through billing_service.price_service_lines with this document
+    # discount — labor at SERVICE_LABOR_VAT_RATE (H79), the discount allocated
+    # across the line MATRAH and each line's tax recomputed on base - share
+    # (H80), warranty split per item. This function only attaches descriptions
+    # and source snapshots; it keeps no copy of the arithmetic, so preview
+    # grand_total == invoice grand_total by construction.
     # One LABOR item per billable labor entry. With the v1 header source there
     # is exactly one entry; with approved labor lines each keeps its own frozen
     # rate instead of being flattened into a blended rate that would not satisfy
-    # qty*price==total. Labor carries SERVICE_LABOR_VAT_RATE (H79).
-    lines=[("LABOR",_labor_description(labor,entry),entry["hours"],entry["hourly_rate"],0,SERVICE_LABOR_VAT_RATE,
-            compute_line(entry["hours"],entry["hourly_rate"],ZERO,SERVICE_LABOR_VAT_RATE),
-            _dump({**{k:v for k,v in labor.items() if k!="entries"},**entry}))
-           for entry in labor["entries"]]
-    for part in parts:
-        lines.append(("PART",part["product_name"],part["quantity"],part["unit_price"],part["discount"],part["tax_rate"],
-            compute_line(part["quantity"],part["unit_price"],part["discount"],part["tax_rate"]),_dump(dict(part))))
-    matrah=money(sum((entry[6].taxable for entry in lines),ZERO))
-    try:
-        global_discount=DiscountEngine.calculate(matrah,payload.global_discount_value,kind=payload.global_discount_type)
-    except ValueError as exc:
-        # The only other ValueError is an unknown discount type; that one is not
-        # a "too large" case, so it keeps its old behaviour.
-        if payload.global_discount_type.upper() not in {"PERCENT","FIXED"}: raise
-        raise HTTPException(422,{"code":"ISKONTO_TOPLAMI_ASIYOR","taxable_base":str(matrah),
-            "discount_type":payload.global_discount_type.upper(),"discount_value":str(payload.global_discount_value),
-            "message":"Belge iskontosu faturanın iskontosuz matrahını (KDV hariç ara toplam) aşamaz."}) from exc
-    allocations=distribute_amount(global_discount.discount,[entry[6].taxable for entry in lines])
-    items=[]
-    for (item_type,description,qty,unit_price,discount_value,tax_rate,line,source),share in zip(lines,allocations):
-        base=money(line.taxable-share)
-        tax_amount=money(base*percentage(tax_rate)/HUNDRED)
-        item_total=money(base+tax_amount)
-        item_company=money(item_total*coverage/HUNDRED); item_customer=money(item_total-item_company)
-        items.append({"item_type":item_type,"description":description,"qty":qty,"unit_price":unit_price,
-            "discount_value":discount_value,"tax_rate":tax_rate,"discount_amount":money(line.discount+share),
-            "tax_amount":tax_amount,"total":item_total,"customer":item_customer,"company":item_company,"source":source})
-    gross_before_discount=money(sum((entry[6].total for entry in lines),ZERO))
-    grand_total=money(sum((it["total"] for it in items),ZERO))
-    tax_total=money(sum((it["tax_amount"] for it in items),ZERO))
-    warranty_amount=money(sum((it["company"] for it in items),ZERO))
-    customer_amount=money(sum((it["customer"] for it in items),ZERO))
+    # qty*price==total.
+    if summary["part_ids"]!=[int(part["id"]) for part in parts]:
+        raise HTTPException(409,"İş emri parçaları fatura kesilirken değişti; lütfen tekrar deneyin.")
+    lines=[("LABOR",_labor_description(labor,entry),entry["hours"],entry["hourly_rate"],0,
+            _dump({**{k:v for k,v in labor.items() if k!="entries"},**entry})) for entry in labor["entries"]]
+    lines+=[("PART",part["product_name"],part["quantity"],part["unit_price"],part["discount"],_dump(dict(part))) for part in parts]
+    items=[{"item_type":item_type,"description":description,"qty":qty,"unit_price":unit_price,"discount_value":discount_value,
+            "tax_rate":priced["tax_rate"],"discount_amount":priced["discount_amount"],"tax_amount":priced["tax_amount"],
+            "total":priced["total"],"customer":priced["customer"],"company":priced["company"],"source":source}
+           for (item_type,description,qty,unit_price,discount_value,source),priced in zip(lines,summary["pricing_items"],strict=True)]
+    grand_total=summary["totals"]["grand_total"]
     # "global_discount" stays what the payable dropped by (VAT-inclusive), so
     # grand_total + global_discount is the pre-discount gross. "global_discount_base"
     # (added in F9-5-fix round 2) is the discount taken off the MATRAH — the
     # entered FIXED amount, or the percent of the matrah — which the PDF prints
-    # as "İskonto" (KDVK m.25: iskonto is deducted before VAT).
-    totals={**summary["totals"],"tax":tax_total,"global_discount":money(gross_before_discount-grand_total),
-            "global_discount_base":global_discount.discount,"grand_total":grand_total,
-            "customer_amount":customer_amount,"warranty_amount":warranty_amount}
+    # as "İskonto" (KDVK m.25: iskonto is deducted before VAT). Both, and
+    # labor_tax (H91), come from the summary.
+    totals={**summary["totals"],"customer_amount":summary["warranty"]["customer_amount"],
+            "warranty_amount":summary["warranty"]["warranty_amount"]}
     number=next_invoice_number(db,cid,payload.branch_prefix)
     user=getattr(request.state,"user",{}) or {}; now=utcnow()
     try:

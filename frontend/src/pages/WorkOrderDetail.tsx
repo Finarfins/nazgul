@@ -386,6 +386,8 @@ export default function WorkOrderDetail(){
      :!billing?<Alert severity="error">Özet hesaplanamadı. Lütfen tekrar deneyin.</Alert>
      :<Grid container spacing={2}>
      <Meta label="İşçilik" value={money(billing.totals?.labor)}/>
+     {/* H91: işçilik KDV'si ayrı satır — önizleme artık faturayla aynı hesaplar. */}
+     <Meta label="İşçilik KDV" value={money(billing.totals?.labor_tax)}/>
      <Meta label="Parçalar" value={money(billing.totals?.parts)}/>
      <Meta label="KDV" value={money(billing.totals?.tax)}/>
      <Meta label="İskonto" value={money(billing.totals?.discount)}/>
