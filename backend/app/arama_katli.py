@@ -28,19 +28,22 @@ onları taşıyabilir; bu yüzden (1) ``alan_maskeleme.MASKELENEN_ALANLAR``
 ``email_katli``yi ``email`` ile aynı kuralla maskeler (SEC-3b), (2)
 ``change_history._snapshot`` onları anlık görüntüden atar, (3) kiracı dışa
 aktarımı onları YAZMAZ ve geri yükleme :func:`kiraci_katli_esitle` ile
-yeniden hesaplar.
+yeniden hesaplar, (4) H96: ``SELECT *`` satırını JSON'a çeviren uçlar
+:func:`katli_gizle`den geçirir. (1)'deki maske böylece yanıtta işe yaramaz
+kalır ama KALIR: yeni bir ``SELECT *`` ucu (4)'ü unutursa ikinci savunmadır.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 from sqlalchemy import bindparam, text
 
 from .arama import katli_sql
 
 __all__ = ["KATLI_EK", "KATLI_SUTUNLAR", "katli_ad", "katli_esitle",
-           "kiraci_katli_esitle", "katli_sutun_mu"]
+           "kiraci_katli_esitle", "katli_sutun_mu", "katli_gizle"]
 
 #: Katlanmış sütun adının soneki.
 KATLI_EK = "_katli"
@@ -69,6 +72,17 @@ def katli_sutun_mu(ad: str) -> bool:
     """Bir sütun adı H75 katlanmış sütunu mu? (dışa aktarım/anlık görüntü süzgeci)"""
 
     return ad.endswith(KATLI_EK)
+
+
+def katli_gizle(satir: Mapping[str, Any]) -> dict[str, Any]:
+    """H96 — satırın ``<kolon>_katli`` anahtarları ATILMIŞ YENİ ``dict``i.
+
+    ``SELECT *`` okuyan bir uç satırı yanıta koymadan önce bundan geçirir.
+    Ölçüldü: yönetici için dört uç sızdırıyordu (müşteri/tedarikçi kartı,
+    ürün detayı, finans hareketleri listesi). Girdi yerinde değişmez.
+    """
+
+    return {ad: deger for ad, deger in satir.items() if not katli_sutun_mu(ad)}
 
 
 def _katli_ifade(kolon: str) -> str:

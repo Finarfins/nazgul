@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -685,6 +686,36 @@ def test_HAYIR_REDDI_YAZIYOR_ve_KVKK_SORUSU_TEKRARLANMIYOR(oturum, dunya):
     assert "10.000,00" in gonderilen[-1][1]
 
 
+@pytest.mark.parametrize("bozuk", [None, "bilinmiyor", "0212 111 22 33"])
+def test_H90_BOZUK_ALICI_GORUNTUSU_GENEL_KAPALI_METIN_veri_YOK(oturum, dunya, bozuk):
+    """H90 — GRANTED rızanın `recipient_snapshot`ı normalize OLMUYORSA kapalı.
+
+    Önce `evaluate_consent` görüntü `None`a indiğinde İZİN VERİYORDU
+    (fail-open, #155 tur 2): çiftçi ERP verisini alıyordu. Şimdi
+    `RECIPIENT_INVALID` → yürütücü onu REVOKED/RECIPIENT_CHANGED ile AYNI
+    genel metne çevirir ve bakiye GİTMEZ.
+    """
+    from sqlalchemy import text
+
+    from app.whatsapp.ciftci_niyet import RIZA_KAPALI_MESAJI
+
+    _baglanti_ac(oturum, dunya["firma_a"], "SUPPLIER", dunya["tedarikci_a"])
+    _riza_ver(oturum, dunya["firma_a"], "SUPPLIER", dunya["tedarikci_a"])
+    oturum.execute(
+        text(
+            "UPDATE notification_consents SET recipient_snapshot=:s"
+            " WHERE company_id=:c AND channel='WHATSAPP'"
+        ),
+        {"s": bozuk, "c": dunya["firma_a"]},
+    )
+    oturum.commit()
+
+    gonderilen, _ = _konus(oturum, "ekstre")
+    # Önce (ölçüldü): "Sayın ..., bakiyeniz: Borç 0,00 TL · Alacak ..." gidiyordu.
+    assert gonderilen[-1][1] == RIZA_KAPALI_MESAJI
+    assert "bakiyeniz" not in gonderilen[-1][1]
+
+
 def test_HAYIR_ACIK_RIZAYI_KAPATIYOR_tekrari_YAZMIYOR_EVET_geri_aciyor(oturum, dunya):
     """GRANTED → `HAYIR` → REVOKED v2 → kapalı metin; `HAYIR` yine → v2; `EVET` → v3.
 
@@ -1167,6 +1198,19 @@ def test_CONSENT_AT_EVETTE_YAZILIYOR_yonetici_listesinde_GORUNUYOR(
     tel = satirlar[0]["consent_at"]
     assert isinstance(tel, str) and tel.endswith("+00:00"), tel
     assert datetime.fromisoformat(tel).utcoffset() == timedelta(0)
+    # H89: `created_at` AYNI tel biçimi ve SAKLANAN ANIN KENDİSİ. Önce ham
+    # sütun dönüyordu: SQLite naive (`...T10:00:00`, sonek YOK), PG oturum
+    # dilimi (`+03:00`). MUTASYON: `utc_iso` sarmalayıcısını kaldırmak bunu
+    # kırmızı yapar.
+    from app.zaman import utc
+
+    olusturma = satirlar[0]["created_at"]
+    assert isinstance(olusturma, str), olusturma
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?\+00:00", olusturma), olusturma
+    saklanan = oturum.execute(
+        text(f"SELECT created_at FROM {BAGLANTI_TABLO} WHERE id=:i"), {"i": a}
+    ).scalar_one()
+    assert datetime.fromisoformat(olusturma) == utc(saklanan)
 
     _konus(oturum, "DUR")
     assert damga(a) is not None, "DUR damgayi silmemeli (tarihce)"

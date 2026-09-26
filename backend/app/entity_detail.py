@@ -21,6 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .alan_maskeleme import maskele_cari, maskele_cari_listesi
+from .arama_katli import katli_gizle
 from .business_time import business_today
 from .crm import list_contacts, list_notes, list_tasks
 from .document_engine import SALES_IMPORT_NOTE, accounting_document_status_sql
@@ -307,7 +308,10 @@ def entity_detail(
     # iletişim verisi değil. Bir notun içine elle yazılmış telefon numarası bu
     # mekanizmanın kapsamı DIŞINDADIR ve öyle olduğu bilinçlidir.
     rol = istek_rolu(request)
-    cari = maskele_cari(entity, rol)
+    # H96: `SELECT *` satırı H75'in `_katli` arama sütunlarını da taşıyor;
+    # yanıta girmeden atılır (`arama_katli.katli_gizle`). Maske ondan SONRA:
+    # kart gövdesinde kalan her alan yine role göre maskelenir.
+    cari = maskele_cari(katli_gizle(entity), rol)
     result: dict[str, Any] = {
         entity_type: cari,
         "entity": dict(cari),

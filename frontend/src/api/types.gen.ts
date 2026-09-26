@@ -9022,6 +9022,94 @@ export interface components {
             vehicle_plate: string;
         };
         /**
+         * IrsaliyeYanitBelgesi
+         * @description Etkili (ilk kaydedilen) yanıt belgesinin başlığı. `raw_xml` YOK.
+         */
+        IrsaliyeYanitBelgesi: {
+            /** Created At */
+            created_at: string;
+            /** Issue Date */
+            issue_date: string;
+            /** Notes */
+            notes: string | null;
+            /** Response Number */
+            response_number: string;
+            /** Response Type */
+            response_type: string;
+            /** Response Uuid */
+            response_uuid: string;
+        };
+        /**
+         * IrsaliyeYanitSatiri
+         * @description Yanıt satırı, sevk satırıyla birleşmiş. Miktarlar METİN (4 hane).
+         */
+        IrsaliyeYanitSatiri: {
+            /** Despatch Line Id */
+            despatch_line_id: number;
+            /** Despatched Quantity */
+            despatched_quantity: string;
+            /** Item Name */
+            item_name: string;
+            /** Line No */
+            line_no: number;
+            /** Product Id */
+            product_id: number | null;
+            /** Quantity Mismatch */
+            quantity_mismatch: boolean;
+            /** Received Quantity */
+            received_quantity: string;
+            /** Reject Reason */
+            reject_reason: string | null;
+            /** Rejected Quantity */
+            rejected_quantity: string;
+        };
+        /**
+         * IrsaliyeYanitUyarisi
+         * @description H60 — `alınan + reddedilen != sevk` uyarısı (`_miktar_uyusmazligi`).
+         */
+        IrsaliyeYanitUyarisi: {
+            /** Code */
+            code: string;
+            /** Despatched Quantity */
+            despatched_quantity: string;
+            /** Difference */
+            difference: string;
+            /** Line No */
+            line_no: number;
+            /** Received Quantity */
+            received_quantity: string;
+            /** Rejected Quantity */
+            rejected_quantity: string;
+        };
+        /**
+         * IrsaliyeYanitiGorunumu
+         * @description H88 — `GET .../response` gövdesi. ALANLAR BUGÜN DÖNENİN AYNISI.
+         *
+         *     SQLite ve PG'de 13'er gövde üzerinden ölçüldü (tip kümeleri iki lehçede
+         *     özdeş). Ölçümde hep dolu görünen `product_id` ve `notes` şemada NULL
+         *     olabildiği için isteğe bağlı. Alan SIRASI sözlüğün sırasıdır: tel biçimi
+         *     bayt bayt aynı kalır.
+         */
+        IrsaliyeYanitiGorunumu: {
+            /** Despatch Id */
+            despatch_id: number;
+            /** Edespatch Status */
+            edespatch_status: string;
+            /** Implicit Accept Due At */
+            implicit_accept_due_at: string | null;
+            /** Lines */
+            lines: components["schemas"]["IrsaliyeYanitSatiri"][];
+            response: components["schemas"]["IrsaliyeYanitBelgesi"] | null;
+            /** Response Received At */
+            response_received_at: string | null;
+            /** Response Status */
+            response_status: string | null;
+            /** Responses Count */
+            responses_count: number;
+            /** Warnings */
+            warnings: components["schemas"]["IrsaliyeYanitUyarisi"][];
+        };
+        /**
          * KodGirdisi
          * @description Kod üretme gövdesi. `extra="forbid"`: sessizce yok sayılan alan YOK.
          */
@@ -14730,7 +14818,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["IrsaliyeYanitiGorunumu"];
                 };
             };
             /** @description Validation Error */
