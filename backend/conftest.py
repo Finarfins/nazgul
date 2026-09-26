@@ -97,21 +97,27 @@ def _require_postgresql_engine() -> None:
 def _pg_oturum_dilimi_istanbul() -> None:
     """H94 kapısı: `REQUIRE_PG=1` işinde oturum dilimi GERÇEKTEN İstanbul mu?
 
-    `PGOPTIONS` sessizce ezilirse (ör. bir ikiz kendi `options`unu geçerse
-    ya da sürücü ortamı okumazsa) ikizler yine UTC'de koşar ve H73 sınıfı
-    gerilemeler yeniden görünmez olurdu. Oturum başına BİR sorgu.
+    `PGOPTIONS` sessizce ezilirse (ör. sürücü ortamı okumazsa) ikizler yine
+    UTC'de koşar ve H73 sınıfı gerilemeler yeniden görünmez olurdu. Oturum
+    başına BİR bağlantı.
+
+    `app` BİLEREK içe aktarılmaz — ÖLÇÜLDÜ: oturum kapsamlı bir fikstür,
+    ikizin modül fikstüründen ÖNCE koşar; `app.db`yi burada içe aktarmak
+    `Settings`i ikiz kendi ortamını (ör. `AUTO_MIGRATE=false`) yazmadan
+    DONDURDU ve `test_sec3b_cari_maskeleme_postgresql.py` taze şemada
+    açılış yöneticisi hatasıyla 7 hata verdi. Çıplak psycopg bağlantısı
+    aynı libpq'yu ve aynı `PGOPTIONS`u okur.
     """
     if os.environ.get("REQUIRE_PG") != "1":
         return
-
-    from sqlalchemy import text
-
-    from app.db import engine
-
-    if engine.dialect.name != "postgresql":
+    url = os.environ.get("DATABASE_URL", "")
+    if not url.startswith("postgresql"):
         return  # `_require_postgresql_engine` bunu kendi adıyla kırmızı yakar.
-    with engine.connect() as baglanti:
-        dilim = baglanti.execute(text("SHOW TimeZone")).scalar_one()
+
+    import psycopg
+
+    with psycopg.connect("postgresql://" + url.split("://", 1)[1]) as baglanti:
+        dilim = baglanti.execute("SHOW TimeZone").fetchone()[0]
     if dilim != PG_OTURUM_DILIMI:
         pytest.fail(
             f"H94: PG oturum dilimi '{dilim}', beklenen '{PG_OTURUM_DILIMI}'. "
