@@ -165,7 +165,8 @@ def test_2b_kurus_kalanli_yuzde_ve_sabit_iskonto_ozdeslikleri(faturalar):
 def test_3_iskontosuz_yol_tabana_gore_yalniz_iscilik_kdvsi(faturalar):
     degisen, eklenen = tabana_gore_fark(para_gorunumu(faturalar["iskontosuz"]))
     assert degisen == IZINLI_DEGISIMLER
-    # Tek EK anahtar: matraha düşen belge iskontosu (burada 0.00). Yeniden ad YOK.
+    # EK anahtarlar: matraha düşen belge iskontosu (burada 0.00) ve H91'in
+    # önizlemeyle ortak `labor_tax`ı (60.00). Yeniden ad YOK.
     assert eklenen == IZINLI_EKLENENLER
     # Parça satırları BAYT-AYNI.
     assert para_gorunumu(faturalar["iskontosuz"])["kalemler"][1:] == TABAN_ISKONTOSUZ["kalemler"][1:]

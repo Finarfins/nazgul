@@ -102,7 +102,7 @@ def _source_snapshot(
     due_date = document_date + timedelta(days=term_days)
     invoice = db.execute(
         text(
-            """SELECT id,currency,exchange_rate
+            """SELECT id,invoice_number,currency,exchange_rate
             FROM invoices
             WHERE company_id=:cid AND work_order_id=:work_order_id
               AND status='ISSUED' AND cancelled_at IS NULL
@@ -127,6 +127,7 @@ def _source_snapshot(
         source: dict[str, object] = {
             "source": "invoice",
             "invoice_id": int(invoice["id"]),
+            "invoice_number": str(invoice["invoice_number"]),
             "invoice_customer_amount": format(invoice_amount, "f"),
             "currency": currency,
             "exchange_rate": format(rate, "f"),
@@ -321,6 +322,53 @@ def _reverse_active(
     return reversal_id
 
 
+def _same_charge(
+    active: dict[str, object],
+    source: tuple[date, date, Decimal, str, Decimal, str, str],
+) -> bool:
+    """True when the active document already owes exactly what ``source`` owes.
+
+    Since H91 the COMPLETED-time receivable is priced by the same function as
+    the invoice (VAT-inclusive, labor at SERVICE_LABOR_VAT_RATE), so issuing
+    the invoice for an unchanged work order yields the same amount under a
+    different snapshot ("computed" -> "invoice"). Reversing and re-posting an
+    identical charge would only add two ledger rows that cancel out; the
+    revision happens only when what the customer owes actually changed
+    (amount, currency, rate or due date).
+    """
+    document_date, due_date, gross, currency, rate, _snapshot, _fingerprint = source
+    return (
+        money(active["gross_amount"]) == gross
+        and str(active["currency"]).upper() == currency
+        and decimal_value(active["exchange_rate"]) == rate
+        and str(active["period_end"])[:10] == document_date.isoformat()
+        and str(active["due_date_snapshot"])[:10] == due_date.isoformat()
+    )
+
+
+def _update_same_charge_document(
+    db: Session,
+    company_id: int,
+    active_id: int,
+    source: tuple[date, date, Decimal, str, Decimal, str, str],
+) -> None:
+    _doc_date, _due_date, _gross, _curr, _rate, snapshot, fingerprint = source
+    db.execute(
+        text(
+            """UPDATE receivable_charge_documents
+            SET calculation_snapshot=:snapshot,
+                calculation_fingerprint=:fingerprint
+            WHERE company_id=:cid AND id=:id"""
+        ),
+        {
+            "cid": company_id,
+            "id": active_id,
+            "snapshot": snapshot,
+            "fingerprint": fingerprint,
+        },
+    )
+
+
 def reconcile_service_receivable(
     db: Session,
     company_id: int,
@@ -353,6 +401,10 @@ def reconcile_service_receivable(
         return _service_document(db, company_id, document_id)
 
     if str(active["calculation_fingerprint"]) == source[-1]:
+        return _service_document(db, company_id, int(active["id"]))
+
+    if _same_charge(active, source):
+        _update_same_charge_document(db, company_id, int(active["id"]), source)
         return _service_document(db, company_id, int(active["id"]))
 
     next_revision = _next_revision(db, company_id, work_order_id)

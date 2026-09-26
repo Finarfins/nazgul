@@ -85,9 +85,13 @@ def test_work_order_invoice_postgresql(monkeypatch: pytest.MonkeyPatch) -> None:
         assert data['parts']['parts_before_tax']=='23.45'
         assert data['parts']['parts_tax']=='4.22'
         assert data['parts']['parts_discount']=='1.23'
-        assert data['totals']['grand_total']=='277.67'
-        assert data['warranty']['customer_amount']=='208.25'
-        assert data['warranty']['warranty_amount']=='69.42'
+        # H91: the preview prices labor like the invoice — 250.00 + 20% VAT
+        # 50.00; parts 23.45 + 4.22 = 27.67; grand 327.67 (was 277.67).
+        # Warranty 25% per item: 75.00 + 6.92 = 81.92; customer 245.75.
+        assert data['totals']['labor_tax']=='50.00'
+        assert data['totals']['grand_total']=='327.67'
+        assert data['warranty']['customer_amount']=='245.75'
+        assert data['warranty']['warranty_amount']=='81.92'
         race_product=client.post('/api/products',headers=h,json={'name':'PG Invoice Race','purchase_price':'1','sale_price':'10','vat_rate':'0','stock':'5','unit':'Adet'}).json()
 
     barrier=Barrier(2)
@@ -110,4 +114,5 @@ def test_work_order_invoice_postgresql(monkeypatch: pytest.MonkeyPatch) -> None:
         invoice_status,race_invoice=invoice_future.result()
         part_status=part_future.result()
     assert invoice_status==200 and part_status==201
-    assert race_invoice['totals']['grand_total'] in {'277.67','287.67'}
+    # H91: 327.67 before the racing 10.00 (0% VAT) part, 337.67 after it.
+    assert race_invoice['totals']['grand_total'] in {'327.67','337.67'}
