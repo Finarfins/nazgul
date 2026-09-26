@@ -2,7 +2,8 @@
 
 GÖÇ YOK. SQLite ikizi `tests/test_h92_kantar_liste_sayfalama.py` davranışı
 ve mutasyon tablosunu taşıyor; bu dosya AYNI iki senaryoyu gerçek
-PostgreSQL'de koşturur.
+PostgreSQL'de koşturur. H100: tavana takılan listenin not satırı da
+(`tavana_takildi` + `KANTAR_TAVAN_NOTU`) burada bir kez ölçülür.
 
 --- BU İKİZ NEDEN VAR ------------------------------------------------------
 
@@ -245,3 +246,31 @@ def test_TARAMA_TAVANI_KESIN_PG(motor, dunya, sayfalar):
     assert _kantar(motor, dunya) == ["SICAK"]
     assert sum(sayfalar) == TAVAN, sayfalar
     assert max(sayfalar) <= 20, sayfalar
+
+
+def test_TAVANA_TAKILAN_LISTE_NOTLA_BITER_PG(motor, dunya, sayfalar):
+    """H100 gerçek PG'de: eski fiş 501. satırda → liste TEK not satırıyla biter."""
+    from app.whatsapp.ciftci_yurutucu import (
+        KANTAR_TAVAN_NOTU,
+        cevap_yaz,
+        ciftci_kantar,
+    )
+    from app.whatsapp.taraf import TarafKimlik
+
+    eski = _fis(motor, dunya, "ESKI")
+    sicak = _fis(motor, dunya, "SICAK")
+    _makbuzlar(motor, dunya, [eski])
+    _makbuzlar(motor, dunya, [sicak] * TAVAN)
+
+    kimlik = TarafKimlik(
+        company_id=dunya["firma"], party_type="SUPPLIER", party_id=dunya["ciftci"]
+    )
+    with sessionmaker(bind=motor)() as db:
+        veri = ciftci_kantar(db, kimlik, {"liste": True})
+    assert [f["ticket_no"] for f in veri["fisler"]] == ["SICAK"]
+    assert veri["tavana_takildi"] is True
+    assert sum(sayfalar) == TAVAN, sayfalar
+    makbuz = veri["fisler"][0]["receipt_no"]
+    assert cevap_yaz("ciftci_kantar", veri) == (
+        f"#SICAK · NET 1.000,00 kg · {makbuz}\n{KANTAR_TAVAN_NOTU}"
+    )

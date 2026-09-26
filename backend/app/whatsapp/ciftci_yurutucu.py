@@ -327,6 +327,12 @@ _FIS_SAYFASI = 20
 #: düşmanca/bozuk bir geçmişte devreye girer. Tavan KESİNDİR (son sayfa kırpılır) ve aşılınca
 #: liste o ana kadar bulunan fişlerle döner — hata YOK.
 _TARAMA_TAVANI = 500
+#: Tavan listeyi beşten KISA bıraktığında LISTE cevabının SON satırı (H100).
+#: Tavanın arkasındaki fişe WhatsApp'tan ulaşılamaz ("KANTAR <fiş no>" diye
+#: bir komut YOK: `ciftci_niyet.coz` kantar sorusunda numarayı okumaz), bu
+#: yüzden not çiftçiyi alım merkezine yollar (makbuz şablonunun üslubu).
+#: Liste o durumda en çok dört fiştir; notla birlikte yine ≤5 satır.
+KANTAR_TAVAN_NOTU = "Daha eski fişleriniz için alım merkezinize başvurun."
 
 
 def ciftci_kantar(
@@ -341,12 +347,17 @@ def ciftci_kantar(
     "LISTE" beş FARKLI fiştir: makbuzlar sayfa sayfa okunur ve aynı fişe
     bağlı ikinci makbuz atlanır; tarama `_TARAMA_TAVANI` satırda durur (H92).
 
+    ``tavana_takildi`` YALNIZ tarama tavanda durup liste eksik kaldığında
+    doğrudur (H100); satırlar bittiyse ya da istenen adet bulunduysa yanlış.
+    Son sayfa tam tavanda dolarsa arkasında satır olup olmadığı ÖLÇÜLMEZ
+    (ek satır tavanı, ek sorgu SQL'i değiştirirdi): o durum takılmış sayılır.
+
     İÇE AKTARMA GÖVDEDE: `mustahsil_okuma` `routers.farm` üzerinden
     `fastapi`yi çeker (`ciftci_ekstre`nin kuralı).
     """
     liste = bool(argumanlar.get("liste"))
     if kimlik.party_type != schema.TARAF_SUPPLIER:
-        return {"liste": liste, "fisler": []}
+        return {"liste": liste, "fisler": [], "tavana_takildi": False}
 
     from ..mustahsil_okuma import fis_ozeti, makbuz_listesi
 
@@ -391,7 +402,8 @@ def ciftci_kantar(
                 break
         if len(sayfa) < istenen:
             break
-    return {"liste": liste, "fisler": fisler}
+    tavana_takildi = len(fisler) < adet and taranan >= _TARAMA_TAVANI
+    return {"liste": liste, "fisler": fisler, "tavana_takildi": tavana_takildi}
 
 
 def ciftci_makbuz(
@@ -593,6 +605,8 @@ def _kantar_yaz(veri: dict[str, Any]) -> str:
             )
             parcalar.append(fis["receipt_no"])
             satirlar.append(" · ".join(parcalar))
+        if veri.get("tavana_takildi"):
+            satirlar.append(KANTAR_TAVAN_NOTU)
         return "\n".join(satirlar)
     fis = fisler[0]
     birim = fis["entered_unit"].lower()
@@ -941,6 +955,7 @@ __all__ = [
     "CiftciSonucu",
     "CiftciYurutucu",
     "KANAL",
+    "KANTAR_TAVAN_NOTU",
     "KANTAR_YOK_MESAJI",
     "LISTE_ADEDI",
     "MAKBUZ_YOK_MESAJI",
