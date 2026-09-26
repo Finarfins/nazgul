@@ -3,7 +3,7 @@
  * değerle (7260 sn, 900 sn) dolaylı geçiyordu, `tarihSaat` hiç sınanmıyordu;
  * burada eşikler tek tek sınanır.
  */
-import {describe,expect,it} from 'vitest';
+import {afterEach,describe,expect,it} from 'vitest';
 
 import {tarihSaat,yasMetni} from './bicim';
 
@@ -38,7 +38,18 @@ describe('tarihSaat',()=>{
   expect(tarihSaat(undefined)).toBe('—');
   expect(tarihSaat('')).toBe('—');
  });
- it('ISO anı tr-TR gün.ay.yıl saat:dk:sn biçiminde yazar',()=>{
-  expect(tarihSaat('2026-06-15T12:00:00Z')).toMatch(/^15\.06\.2026 \d{2}:\d{2}:\d{2}$/);
+ // H86: eskiden yalnız /^15\.06\.2026 …$/ deseni sınanıyordu ve sonuç makinenin
+ // saat dilimine bağlıydı; TZ=Etc/GMT-12 (UTC+12) altında "16.06.2026
+ // 00:00:00" verip kırmızıya dönüyordu. Artık süreç TZ'si değiştirilerek
+ // (Node her atamada dilim önbelleğini sıfırlar) tam dize sınanır.
+ const surecTz=process.env.TZ;
+ afterEach(()=>{
+  if(surecTz===undefined)delete process.env.TZ;else process.env.TZ=surecTz;
+ });
+ it.each(['UTC','Etc/GMT-12','Etc/GMT+12'])('makine TZ=%s olsa da İstanbul duvar saatini yazar',tz=>{
+  process.env.TZ=tz;
+  expect(tarihSaat('2026-06-15T12:00:00Z')).toBe('15.06.2026 15:00:00');
+  // UTC'de gün dönmeden İstanbul'da dönen an: gün de İstanbul'a göre.
+  expect(tarihSaat('2026-06-15T22:30:00Z')).toBe('16.06.2026 01:30:00');
  });
 });
