@@ -33,13 +33,14 @@ import pytest
 
 from tests.f9_5_servis_kdv_senaryo import (
     IZINLI_DEGISIMLER,
+    IZINLI_EKLENENLER,
     TABAN_ISKONTOSUZ,
     D,
-    duzlestir,
     kalem_matrahi,
     kdv_ozdesligi,
     kurus,
     para_gorunumu,
+    tabana_gore_fark,
 )
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -59,11 +60,21 @@ with TestClient(app) as c:
         "yuzde12_5": fatura_kes(c, w, tamamlanmis_is_emri(c, w), global_discount_type="PERCENT", global_discount_value="12.5"),
         "sabit10": fatura_kes(c, w, tamamlanmis_is_emri(c, w, garanti="NONE", yuzde="0"), global_discount_type="FIXED", global_discount_value="10"),
     }
+    # İskonto matrahı (501.00) aşarsa 422 — KDV'li brütün (599.10) ALTINDA
+    # kalan 550 de, %150 de. Reddedilen iş emri sonra iskontosuz kesilebilir.
+    reddedilen = tamamlanmis_is_emri(c, w)
+    out["asan"] = {}
+    for ad, tur, deger in (("sabit550", "FIXED", "550"), ("sabit700", "FIXED", "700"), ("yuzde150", "PERCENT", "150")):
+        r = c.post("/api/invoices/generate", headers=w["h"], json={
+            "work_order_id": reddedilen, "global_discount_type": tur, "global_discount_value": deger})
+        out["asan"][ad] = {"status": r.status_code, "body": r.json()}
+    out["reddedilen_sonra"] = fatura_kes(c, w, reddedilen)
     import io, pdfplumber
-    pdf = c.get(f"/api/invoices/{out['yuzde10']['id']}/pdf", headers=w["h"])
-    assert pdf.status_code == 200, pdf.text
-    with pdfplumber.open(io.BytesIO(pdf.content)) as belge:
-        out["pdf_satirlari"] = [satir for sayfa in belge.pages for satir in (sayfa.extract_text() or "").splitlines()]
+    for ad in ("yuzde10", "sabit10"):
+        pdf = c.get(f"/api/invoices/{out[ad]['id']}/pdf", headers=w["h"])
+        assert pdf.status_code == 200, pdf.text
+        with pdfplumber.open(io.BytesIO(pdf.content)) as belge:
+            out["pdf_" + ad] = [satir for sayfa in belge.pages for satir in (sayfa.extract_text() or "").splitlines()]
 with open(sys.argv[1], "w", encoding="utf-8") as f:
     json.dump(out, f, ensure_ascii=False, default=str)
 print("K8_FATURALAR_OK")
@@ -127,9 +138,10 @@ def test_2_belge_iskontosu_kdv_matrahini_dusurur(faturalar):
     totals = fatura["totals"]
     assert D(totals["tax"]) == Decimal("88.29")
     assert D(totals["grand_total"]) == Decimal("539.19")
-    # Başlık `global_discount` ÖDENECEKTEKİ düşüş: 599.10 − 539.19. PDF'in
-    # "Ara Toplam" satırı `grand_total + global_discount`tır; KDV'li brüt budur.
+    # Başlık `global_discount` ÖDENECEKTEKİ düşüş: 599.10 − 539.19 (KDV'li).
+    # MATRAHA düşen iskonto ayrı anahtarda: 501 × %10 = 50.10 (PDF "İskonto").
     assert D(totals["global_discount"]) == Decimal("59.91")
+    assert D(totals["global_discount_base"]) == Decimal("50.10")
     assert D(totals["grand_total"]) + D(totals["global_discount"]) == Decimal("599.10")
     # `totals.labor` NET kalır (önizleme ile aynı): 2 × 150.
     assert D(totals["labor"]) == Decimal("300.00")
@@ -151,27 +163,109 @@ def test_2b_kurus_kalanli_yuzde_ve_sabit_iskonto_ozdeslikleri(faturalar):
 # (3) İskontosuz yol: TABAN'a göre YALNIZ işçilik KDV alanları değişti --------
 
 def test_3_iskontosuz_yol_tabana_gore_yalniz_iscilik_kdvsi(faturalar):
-    taban = dict(duzlestir(TABAN_ISKONTOSUZ))
-    simdi = dict(duzlestir(para_gorunumu(faturalar["iskontosuz"])))
-    assert set(taban) == set(simdi), (set(taban) ^ set(simdi))
-    degisen = {yol: (taban[yol], simdi[yol]) for yol in taban if taban[yol] != simdi[yol]}
+    degisen, eklenen = tabana_gore_fark(para_gorunumu(faturalar["iskontosuz"]))
     assert degisen == IZINLI_DEGISIMLER
+    # Tek EK anahtar: matraha düşen belge iskontosu (burada 0.00). Yeniden ad YOK.
+    assert eklenen == IZINLI_EKLENENLER
     # Parça satırları BAYT-AYNI.
     assert para_gorunumu(faturalar["iskontosuz"])["kalemler"][1:] == TABAN_ISKONTOSUZ["kalemler"][1:]
 
 
-# PDF: Ara Toplam − Global İndirim == Genel Toplam (işçilik KDV'si dahil) ----
+# PDF (DÜZELTME 1): Matrah → İskonto → KDV Matrahı → KDV → Genel Toplam -------
+# KDVK m.25: iskonto KDV'den ÖNCE düşer. Önceki blok "Ara Toplam (KDV dahil) −
+# Global İndirim 12,00" basıyordu; 10 yazan kullanıcı 12 görüyordu.
 
-def test_pdf_toplamlari_toplaniyor(faturalar):
+_PDF_ETIKETLERI = ("Matrah:", "İskonto:", "KDV Matrahı:", "KDV:", "Genel Toplam:")
+
+
+def _pdf_toplamlari(satirlar: list[str]) -> tuple[Decimal, ...]:
     import re
 
     def tutar(onek: str) -> Decimal:
-        (satir,) = [s for s in faturalar["pdf_satirlari"] if s.startswith(onek)]
+        (satir,) = [s for s in satirlar if s.startswith(onek)]
         return D(re.search(r"(-?\d+\.\d{2})", satir).group(1))
 
-    ara, indirim, genel = tutar("Ara Toplam:"), tutar("Global İndirim:"), tutar("Genel Toplam:")
-    assert (ara, indirim, genel) == (Decimal("599.10"), Decimal("59.91"), Decimal("539.19"))
-    assert ara - indirim == genel == D(faturalar["yuzde10"]["totals"]["grand_total"])
+    # Sıra da ölçülür: etiketler PDF'te tam bu sırayla geçer.
+    sira = [next(i for i, s in enumerate(satirlar) if s.startswith(onek)) for onek in _PDF_ETIKETLERI]
+    assert sira == sorted(sira), (sira, satirlar)
+    return tuple(tutar(onek) for onek in _PDF_ETIKETLERI)
+
+
+def _pdf_ozdeslikleri(matrah, iskonto, kdv_matrahi, kdv, genel) -> None:
+    assert matrah - iskonto == kdv_matrahi, (matrah, iskonto, kdv_matrahi)
+    assert kdv_matrahi + kdv == genel, (kdv_matrahi, kdv, genel)
+
+
+def test_pdf_sabit_iskonto_girilen_tutari_basar(faturalar):
+    fatura = faturalar["sabit10"]
+    matrah, iskonto, kdv_matrahi, kdv, genel = _pdf_toplamlari(faturalar["pdf_sabit10"])
+    _pdf_ozdeslikleri(matrah, iskonto, kdv_matrahi, kdv, genel)
+    # Kullanıcı 10 yazdı; PDF 10,00 basar (KDV'li 12,00 DEĞİL).
+    assert iskonto == Decimal("10.00") == D(fatura["totals"]["global_discount_base"])
+    assert matrah == Decimal("501.00")  # Σ satır neti, iskontodan ÖNCE: 300 + 180 + 21
+    assert kdv == D(fatura["totals"]["tax"])
+    assert genel == D(fatura["totals"]["grand_total"])
+
+
+def test_pdf_yuzde_iskonto_matrah_etkisini_basar(faturalar):
+    fatura = faturalar["yuzde10"]
+    toplamlar = _pdf_toplamlari(faturalar["pdf_yuzde10"])
+    _pdf_ozdeslikleri(*toplamlar)
+    assert toplamlar == (Decimal("501.00"), Decimal("50.10"), Decimal("450.90"), Decimal("88.29"), Decimal("539.19"))
+    assert toplamlar[1] == D(fatura["totals"]["global_discount_base"])
+
+
+@pytest.mark.parametrize(
+    "ad, totals, beklenen",
+    [
+        # F9-5-fix ÖNCESİ iskontosuz fatura (TABAN): işçilik KDV'si 0.
+        ("eski_iskontosuz",
+         {"labor": "300.00", "parts": "239.10", "tax": "38.10", "global_discount": "0.00", "grand_total": "539.10"},
+         ("501.00", "0.00", "501.00", "38.10", "539.10")),
+        # F9-5-fix ÖNCESİ %10 iskontolu fatura: pay KDV'li satır toplamından
+        # düşüyor, KDV aynı kalıyordu (539.10 × %10 = 53.91). Bu faturada
+        # `global_discount_base` YOK; `global_discount` girilen tutardır.
+        ("eski_yuzde10",
+         {"labor": "300.00", "parts": "239.10", "tax": "38.10", "global_discount": "53.91", "grand_total": "485.19"},
+         ("501.00", "53.91", "447.09", "38.10", "485.19")),
+    ],
+)
+def test_pdf_eski_faturalar_tutarli_basilir(ad, totals, beklenen):
+    import io
+
+    import pdfplumber
+
+    from app.invoice_pdf import build_invoice_pdf
+
+    fatura = {
+        "invoice_number": "FTR-ESKI-1", "currency": "TRY", "created_at": "2026-01-01 10:00:00",
+        "company_snapshot": json.dumps({"name": "Harman"}), "customer_snapshot": json.dumps({"name": "M"}),
+        "machine_snapshot": json.dumps({"brand": "B", "model": "M"}),
+        "work_order_snapshot": json.dumps({"work_order_no": "IE-1", "status": "COMPLETED"}),
+        "totals_snapshot": json.dumps({**totals, "customer_amount": totals["grand_total"], "warranty_amount": "0.00"}),
+        "warranty_snapshot": json.dumps({"type": "NONE"}), "technician_snapshot": json.dumps({"display_name": "T"}),
+        "payment_terms": None, "notes": None,
+    }
+    with pdfplumber.open(io.BytesIO(build_invoice_pdf(fatura, []))) as belge:
+        satirlar = [s for sayfa in belge.pages for s in (sayfa.extract_text() or "").splitlines()]
+    toplamlar = _pdf_toplamlari(satirlar)
+    _pdf_ozdeslikleri(*toplamlar)
+    assert toplamlar == tuple(D(x) for x in beklenen), ad
+
+
+# (4) İskonto matrahı aşarsa 422 ISKONTO_TOPLAMI_ASIYOR (500 DEĞİL) ----------
+
+def test_4_iskonto_matrahi_asarsa_422(faturalar):
+    for ad, tur, deger in (("sabit550", "FIXED", "550"), ("sabit700", "FIXED", "700"), ("yuzde150", "PERCENT", "150")):
+        sonuc = faturalar["asan"][ad]
+        assert sonuc["status"] == 422, (ad, sonuc)
+        detay = sonuc["body"]["detail"]
+        assert detay["code"] == "ISKONTO_TOPLAMI_ASIYOR", (ad, detay)
+        assert (D(detay["taxable_base"]), detay["discount_type"], D(detay["discount_value"])) == (
+            Decimal("501.00"), tur, D(deger)), (ad, detay)
+    # Red yarım iz bırakmadı: aynı iş emri sonra iskontosuz kesilebildi.
+    kdv_ozdesligi(faturalar["reddedilen_sonra"])
+    assert D(faturalar["reddedilen_sonra"]["totals"]["grand_total"]) == Decimal("599.10")
 
 
 # (5) Seed: başlık KDV'si == Σ satır KDV'si, 60/60 satış + 25/25 alış ---------

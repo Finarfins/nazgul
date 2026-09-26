@@ -89,14 +89,14 @@ def test_pg_numeric_kdv_ozdesligi_ve_iscilik_orani(faturalar):
         (labor,) = [k for k in fatura["items"] if k["item_type"] == "LABOR"]
         assert D(labor["tax_rate"]) == SERVICE_LABOR_VAT_RATE, ad
     totals = faturalar["yuzde10"]["totals"]
-    assert (D(totals["tax"]), D(totals["grand_total"]), D(totals["global_discount"])) == (
-        Decimal("88.29"), Decimal("539.19"), Decimal("59.91"))
+    assert (D(totals["tax"]), D(totals["grand_total"]), D(totals["global_discount"]),
+            D(totals["global_discount_base"])) == (
+        Decimal("88.29"), Decimal("539.19"), Decimal("59.91"), Decimal("50.10"))
 
 
 def test_pg_iskontosuz_yol_tabana_gore_yalniz_iscilik_kdvsi(faturalar):
-    from tests.f9_5_servis_kdv_senaryo import IZINLI_DEGISIMLER, TABAN_ISKONTOSUZ, duzlestir, para_gorunumu
+    from tests.f9_5_servis_kdv_senaryo import IZINLI_DEGISIMLER, IZINLI_EKLENENLER, para_gorunumu, tabana_gore_fark
 
-    taban = dict(duzlestir(TABAN_ISKONTOSUZ))
-    simdi = dict(duzlestir(para_gorunumu(faturalar["iskontosuz"])))
-    assert set(taban) == set(simdi), set(taban) ^ set(simdi)
-    assert {yol: (taban[yol], simdi[yol]) for yol in taban if taban[yol] != simdi[yol]} == IZINLI_DEGISIMLER
+    degisen, eklenen = tabana_gore_fark(para_gorunumu(faturalar["iskontosuz"]))
+    assert degisen == IZINLI_DEGISIMLER
+    assert eklenen == IZINLI_EKLENENLER

@@ -42,10 +42,11 @@ def kanonik(value: Any) -> Any:
 
     Aynı `invoice_items` satırı SQLite'ta `float`/`int` (64.8, 0), PG'de
     `Decimal` (64.80, False) döner; ikiz aynı altın görünümü kullanabilsin
-    diye sayı normalleştirilmiş ondalık metne, `bool` tamsayıya iner.
+    diye sayı normalleştirilmiş ondalık metne, `bool` "0"/"1" metnine iner.
     """
     if isinstance(value, bool):
-        return int(value)
+        # PG `False`, SQLite `0` döner; altın METİN tutar ("0") — bool da metne iner.
+        return str(int(value))
     if isinstance(value, (int, float, Decimal)):
         return format(D(value).normalize(), "f")
     return value
@@ -180,6 +181,24 @@ IZINLI_DEGISIMLER = {
     ("baslik", "totals", "customer_amount"): ("377.37", "419.37"),
     ("baslik", "totals", "warranty_amount"): ("161.73", "179.73"),
 }
+
+
+#: İskontosuz yolda EKLENMESİNE izin verilen yollar (DÜZELTME 1): matraha
+#: düşen belge iskontosu; PDF'in "İskonto" satırı bunu basar. Anahtar yalnız
+#: EKLENDİ — mevcut hiçbir anahtar yeniden adlandırılmadı.
+IZINLI_EKLENENLER = {
+    ("baslik", "totals", "global_discount_base"): "0.00",
+}
+
+
+def tabana_gore_fark(simdi_gorunum: dict) -> tuple[dict, dict]:
+    """(değişen, eklenen) — TABAN'dan silinen yol olursa doğrudan patlar."""
+    taban = dict(duzlestir(TABAN_ISKONTOSUZ))
+    simdi = dict(duzlestir(simdi_gorunum))
+    assert set(taban) <= set(simdi), set(taban) - set(simdi)
+    degisen = {yol: (taban[yol], simdi[yol]) for yol in taban if taban[yol] != simdi[yol]}
+    eklenen = {yol: simdi[yol] for yol in simdi if yol not in taban}
+    return degisen, eklenen
 
 
 def duzlestir(deger, yol=()):

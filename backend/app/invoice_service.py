@@ -72,7 +72,15 @@ def generate_invoice(db:Session,request:Request,cid:int,payload:InvoiceGenerateR
         lines.append(("PART",part["product_name"],part["quantity"],part["unit_price"],part["discount"],part["tax_rate"],
             compute_line(part["quantity"],part["unit_price"],part["discount"],part["tax_rate"]),_dump(dict(part))))
     matrah=money(sum((entry[6].taxable for entry in lines),ZERO))
-    global_discount=DiscountEngine.calculate(matrah,payload.global_discount_value,kind=payload.global_discount_type)
+    try:
+        global_discount=DiscountEngine.calculate(matrah,payload.global_discount_value,kind=payload.global_discount_type)
+    except ValueError as exc:
+        # The only other ValueError is an unknown discount type; that one is not
+        # a "too large" case, so it keeps its old behaviour.
+        if payload.global_discount_type.upper() not in {"PERCENT","FIXED"}: raise
+        raise HTTPException(422,{"code":"ISKONTO_TOPLAMI_ASIYOR","taxable_base":str(matrah),
+            "discount_type":payload.global_discount_type.upper(),"discount_value":str(payload.global_discount_value),
+            "message":"Belge iskontosu faturanın iskontosuz matrahını (KDV hariç ara toplam) aşamaz."}) from exc
     allocations=distribute_amount(global_discount.discount,[entry[6].taxable for entry in lines])
     items=[]
     for (item_type,description,qty,unit_price,discount_value,tax_rate,line,source),share in zip(lines,allocations):
@@ -89,8 +97,12 @@ def generate_invoice(db:Session,request:Request,cid:int,payload:InvoiceGenerateR
     warranty_amount=money(sum((it["company"] for it in items),ZERO))
     customer_amount=money(sum((it["customer"] for it in items),ZERO))
     # "global_discount" stays what the payable dropped by (VAT-inclusive), so
-    # grand_total + global_discount is the pre-discount gross the PDF prints.
-    totals={**summary["totals"],"tax":tax_total,"global_discount":money(gross_before_discount-grand_total),"grand_total":grand_total,
+    # grand_total + global_discount is the pre-discount gross. "global_discount_base"
+    # (added in F9-5-fix round 2) is the discount taken off the MATRAH — the
+    # entered FIXED amount, or the percent of the matrah — which the PDF prints
+    # as "İskonto" (KDVK m.25: iskonto is deducted before VAT).
+    totals={**summary["totals"],"tax":tax_total,"global_discount":money(gross_before_discount-grand_total),
+            "global_discount_base":global_discount.discount,"grand_total":grand_total,
             "customer_amount":customer_amount,"warranty_amount":warranty_amount}
     number=next_invoice_number(db,cid,payload.branch_prefix)
     user=getattr(request.state,"user",{}) or {}; now=utcnow()
