@@ -7,6 +7,11 @@
  * başarıda liste yeniden çekilir.
  *
  * `errorDetail` gerçeğidir: sunucu cümlesinin ekrana geçtiğini sınar.
+ *
+ * `PlatformEylemleri.tsx` diye bir bileşen YOKTUR, hiç olmadı (H86): dosya
+ * adı konuyu anar. Sınanan, `ortak/eylem.tsx` `EylemDugmesi` + `ortak/bildirim.tsx`
+ * bildirimidir; dört sayfa (Companies, Users, Outbox, Security) üzerinden ve
+ * `filtreler.ts` denetim süzgeçleriyle birlikte.
  */
 import React from 'react';
 import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react';
@@ -212,7 +217,7 @@ it('yeniden dene changed:false → kalıcı hata sayısını anan cümle, genel 
  expect(await bildirim()).toBe('Kuyruğa alınacak kayıt yok · kalıcı hata: 5');
  expect(screen.getByTestId('eylem-bildirimi').textContent).not.toContain(ZATEN_BU_DURUMDA);
  expect(screen.getByTestId('eylem-bildirimi').className).toMatch(/Info/);
- // Liste yine de tazelenir (ortak.tsx: Şef kararı, mercek #142 3a).
+ // Liste yine de tazelenir (`ortak/eylem.tsx` `EylemDugmesi`: Şef kararı, mercek #142 3a).
  await waitFor(()=>expect(cagriSayisi('/platform/outbox/health')).toBe(once+1));
 });
 
