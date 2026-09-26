@@ -121,6 +121,21 @@ describe('F10-1d — gösterim',()=>{
   expect(within(rizali).getByText(`Rıza: ${yerelGun(AKTIF.consent_at)}`)).toBeTruthy();
  });
 
+ it.each([
+  ['UTC','2026-09-20'],
+  ['Europe/Istanbul','2026-09-21'],
+ ])('consent_at TZ=%s altında sabit gün: Rıza: %s',async(tz,gun)=>{
+  const onceki=process.env.TZ;
+  process.env.TZ=tz;
+  try{
+   mount();
+   const rizali=await screen.findByTestId('wa-baglanti-11');
+   expect(within(rizali).getByText(`Rıza: ${gun}`)).toBeTruthy();
+  }finally{
+   if(onceki===undefined)delete process.env.TZ;else process.env.TZ=onceki;
+  }
+ });
+
  it('bağlantı yoksa boş durum metni',async()=>{
   linkler=[];
   mount();
@@ -202,6 +217,19 @@ describe('F10-1d — kod penceresinin ömrü',()=>{
   fireEvent.click(screen.getByRole('button',{name:'Eşleştirme kodu üret'}));
   expect(await screen.findByText(/personel hesabına bağlı/)).toBeTruthy();
   expect(screen.queryByRole('dialog')).toBeNull();
+ });
+
+ it.each(['Escape','backdrop'] as const)('kod penceresi %s ile kapanınca düz kod DOM ve durumdan silinir',async yol=>{
+  mount();
+  await screen.findByText('***2233');
+  fireEvent.click(screen.getByRole('button',{name:'Eşleştirme kodu üret'}));
+  const pencere=await screen.findByRole('dialog');
+  expect(within(pencere).getByTestId('wa-duz-kod').textContent).toBe(DUZ_KOD);
+  if(yol==='Escape')fireEvent.keyDown(pencere,{key:'Escape'});
+  else fireEvent.click(document.querySelector('.MuiBackdrop-root') as Element);
+  await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());
+  expect(document.body.textContent).not.toContain(DUZ_KOD);
+  expect(screen.getByTestId('wa-kod-31')).toBeTruthy();
  });
 });
 

@@ -215,8 +215,10 @@ export default function EntityDetail({type}:{type:EntityType}){
           <Card variant="outlined"><CardContent><Typography variant="h6" fontWeight={900}>Müşteri Sağlığı</Typography><Typography sx={metadataSx} mt={1}>{s.risk_exceeded?'Risk limiti aşılmış. Tahsilat planı önerilir.':Number(s.overdue_amount)>0?'Vadesi geçen bakiye bulunuyor.':'Finansal risk görünmüyor.'}</Typography><Typography sx={metadataSx} mt={1}>{s.last_activity?`Son işlem ${s.last_activity} tarihinde.`:'Henüz işlem yok.'}</Typography>{canPayments&&Number(s.overdue_amount)>0&&<Button color="success" variant="outlined" size="small" startIcon={<PaymentsIcon/>} onClick={openPayment} sx={{mt:1.5}}>Tahsilat Al</Button>}</CardContent></Card>
           {/* F10-1d: çiftçi iki taraflı olabilir (müşteri VE tedarikçi); makbuz/avans
               yüzü tedarikçidedir, rıza anahtarı ve WhatsApp bağlantısı orada da görünmeli.
-              Telefon `data.entity`tedir; maskeli değer ön dolguya girmez (SEC-3b). */}
-          <NotificationConsentPanel partyType={partyType} partyId={entityId} defaultRecipient={maskeli(e.phone)?null:e.phone}/>
+              Telefon `data.entity`tedir; maskeli değer ön dolguya girmez (SEC-3b).
+              İzin paneli `notifications` ister (GET /notifications/consents): depo
+              tedarikçiyi, rapor müşteriyi açar ama izinleri okuyamaz. */}
+          {can('notifications')&&<NotificationConsentPanel partyType={partyType} partyId={entityId} defaultRecipient={maskeli(e.phone)?null:e.phone}/>}
           <WhatsAppTarafKarti partyType={partyType} partyId={entityId} defaultPhone={maskeli(e.phone)?null:e.phone}/>
         </Stack></Grid>
       </Grid>}
