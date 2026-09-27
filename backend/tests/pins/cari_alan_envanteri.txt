@@ -1,3 +1,13 @@
+# F9-5a MUHASEBE FISI ONIZLEMESI (goc 20260927_0093). Yanit her fisin
+# `cari` nesnesinde carinin ADI ve VKN'sini (`tax_number`) tasir; VKN
+# `alan_maskeleme.maskele_cari`den gecer (`_muhasebe_fisi_gorunumu`). Vektor
+# OLCULDU: izin `reports` (metoda bakan `/api/accounting` kurali) -> `yonetici`
+# ve `muhasebe` `MASKESIZ_ROLLER`de (F), `satis`/`depo` `reports` TASIMAZ (D),
+# `rapor` tasir ve MASKELIDIR (M; `test_VKN_MASKESI_rapor_rolunde` son dort
+# haneyi olcuyor). `phone` TARAYICININ YANLIS POZITIFIDIR — cek-senet
+# satiriyla AYNI zincir (`maskele_cari -> _alan_maskesi` docstring'i); yanit
+# modeli (`FisCarisi`) `phone` TASIMAZ. K13 (`musavir` maskesiz) 9-5c'dedir.
+GET /api/accounting/vouchers	reports	phone,tax_number	F,F,D,D,M
 GET /api/auth/verify-email	read	email	H,H,H,H,H
 # CS1 CEK/SENET PORTFOYU (goc 20260914_0085). `hesap_no` KESIDECININ banka
 # hesabidir ve `alan_maskeleme.MASKELENEN_ALANLAR`a (`maskele_iban`: son dort

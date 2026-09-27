@@ -215,6 +215,10 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
             # verir ve ciftcinin bir `app_users` satiri YOKTUR.
             "party.whatsapp_consent_granted",
             "party.whatsapp_consent_revoked",
+            # F9-5a (goc 20260927_0093): muhasebe hesap eslemesi. Kaynak
+            # `account_map` (YENI tip). `muhasebe_hesap_eslemeleri` BILEREK
+            # `created_by` tasimaz; "bu hesabi kim degistirdi" yalniz burada.
+            "accounting.account_map_updated",
     }
     assert set(ACTION_TYPES) == expected
     # 58 -> 59: product.base_unit_update (kantar fişi v2).
@@ -279,7 +283,9 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
     # 82 -> 84: F10-1b CIFTCI RIZASI (goc 20260920_0091), IKI olay
     # (riza verildi / geri cekildi). Kume UYE UYE de yukarida cakili; sayi
     # tek basina bir TAKASI (biri cikip biri girse) goremezdi.
-    assert len(ACTION_TYPES) == 84, sorted(ACTION_TYPES)
+    # 84 -> 85: F9-5a `accounting.account_map_updated`; RESOURCE_TYPES 24 -> 25
+    # (`account_map`, okuma yuzeyi GET /api/accounting/account-map).
+    assert len(ACTION_TYPES) == 85, sorted(ACTION_TYPES)
     assert "whatsapp_pending" in RESOURCE_TYPES
     # F10-1a: TEK yeni kaynak tipi. `user` YENIDEN KULLANILMADI ve bu
     # olculmus bir karardir: kaynak baglantisi kullanici kartina gitseydi,
@@ -287,7 +293,8 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
     assert "whatsapp_party" in RESOURCE_TYPES
     # 22 -> 23: CS1 (`cek_senet`; kaynak kimliği `cek_senetler.id`).
     # 23 -> 24: F10-1a'nin `whatsapp_party` tipi (goc 20260918_0090).
-    assert len(RESOURCE_TYPES) == 24, sorted(RESOURCE_TYPES)
+    assert len(RESOURCE_TYPES) == 25, sorted(RESOURCE_TYPES)
+    assert "account_map" in RESOURCE_TYPES
     assert all(ACTION_TYPES.values()), ACTION_TYPES
     assert "activity_log" in RESOURCE_TYPES
     # POS fişi de bir ``orders`` satırıdır: ayrı bir kaynak tipi eklenmez,

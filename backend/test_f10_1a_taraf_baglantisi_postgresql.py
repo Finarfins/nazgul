@@ -57,7 +57,7 @@ KOD = "whatsapp_party_pairing_codes"
 IKISI = (BAGLANTI, KOD)
 
 #: Alembic başı — zincirin ucu bu dilimle 0090 oldu.
-BAS = "20260925_0092"  # H75: bas 0092
+BAS = "20260927_0093"  # F9-5a: bas 0093 (H75: bas 0092)
 
 #: HER KOŞU KENDİ ÖNEKİNİ KULLANIR (WA2 ikizinin gerekçesi: PG ikizleri
 #: paylaşık bir şemada koşabiliyor ve sabit ad kapıyı koşu sırasına

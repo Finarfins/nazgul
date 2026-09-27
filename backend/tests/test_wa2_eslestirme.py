@@ -317,7 +317,8 @@ def test_KIRACI_ENVANTERI_UCU_DE_ICERIYOR() -> None:
     # 123 -> 125: E4b-2 e-IRSALIYE YANITI (goc 20260915_0089). Iki yeni kiraci
     # tablosu: `despatch_responses`, `despatch_response_lines`.
     # 125 -> 127: F10-1a `whatsapp_party_links` + `whatsapp_party_pairing_codes` (goc 20260918_0090), semadan turuyor.
-    assert len(TENANT_TABLES) == 127, len(TENANT_TABLES)
+    # 127 -> 128: F9-5a `muhasebe_hesap_eslemeleri` (goc 20260927_0093), semadan turuyor.
+    assert len(TENANT_TABLES) == 128, len(TENANT_TABLES)
 
 
 def test_MUAFIYET_DORT_UCU_KAPSAMIYOR() -> None:

@@ -258,6 +258,12 @@ ACTION_TYPES: dict[str, str] = {
     "cek_senet.durum": "Çek/senet durum değişikliği",
     "animal_quarantine.opened": "Karantina açıldı",
     "animal_quarantine.closed": "Karantina kapatıldı",
+    # Muhasebe hesap eşlemesi (F9-5a, göç 20260927_0093). `details.degisen`
+    # YALNIZ değişen eşlemleri önce/sonra koduyla taşır; tabloda
+    # `created_by` BİLEREK yok — "bu hesabı kim değiştirdi" sorusunun cevabı
+    # yalnız BURADAN çıkar. Kaynak kimliği `NULL`: tek istek birden çok satır
+    # yazar ve eşlemin kendi okuma yüzeyi listedir, satır değil.
+    "accounting.account_map_updated": "Muhasebe hesap eşlemesi güncelleme",
 }
 
 RESOURCE_TYPES: frozenset[str] = frozenset(
@@ -313,6 +319,9 @@ RESOURCE_TYPES: frozenset[str] = frozenset(
         # `GET /api/animal-quarantines/{id}`tir. Açma ve kapatma AYNI kaynağı
         # işaret eder — ikisi de aynı satırın olaylarıdır.
         "animal_quarantine",
+        # Muhasebe hesap eşlemesi (F9-5a). Okuma yüzeyi
+        # `GET /api/accounting/account-map`; kaynak kimliği NULL (liste).
+        "account_map",
     }
 )
 

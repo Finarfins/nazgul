@@ -1264,6 +1264,46 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     # (`whatsapp_party_links.c.company_id == company_id`).
     ("app/whatsapp/taraf.py", "riza_damgasi_yaz", "update",
      "7bf159b68ea051fe24fe51fe09131d26e4277f0a4fc8a088c40734cbd8f4d60f"): (1, "whatsapp_party_links", "arg0"),
+    # --- F9-5a MUHASEBE FISI / KDV OZETI / HESAP ESLEMESI (goc 20260927_0093).
+    # ON BESI de YENI ve HEPSI SELECT, biri UPDATE. `kaynak.py` belge
+    # tablolarinin TEK okuma yeridir: bes kolun her biri baslik + kalem
+    # grubu (iadeler iki baslik, musteri/tedarikci ayri: `entity_id`
+    # polimorfik ve tek degiskenli birlesim `unresolved-target` olurdu),
+    # musteahsilde G8 icin bagli alis kalemi. HEPSININ ilk `where` kosulu
+    # `<tablo>.c.company_id == cid` ve her birlesim `company_id` esitligiyle
+    # kiraci ICINDE. `hesap_plani.py`nin UCU eslem tablosudur; yerel takma ad
+    # (`t = ...`) `unresolved-target` verdigi icin KAYNAKTA kaldirildi,
+    # muafiyet ISTENMEDI.
+    ("app/muhasebe/hesap_plani.py", "esleme_yaz", "select",
+     "d5226a49d1dc40c8381683b7ade86d18e557ad732212b8840802045b94b874e7"): (1, "muhasebe_hesap_eslemeleri", "arg0"),  # satır [146]
+    ("app/muhasebe/hesap_plani.py", "esleme_yaz", "update",
+     "7679d51f66277f467ca8e7f761997879fd7d8f7f6cf1665e34a7070cc8e97090"): (1, "muhasebe_hesap_eslemeleri", "arg0"),  # satır [168]
+    ("app/muhasebe/hesap_plani.py", "eslemeleri_oku", "select",
+     "821938a221eb4a9816fb7b554bf20c241fadb1fdec1845b95ed2bcaaae4c55e3"): (1, "muhasebe_hesap_eslemeleri", "arg0"),  # satır [103]
+    ("app/muhasebe/kaynak.py", "_alis", "select",
+     "217c58a319e0d022544c37e509a13b118f2e8e25fe80dfe6173c8fa3206967bc"): (1, "purchases", "arg0"),  # satır [315]
+    ("app/muhasebe/kaynak.py", "_alis", "select",
+     "2ccf1a8e54a708efad629b51873a83628e3ce70a276dfa30a203e49cd1db4771"): (1, "purchase_items", "arg0"),  # satır [338]
+    ("app/muhasebe/kaynak.py", "_iadeler", "select",
+     "4b62f10219a1a521542e953d6adf057187e6ce9564923cdf4d45e95e42560310"): (1, "return_items", "arg0"),  # satır [416]
+    ("app/muhasebe/kaynak.py", "_iadeler", "select",
+     "b0ed3f010541df31a97bebd582f71bf1d6d2b55d0deeff19d135894fde634fb6"): (1, "returns", "arg0"),  # satır [370]
+    ("app/muhasebe/kaynak.py", "_iadeler", "select",
+     "c5fb154de7fbd0f85f63d974cc40fe0dee815777591fad957b5ea453a0dc2bf0"): (1, "returns", "arg0"),  # satır [393]
+    ("app/muhasebe/kaynak.py", "_mustahsil", "select",
+     "6cfa58bbc73d0b1da8895d288198a414021f6fe82405ca8b7f7acf497f0abb3a"): (1, "producer_receipt_items", "arg0"),  # satır [668]
+    ("app/muhasebe/kaynak.py", "_mustahsil", "select",
+     "cf293e302e328f83b824aa1f09458a7273bbb1de39822be4daabf87ed070a140"): (1, "producer_receipts", "arg0"),  # satır [646]
+    ("app/muhasebe/kaynak.py", "_mustahsil", "select",
+     "d2f8088852053f9c764cd5dc0984e592e7c799712eee9721e3322d9b01119900"): (1, "purchase_items", "arg0"),  # satır [695]
+    ("app/muhasebe/kaynak.py", "_satis", "select",
+     "1464b063a8bb9e01d56a1f83b6115dd549c9a67ba46569b7cdd3cb1e3cf4529b"): (1, "order_items", "arg0"),  # satır [283]
+    ("app/muhasebe/kaynak.py", "_satis", "select",
+     "58b79a7c834d0ebb1434705e0298260cdfd255d0bdfae8ad835936fe514553b3"): (1, "orders", "arg0"),  # satır [265]
+    ("app/muhasebe/kaynak.py", "_servis", "select",
+     "989e63e3bbaf52ee002120ac76d2992f2c5c6b49ccaa5d5b9f53adc5cb06dda0"): (1, "invoice_items", "arg0"),  # satır [535]
+    ("app/muhasebe/kaynak.py", "_servis", "select",
+     "f568f9c96aadca284ae6e27a7bc6d61e053a492d312b22826701acd17c5e2c0a"): (1, "invoices", "arg0"),  # satır [527]
 }
 
 # 20260910 5.1c KIRACI GERI YUKLEME (GOC YOK): 176 -> 184, +6 select +2 update,
@@ -1345,11 +1385,15 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # (riza olaylarinin kaynak kimligi). Yuklemler AYNI kaldi.
 # F10-1b DUZELTME 2 (runtime lens): 251 -> 252, +1 update
 # (`taraf.riza_damgasi_yaz`, `consent_at` izi). Tarayicinin ciktisindan.
-TOTAL_CORE_QUERIES = 252
+# F9-5a MUHASEBE (goc 20260927_0093): 252 -> 267, +14 select +1 update
+# (TABAN develop `a44d7b8`); HEPSI ekleme, hicbir mevcut sorgu KIMILDAMADI.
+# `UNRESOLVED_ALLOWLIST` ve `desteksiz` BUYUMEDI. Tarayicinin ciktisindan.
+TOTAL_CORE_QUERIES = 267
 # F10-1b (goc 20260920_0091): select 170 -> 171 (`ciftci_yurutucu.
 # _firma_adi`); `update` ve `delete` KIMILDAMADI — ciftci dali OKUMADIR.
 # F10-1b DUZELTME 2: update 68 -> 69 (`taraf.riza_damgasi_yaz`).
-EXPECTED_OP_COUNTS = {"select": 171, "update": 69, "delete": 12}
+# F9-5a: select 171 -> 185, update 69 -> 70 (`hesap_plani.esleme_yaz`).
+EXPECTED_OP_COUNTS = {"select": 185, "update": 70, "delete": 12}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1476,8 +1520,11 @@ EXPECTED_OP_COUNTS = {"select": 171, "update": 69, "delete": 12}
 # Tarayicinin ciktisindan alindi, aritmetikle degil. 214d1cf5 -> ce68d341.
 # F10-1b DUZELTME 2 (+1 update, `riza_damgasi_yaz`): tarayicinin
 # ciktisindan. ce68d341 -> c7f3d672.
+# F9-5a (goc 20260927_0093, +15): once 15 sorgu envantere ADIYLA girdi,
+# sonra parmak izi tarayicinin ciktisindan alindi. TABAN develop `a44d7b8`.
+# c7f3d672 -> 947b75d2.
 INVENTORY_FINGERPRINT = (
-    "c7f3d672c096fe82bf74474f562cf04244e916097f01e1b55796500ffddd0823"
+    "947b75d2597374d67cd02807f5ac576265e39041fadc29827d71fd43534b2d86"
 )
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.
