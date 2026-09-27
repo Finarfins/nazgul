@@ -42,10 +42,10 @@ export interface paths {
          * Disa Aktar
          * @description Dönemin fişlerini hedef biçiminde akan bir zip olarak indirir.
          *
-         *     Sıra (keşif §6.1): dönem kesiti → denge kapısı (409, akış YOK) → TEK
-         *     `accounting.exported` satırı (commit) → akış. İdempotency DURUMSUZDUR
-         *     (§6.3): `icerik_sha256` kanonik `fisler.json`un özetidir; DB'ye aktarım
-         *     durumu YAZILMAZ.
+         *     Sıra (keşif §6.1): dönem kesiti → denge kapısı ve fiş tekilliği (409, akış
+         *     YOK) → TEK `accounting.exported` satırı (commit) → akış. İdempotency
+         *     DURUMSUZDUR (§6.3): `icerik_sha256` kanonik `fisler.json`un özetidir;
+         *     DB'ye aktarım durumu YAZILMAZ.
          */
         get: operations["disa_aktar_api_accounting_export_get"];
         put?: never;
@@ -12201,8 +12201,8 @@ export interface operations {
             query: {
                 /** @description YYYY-AA */
                 period: string;
-                /** @description luca | mikro | canonical (kanonik) */
-                target: "luca" | "mikro" | "canonical" | "kanonik" | "logo";
+                /** @description Hedef muhasebe programı (luca | mikro | canonical | kanonik) */
+                target: string;
                 /** @description Hedefin kendi dosya biçimi; verilirse eşleşmeli */
                 format?: ("xlsx" | "csv") | null;
             };
@@ -12221,7 +12221,7 @@ export interface operations {
                     "application/zip": unknown;
                 };
             };
-            /** @description Dönemde dengesiz fiş var */
+            /** @description Dönemde dengesiz fiş var veya fiş no tekrarlı */
             409: {
                 headers: {
                     [name: string]: unknown;

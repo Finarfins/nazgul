@@ -39,7 +39,7 @@ from ..muhasebe.hedef_kanonik import (
 )
 from ..muhasebe.hedef_luca import LucaSerilestirici
 from ..muhasebe.hedef_mikro import MikroSerilestirici
-from ..muhasebe.serilestirici import Serilestirici
+from ..muhasebe.serilestirici import Serilestirici, fis_anahtarlari_tekil
 from ..muhasebe.hesap_plani import (
     HESAP_KODU_DESENI,
     VARSAYILANLAR,
@@ -303,7 +303,6 @@ SERILESTIRICILER: dict[str, Serilestirici] = {
     "canonical": KanonikSerilestirici(),
     "kanonik": KanonikSerilestirici(),
 }
-Hedef = Literal["luca", "mikro", "canonical", "kanonik", "logo"]
 Bicim = Literal["xlsx", "csv"]
 ILK_HATA_TAVANI = 5
 
@@ -358,8 +357,8 @@ def _akit(
     """Zip konumlanamayan tampona yazılır; her dosyadan sonra akar.
 
     Durum 200'de kilitlidir (`kiraci_disa_aktarim` HATA SINIRI): buradan
-    sonra doğan hata YARIM (açılamayan) zip üretir. Denge kapısı ve günlük
-    satırı bu yüzden üreteçten ÖNCE, uçtadır.
+    sonra doğan hata YARIM (açılamayan) zip üretir. Denge kapısı, fiş tekilliği
+    ve günlük satırı bu yüzden üreteçten ÖNCE, uçtadır.
     """
     def vkn(fis: Fis) -> str | None:
         return maskele_cari({"tax_number": fis.cari_vkn}, rol)["tax_number"]
@@ -388,29 +387,42 @@ def _akit(
             "content": {"application/zip": {}},
             "description": "Hedef dosyaları + kanonik fisler.json/fisler.csv + manifest.json",
         },
-        409: {"model": DisaAktarimHatasi, "description": "Dönemde dengesiz fiş var"},
+        409: {
+            "model": DisaAktarimHatasi,
+            "description": "Dönemde dengesiz fiş var veya fiş no tekrarlı",
+        },
         422: {"model": DisaAktarimHatasi, "description": "Hedef/biçim/dönem geçersiz"},
     },
 )
 def disa_aktar(
     request: Request,
     period: str = Query(..., min_length=7, max_length=7, description="YYYY-AA"),
-    target: Hedef = Query(..., description="luca | mikro | canonical (kanonik)"),
+    target: str = Query(
+        ...,
+        description="Hedef muhasebe programı (luca | mikro | canonical | kanonik)",
+        examples=["luca", "mikro", "canonical", "kanonik"],
+    ),
     format: Bicim | None = Query(None, description="Hedefin kendi dosya biçimi; verilirse eşleşmeli"),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     """Dönemin fişlerini hedef biçiminde akan bir zip olarak indirir.
 
-    Sıra (keşif §6.1): dönem kesiti → denge kapısı (409, akış YOK) → TEK
-    `accounting.exported` satırı (commit) → akış. İdempotency DURUMSUZDUR
-    (§6.3): `icerik_sha256` kanonik `fisler.json`un özetidir; DB'ye aktarım
-    durumu YAZILMAZ.
+    Sıra (keşif §6.1): dönem kesiti → denge kapısı ve fiş tekilliği (409, akış
+    YOK) → TEK `accounting.exported` satırı (commit) → akış. İdempotency
+    DURUMSUZDUR (§6.3): `icerik_sha256` kanonik `fisler.json`un özetidir;
+    DB'ye aktarım durumu YAZILMAZ.
     """
     if target == "logo":
         raise _aktarim_hatasi(
             422, "HEDEF_DESTEKLENMIYOR",
             "Logo hedefi henüz desteklenmiyor: muhasebe fişi XML şablonu doğrulanmadı (K2). "
             "Kanonik (canonical) çıktıyı kullanın.",
+        )
+    if target not in SERILESTIRICILER:
+        raise _aktarim_hatasi(
+            422, "HEDEF_DESTEKLENMIYOR",
+            f"'{target}' hedefi desteklenmiyor. Desteklenen hedefler: "
+            "luca, mikro, canonical (kanonik).",
         )
     serilestirici = SERILESTIRICILER[target]
     if format is not None and format != serilestirici.bicim:
@@ -435,6 +447,11 @@ def disa_aktar(
         )
 
     fisler = veri.fisler
+    try:
+        fis_anahtarlari_tekil(fisler)
+    except ValueError as exc:
+        raise _aktarim_hatasi(409, "FIS_NO_TEKRARLI", str(exc)) from exc
+
     json_bayt = kanonik_json(fisler)
     ozet = icerik_sha256(json_bayt)
     borc, alacak = _toplam(fisler, "borc_toplami"), _toplam(fisler, "alacak_toplami")
