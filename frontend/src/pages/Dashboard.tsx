@@ -325,7 +325,7 @@ export default function Dashboard() {
               </Box>
               <Stack mt={1} spacing={0.4}>
                 {data.overdue_receivables.map((item) => (
-                  <CardActionArea key={item.id} onClick={() => nav(`/musteriler/${item.customer_id}`)} sx={{borderRadius: 1.5, p: 1}}>
+                  <CardActionArea key={`${item.document_no}-${item.id}`} onClick={() => nav(`/musteriler/${item.customer_id}`)} sx={{borderRadius: 1.5, p: 1}}>
                     <Box display="flex" justifyContent="space-between" gap={2}>
                       <Box>
                         <Typography fontWeight={750}>{item.customer_name}</Typography>
