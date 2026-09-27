@@ -80,6 +80,7 @@ def _reconcile_completed_receivable(
         work_order_id,
         actor_id=int(request.state.user["id"]),
         allow_initial_create=False,
+        reason="parts_reconciliation",
     )
 
 

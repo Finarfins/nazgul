@@ -79,6 +79,7 @@ def test_2_completed_sonrasi_parca_eklemek_tam_bir_ters_bir_yeni_kayit(olcum):
         assert satirlar(olcum[kurgu]["tamamlaninca"]) == [R1]
         assert satirlar(olcum[kurgu]["p3_eklenince"]) == EKLENINCE, kurgu
         assert olcum[kurgu]["p3_eklenince"]["onizleme"] == BEKLENEN["B+P3"]
+        assert olcum[kurgu]["p3_eklenince"]["alacak"][1]["reason"] == "parts_reconciliation", kurgu
 
 
 def test_3_ayni_tutari_birakan_ekleme_revizyon_yapmaz(olcum):
