@@ -20,7 +20,7 @@ vi.mock('../api',()=>({
 vi.mock('../AuthContext',()=>({useAuth:()=>({can:(permission:string)=>permission==='finance'&&financeAllowed})}));
 vi.mock('recharts',()=>({
  ResponsiveContainer:({children}:any)=><div>{children}</div>,
- AreaChart:({children}:any)=><div>{children}</div>,
+ AreaChart:({children}:any)=><svg>{children}</svg>,
  Area:()=>null,CartesianGrid:()=>null,Tooltip:()=>null,XAxis:()=>null,YAxis:()=>null,
 }));
 
@@ -116,4 +116,19 @@ it('acil aksiyon kartları hedef ekranları hazır filtreyle açar',async()=>{
  expect(navigate).toHaveBeenCalledWith('/urunler?critical=1');
  fireEvent.click(screen.getAllByText('Vadesi Geçen Alacak')[0]);
  expect(navigate).toHaveBeenCalledWith('/satislar?status=overdue');
+});
+
+it('ayni id ile gelen satis ve ucret belgesi satirlari ayri anahtarla render edilir',async()=>{
+ // H107 sonrasi siparis 1 ile ucret belgesi 1 ayni id'yi paylasabilir; anahtar belge no + id.
+ get.mockResolvedValue({data:{...dashboard,overdue_count:2,overdue_total:300,overdue_receivables:[
+  {id:1,customer_id:44,customer_name:'Satis Borclusu',days_overdue:10,document_no:'S-1',remaining:250},
+  {id:1,customer_id:45,customer_name:'Ucret Borclusu',days_overdue:5,document_no:'GF-1',remaining:50},
+ ]}});
+ const consoleError=vi.spyOn(console,'error').mockImplementation(()=>{});
+ try{
+  mount();
+  expect(await screen.findByText('Satis Borclusu')).toBeTruthy();
+  expect(screen.getByText('Ucret Borclusu')).toBeTruthy();
+  expect(consoleError).not.toHaveBeenCalled();
+ }finally{consoleError.mockRestore()}
 });
