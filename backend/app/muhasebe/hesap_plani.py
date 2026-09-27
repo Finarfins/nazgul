@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import Numeric, String, and_, bindparam, func, insert, or_, select, update
+from sqlalchemy import Numeric, String, and_, bindparam, cast, func, insert, or_, select, update
 from sqlalchemy.orm import Session
 
 from .schema import OLAYLAR, TARAF_TIPLERI, muhasebe_hesap_eslemeleri
@@ -139,7 +139,10 @@ def esleme_yaz(
         raise ValueError(f"Geçersiz hesap kodu: {hesap_kodu}")
     t = muhasebe_hesap_eslemeleri
     oran = oran_normalize(kdv_orani)
-    p_oran = bindparam("p_oran", oran, type_=Numeric(9, 4))
+    # CAST ŞART: psycopg3 `Numeric` bağına `::NUMERIC` YAZMAZ ve PG `$n IS NULL`
+    # için tip çıkaramaz (`AmbiguousParameter`, PG ikizinde ölçüldü; SQLite'ta
+    # görünmez). `String` bağı `::VARCHAR` alır, ona gerek yok.
+    p_oran = cast(bindparam("p_oran", oran, type_=Numeric(9, 4)), Numeric(9, 4))
     p_taraf = bindparam("p_taraf", taraf_tipi, type_=String)
     mevcut = db.execute(
         select(t.c.id, t.c.hesap_kodu).where(

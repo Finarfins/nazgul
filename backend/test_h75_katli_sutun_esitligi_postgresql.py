@@ -37,6 +37,10 @@ KOSU = uuid4().hex[:8]
 ONEK = f"H75-{KOSU}"
 PAROLA = "H75Katli!2026xyz"
 GOC = "20260925_0092"
+# F9-5a: `GOC` bu dosyanin KONU gocudur; sema basi AYRI sabittir. Ikisi
+# 0093e kadar tesadufen esitti ve `upgrade head` sonrasi kiyas bir BAS
+# civisiydi (bas her gocte kayar, konu kaymaz).
+BAS = "20260927_0093"
 ONCEKI = "20260920_0091"
 
 _SILME_SIRASI = (
@@ -156,7 +160,7 @@ def test_geri_doldurma_PGde_arama_katla_ile_AYNI(motor) -> None:
         command.upgrade(_config(url), "head")
     with motor.connect() as c:
         surum = c.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert surum == GOC
+    assert surum == BAS
     bayat, sayilar = _bayat(motor, cid)
     assert bayat == []
     assert sayilar["customers"] == sayilar["suppliers"] == sayilar["products"] == len(AKSANLI)

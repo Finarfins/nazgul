@@ -128,6 +128,9 @@ TENANT_TABLES = frozenset({
     "idempotency_keys",
     "invoice_items", "invoices", "machine_hour_readings", "machine_idempotency",
     "machine_ownership_history", "machines",
+    # Muhasebe hesap eslemesi (F9-5a, goc 20260927_0093). company_id TASIR;
+    # `companies.id`ye FK, `company_id` disinda `*_id` sutunu YOK.
+    "muhasebe_hesap_eslemeleri",
     "late_fee_policies", "notification_consent_events", "notification_consents",
     "notification_rules", "notification_templates", "notifications",
     "notifications_archive", "orders", "part_supersessions", "payment_allocations",

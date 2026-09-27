@@ -514,7 +514,8 @@ def test_yuz_iki_tablo_dosyasi_tam(hazir) -> None:
     # 122 -> 123: E4b-1 `despatch_lines` (goc 20260915_0087), semadan turuyor.
     # 123 -> 125: E4b-2 `despatch_responses` + `despatch_response_lines` (goc 20260915_0089), semadan turuyor.
     # 125 -> 127: F10-1a `whatsapp_party_links` + `whatsapp_party_pairing_codes` (goc 20260918_0090), semadan turuyor.
-    assert len(gorulen) == 127
+    # 127 -> 128: F9-5a `muhasebe_hesap_eslemeleri` (goc 20260927_0093), semadan turuyor.
+    assert len(gorulen) == 128
     # Uygulamanın ŞEMADAN türettiği küme ile kapının listesi AYNI olmalı.
     assert set(hazir["sonuc"]["kiraci_tablolar"]) == set(TENANT_TABLES)
     assert f"companies/{hazir['sonuc']['a_id']}.json" in hazir["adlar"]
@@ -533,7 +534,8 @@ def test_tablo_sirasi_topolojik_ve_tam(hazir) -> None:
     # 122 -> 123: E4b-1 `despatch_lines` (goc 20260915_0087), semadan turuyor.
     # 123 -> 125: E4b-2 `despatch_responses` + `despatch_response_lines` (goc 20260915_0089), semadan turuyor.
     # 125 -> 127: F10-1a `whatsapp_party_links` + `whatsapp_party_pairing_codes` (goc 20260918_0090), semadan turuyor.
-    assert len(sira) == 127 and len(set(sira)) == 127
+    # 127 -> 128: F9-5a `muhasebe_hesap_eslemeleri` (goc 20260927_0093), semadan turuyor.
+    assert len(sira) == 128 and len(set(sira)) == 128
     assert set(sira) == set(sonuc["kiraci_tablolar"])
 
     # Testin KENDİ bağımsız Kahn tanığı: her bağımlılık, bağımlıdan ÖNCE.
@@ -765,7 +767,8 @@ with TestClient(app) as client:
     # 122 -> 123: E4b-1 `despatch_lines` (goc 20260915_0087), semadan turuyor.
     # 123 -> 125: E4b-2 `despatch_responses` + `despatch_response_lines` (goc 20260915_0089), semadan turuyor.
     # 125 -> 127: F10-1a `whatsapp_party_links` + `whatsapp_party_pairing_codes` (goc 20260918_0090), semadan turuyor.
-    assert len(ndjson) == 127, len(ndjson)
+    # 127 -> 128: F9-5a `muhasebe_hesap_eslemeleri` (goc 20260927_0093), semadan turuyor.
+    assert len(ndjson) == 128, len(ndjson)
     # ÖLÇÜLDÜ: "tamamen boş" bir firma dışa AKTARILAMAZ. Dışa aktarımın
     # kendisi ÜYELİK ister ve üyelik satırı `user_company_memberships`
     # tablosundadır — yani erişilebilir HER firmada en az bir satır vardır.
