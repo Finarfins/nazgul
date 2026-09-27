@@ -104,7 +104,7 @@ def test_parts_events_reversal_reason_is_parts_reconciliation(auth_context):
     with SessionLocal() as db:
         docs = db.execute(
             text(
-                """SELECT revision_no,status,reversal_of_document_id,calculation_snapshot
+                """SELECT id,revision_no,status,reversal_of_document_id,calculation_snapshot
                 FROM receivable_charge_documents WHERE company_id=:cid AND work_order_id=:wid
                 ORDER BY revision_no"""
             ),
@@ -113,7 +113,7 @@ def test_parts_events_reversal_reason_is_parts_reconciliation(auth_context):
         assert len(docs) == 3
         # R2: ters kayıt (reversal)
         assert docs[1]["status"] == "posted"
-        assert docs[1]["reversal_of_document_id"] == 1
+        assert docs[1]["reversal_of_document_id"] == docs[0]["id"]
         snap = json.loads(docs[1]["calculation_snapshot"])
         assert snap["source"] == "reversal"
         assert snap["reason"] == "parts_reconciliation"
