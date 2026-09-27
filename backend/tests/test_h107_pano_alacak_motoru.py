@@ -19,6 +19,13 @@ motorununki olmasını önerir.
   * pano formülünü ``final_total-paid_amount``a döndürmek -> TOPLAM KIRMIZI
   * ``calculate_net_receivables`` yerine ``calculate_receivables`` -> VADE FARKI KIRMIZI
   * ``due_date < today`` yerine ``<=`` -> BUGÜN VADELİ SATIŞ ADEDİ KIRMIZI
+
+Tur 1 (terslenen vade farkı; ölçüldü, 4/4 kırmızı):
+
+  * toplamda ``remaining != 0`` yerine ``> 0`` -> TOPLAM KIRMIZI (690.56 != 690.00)
+  * netlemeden sonra ``> 0`` süzmesi yok -> ters kayıt/negatif satır LİSTEDE
+  * ``reversal_of_id`` eşlemesi yok -> iptal edilen asıl belge LİSTEDE
+  * satış/ücret id uzayı ayrımı yok -> aynı id'li satış ücrete NETLENİR
 """
 from __future__ import annotations
 
@@ -162,8 +169,30 @@ def ortam(tmp_path_factory):
             headers={**h, "Idempotency-Key": f"h107-vfo-{uuid4().hex}"},
         )
         assert onay.status_code == 200, onay.text
+
+        # Tur 1: ikinci vade farkı (Veli eski satış) onaylanır ve TERSLENİR.
+        # Motor iki belge döndürür: asıl (+, status='reversed') ve ters kayıt
+        # (-, `reversal_of_document_id` = asıl). Çift net 0'dır.
+        taslak2 = client.post(
+            "/api/finance/late-fees/charges",
+            headers={**h, "Idempotency-Key": f"h107-vf2-{uuid4().hex}"},
+            json={"order_id": k["veli_eski"], "period_start": _gun(-11),
+                  "period_end": _gun(-5)},
+        )
+        assert taslak2.status_code == 200, taslak2.text
+        onay2 = client.post(
+            f"/api/finance/late-fees/charges/{taslak2.json()['id']}/post",
+            headers={**h, "Idempotency-Key": f"h107-vfo2-{uuid4().hex}"},
+        )
+        assert onay2.status_code == 200, onay2.text
+        ters = client.post(
+            f"/api/finance/late-fees/charges/{onay2.json()['id']}/reversal",
+            headers={**h, "Idempotency-Key": f"h107-vft-{uuid4().hex}"},
+        )
+        assert ters.status_code == 200, ters.text
         yield {"engine": engine, "client": client, "h": h, **k,
-               "vade_farki": onay.json()}
+               "vade_farki": onay.json(), "terslenen": onay2.json(),
+               "ters_kayit": ters.json()}
 
 
 def _pano(ortam) -> dict:
@@ -230,3 +259,65 @@ def test_pano_gecikmis_ADET_ve_LISTE_motor_belgeleri(ortam) -> None:
     vf = [s for s in liste if s["document_no"].startswith("VF-")]
     assert len(vf) == 1 and vf[0]["customer_id"] == ortam["ali"]
     assert vf[0]["remaining"] == float(ortam["vade_farki"]["gross_amount"])
+
+
+def test_TERSLENEN_vade_farki_panoda_LISTELENMEZ_ve_TOPLAMI_bozmaz(ortam) -> None:
+    """Tur 1 (runtime lens): asıl +X ve ters kayıt -X net 0'dır.
+
+    Yaşlandırma yalnız ``remaining == 0`` belgeyi atlar, çifti net 0 toplar.
+    Pano ``remaining > 0`` süzüp +X'i tutuyor, -X'i atıyordu: toplam +X
+    şişer, iptal edilmiş belge gecikmiş diye listelenirdi.
+    """
+    terslenen, ters_kayit = ortam["terslenen"], ortam["ters_kayit"]
+    assert Decimal(str(terslenen["gross_amount"])) > 0
+    assert Decimal(str(ters_kayit["gross_amount"])) == -Decimal(str(terslenen["gross_amount"]))
+    assert ters_kayit["reversal_of_document_id"] == terslenen["id"]
+
+    pano = _pano(ortam)
+    rapor = ortam["client"].get("/api/reports/receivables-aging", headers=ortam["h"])
+    assert rapor.status_code == 200, rapor.text
+    toplamlar = rapor.json()["totals"]
+    rapor_gecikmis = sum(
+        (Decimal(toplamlar[k]) for k in ("days_1_30", "days_31_60", "days_61_90", "days_90_plus")),
+        Decimal("0"),
+    )
+    assert Decimal(str(pano["overdue_total"])).quantize(KURUS) == rapor_gecikmis
+
+    iptal_nolari = {f"VF-{terslenen['id']}-R{terslenen['revision_no']}",
+                    f"VF-{ters_kayit['id']}-R{ters_kayit['revision_no']}"}
+    liste = pano["overdue_receivables"]
+    assert not iptal_nolari & {s["document_no"] for s in liste}, liste
+    assert all(s["remaining"] > 0 for s in liste), liste
+    assert pano["overdue_count"] == 3
+
+
+def test_netleme_SERVIS_ve_KARSILIKSIZ_cek_terslemesi_de_duser(ortam) -> None:
+    """Servis faturası terslemesi API'den gecikmiş ÜRETİLEMEZ: vade =
+    tamamlanma anı + vade günü >= bugün. Netleme kuralı belge türünden
+    bağımsızdır; yardımcı sentetik belgelerle doğrudan sınanır. Sipariş ve
+    ücret belgeleri ayrı id uzaylarındadır: aynı id'li satış netlenmez."""
+    from datetime import date
+
+    from app.receivables_engine import ReceivableDocument
+    from app.routers.dashboard import _gecikmis_alacaklar
+
+    bugun = date(2026, 9, 27)
+
+    def belge(id_: int, tur: str, kalan: str, ters: int | None = None) -> ReceivableDocument:
+        return ReceivableDocument(
+            id=id_, customer_id=1, customer_name="M", transaction_date="2026-08-01",
+            document_no=f"{tur}-{id_}", due_date=date(2026, 9, 1), total=Decimal(kalan),
+            applied=Decimal("0"), remaining=Decimal(kalan), document_type=tur,
+            reversal_of_id=ters)
+
+    toplam, liste = _gecikmis_alacaklar([
+        belge(7, "sale", "50.00"),
+        belge(7, "service_fee", "120.00"),
+        belge(8, "service_fee", "-120.00", ters=7),
+        belge(9, "bounced_check", "30.00"),
+        belge(10, "bounced_check", "-30.00", ters=9),
+        belge(11, "sale", "-5.00"),
+    ], bugun)
+    assert toplam == Decimal("45.00")
+    assert [(b.document_type, b.id, b.remaining) for b in liste] == [
+        ("sale", 7, Decimal("50.00"))]

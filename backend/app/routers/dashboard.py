@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import text
@@ -10,7 +12,7 @@ from ..auth import has_permission
 from ..business_time import business_today
 from ..db import get_db
 from ..money import ZERO_MONEY, money
-from ..receivables_engine import calculate_net_receivables
+from ..receivables_engine import ReceivableDocument, calculate_net_receivables
 from ..document_engine import SALES_IMPORT_NOTE, accounting_document_status_sql
 from ..tenancy import company_id
 from .reports import RESOLVED_PRODUCT_ID_SQL
@@ -79,6 +81,42 @@ def kritik_urunler(db: Session, cid: int, limit: int = KRITIK_URUN_SINIRI):
         """,
         {"cid": cid, "limit": limit},
     )
+
+
+
+def _gecikmis_alacaklar(
+    documents: list[ReceivableDocument], today: date
+) -> tuple[Decimal, list[ReceivableDocument]]:
+    """Vadesi geçmiş alacaklar: (toplam, liste). Yaşlandırma raporu kâhindir.
+
+    Toplam: ``remaining != 0`` olan her vadesi geçmiş belge, eksiler dahil
+    (yaşlandırma yalnız ``remaining == 0``'ı atlar) — kuruşu kuruşuna aynı.
+    Liste: önce netle, sonra süz. Terslenen ücret belgesi (+) ile ters kaydı
+    (-, ``reversal_of_id``) tek belgede toplanır; net ``> 0`` olanlar listelenir.
+    Satış ve ücret belgeleri ayrı id uzaylarındadır, anahtar türü de taşır.
+    """
+    overdue = [
+        document
+        for document in documents
+        if document.due_date < today and document.remaining != ZERO_MONEY
+    ]
+    total = sum((document.remaining for document in overdue), ZERO_MONEY)
+    groups: dict[tuple[bool, int], list[ReceivableDocument]] = {}
+    for document in overdue:
+        is_charge = document.document_type != "sale"
+        root = document.reversal_of_id if document.reversal_of_id is not None else document.id
+        groups.setdefault((is_charge, root), []).append(document)
+    netted: list[ReceivableDocument] = []
+    for members in groups.values():
+        net = sum((member.remaining for member in members), ZERO_MONEY)
+        head = next(
+            (member for member in members if member.reversal_of_id is None), None
+        )
+        if head is None or net <= ZERO_MONEY:
+            continue
+        netted.append(dataclasses.replace(head, remaining=net))
+    netted.sort(key=lambda document: (document.due_date, -document.remaining))
+    return total, netted
 
 
 @router.get("")
@@ -226,18 +264,10 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     # `final_total - paid_amount` yalnız siparişe doğrudan bağlı tahsisi
     # görür; defterde FIFO ile kapanan bağsız tahsilatı, iadeyi ve deftere
     # işlenmiş vade farkı / servis / karşılıksız çek belgelerini görmez.
-    overdue_documents = sorted(
-        (
-            document
-            for document in calculate_net_receivables(db, cid, today)
-            if document.remaining > ZERO_MONEY and document.due_date < today
-        ),
-        key=lambda document: (document.due_date, -document.remaining),
+    overdue_total, overdue_documents = _gecikmis_alacaklar(
+        calculate_net_receivables(db, cid, today), today
     )
     overdue_count = len(overdue_documents)
-    overdue_total = sum(
-        (document.remaining for document in overdue_documents), ZERO_MONEY
-    )
     overdue_receivables = [
         {
             "id": document.id,

@@ -28,6 +28,10 @@ class ReceivableDocument:
     applied: Decimal
     remaining: Decimal
     document_type: str = "sale"
+    # Ters kayıt belgesinde terslenen asıl ücret belgesinin id'si
+    # (`receivable_charge_documents.reversal_of_document_id`); asıl ve satış
+    # belgesinde None. Asıl + ters kayıt net 0'dır.
+    reversal_of_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -401,7 +405,7 @@ def _late_fee_receivables(
         text(
             """SELECT d.id,d.customer_id,c.name customer_name,d.period_end,
             d.due_date_snapshot,d.revision_no,d.gross_amount,d.charge_type,
-            d.work_order_id,w.work_order_no
+            d.work_order_id,w.work_order_no,d.reversal_of_document_id
             FROM receivable_charge_documents d
             JOIN customers c
               ON c.id=d.customer_id AND c.company_id=d.company_id
@@ -461,6 +465,11 @@ def _late_fee_receivables(
                 applied=applied,
                 remaining=money(total - applied),
                 document_type=charge_type,
+                reversal_of_id=(
+                    int(row["reversal_of_document_id"])
+                    if row["reversal_of_document_id"] is not None
+                    else None
+                ),
             )
         )
     return documents
