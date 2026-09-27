@@ -12,6 +12,7 @@ Keşif: `docs/f9-5-muhasebe-disa-aktarim-kesif-2026-09-24.md` §3, §6, §7.2.
   * `hucre_metni`nin önekini düşürmek           -> FORMÜL adımı KIRMIZI
   * `tutar_virgullu`da `.`yi korumak            -> MİKRO/KANONİK CSV KIRMIZI
   * uçta `veri.reddedilen` kapısını düşürmek    -> 409 adımı KIRMIZI
+  * uçta `fis_anahtarlari_tekil`i düşürmek      -> TEKRARLI FİŞ NO adımı KIRMIZI
   * günlüğü üretecin İÇİNE taşımak              -> KOPAN AKIŞ adımı KIRMIZI
   * `fisler.json`a cari VKN'sini koymak         -> ROLDEN BAĞIMSIZ ÖZET KIRMIZI
 """
@@ -353,7 +354,9 @@ def test_422_logo_bicim_donem(uygulama, dunya) -> None:
         r = _aktar(uygulama, dunya, period=kotu)
         assert r.status_code == 422 and r.json()["detail"]["code"] == "DONEM_GECERSIZ"
     assert _aktar(uygulama, dunya, period="2026-7").status_code == 422
-    assert _aktar(uygulama, dunya, target="sap").status_code == 422
+    r_sap = _aktar(uygulama, dunya, target="sap")
+    assert r_sap.status_code == 422 and r_sap.json()["detail"]["code"] == "HEDEF_DESTEKLENMIYOR"
+    assert "sap" in r_sap.json()["detail"]["message"]
     assert _gunluk(dunya["firma"]) == []
     assert _aktar(uygulama, dunya, target="luca", ek="&format=xlsx").status_code == 200
     assert _aktar(uygulama, dunya, target="mikro", ek="&format=csv").status_code == 200
@@ -409,13 +412,38 @@ def test_KOPAN_AKIS_gunluk_satirini_KAYBETTIRMEZ(uygulama, dunya, monkeypatch) -
     assert satir["target"] == "luca" and satir["fis_sayisi"] == 2
 
 
+def test_TEKRARLI_FIS_NO_409_akis_ve_gunluk_YOK(uygulama, dunya, monkeypatch) -> None:
+    """Tekrarlı fiş numarası akış ve denetim satırından ÖNCE 409 ile reddedilir."""
+    from dataclasses import replace
+
+    from app.routers import accounting
+
+    asli = accounting._donem_kesiti
+
+    def sahte_kesit(cid, donem):
+        veri = asli(cid, donem)
+        if veri.fisler:
+            ikiz = replace(veri.fisler[0], belge_no="S-IKIZ")
+            veri.fisler = [veri.fisler[0], ikiz] + list(veri.fisler[1:])
+        return veri
+
+    monkeypatch.setattr(accounting, "_donem_kesiti", sahte_kesit)
+    r = _aktar(uygulama, dunya)
+    assert r.status_code == 409, r.text
+    assert r.headers["content-type"].startswith("application/json")
+    detay = r.json()["detail"]
+    assert detay["code"] == "FIS_NO_TEKRARLI"
+    assert "Aynı fiş numarası iki belgede" in detay["message"]
+    assert _gunluk(dunya["firma"]) == []
+
+
 def test_ISLEM_SIRASI_kapi_gunluk_akis() -> None:
-    """`disa_aktar`da denge kapısı günlükten, günlük `StreamingResponse`tan ÖNCE."""
+    """`disa_aktar`da denge ve tekillik kapıları günlükten, günlük `StreamingResponse`tan ÖNCE."""
     import ast
 
     kaynak = (BACKEND / "app" / "routers" / "accounting.py").read_text(encoding="utf-8")
     fonk = next(d for d in ast.walk(ast.parse(kaynak))
                 if isinstance(d, ast.FunctionDef) and d.name == "disa_aktar")
     metin = ast.unparse(fonk)
-    assert metin.index("veri.reddedilen") < metin.index("log_request_activity") \
-        < metin.index("db.commit()") < metin.index("StreamingResponse(")
+    assert metin.index("veri.reddedilen") < metin.index("fis_anahtarlari_tekil") \
+        < metin.index("log_request_activity") < metin.index("db.commit()") < metin.index("StreamingResponse(")
