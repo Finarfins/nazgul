@@ -741,8 +741,15 @@ DYNAMIC_PERMISSION_CASES = {
 # GOVDEYE bagli (`party_type`), ara katman ise YOLU gorur. GERCEK kapi
 # handler'daki `_require_permission`dir. `tenant_scope` "company" ve izin
 # `read`, yani `ROUTE_REASONS` gerekce ISTIYOR: KENDI grubuyla girdiler.
-EXPECTED_OPERATION_COUNT = 425
-EXPECTED_PATH_COUNT = 331
+# 20260927 — F9-5a MUHASEBE FISI / KDV OZETI / HESAP ESLEMESI (goc 20260927_0093):
+# DORT yeni islem, UC yeni yol (GET+PUT /api/accounting/account-map, GET
+# /api/accounting/vouchers, GET /api/accounting/vat-summary). Sayim 425/331 ->
+# 429/334 (TABAN develop `a44d7b8`). Izin OLCULDU: uc GET "reports", PUT
+# "finance" — `auth.py`ye METODA BAKAN `/api/accounting` onek kurali eklendi,
+# genel `GET -> read` dususunun USTUNE. `tenant_scope` "company", izin `read`
+# degil: `ROUTE_REASONS` gerekce ISTEMIYOR ve eklenmedi.
+EXPECTED_OPERATION_COUNT = 429
+EXPECTED_PATH_COUNT = 334
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -954,7 +961,10 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # dordu de "read" + handler rol kapisi; KENDI gerekce grubuyla girdiler.
     # Sayim 421/327 -> 425/331. TABAN develop `f953964`: parmak izi
     # 05dafb0d -> 49838c5b.
-    "49838c5bf60c8608aa718ac959a9d0747b4c4c062c00a22e66cddf36a1f03d90"
+    # F9-5a (goc 20260927_0093): DORT yeni uc (`/api/accounting/*`), uc GET
+    # "reports" + PUT "finance" (metoda bakan onek kurali). Sayim 425/331 ->
+    # 429/334. TABAN develop `a44d7b8`: parmak izi 49838c5b -> 803e94a2.
+    "803e94a2b77e646011898fd181748a91adf95fb27b885a91a94bc9039406fbad"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

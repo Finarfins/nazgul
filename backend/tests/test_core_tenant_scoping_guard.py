@@ -2146,9 +2146,29 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # tarayicinin ciktisindan). BIR ifade, lisans istemedi:
 # `app/whatsapp/taraf.py::riza_damgasi_yaz` (`consent_at` UPDATE'i),
 # `whatsapp_party_links.c.company_id == company_id` yuklemini ACIKCA tasir.
-BEKLENEN_CORE_IFADE_SAYISI = 209
+# 209 -> 225: F9-5a MUHASEBE (goc 20260927_0093; TABAN develop `a44d7b8`,
+# tarayicinin ciktisindan). ON ALTI yeni ifade, HICBIRI lisans istemedi:
+# on ikisi `app/muhasebe/kaynak.py` (bes kolun baslik + kalem gruplari ve
+# G8 bagli alis okumasi; her birinin ILK `where` kosulu
+# `<tablo>.c.company_id == cid`, her birlesim `company_id` esitligiyle),
+# dordu `app/muhasebe/hesap_plani.py` (iki select, bir insert, bir update;
+# `muhasebe_hesap_eslemeleri.c.company_id == cid` ACIKCA).
+BEKLENEN_CORE_IFADE_SAYISI = 225
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
+    # F9-5a (goc 20260927_0093): `app/muhasebe/kaynak.py` belge tablolarinin
+    # TEK okuma yeri — bes kolun baslik/kalem tablolari Core uzerinden ILK KEZ
+    # goruluyor (bugune kadar yalniz text() ile okunuyorlardi). Eslem tablosu
+    # yalniz `app/muhasebe/hesap_plani.py`de. HEPSI `company_id == cid` ile.
+    "muhasebe_hesap_eslemeleri",
+    "order_items",
+    "orders",
+    "producer_receipt_items",
+    "producer_receipts",
+    "purchase_items",
+    "purchases",
+    "return_items",
+    "returns",
     # H47: CS2 dekont toplami (`statement._cek_dekont_borcu`) Core'a cevrildi.
     "receivable_charge_documents",
     # E4b-2 (goc 20260915_0089): ticari yanit belgesi ve satirlari.

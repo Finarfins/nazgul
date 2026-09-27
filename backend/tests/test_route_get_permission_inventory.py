@@ -456,6 +456,13 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/api/analytics/insights"): "reports",
     ("GET", "/api/reports/receivables-aging"): "reports",
     ("GET", "/api/reports/summary"): "reports",
+    # F9-5a (goc 20260927_0093): muhasebe fisi onizlemesi, aylik KDV ozeti ve
+    # hesap eslemesi. `auth.py`deki METODA BAKAN `/api/accounting` kuralindan
+    # ("reports"; PUT "finance"). Kural genel `GET -> read`in USTUNDE —
+    # altinda olsaydi ucu de "read"e cozulur ve `depo`/`satis` fisleri okurdu.
+    ("GET", "/api/accounting/account-map"): "reports",
+    ("GET", "/api/accounting/vat-summary"): "reports",
+    ("GET", "/api/accounting/vouchers"): "reports",
 
     # --- supplier_prices.view — `/api/supplier-prices/{imports,profiles}`.
     ("GET", "/api/supplier-prices/imports"): "supplier_prices.view",
@@ -611,7 +618,10 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # izni DEGISMEDI (drift raporu OLCULDU: yalniz `missing`, `stale`/`changed`
 # BOS). Yeni onek kurali (`/api/whatsapp/party-`) TIRELIDIR, yani mevcut
 # `/api/whatsapp/links` ucuna DOKUNMAZ — olculdu, varsayilmadi.
-GET_INVENTORY_COUNT = 202
+# F9-5a (MUHASEBE, goc 20260927_0093): sayim 202 -> 205 (TABAN develop
+# `a44d7b8`). UC yeni GET, ucu de "reports" (yeni metoda bakan onek kurali);
+# hicbir mevcut ucun izni DEGISMEDI (drift raporu OLCULDU: yalniz `missing`).
+GET_INVENTORY_COUNT = 205
 GET_INVENTORY_FINGERPRINT = (
     # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
     # sonra `auth.py`ye `/api/push/` önek kuralı eklendi, sonra izin
@@ -667,7 +677,11 @@ GET_INVENTORY_FINGERPRINT = (
     # F10-1a (TARAF BAGLANTISI, goc 20260918_0090): parmak izi EN SON
     # turetildi — once uc yazildi, izni `required_permission` ile OLCULDU
     # ("read"), sonra envantere gerekcesiyle girdi. 6fbfbcad -> 850bfb8f.
-    "850bfb8f763eba403f701a79aa7f7076b5e5395bf7b55423da2cef956b5ddb58"
+    # F9-5a (goc 20260927_0093): parmak izi EN SON turetildi — once uclar ve
+    # metoda bakan `/api/accounting` kurali yazildi, izin `required_permission`
+    # ile OLCULDU ("reports" x3), sonra envantere girdi. 850bfb8f -> 78c7721f
+    # (TABAN `a44d7b8`).
+    "78c7721f0975c866ab557154ab6e15015907404a665b4956375a7044db90a636"
 )
 
 

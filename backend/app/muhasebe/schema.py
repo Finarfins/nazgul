@@ -78,8 +78,9 @@ def taraf_check() -> str:
 
 KDV_ORANI_CHECK = "kdv_orani IS NULL OR (kdv_orani >= 0 AND kdv_orani <= 100)"
 
+# Ad LİTERAL: Core kiracı kapısı adı olmayan `Table(...)`ı yansıma sayar.
 muhasebe_hesap_eslemeleri = Table(
-    TABLO,
+    "muhasebe_hesap_eslemeleri",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
     # FK (`companies.id`) göçtedir; ayrı MetaData'da çözülemez

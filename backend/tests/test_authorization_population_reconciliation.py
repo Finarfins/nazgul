@@ -418,7 +418,12 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 #   * `EXPECTED_UNDENIABLE` 97'de SABIT ve bu ARITMETIK: korumali read
 #     CIPLAK read'i buyutmez, `naked_read` 56'da KIMILDAMAZ. Yani dort uc
 #     "hicbir rol degeriyle reddedilemez" kumesine GIRMIYOR.
-EXPECTED_AUTHENTICATED = 412
+# F9-5a MUHASEBE (goc 20260927_0093): DORT yeni uc (`/api/accounting/*`).
+# AUTH 412 -> 416. READ 91 / UNDENIABLE 97 / GUARDED 35 SABIT ve bu OLCULDU:
+# `auth.py`deki METODA BAKAN `/api/accounting` kurali genel `GET -> read`
+# dususunun USTUNDE; uc GET "reports"e, PUT "finance"a cozulur, hicbiri
+# `read` degildir. Kural altina dusseydi READ ve UNDENIABLE +3 kayardi.
+EXPECTED_AUTHENTICATED = 416
 EXPECTED_READ = 91
 EXPECTED_UNDENIABLE = 97
 

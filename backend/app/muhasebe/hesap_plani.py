@@ -99,11 +99,10 @@ class HesapPlani:
 
 
 def eslemeleri_oku(db: Session, cid: int) -> list[dict]:
-    t = muhasebe_hesap_eslemeleri
     satirlar = db.execute(
-        select(t.c.olay, t.c.kdv_orani, t.c.taraf_tipi, t.c.hesap_kodu, t.c.updated_at)
-        .where(t.c.company_id == cid)
-        .order_by(t.c.olay, t.c.kdv_orani, t.c.taraf_tipi)
+        select(muhasebe_hesap_eslemeleri.c.olay, muhasebe_hesap_eslemeleri.c.kdv_orani, muhasebe_hesap_eslemeleri.c.taraf_tipi, muhasebe_hesap_eslemeleri.c.hesap_kodu, muhasebe_hesap_eslemeleri.c.updated_at)
+        .where(muhasebe_hesap_eslemeleri.c.company_id == cid)
+        .order_by(muhasebe_hesap_eslemeleri.c.olay, muhasebe_hesap_eslemeleri.c.kdv_orani, muhasebe_hesap_eslemeleri.c.taraf_tipi)
     ).mappings().all()
     return [dict(s) for s in satirlar]
 
@@ -137,7 +136,6 @@ def esleme_yaz(
         raise ValueError(f"Bilinmeyen taraf tipi: {taraf_tipi}")
     if not hesap_kodu_gecerli(hesap_kodu):
         raise ValueError(f"Geçersiz hesap kodu: {hesap_kodu}")
-    t = muhasebe_hesap_eslemeleri
     oran = oran_normalize(kdv_orani)
     # CAST ŞART: psycopg3 `Numeric` bağına `::NUMERIC` YAZMAZ ve PG `$n IS NULL`
     # için tip çıkaramaz (`AmbiguousParameter`, PG ikizinde ölçüldü; SQLite'ta
@@ -145,17 +143,17 @@ def esleme_yaz(
     p_oran = cast(bindparam("p_oran", oran, type_=Numeric(9, 4)), Numeric(9, 4))
     p_taraf = bindparam("p_taraf", taraf_tipi, type_=String)
     mevcut = db.execute(
-        select(t.c.id, t.c.hesap_kodu).where(
-            t.c.company_id == cid,
-            t.c.olay == olay,
-            or_(and_(p_oran.is_(None), t.c.kdv_orani.is_(None)), t.c.kdv_orani == p_oran),
-            func.coalesce(t.c.taraf_tipi, "") == func.coalesce(p_taraf, ""),
+        select(muhasebe_hesap_eslemeleri.c.id, muhasebe_hesap_eslemeleri.c.hesap_kodu).where(
+            muhasebe_hesap_eslemeleri.c.company_id == cid,
+            muhasebe_hesap_eslemeleri.c.olay == olay,
+            or_(and_(p_oran.is_(None), muhasebe_hesap_eslemeleri.c.kdv_orani.is_(None)), muhasebe_hesap_eslemeleri.c.kdv_orani == p_oran),
+            func.coalesce(muhasebe_hesap_eslemeleri.c.taraf_tipi, "") == func.coalesce(p_taraf, ""),
         )
     ).mappings().first()
     an = datetime.now(timezone.utc)
     if mevcut is None:
         db.execute(
-            insert(t).values(
+            insert(muhasebe_hesap_eslemeleri).values(
                 company_id=cid,
                 olay=olay,
                 kdv_orani=oran,
@@ -167,8 +165,8 @@ def esleme_yaz(
         return None, hesap_kodu
     if mevcut["hesap_kodu"] != hesap_kodu:
         db.execute(
-            update(t)
-            .where(t.c.company_id == cid, t.c.id == mevcut["id"])
+            update(muhasebe_hesap_eslemeleri)
+            .where(muhasebe_hesap_eslemeleri.c.company_id == cid, muhasebe_hesap_eslemeleri.c.id == mevcut["id"])
             .values(hesap_kodu=hesap_kodu, updated_at=an)
         )
     return mevcut["hesap_kodu"], hesap_kodu

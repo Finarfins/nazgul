@@ -231,7 +231,7 @@ def hesap_plani_guncelle(
     return _plan_gorunumu(db, cid)
 
 
-def _fis_gorunumu(fis, rol: str) -> dict:
+def _muhasebe_fisi_gorunumu(fis, rol: str) -> dict:
     govde = fis_sozlugu(fis)
     govde["cari"] = maskele_cari({"ad": fis.cari_ad, "tax_number": fis.cari_vkn}, rol)
     return govde
@@ -256,7 +256,7 @@ def fis_onizleme(
         "total": len(veri.fisler),
         "limit": limit,
         "offset": offset,
-        "items": [_fis_gorunumu(f, rol) for f in veri.fisler[offset:offset + limit]],
+        "items": [_muhasebe_fisi_gorunumu(f, rol) for f in veri.fisler[offset:offset + limit]],
         "dengesiz_sayisi": len(veri.reddedilen),
         "uyarilar": ozet["uyarilar"],
     }
