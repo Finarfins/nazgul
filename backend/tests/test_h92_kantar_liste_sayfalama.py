@@ -31,6 +31,17 @@ bulunmaz.
   * Tavanı kaldırmak                     -> TAVAN kapısı KIRMIZI (501 satır)
   * Tavanı bir sayfa kaydırmak (520)     -> TAVAN kapısının 501. satır dalı KIRMIZI
   * `status='issued'` süzgecini düşürmek -> TASLAK/İPTAL kapısı KIRMIZI
+
+--- H100: TAVAN NOTU --------------------------------------------------------
+
+Tavan listeyi beşten kısa bıraktığında çiftçi HİÇBİR şey görmüyordu. Artık
+`ciftci_kantar` `tavana_takildi` döndürür ve LISTE cevabı TEK bir son satır
+(`KANTAR_TAVAN_NOTU`) ekler. Beş fiş bulunan ve satırları biten listelerin
+cevabı H92'deki ile BAYT BAYT aynıdır (kapı 6, 7).
+
+  * Bayrağı hep doğru yapmak               -> NOTSUZ kapılar (6, 7) KIRMIZI
+  * Bayrağı hiç kurmamak                   -> NOT kapısı (5) KIRMIZI
+  * `len(fisler) < adet` koşulunu düşürmek -> TAM TAVANDA BEŞİNCİ FİŞ (kapı 6) KIRMIZI
 """
 from __future__ import annotations
 
@@ -220,15 +231,36 @@ def _makbuzlar(db, dunya, fisler: list[int | None], durum: str = "issued") -> No
     db.commit()
 
 
-def _kantar(db, dunya, *, liste: bool = True) -> list[str]:
+def _kantar_veri(db, dunya, *, liste: bool = True) -> dict:
     from app.whatsapp.ciftci_yurutucu import ciftci_kantar
     from app.whatsapp.taraf import TarafKimlik
 
     kimlik = TarafKimlik(
         company_id=dunya["firma"], party_type="SUPPLIER", party_id=dunya["ciftci"]
     )
-    veri = ciftci_kantar(db, kimlik, {"liste": liste})
-    return [f["ticket_no"] for f in veri["fisler"]]
+    return ciftci_kantar(db, kimlik, {"liste": liste})
+
+
+def _kantar(db, dunya, *, liste: bool = True) -> list[str]:
+    return [f["ticket_no"] for f in _kantar_veri(db, dunya, liste=liste)["fisler"]]
+
+
+def _cevap(veri: dict) -> str:
+    from app.whatsapp.ciftci_yurutucu import cevap_yaz
+
+    return cevap_yaz("ciftci_kantar", veri)
+
+
+def _h92_cevabi(veri: dict) -> str:
+    """H92'nin (acafd82) LISTE cevabı, ELLE yazılmış: fiş başına bir satır, not YOK.
+
+    Fişler `weighed_at` NULL, 1000 KG brüt ve kesintisiz yazılır; satır
+    "#<fiş no> · NET 1.000,00 kg · <makbuz no>" olur.
+    """
+    return "\n".join(
+        f"#{f['ticket_no']} · NET 1.000,00 kg · {f['receipt_no']}"
+        for f in veri["fisler"]
+    )
 
 
 def _casus(monkeypatch) -> list[int]:
@@ -332,3 +364,87 @@ def test_TAVAN_SABITI_BRIEFTEKI_DEGER() -> None:
 
     assert ciftci_yurutucu._TARAMA_TAVANI == TAVAN
     assert ciftci_yurutucu._TARAMA_TAVANI % ciftci_yurutucu._FIS_SAYFASI == 0
+
+
+# ------------------------------------------------------- H100: tavan notu ---
+
+
+def test_TAVANA_TAKILAN_LISTE_TEK_NOT_SATIRIYLA_BITER(oturum, dunya):
+    """Kapı 5: 500 sıcak makbuzun arkasındaki eski fiş (501. satır) → NOT.
+
+    Tam TAVAN satırda biten geçmiş de takılmış sayılır: son sayfa dolu
+    döndüğünde arkasında satır olup olmadığı ölçülmez (ek satır tavanı, ek
+    sorgu SQL'i değiştirirdi). O durumda not ZARARSIZ fazlalıktır.
+    """
+    from app.whatsapp.ciftci_yurutucu import KANTAR_TAVAN_NOTU
+
+    eski = _fis(oturum, dunya, "ESKI")
+    sicak = _fis(oturum, dunya, "SICAK")
+    _makbuzlar(oturum, dunya, [eski])
+    _makbuzlar(oturum, dunya, [sicak] * (TAVAN - 1))
+
+    veri = _kantar_veri(oturum, dunya)  # tam TAVAN satır: ESKI 500. satırda
+    assert [f["ticket_no"] for f in veri["fisler"]] == ["SICAK", "ESKI"]
+    assert veri["tavana_takildi"] is True
+    assert _cevap(veri) == _h92_cevabi(veri) + "\n" + KANTAR_TAVAN_NOTU
+
+    _makbuzlar(oturum, dunya, [sicak])  # ESKI artık 501. satır
+    veri = _kantar_veri(oturum, dunya)
+    assert [f["ticket_no"] for f in veri["fisler"]] == ["SICAK"]
+    assert veri["tavana_takildi"] is True
+    cevap = _cevap(veri)
+    assert cevap == _h92_cevabi(veri) + "\n" + KANTAR_TAVAN_NOTU
+    assert cevap.count(KANTAR_TAVAN_NOTU) == 1
+    assert cevap.splitlines()[-1] == "Daha eski fişleriniz için alım merkezinize başvurun."
+    # Tekil görünüm ilk satırda fişini bulur: not ONA hiç girmez.
+    tekil = _kantar_veri(oturum, dunya, liste=False)
+    assert tekil["tavana_takildi"] is False
+    assert KANTAR_TAVAN_NOTU not in _cevap(tekil)
+
+
+def test_BES_FIS_BULUNAN_LISTE_NOTSUZ_ve_H92_ILE_AYNI(oturum, dunya):
+    """Kapı 6: beş fiş bulundu → not YOK, cevap H92 ile bayt bayt aynı.
+
+    İkinci senaryoda beşinci fiş TAM 500. satırdadır: tarama tavanda durur
+    ama liste doludur, yani takılma YOKTUR.
+    """
+    _brief_senaryosu(oturum, dunya)
+    veri = _kantar_veri(oturum, dunya)
+    assert [f["ticket_no"] for f in veri["fisler"]] == ["F6", "F5", "F4", "F3", "F2"]
+    assert veri["tavana_takildi"] is False
+    assert _cevap(veri) == _h92_cevabi(veri)
+    assert len(_cevap(veri).splitlines()) == 5
+
+
+def test_BESINCI_FIS_TAM_TAVANDA_NOTSUZ(oturum, dunya, monkeypatch):
+    """Kapı 6 (dal): beşinci farklı fiş TAM 500. satırda → not YOK."""
+    t = {ad: _fis(oturum, dunya, ad) for ad in ("T1", "T2", "T3", "T4", "T5")}
+    # Yeniden eskiye: T5, T4, T3, T2, 495 x T5, T1 (500. satır).
+    _makbuzlar(oturum, dunya, [t["T1"]])
+    _makbuzlar(oturum, dunya, [t["T5"]] * (TAVAN - 5))
+    _makbuzlar(oturum, dunya, [t["T2"], t["T3"], t["T4"], t["T5"]])
+
+    sayfalar = _casus(monkeypatch)
+    veri = _kantar_veri(oturum, dunya)
+    assert sum(sayfalar) == TAVAN, sayfalar
+    assert [f["ticket_no"] for f in veri["fisler"]] == ["T5", "T4", "T3", "T2", "T1"]
+    assert veri["tavana_takildi"] is False
+    assert _cevap(veri) == _h92_cevabi(veri)
+
+
+def test_SATIRLARI_BITEN_LISTE_NOTSUZ_ve_H92_ILE_AYNI(oturum, dunya):
+    """Kapı 7: satırlar tavandan ÖNCE biter → not YOK, cevap H92 ile aynı."""
+    eski = _fis(oturum, dunya, "ESKI")
+    sicak = _fis(oturum, dunya, "SICAK")
+    _makbuzlar(oturum, dunya, [eski, sicak])
+    veri = _kantar_veri(oturum, dunya)
+    assert [f["ticket_no"] for f in veri["fisler"]] == ["SICAK", "ESKI"]
+    assert veri["tavana_takildi"] is False
+    assert _cevap(veri) == _h92_cevabi(veri)
+
+    # Tavanın bir satır altı (499): uzun ama BİTEN geçmiş de notsuz.
+    _makbuzlar(oturum, dunya, [sicak] * (TAVAN - 3))
+    veri = _kantar_veri(oturum, dunya)
+    assert [f["ticket_no"] for f in veri["fisler"]] == ["SICAK", "ESKI"]
+    assert veri["tavana_takildi"] is False
+    assert _cevap(veri) == _h92_cevabi(veri)
