@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from starlette.requests import Request
 
+from app.routers import dashboard as dashboard_module
 from app.routers.dashboard import dashboard
 
 
@@ -31,8 +32,6 @@ class RecordingSession:
                 "today_sales": 0,
                 "month_sales": 0,
                 "active_sales": 0,
-                "overdue_count": 0,
-                "overdue_total": 0,
                 "month_purchases": 0,
                 "active_purchases": 0,
                 "today_collections": 0,
@@ -52,7 +51,18 @@ class RecordingSession:
         return Rows([])
 
 
-def test_dashboard_uses_one_summary_query_and_nine_queries_total() -> None:
+def test_dashboard_uses_one_summary_query_and_eight_queries_total(monkeypatch) -> None:
+    # H107: gecikmiş alacaklar panonun kendi SQL'inden değil alacak
+    # motorundan gelir. Motorun sorguları kendi bütçesidir; burada panonun
+    # KENDİ sorgu sayısı (9 -> 8, ham gecikmiş alacak sorgusu silindi) ve
+    # motorun istek başına TEK çağrıldığı çapalanır.
+    engine_calls: list[tuple[int, object]] = []
+
+    def fake_engine(db, cid, as_of):
+        engine_calls.append((cid, as_of))
+        return []
+
+    monkeypatch.setattr(dashboard_module, "calculate_net_receivables", fake_engine)
     request = Request({"type": "http", "method": "GET", "path": "/api/dashboard", "headers": []})
     request.state.company_id = 7
     request.state.user = {"role": "admin"}
@@ -60,7 +70,11 @@ def test_dashboard_uses_one_summary_query_and_nine_queries_total() -> None:
 
     result = dashboard(request, db=db)
 
-    assert len(db.calls) == 9
+    assert len(db.calls) == 8
+    assert len(engine_calls) == 1 and engine_calls[0][0] == 7
+    assert result["overdue_count"] == 0
+    assert result["overdue_total"] == 0
+    assert result["overdue_receivables"] == []
     summary_sql, summary_params = db.calls[0]
     assert "WITH sales AS" in summary_sql
     assert "purchases_summary AS" in summary_sql

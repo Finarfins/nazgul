@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import text
@@ -10,6 +12,7 @@ from ..auth import has_permission
 from ..business_time import business_today
 from ..db import get_db
 from ..money import ZERO_MONEY, money
+from ..receivables_engine import ReceivableDocument, calculate_net_receivables
 from ..document_engine import SALES_IMPORT_NOTE, accounting_document_status_sql
 from ..tenancy import company_id
 from .reports import RESOLVED_PRODUCT_ID_SQL
@@ -80,6 +83,42 @@ def kritik_urunler(db: Session, cid: int, limit: int = KRITIK_URUN_SINIRI):
     )
 
 
+
+def _gecikmis_alacaklar(
+    documents: list[ReceivableDocument], today: date
+) -> tuple[Decimal, list[ReceivableDocument]]:
+    """Vadesi geçmiş alacaklar: (toplam, liste). Yaşlandırma raporu kâhindir.
+
+    Toplam: ``remaining != 0`` olan her vadesi geçmiş belge, eksiler dahil
+    (yaşlandırma yalnız ``remaining == 0``'ı atlar) — kuruşu kuruşuna aynı.
+    Liste: önce netle, sonra süz. Terslenen ücret belgesi (+) ile ters kaydı
+    (-, ``reversal_of_id``) tek belgede toplanır; net ``> 0`` olanlar listelenir.
+    Satış ve ücret belgeleri ayrı id uzaylarındadır, anahtar türü de taşır.
+    """
+    overdue = [
+        document
+        for document in documents
+        if document.due_date < today and document.remaining != ZERO_MONEY
+    ]
+    total = sum((document.remaining for document in overdue), ZERO_MONEY)
+    groups: dict[tuple[bool, int], list[ReceivableDocument]] = {}
+    for document in overdue:
+        is_charge = document.document_type != "sale"
+        root = document.reversal_of_id if document.reversal_of_id is not None else document.id
+        groups.setdefault((is_charge, root), []).append(document)
+    netted: list[ReceivableDocument] = []
+    for members in groups.values():
+        net = sum((member.remaining for member in members), ZERO_MONEY)
+        head = next(
+            (member for member in members if member.reversal_of_id is None), None
+        )
+        if head is None or net <= ZERO_MONEY:
+            continue
+        netted.append(dataclasses.replace(head, remaining=net))
+    netted.sort(key=lambda document: (document.due_date, -document.remaining))
+    return total, netted
+
+
 @router.get("")
 def dashboard(request: Request, db: Session = Depends(get_db)):
     cid = company_id(request)
@@ -104,14 +143,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
           SELECT
           COALESCE(SUM(CASE WHEN order_date=:today AND {ORDER_ACCOUNTING_STATUS_SQL} THEN final_total ELSE 0 END),0) AS today_sales,
           COALESCE(SUM(CASE WHEN order_date>=:month_start AND {ORDER_ACCOUNTING_STATUS_SQL} THEN final_total ELSE 0 END),0) AS month_sales,
-          COALESCE(SUM(CASE WHEN {ORDER_ACCOUNTING_STATUS_SQL} THEN final_total ELSE 0 END),0) AS active_sales,
-          COALESCE(SUM(CASE WHEN due_date IS NOT NULL AND due_date<:today
-                            AND {ORDER_ACCOUNTING_STATUS_SQL}
-                            AND final_total-COALESCE(paid_amount,0)>0 THEN 1 ELSE 0 END),0) AS overdue_count,
-          COALESCE(SUM(CASE WHEN due_date IS NOT NULL AND due_date<:today
-                            AND {ORDER_ACCOUNTING_STATUS_SQL}
-                            AND final_total-COALESCE(paid_amount,0)>0
-                            THEN final_total-COALESCE(paid_amount,0) ELSE 0 END),0) AS overdue_total
+          COALESCE(SUM(CASE WHEN {ORDER_ACCOUNTING_STATUS_SQL} THEN final_total ELSE 0 END),0) AS active_sales
           FROM orders o
           WHERE o.company_id=:cid AND {ORDER_ACCOUNTING_STATUS_SQL}
         ), purchases_summary AS (
@@ -184,8 +216,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
                portfolio_summary.portfolio_check_count,portfolio_summary.portfolio_check_total,
                supplier_summary.supplier_opening+purchases_summary.active_purchases
                  +producer_receipt_summary.issued_receipts
-                 -payment_summary.supplier_payments AS supplier_payables,
-               sales.overdue_count,sales.overdue_total
+                 -payment_summary.supplier_payments AS supplier_payables
         FROM sales,purchases_summary,payment_summary,expense_summary,
              product_summary,customer_summary,supplier_summary,
              producer_receipt_summary,bounced_check_summary,portfolio_summary
@@ -229,27 +260,26 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         ZERO_MONEY,
     )
 
-    overdue_receivables = _rows(
-        db,
-        f"""
-        SELECT o.id,o.customer_id,c.name AS customer_name,o.due_date,o.document_no,
-               o.final_total-COALESCE(o.paid_amount,0) AS remaining
-        FROM orders o
-        JOIN customers c ON c.id=o.customer_id AND c.company_id=o.company_id
-        WHERE o.company_id=:cid
-         AND {ORDER_ACCOUNTING_STATUS_SQL}
-          AND o.due_date IS NOT NULL AND o.due_date<:today
-          AND o.final_total-COALESCE(o.paid_amount,0)>0
-        ORDER BY o.due_date ASC, remaining DESC
-        LIMIT 8
-        """,
-        params,
+    # H107: gecikmiş alacaklar yaşlandırma raporuyla AYNI motordan gelir.
+    # `final_total - paid_amount` yalnız siparişe doğrudan bağlı tahsisi
+    # görür; defterde FIFO ile kapanan bağsız tahsilatı, iadeyi ve deftere
+    # işlenmiş vade farkı / servis / karşılıksız çek belgelerini görmez.
+    overdue_total, overdue_documents = _gecikmis_alacaklar(
+        calculate_net_receivables(db, cid, today), today
     )
-    for item in overdue_receivables:
-        due = parse_date(item.get("due_date"))
-        item["days_overdue"] = (today - due).days if due else 0
-        item["remaining"] = round(money(item.get("remaining")), 2)
-        item["document_no"] = item.get("document_no") or f"S-{item['id']}"
+    overdue_count = len(overdue_documents)
+    overdue_receivables = [
+        {
+            "id": document.id,
+            "customer_id": document.customer_id,
+            "customer_name": document.customer_name,
+            "due_date": document.due_date.isoformat(),
+            "document_no": document.document_no or f"S-{document.id}",
+            "remaining": round(document.remaining, 2),
+            "days_overdue": (today - document.due_date).days,
+        }
+        for document in overdue_documents[:8]
+    ]
 
     recent_sales = _rows(
         db,
@@ -400,8 +430,8 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         "customer_count": int(summary.get("customer_count") or 0),
         "product_count": int(summary.get("product_count") or 0),
         "critical_stock_count": int(summary.get("critical_stock_count") or 0),
-        "overdue_count": int(summary.get("overdue_count") or 0),
-        "overdue_total": round(money(summary.get("overdue_total")), 2),
+        "overdue_count": overdue_count,
+        "overdue_total": round(overdue_total, 2),
         "recent_sales": recent_sales,
         "critical_products": critical_products,
         "overdue_receivables": overdue_receivables,
