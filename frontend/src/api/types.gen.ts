@@ -4,6 +4,73 @@
  */
 
 export interface paths {
+    "/api/accounting/account-map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Hesap Plani Getir
+         * @description Tek Düzen varsayılanları + firmanın yazdığı istisnalar (boş = hep varsayılan).
+         */
+        get: operations["hesap_plani_getir_api_accounting_account_map_get"];
+        /**
+         * Hesap Plani Guncelle
+         * @description Eşlem listesini yazar (varsa günceller); aynı liste İKİ kez = aynı durum.
+         *
+         *     Aktivite satırı YALNIZ değişen eşlemleri taşır (önce/sonra, PII yok) ve
+         *     yazmayla AYNI işlemdedir. Hiçbir şey değişmediyse satır YAZILMAZ.
+         */
+        put: operations["hesap_plani_guncelle_api_accounting_account_map_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/accounting/vat-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Kdv Ozeti Getir
+         * @description Aylık KDV özeti `(yön, oran, tür)` üçlüsüyle + uyarılar (G2-G9).
+         */
+        get: operations["kdv_ozeti_getir_api_accounting_vat_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/accounting/vouchers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fis Onizleme
+         * @description Dönemin kanonik fişleri (sayfalı). Dengesiz fiş LİSTEYE GİRMEZ; `uyarilar`da.
+         */
+        get: operations["fis_onizleme_api_accounting_vouchers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/activity-logs": {
         parameters: {
             query?: never;
@@ -8255,6 +8322,71 @@ export interface components {
             /** Txn Date */
             txn_date: string;
         };
+        /** FisCarisi */
+        FisCarisi: {
+            /** Ad */
+            ad?: string | null;
+            /** Tax Number */
+            tax_number?: string | null;
+        };
+        /** FisGorunumu */
+        FisGorunumu: {
+            /** Alacak Toplami */
+            alacak_toplami: string;
+            /** Belge No */
+            belge_no: string;
+            /** Belge Tarihi */
+            belge_tarihi: string;
+            /** Belge Tipi */
+            belge_tipi: string;
+            /** Borc Toplami */
+            borc_toplami: string;
+            cari: components["schemas"]["FisCarisi"];
+            /** Fis No */
+            fis_no: string;
+            /** Fis Tarihi */
+            fis_tarihi: string;
+            /** Kaynak */
+            kaynak: string;
+            /** Odeme Yontemi */
+            odeme_yontemi: string;
+            /** Satirlar */
+            satirlar: components["schemas"]["FisSatiriGorunumu"][];
+        };
+        /** FisListesi */
+        FisListesi: {
+            /** Dengesiz Sayisi */
+            dengesiz_sayisi: number;
+            /** Items */
+            items: components["schemas"]["FisGorunumu"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Period */
+            period: string;
+            /** Total */
+            total: number;
+            /** Uyarilar */
+            uyarilar: components["schemas"]["MuhasebeUyarisi"][];
+        };
+        /** FisSatiriGorunumu */
+        FisSatiriGorunumu: {
+            /** Aciklama */
+            aciklama: string;
+            /** Alacak */
+            alacak: string;
+            /** Borc */
+            borc: string;
+            /** Cari Id */
+            cari_id?: number | null;
+            /** Cari Tipi */
+            cari_tipi?: string | null;
+            /** Hesap Kodu */
+            hesap_kodu: string;
+            /** Kdv Orani */
+            kdv_orani?: string | null;
+        };
         /** ForgotPasswordPayload */
         ForgotPasswordPayload: {
             /** Email */
@@ -8687,6 +8819,45 @@ export interface components {
             /** Target Calving Interval Days */
             target_calving_interval_days: number;
         };
+        /** HesapEslemesi */
+        HesapEslemesi: {
+            /** Hesap Kodu */
+            hesap_kodu: string;
+            /** Kdv Orani */
+            kdv_orani?: string | null;
+            /** Olay */
+            olay: string;
+            /** Taraf Tipi */
+            taraf_tipi?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+        };
+        /** HesapEslemesiGirdisi */
+        HesapEslemesiGirdisi: {
+            /** Hesap Kodu */
+            hesap_kodu: string;
+            /** Kdv Orani */
+            kdv_orani?: number | string | null;
+            /**
+             * Olay
+             * @enum {string}
+             */
+            olay: "SATIS_CARI" | "SATIS_GELIR" | "SATIS_KDV" | "SATIS_IADE" | "ALIS_CARI" | "ALIS_STOK" | "ALIS_KDV" | "ALIS_IADE" | "SERVIS_GELIR" | "MUSTAHSIL_STOPAJ" | "MUSTAHSIL_BAGKUR" | "KASA" | "BANKA" | "POS" | "ALINAN_CEK" | "VADE_FARKI_GELIR";
+            /** Taraf Tipi */
+            taraf_tipi?: ("CUSTOMER" | "SUPPLIER") | null;
+        };
+        /** HesapPlaniCevabi */
+        HesapPlaniCevabi: {
+            /** Eslemeler */
+            eslemeler: components["schemas"]["HesapEslemesi"][];
+            /** Varsayilanlar */
+            varsayilanlar: components["schemas"]["VarsayilanHesap"][];
+        };
+        /** HesapPlaniGuncelleme */
+        HesapPlaniGuncelleme: {
+            /** Eslemeler */
+            eslemeler: components["schemas"]["HesapEslemesiGirdisi"][];
+        };
         /** HizSiniriOzeti */
         HizSiniriOzeti: {
             /** Items */
@@ -9114,6 +9285,41 @@ export interface components {
             responses_count: number;
             /** Warnings */
             warnings: components["schemas"]["IrsaliyeYanitUyarisi"][];
+        };
+        /** KdvOzeti */
+        KdvOzeti: {
+            /** Fark */
+            fark: string;
+            /** Hesaplanan Kdv */
+            hesaplanan_kdv: string;
+            /** Indirilecek Kdv */
+            indirilecek_kdv: string;
+            /** Kapsam Notlari */
+            kapsam_notlari: string[];
+            mustahsil: components["schemas"]["MustahsilOzeti"];
+            /** Period */
+            period: string;
+            /** Satirlar */
+            satirlar: components["schemas"]["KdvSatiri"][];
+            /** Uyarilar */
+            uyarilar: components["schemas"]["MuhasebeUyarisi"][];
+        };
+        /** KdvSatiri */
+        KdvSatiri: {
+            /** Belge Sayisi */
+            belge_sayisi: number;
+            /** Bilinen Oran */
+            bilinen_oran: boolean;
+            /** Kdv */
+            kdv: string;
+            /** Matrah */
+            matrah: string;
+            /** Oran */
+            oran: string;
+            /** Tur */
+            tur: string;
+            /** Yon */
+            yon: string;
         };
         /**
          * KodGirdisi
@@ -9612,6 +9818,34 @@ export interface components {
             reason?: string | null;
             /** Withdrawal Override Reason */
             withdrawal_override_reason?: string | null;
+        };
+        /** MuhasebeUyarisi */
+        MuhasebeUyarisi: {
+            /** Belge Id */
+            belge_id?: number | null;
+            /** Belge No */
+            belge_no?: string | null;
+            /** Fark */
+            fark?: string | null;
+            /** Kaynak */
+            kaynak: string;
+            /** Kod */
+            kod: string;
+            /** Mesaj */
+            mesaj: string;
+        };
+        /** MustahsilOzeti */
+        MustahsilOzeti: {
+            /** Bagkur */
+            bagkur: string;
+            /** Belge Sayisi */
+            belge_sayisi: number;
+            /** Brut */
+            brut: string;
+            /** Net */
+            net: string;
+            /** Stopaj */
+            stopaj: string;
         };
         /** NoteCreate */
         NoteCreate: {
@@ -11532,6 +11766,13 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** VarsayilanHesap */
+        VarsayilanHesap: {
+            /** Hesap Kodu */
+            hesap_kodu: string;
+            /** Olay */
+            olay: string;
+        };
         /** VerifyEmailPayload */
         VerifyEmailPayload: {
             /** Token */
@@ -11862,6 +12103,125 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    hesap_plani_getir_api_accounting_account_map_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HesapPlaniCevabi"];
+                };
+            };
+        };
+    };
+    hesap_plani_guncelle_api_accounting_account_map_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HesapPlaniGuncelleme"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HesapPlaniCevabi"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    kdv_ozeti_getir_api_accounting_vat_summary_get: {
+        parameters: {
+            query: {
+                /** @description YYYY-AA */
+                period: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KdvOzeti"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fis_onizleme_api_accounting_vouchers_get: {
+        parameters: {
+            query: {
+                /** @description YYYY-AA */
+                period: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FisListesi"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_logs_api_activity_logs_get: {
         parameters: {
             query?: {
