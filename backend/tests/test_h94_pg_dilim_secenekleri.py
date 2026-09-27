@@ -19,6 +19,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 from tests.pg_ikiz_yardimci import PG_OTURUM_DILIMI, pg_secenekleri
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -36,8 +38,19 @@ DUZELTILEN_IKIZLER = (
 )
 
 
+PG_TWINS_PIN = BACKEND / "tests" / "pins" / "pg_twins.txt"
+
+
 def _taranan_dosyalar() -> list[Path]:
-    dosyalar = set(BACKEND.glob("*_postgresql.py"))
+    dosyalar: set[Path] = set()
+    for satir in PG_TWINS_PIN.read_text(encoding="utf-8").splitlines():
+        satir = satir.strip()
+        if not satir:
+            continue
+        yol = BACKEND / satir
+        assert yol.is_file(), f"pg_twins envanterindeki dosya diskte yok: {satir}"
+        dosyalar.add(yol)
+    dosyalar |= set(BACKEND.glob("*_postgresql.py"))
     dosyalar |= set((BACKEND / "tests").rglob("*_postgresql.py"))
     dosyalar.add(BACKEND / "tests" / "pg_ikiz_yardimci.py")
     dosyalar.add(BACKEND / "conftest.py")
@@ -149,6 +162,35 @@ def test_duzeltilen_yedi_ikiz_yardimciyi_GERCEKTEN_kullanir() -> None:
         ihlal, gecen = _ihlaller((BACKEND / ad).read_text(encoding="utf-8"))
         assert not ihlal, (ad, ihlal)
         assert gecen >= 1, f"{ad}: kapıdan geçen yol yok — tarayıcı kör mü?"
+
+
+def test_tarayici_pg_twins_envanterinin_tamamini_ve_uc_istisnayi_kapsar() -> None:
+    dosyalar = set(_taranan_dosyalar())
+    satirlar = [
+        s.strip()
+        for s in PG_TWINS_PIN.read_text(encoding="utf-8").splitlines()
+        if s.strip()
+    ]
+    eksikler = [satir for satir in satirlar if (BACKEND / satir) not in dosyalar]
+    assert not eksikler, f"Envanterde olup taranmayan dosyalar: {eksikler}"
+
+    uc_istisna = (
+        "test_postgresql_app_smoke.py",
+        "tests/test_ci_playwright_hazirlik.py",
+        "tests/test_company_id_default_contract.py",
+    )
+    for ad in uc_istisna:
+        assert (BACKEND / ad) in dosyalar, f"{ad} taranan dosyalar kümesinde yok"
+
+
+def test_tarayici_diskte_olmayan_envanter_satirinda_hata_verir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sahte_pin = tmp_path / "pg_twins.txt"
+    sahte_pin.write_text("olmayan_ikiz_test.py\n", encoding="utf-8")
+    monkeypatch.setattr(f"{__name__}.PG_TWINS_PIN", sahte_pin)
+    with pytest.raises(AssertionError, match="olmayan_ikiz_test.py"):
+        _taranan_dosyalar()
 
 
 # --- Tarayıcının kendisi: her kaçak şekil KIRMIZI, doğru şekil YEŞİL. ---
