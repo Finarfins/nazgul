@@ -26,6 +26,7 @@ from ..alan_maskeleme import maskele_cari
 from ..db import get_db
 from ..lot_izi import parti_izi_oku
 from ..lot_izi_ozet import ozetle
+from ..lot_izi_schemas import GeriCagirmaOnizleme
 from ..notifications.consents import evaluate_consent, normalize_msisdn
 from ..tenancy import company_id, istek_rolu
 from .pos import _mapped_retail_customer_id
@@ -59,7 +60,7 @@ def _iletisim(
     return sonuc
 
 
-@router.get("/{lot_id}/recall-preview")
+@router.get("/{lot_id}/recall-preview", response_model=GeriCagirmaOnizleme)
 def recall_preview(lot_id: int, request: Request, db: Session = Depends(get_db)):
     """Bu parti kime, ne kadar, ne zaman çıktı; elinde ne kaldı; nerede iz koptu."""
     cid = company_id(request)

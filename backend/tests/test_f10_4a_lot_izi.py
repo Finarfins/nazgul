@@ -32,10 +32,14 @@ Keşif `docs/f10-4-lot-geri-cagirma-kesif-2026-09-27.md` §2 (sonda), §3 (G1–
         -> davranış G4 bölümü KIRMIZI (201 döner) + `TRANSFER_KAPISI` KIRMIZI
   * Kardeş satır dalını kaldırmak (yalnız kök `id`) -> Cem kaybolur
   * İade düşmeyi kaldırmak -> Ali 30 okunur
+  * Uçtan `response_model`i kaldırmak -> `OPENAPI_cevap_semasi` KIRMIZI
+    (`$ref` yok); `ozetle`ye şemada olmayan bir anahtar eklemek -> davranış
+    KIRMIZI (`extra="forbid"`, cevap doğrulaması 500)
 """
 from __future__ import annotations
 
 import ast
+import json
 import os
 import subprocess
 import sys
@@ -222,6 +226,44 @@ def test_GERI_CAGIRMA_ONIZLEMESI_ve_PARTISIZ_TRANSFER(tmp_path: Path) -> None:
     )
     assert tamamlandi.returncode == 0, tamamlandi.stdout + "\n" + tamamlandi.stderr
     assert "F10-4A OK" in tamamlandi.stdout
+
+
+#: Cevap şemasının üst anahtarları (AGY tur-1: `response_model` yoktu,
+#: `types.gen.ts` gövdeyi `unknown` yazıyordu).
+UST_ANAHTARLAR = {
+    "lot", "siblings", "customers", "pos_retail", "gaps", "other_movements", "balance",
+}
+
+_SEMA = r'''
+import json
+from app.main import app
+
+sema = app.openapi()
+cevap = sema['paths']['/api/lots/{lot_id}/recall-preview']['get']['responses']['200']
+govde = cevap['content']['application/json']['schema']
+ad = govde['$ref'].rsplit('/', 1)[-1]
+bilesen = sema['components']['schemas'][ad]
+print(json.dumps({'ad': ad, 'ozellikler': sorted(bilesen['properties']),
+                  'zorunlu': sorted(bilesen.get('required', []))}))
+'''
+
+
+def test_OPENAPI_cevap_semasi_UST_ANAHTARLARI_yazar(tmp_path: Path) -> None:
+    """Uç `response_model` taşır; şema üst anahtarları gövdenin anahtarlarıdır."""
+    env = os.environ.copy()
+    env["DATABASE_URL"] = f"sqlite:///{(tmp_path / 'sema.db').as_posix()}"
+    env["SUNGUR_DATA_DIR"] = str(tmp_path)
+    env["PYTHONPATH"] = str(BACKEND)
+    tamamlandi = subprocess.run(
+        [sys.executable, "-c", _SEMA], cwd=BACKEND, env=env,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=300,
+    )
+    assert tamamlandi.returncode == 0, tamamlandi.stdout + "\n" + tamamlandi.stderr
+    sema = json.loads(tamamlandi.stdout.strip().splitlines()[-1])
+    assert sema["ad"] == "GeriCagirmaOnizleme", sema
+    assert set(sema["ozellikler"]) == UST_ANAHTARLAR, sema
+    assert set(sema["zorunlu"]) == UST_ANAHTARLAR, sema
 
 
 _DAVRANIS = r'''
