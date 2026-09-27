@@ -45,6 +45,7 @@ from .tenancy import resolve_company
 from .platform_access import platform_yolu
 from .platform_denetim import aktor_notu
 from .routers import (
+    accounting,
     absorption,
     activity_logs,
     analytics,
@@ -802,6 +803,9 @@ app.include_router(platform_backups.router, prefix="/api")
 app.include_router(kiraci_disa_aktarim.router, prefix="/api")
 app.include_router(kiraci_imha.router, prefix="/api")
 app.include_router(kiraci_geri_yukleme.router, prefix="/api")
+# F9-5a muhasebe fişi / KDV özeti / hesap eşlemesi. İzin `auth.py`deki
+# METODA BAKAN `/api/accounting` önek kuralından gelir (GET reports, PUT finance).
+app.include_router(accounting.router, prefix="/api")
 # WA1 GİRİŞİ. İki ucu da yukarıdaki `PUBLIC_API` kümesinde TAM YOL ile
 # muaftır çünkü Meta'nın sunucuları oturum açamaz; kimliğin yerini GET'te
 # sabit zamanlı `hub.verify_token`, POST'ta HAM GÖVDE üzerindeki HMAC alır.

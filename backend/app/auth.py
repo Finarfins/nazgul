@@ -1122,6 +1122,15 @@ def required_permission(method: str, path: str) -> str:
     # sayfaya girerdi.
     if path.startswith("/api/payment-allocations"):
         return "payments" if method in SAFE_METHODS else "finance"
+    # --- MUHASEBE (F9-5a, keşif K6): GET `reports`, yazma `finance` --------
+    # METODA BAKAR ve genel `GET -> read` düşüşünün ÜSTÜNDEDİR. Altına
+    # düşseydi üç GET (`account-map`, `vouchers`, `vat-summary`) `read`e
+    # çözülür ve `depo`/`satis` firmanın bütün fişlerini ve KDV'sini okurdu;
+    # `read`/`undeniable` nüfusu da +3 kayardı. KAZANAN: `admin`, `yonetici`,
+    # `muhasebe`, `rapor` (dördü de `reports` taşır). KAYBEDEN: `satis`,
+    # `depo`. Eşleme yazması `finance`: `rapor` okur ama değiştiremez.
+    if path.startswith("/api/accounting"):
+        return "reports" if method in SAFE_METHODS else "finance"
     # Seasonal stock planning is operational inventory guidance and is safe for
     # every baseline read role; other analytics remain reports-only.
     if path.startswith("/api/analytics/seasonal-plan"):
