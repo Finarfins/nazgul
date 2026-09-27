@@ -276,13 +276,32 @@ with TestClient(app) as client:
     # çare `str()`e düşer ve kayıplı olabilir.
     ELE_ALINAN = {"str", "bool", "int", "Decimal", "datetime", "date", "time",
                   "bytes", "dict", "list"}
+    # H84-K1: sınıflandırma SQLAlchemy TİP SINIFINA bağlı, `python_type`a
+    # değil. `JSON.python_type` 2.0'da `dict`, 2.1'de `object` döner (H83):
+    # uygulama aynıyken bu ölçüm sürüme göre kırmızı oluyordu. Etiketler
+    # `_seri`nin dallandığı Python tip adlarıdır, `ELE_ALINAN` ile aynı dil.
+    # SIRA ÖNEMLİ: alt sınıf üst sınıfından önce (`Float` ⊂ `Numeric`,
+    # `Enum` ⊂ `String`). Tabloda olmayan bir tip sınıfı ADIYLA `str_dalina`
+    # düşer: yeni bir tip sessizce "ele alındı" sayılmaz.
+    import sqlalchemy as sa
+    TIP_SINIFI = (
+        (sa.JSON, "dict"), (sa.ARRAY, "list"), (sa.Boolean, "bool"),
+        (sa.Integer, "int"), (sa.Float, "float"), (sa.Numeric, "Decimal"),
+        (sa.DateTime, "datetime"), (sa.Date, "date"), (sa.Time, "time"),
+        (sa.Interval, "timedelta"), (sa.LargeBinary, "bytes"),
+        (sa.Uuid, "UUID"), (sa.String, "str"),
+    )
+
+    def _sinifla(tip):
+        for sinif, etiket in TIP_SINIFI:
+            if isinstance(tip, sinif):
+                return etiket
+        return f"<tip sınıfı tabloda yok: {type(tip).__name__}>"
+
     tip_sayimi, str_dalina = {}, []
     for ad in sorted(kiraci):
         for sutun in md.tables[ad].c:
-            try:
-                py = sutun.type.python_type.__name__
-            except NotImplementedError:
-                py = "<python_type yok>"
+            py = _sinifla(sutun.type)
             tip_sayimi[py] = tip_sayimi.get(py, 0) + 1
             if py not in ELE_ALINAN:
                 str_dalina.append(f"{ad}.{sutun.name}:{type(sutun.type).__name__}")
