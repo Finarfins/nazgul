@@ -601,6 +601,7 @@ def update_work_order_status(
             cid,
             work_order_id,
             actor_id=int(request.state.user["id"]),
+            reason="work_order_reconciliation",
         )
     if payload.status == "CANCELLED":
         # Release reserved part stock and void any recorded labor in the same

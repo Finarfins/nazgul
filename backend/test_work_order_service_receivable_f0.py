@@ -133,6 +133,7 @@ def test_invoice_reconciliation_and_live_allocation_guard(tmp_path: Path) -> Non
         tmp_path,
         r'''
 from decimal import Decimal
+import json
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from app.db import SessionLocal
@@ -155,12 +156,13 @@ with TestClient(app) as c:
  assert invoice.status_code==201,invoice.text
  iid=invoice.json()['id']
  with SessionLocal() as db:
-  docs=db.execute(text("""SELECT revision_no,status,gross_amount,reversal_of_document_id,currency,exchange_rate
+  docs=db.execute(text("""SELECT revision_no,status,gross_amount,reversal_of_document_id,currency,exchange_rate,calculation_snapshot
     FROM receivable_charge_documents WHERE company_id=:cid AND work_order_id=:wid
     ORDER BY revision_no"""),{'cid':cid,'wid':wid}).mappings().all()
   assert len(docs)==3
   assert [row['revision_no'] for row in docs]==[1,2,3]
   assert docs[0]['status']=='reversed' and docs[1]['reversal_of_document_id'] is not None
+  assert json.loads(docs[1]['calculation_snapshot'])['reason']=='invoice_reconciliation'
   # F9-5-fix (H79+H80): FIXED 20 lowers the matrah 200 -> 180, VAT 20% = 36,
   # 216.00 EUR x 2 = 432.00 (was (200 - 20) x 2 = 360.00 with 0% labor VAT).
   assert Decimal(str(docs[2]['gross_amount']))==Decimal('432.00')
@@ -192,13 +194,14 @@ with TestClient(app) as c:
  cancelled=c.post(f'/api/invoices/{iid}/cancel',headers=h,json={'reason':'Tahsis terslendi'})
  assert cancelled.status_code==200,cancelled.text
  with SessionLocal() as db:
-  docs=db.execute(text("""SELECT gross_amount FROM receivable_charge_documents
-    WHERE company_id=:cid AND work_order_id=:wid ORDER BY revision_no"""),{'cid':cid,'wid':wid}).all()
+  docs=db.execute(text("""SELECT gross_amount,calculation_snapshot FROM receivable_charge_documents
+    WHERE company_id=:cid AND work_order_id=:wid ORDER BY revision_no"""),{'cid':cid,'wid':wid}).mappings().all()
   assert len(docs)==5
+  assert json.loads(docs[3]['calculation_snapshot'])['reason']=='invoice_reconciliation'
   # After cancel the receivable falls back to the computed preview, which since
   # H91 is VAT-inclusive: 2 x 100 + 20% = 240.00 (was 200.00). The chain is
   # +240 -240 +432 -432 +240.
-  assert sum(Decimal(str(row[0])) for row in docs)==Decimal('240.00')
+  assert sum(Decimal(str(row['gross_amount'])) for row in docs)==Decimal('240.00')
 print('SERVICE_RECEIVABLE_RECONCILIATION_OK')
 ''',
     )

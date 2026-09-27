@@ -383,6 +383,7 @@ def reconcile_service_receivable(
     *,
     actor_id: int,
     allow_initial_create: bool = True,
+    reason: str = "invoice_reconciliation",
 ) -> dict[str, object] | None:
     work_order = _lock_work_order(db, company_id, work_order_id)
     if str(work_order["status"]) not in {"COMPLETED", "DELIVERED"}:
@@ -426,7 +427,7 @@ def reconcile_service_receivable(
         company_id,
         active,
         actor_id=actor_id,
-        reason="invoice_reconciliation",
+        reason=reason,
         revision_no=next_revision,
         now=now,
     )

@@ -93,6 +93,7 @@ def _alacak_belgeleri(cid: int, is_emri: int) -> list[dict[str, str]]:
             "source": str(snap.get("source") or ""),
             "invoice_id": str(snap.get("invoice_id") or ""),
             "invoice_number": str(snap.get("invoice_number") or ""),
+            "reason": str(snap.get("reason") or ""),
         })
     return sonuc
 
