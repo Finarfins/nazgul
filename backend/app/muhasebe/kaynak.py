@@ -192,9 +192,10 @@ class Uyari:
     belge_id: int | None = None
     belge_no: str | None = None
     fark: Decimal | None = None
+    kdv_dahil: bool | None = None
 
     def sozluk(self) -> dict:
-        return {
+        d = {
             "kod": self.kod,
             "kaynak": self.kaynak,
             "belge_id": self.belge_id,
@@ -202,6 +203,9 @@ class Uyari:
             "fark": None if self.fark is None else format(self.fark, "f"),
             "mesaj": self.mesaj,
         }
+        if self.kdv_dahil is not None:
+            d["kdv_dahil"] = self.kdv_dahil
+        return d
 
 
 @dataclass
@@ -724,7 +728,17 @@ def _mustahsil(db: Session, cid: int, d: Donem, plan: HesapPlani, v: DonemVerisi
             continue
         belge_id = int(b["id"])
         numara = str(b["receipt_no"] or belge_id)
+        an = _utc(b["issued_at"])
         gun = _istanbul_gunu(b["issued_at"])
+        if an is not None:
+            utc_ay = an.strftime("%Y-%m")
+            if utc_ay != d.metin:
+                v.uyarilar.append(Uyari(
+                    "G5", "MUSTAHSIL",
+                    f"Müstahsil makbuzu {numara} UTC'ye göre {utc_ay}, İstanbul saatine göre "
+                    f"{d.metin} — İSTANBUL ayına yazıldı",
+                    belge_id, numara,
+                ))
         brut, stopaj, bagkur, net = toplamlar.get(belge_id, (SIFIR,) * 4)
         mm = v.mustahsil
         mm.belge_sayisi += 1

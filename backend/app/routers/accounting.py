@@ -132,6 +132,7 @@ class MuhasebeUyarisi(BaseModel):
     belge_no: str | None = None
     fark: str | None = None
     mesaj: str
+    kdv_dahil: bool | None = None
 
 
 class FisListesi(BaseModel):

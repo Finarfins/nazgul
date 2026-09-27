@@ -88,7 +88,8 @@ def kdv_ozeti(v: DonemVerisi) -> dict:
             "belge_id": None,
             "belge_no": hata.fis.belge_no,
             "fark": _t(hata.fis.borc_toplami - hata.fis.alacak_toplami),
-            "mesaj": f"{hata.fis.fis_no} fişi yazılmadı: " + "; ".join(hata.nedenler),
+            "mesaj": f"{hata.fis.fis_no} fişi yazılmadı; KDV özetine DAHİL: " + "; ".join(hata.nedenler),
+            "kdv_dahil": True,
         })
     mm = v.mustahsil
     return {

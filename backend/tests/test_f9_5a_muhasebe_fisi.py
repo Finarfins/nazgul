@@ -512,7 +512,138 @@ def test_DENGESIZ_FIS_YAZILMAZ_listelenir(dunya) -> None:
     assert f"SAT-{bos}" not in {f.fis_no for f in veri.fisler}
     assert [h.fis.fis_no for h in veri.reddedilen] == [f"SAT-{bos}"]
     uyarilar = kdv_ozeti(veri)["uyarilar"]
-    assert any(u["kod"] == "DENGESIZ" and u["belge_no"] == "S-BOS" for u in uyarilar)
+    dengesiz = next(u for u in uyarilar if u["kod"] == "DENGESIZ" and u["belge_no"] == "S-BOS")
+    assert dengesiz["kdv_dahil"] is True
+    assert "fişi yazılmadı; KDV özetine DAHİL" in dengesiz["mesaj"]
+
+
+def test_DENGESIZ_FIS_KDV_OZETINE_DAHIL_ve_UYARI(dunya) -> None:
+    """Dengesiz fiş yazılmaz ancak KDV'si özete DAHİL edilir; uyarı kdv_dahil: True taşır (H112)."""
+    from app.db import SessionLocal
+    from app.muhasebe.kdv_ozeti import kdv_ozeti
+
+    with SessionLocal() as db:
+        dengesiz_satis = _belge(
+            db, dunya["firma_a"], dunya["musteri"], "2026-07-25", "approved",
+            [("20", "100.00", "20.00", "150.00")], no="S-DENGESIZ",
+        )
+        db.commit()
+
+    veri = _veri(dunya["firma_a"])
+    assert f"SAT-{dengesiz_satis}" not in {f.fis_no for f in veri.fisler}
+    assert any(h.fis.fis_no == f"SAT-{dengesiz_satis}" for h in veri.reddedilen)
+
+    ozet = kdv_ozeti(veri)
+    dengesiz_uyari = next(
+        u for u in ozet["uyarilar"]
+        if u["kod"] == "DENGESIZ" and u["belge_no"] == "S-DENGESIZ"
+    )
+    assert dengesiz_uyari["kdv_dahil"] is True
+    assert "fişi yazılmadı; KDV özetine DAHİL" in dengesiz_uyari["mesaj"]
+
+
+def test_DENGESIZ_ALIS_KDV_OZETINE_DAHIL_ve_UYARI(dunya) -> None:
+    """Alış dalında dengesiz fiş indirilecek KDV'ye DAHİL edilir ve kdv_dahil: True uyarısı üretir (H112)."""
+    from app.db import SessionLocal
+    from app.muhasebe.kdv_ozeti import kdv_ozeti
+
+    with SessionLocal() as db:
+        dengesiz_alis = _belge(
+            db, dunya["firma_a"], dunya["musteri"], "2026-07-26", "completed",
+            [("20", "200.00", "40.00", "300.00")], no="A-DENGESIZ", alis=True,
+        )
+        db.commit()
+
+    veri = _veri(dunya["firma_a"])
+    assert f"ALS-{dengesiz_alis}" not in {f.fis_no for f in veri.fisler}
+    assert any(h.fis.fis_no == f"ALS-{dengesiz_alis}" for h in veri.reddedilen)
+
+    ozet = kdv_ozeti(veri)
+    dengesiz_uyari = next(
+        u for u in ozet["uyarilar"]
+        if u["kod"] == "DENGESIZ" and u["belge_no"] == "A-DENGESIZ"
+    )
+    assert dengesiz_uyari["kdv_dahil"] is True
+    assert "fişi yazılmadı; KDV özetine DAHİL" in dengesiz_uyari["mesaj"]
+
+
+def test_VAT_SUMMARY_DENGESIZ_UYARI_RESPONSE_MODEL_VALIDATION(uygulama, dunya) -> None:
+    """/api/accounting/vat-summary uç noktası dengesiz fiş uyarısını KdvOzeti response_model ile doğrular (H112)."""
+    from app.db import SessionLocal
+
+    with SessionLocal() as db:
+        _belge(
+            db, dunya["firma_a"], dunya["musteri"], "2026-07-27", "approved",
+            [("20", "50.00", "10.00", "80.00")], no="S-ROUTE-DENGESIZ",
+        )
+        db.commit()
+
+    h = _baslik(uygulama, dunya, "muhasebe")
+    r = uygulama.get(f"/api/accounting/vat-summary?period={DONEM}", headers=h)
+    assert r.status_code == 200, r.text
+    veri = r.json()
+    uyari = next(u for u in veri["uyarilar"] if u["kod"] == "DENGESIZ" and u["belge_no"] == "S-ROUTE-DENGESIZ")
+    assert uyari["kdv_dahil"] is True
+    assert "fişi yazılmadı; KDV özetine DAHİL" in uyari["mesaj"]
+
+
+def test_MUSTAHSIL_G5_ISTANBUL_AY_SINIRI(dunya) -> None:
+    """2026-07-31 22:30 UTC (= 2026-08-01 01:30 İstanbul) kesilen makbuz:
+    Ağustos dönemine (2026-08) düşmeli, G5 uyarısı üretmeli; Temmuz'da (2026-07)
+    özetinde bu makbuz için satır OLMAMALIDIR (H113).
+    """
+    from datetime import datetime, timezone
+    from decimal import Decimal as D
+    from app.db import SessionLocal
+    from app.muhasebe.hesap_plani import plan_oku
+    from app.muhasebe.kaynak import donem_coz, donem_oku
+    from app.muhasebe.kdv_ozeti import kdv_ozeti
+
+    UTC = timezone.utc
+    an = datetime(2026, 7, 31, 22, 30, tzinfo=UTC)
+    with SessionLocal() as db:
+        tedarikci_b = _ekle(db, "suppliers", company_id=dunya["firma_b"], name="Sınır Çiftçi B",
+                            tax_number="9999999999", opening_balance=0, risk_limit=0,
+                            payment_term_days=0, is_active=True)
+        makbuz = _ekle(
+            db, "producer_receipts", company_id=dunya["firma_b"], supplier_id=tedarikci_b,
+            receipt_no="MM-G5", status="issued",
+            issued_at=an, gross_amount=D("500.00"),
+            withholding_total=D("10.00"), social_security_total=D("5.00"),
+            net_payable=D("485.00"), created_at=an, updated_at=an,
+        )
+        _ekle(
+            db, "producer_receipt_items", company_id=dunya["firma_b"], receipt_id=makbuz,
+            entered_quantity=D("500"), entered_unit="kg", entered_factor=D("1"),
+            base_quantity=D("500"), unit_price=D("1.00"), line_gross=D("500.00"),
+            withholding_rate=D("2"), withholding_amount=D("10.00"), social_security_rate=D("1"),
+            social_security_amount=D("5.00"), line_net=D("485.00"), created_at=an, updated_at=an,
+        )
+        db.commit()
+
+    with SessionLocal() as db:
+        plan_b = plan_oku(db, dunya["firma_b"])
+        temmuz_veri = donem_oku(db, dunya["firma_b"], donem_coz("2026-07"), plan_b)
+        agustos_veri = donem_oku(db, dunya["firma_b"], donem_coz("2026-08"), plan_b)
+
+    temmuz_ozet = kdv_ozeti(temmuz_veri)
+    # Temmuz özetinde müstahsil satırı/belgesi YOK
+    assert temmuz_ozet["mustahsil"]["belge_sayisi"] == 0
+    assert not any(f.fis_no == "MM-MM-G5" for f in temmuz_veri.fisler)
+
+    # Ağustos özetine düşer ve G5 uyarısı taşır
+    agustos_ozet = kdv_ozeti(agustos_veri)
+    assert agustos_ozet["mustahsil"]["belge_sayisi"] == 1
+    agustos_fis = next(f for f in agustos_veri.fisler if f.fis_no == "MM-MM-G5")
+    assert agustos_fis.fis_tarihi == date(2026, 8, 1)
+
+    g5_uyarilari = [
+        u for u in agustos_ozet["uyarilar"]
+        if u["kod"] == "G5" and u["kaynak"] == "MUSTAHSIL" and u["belge_no"] == "MM-G5"
+    ]
+    assert len(g5_uyarilari) == 1, f"G5 uyarısı bulunamadı: {agustos_ozet['uyarilar']}"
+    assert "UTC'ye göre 2026-07, İstanbul saatine göre 2026-08 — İSTANBUL ayına yazıldı" in g5_uyarilari[0]["mesaj"]
+
 
 
 # --------------------------------------------------------------- uçlar ---
