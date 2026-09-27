@@ -9,6 +9,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
+from tests.pg_ikiz_yardimci import pg_secenekleri
 
 BACKEND = Path(__file__).resolve().parent
 
@@ -69,7 +70,7 @@ def test_clean_postgresql_application_smoke() -> None:
         connection.execute(text(f"CREATE SCHEMA {quoted_schema}"))
 
     test_url = make_url(base_url).update_query_dict(
-        {"options": f"-csearch_path={schema}"}
+        {"options": pg_secenekleri(f"-csearch_path={schema}")}
     ).render_as_string(hide_password=False)
     env = os.environ.copy()
     env["DATABASE_URL"] = test_url

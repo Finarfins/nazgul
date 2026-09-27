@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
+from tests.pg_ikiz_yardimci import pg_secenekleri
 
 from app.routers.transactions import _list
 
@@ -25,7 +26,7 @@ def postgres_engine():
 
     engine = create_engine(
         database_url,
-        connect_args={"options": f"-csearch_path={schema}"},
+        connect_args={"options": pg_secenekleri(f"-csearch_path={schema}")},
         pool_pre_ping=True,
     )
     try:

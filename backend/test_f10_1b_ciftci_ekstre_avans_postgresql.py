@@ -47,6 +47,7 @@ kuyruğun TAMAMINI işler, yani komşu ikizin satırlarına dokunurdu. Gerekçe
 from __future__ import annotations
 
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -839,6 +840,13 @@ def test_COK_FIRMALI_RIZA_AKISI_DAGITICIDAN_GERCEK_PGde(motor, monkeypatch) -> N
     tel = liste[0]["consent_at"]
     assert isinstance(tel, str) and tel.endswith("+00:00"), tel
     assert datetime.fromisoformat(tel) == damga(link_1)
+    # H89: `created_at` da UTC tel biçiminde ve SAKLANAN AN (`an`) ile eşit.
+    # Önce ham `datetime` dönüyordu ve HTTP'de oturum dilimiyle (`+03:00`)
+    # serileşiyordu.
+    olusturma = liste[0]["created_at"]
+    assert isinstance(olusturma, str), olusturma
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?\+00:00", olusturma), olusturma
+    assert datetime.fromisoformat(olusturma) == an
 
     # Dizi 15 mesajı doldurdu: 16. mesaj hız sınırıyla İŞLENİR ama
     # CEVAPLANMAZ (`MESAJ_CEVAP_SINIRI`). Kalan adımlar sınırı değil rızayı

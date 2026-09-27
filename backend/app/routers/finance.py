@@ -16,7 +16,7 @@ from ..finance_engine import finance_accounts, finance_transactions, financial_i
 from ..crm import add_contact, add_note, add_task, delete_contact, delete_note, delete_task, set_task_status
 from ..alan_maskeleme import maskelenecek_mi, maskeyi_geri_al
 from ..arama import arama_deseni
-from ..arama_katli import katli_esitle
+from ..arama_katli import katli_esitle, katli_gizle
 from ..entity_detail import cari_liste_satirlari, entity_detail, entity_documents
 from ..config import settings
 from ..payment_allocation_engine import (
@@ -851,7 +851,8 @@ def list_finance_transactions(request:Request,account_id:int|None=None,date_from
     if date_from: sql+=' AND t.txn_date>=:df';params['df']=date_from
     if date_to: sql+=' AND t.txn_date<=:dt';params['dt']=date_to
     sql+=' ORDER BY t.txn_date DESC,t.id DESC LIMIT 3000'
-    return [dict(x) for x in db.execute(text(sql),params).mappings().all()]
+    # H96: `t.*` -> `description_katli` yanıta girmez (`katli_gizle`).
+    return [katli_gizle(x) for x in db.execute(text(sql),params).mappings().all()]
 
 @router.post('/finance/transactions',status_code=201)
 def create_finance_transaction(payload:FinancialTransactionCreate,request:Request,db:Session=Depends(get_db)):

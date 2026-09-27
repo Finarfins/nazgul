@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import create_engine, inspect, insert, text
+from tests.pg_ikiz_yardimci import pg_secenekleri
 
 from app.workflow import initialize_workflow, sales_orders
 
@@ -24,7 +25,7 @@ def postgres_engine():
 
     engine = create_engine(
         database_url,
-        connect_args={"options": f"-csearch_path={schema}"},
+        connect_args={"options": pg_secenekleri(f"-csearch_path={schema}")},
         pool_pre_ping=True,
     )
     try:

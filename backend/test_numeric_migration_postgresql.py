@@ -12,6 +12,7 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
+from tests.pg_ikiz_yardimci import pg_secenekleri
 
 from app.reconciliation import capture_numeric_snapshot, compare_numeric_snapshots
 
@@ -38,7 +39,7 @@ def test_legacy_numeric_columns_migrate_without_accounting_drift() -> None:
         connection.execute(text(f"CREATE SCHEMA {quoted_schema}"))
 
     test_url = make_url(base_url).update_query_dict(
-        {"options": f"-csearch_path={schema}"}
+        {"options": pg_secenekleri(f"-csearch_path={schema}")}
     ).render_as_string(hide_password=False)
     engine = create_engine(test_url, pool_pre_ping=True)
 

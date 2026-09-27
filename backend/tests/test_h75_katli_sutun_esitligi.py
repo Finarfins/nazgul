@@ -323,6 +323,60 @@ def test_degisiklik_gecmisi_katli_TASIMAZ(istemci, admin, yazilmis) -> None:
     assert not [a for a in guncelleme["changed_fields"]["fields"] if a.endswith("_katli")]
 
 
+def _katli_anahtarlari(deger, yol: str = "$") -> list[str]:
+    """Gövdede, HER derinlikte, adı `_katli` ile biten anahtarların yolları."""
+    bulunan: list[str] = []
+    if isinstance(deger, dict):
+        for ad, alt in deger.items():
+            if ad.endswith("_katli"):
+                bulunan.append(f"{yol}.{ad}")
+            bulunan += _katli_anahtarlari(alt, f"{yol}.{ad}")
+    elif isinstance(deger, list):
+        for alt in deger:
+            bulunan += _katli_anahtarlari(alt, f"{yol}[]")
+    return bulunan
+
+
+def _satirlar(govde):
+    return govde["items"] if isinstance(govde, dict) else govde
+
+
+def test_H96_ALTI_TABLONUN_liste_ve_detay_yanitinda_KATLI_YOK(istemci, admin, yazilmis) -> None:
+    """H96 — H75'in `_katli` sütunları yönetici yanıtına SIZMAZ (altı tablo).
+
+    Ölçüldü (demo tohumu, 401 GET, SQLite + PG aynı): düzeltmeden önce beş uç
+    sızdırıyordu — müşteri/tedarikçi kartı (`customer`/`supplier`/`entity`),
+    ürün detayı, finans hareketleri listesi ve satış/alış detayı
+    (`document`). MUTASYON: bu uçlardan herhangi birinde `katli_gizle`
+    çağrısını `dict(...)`e geri çevirmek bu testi KIRMIZI yapar.
+    """
+    h = admin
+    siparisler = _satirlar(_ok(istemci.get("/api/orders", headers=h)))
+    alislar = _satirlar(_ok(istemci.get("/api/purchases", headers=h)))
+    hareketler = _ok(istemci.get("/api/finance/transactions", headers=h))
+    # Boş yere yeşil olmasın: her listede en az bir satır var.
+    assert siparisler and alislar and hareketler
+    uclar = [
+        "/api/customers", f"/api/customers/{yazilmis['musteri']}",
+        "/api/suppliers", f"/api/suppliers/{yazilmis['tedarikci']}",
+        "/api/products", f"/api/products/{yazilmis['urun']}",
+        "/api/orders", f"/api/orders/{siparisler[0]['id']}",
+        "/api/purchases", f"/api/purchases/{alislar[0]['id']}",
+        "/api/finance/transactions",
+    ]
+    sizan = {}
+    for yol in uclar:
+        govde = _ok(istemci.get(yol, headers=h))
+        assert govde, yol
+        if yollar := _katli_anahtarlari(govde):
+            sizan[yol] = yollar
+    urun = _ok(istemci.get("/api/products", headers=h, params={"include_meta": "true"}))
+    assert urun["items"]
+    if yollar := _katli_anahtarlari(urun):
+        sizan["/api/products?include_meta"] = yollar
+    assert sizan == {}
+
+
 @pytest.fixture(scope="module")
 def depo(istemci, admin):
     from sqlalchemy import text
@@ -349,12 +403,15 @@ def depo(istemci, admin):
 
 @pytest.mark.parametrize("tablo,yol", [("customers", "/api/customers/{}"), ("suppliers", "/api/suppliers/{}")])
 def test_maskeli_rol_email_katliyi_HAM_gormez(istemci, depo, yazilmis, tablo, yol) -> None:
-    """SEC-3b: `SELECT *` okuyan cari ucu `email_katli`yi de taşır; maskeli rol
-    onu `email` ile AYNI maskeyle görmeli. MUTASYON: `MASKELENEN_ALANLAR`dan
-    `email_katli`yi silmek KIRMIZI."""
+    """SEC-3b: maskeli rol ham `email_katli`yi HİÇBİR biçimde görmez.
+
+    H96'dan beri kart `_katli` anahtarını HİÇ taşımaz (`katli_gizle`); maske
+    kuralı yine de KALIR — yeni bir `SELECT *` ucu `katli_gizle`yi unutursa
+    ikinci savunmadır — ve burada birim düzeyinde çakılıdır. MUTASYON:
+    `MASKELENEN_ALANLAR`dan `email_katli`yi silmek KIRMIZI."""
     from sqlalchemy import text
 
-    from app.alan_maskeleme import maskele_eposta
+    from app.alan_maskeleme import maskele_cari, maskele_eposta
     from app.db import SessionLocal
 
     kimlik = yazilmis["musteri" if tablo == "customers" else "tedarikci"]
@@ -363,5 +420,8 @@ def test_maskeli_rol_email_katliyi_HAM_gormez(istemci, depo, yazilmis, tablo, yo
     assert ham and "@" in ham
     govde = _ok(istemci.get(yol.format(kimlik), headers=depo))
     assert ham not in repr(govde)
-    # Kart `SELECT *` satırını `entity` altında döndürür (entity_detail).
-    assert govde["entity"]["email_katli"] == maskele_eposta(ham)
+    # H96: kart (`entity` ve cari anahtarı) `_katli` taşımaz.
+    assert "email_katli" not in govde["entity"]
+    assert "email_katli" not in govde[tablo[:-1]]
+    # Kural KALIR (ikinci savunma): maskeli rol için `email` ile AYNI maske.
+    assert maskele_cari({"email_katli": ham}, "depo")["email_katli"] == maskele_eposta(ham)
