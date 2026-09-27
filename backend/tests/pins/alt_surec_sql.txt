@@ -99,6 +99,7 @@ tests/test_e3_karantina.py	1
 tests/test_entegrasyon_olaylari_depo_yolu.py	3
 tests/test_entegrasyon_olaylari_gerekce_arindirma.py	1
 tests/test_entegrasyon_olaylari_onek_baglantisi.py	1
+tests/test_f10_4a_lot_izi.py	1
 tests/test_farm_management_foundation.py	1
 tests/test_farm_review_fixes.py	1
 tests/test_field_outbox_writer.py	5

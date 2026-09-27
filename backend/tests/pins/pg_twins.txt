@@ -35,6 +35,7 @@ test_f0_email_dispatch_postgresql.py
 test_f10_1a_taraf_baglantisi_postgresql.py
 test_f10_1b_ciftci_ekstre_avans_postgresql.py
 test_f10_1c_kantar_makbuz_postgresql.py
+test_f10_4a_lot_izi_postgresql.py
 test_f9_5_fix_servis_kdv_postgresql.py
 test_f9_5a_muhasebe_fisi_postgresql.py
 test_f9_5b_muhasebe_aktarim_postgresql.py
