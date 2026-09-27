@@ -27,7 +27,7 @@ from ..db import get_db
 from ..lot_izi import parti_izi_oku
 from ..lot_izi_ozet import ozetle
 from ..lot_izi_schemas import GeriCagirmaOnizleme
-from ..notifications.consents import evaluate_consent, normalize_msisdn
+from ..notifications.consents import evaluate_consents_bulk, normalize_msisdn
 from ..tenancy import company_id, istek_rolu
 from .pos import _mapped_retail_customer_id
 
@@ -40,24 +40,26 @@ GERI_CAGIRMA_KANALI = "SMS"
 def _iletisim(
     db: Session, cid: int, cariler: dict[int, dict[str, Any]]
 ) -> dict[int, dict[str, Any]]:
-    """Cari başına telefon + rıza bayrağı. `evaluate_consent`in KURU çalışması."""
-    sonuc: dict[int, dict[str, Any]] = {}
-    for cari_id, cari in cariler.items():
-        telefon = cari.get("phone")
-        karar = evaluate_consent(
-            db,
-            company_id=cid,
-            party_type="CUSTOMER",
-            party_id=int(cari_id),
-            channel=GERI_CAGIRMA_KANALI,
-            recipient=str(telefon or ""),
-        )
-        sonuc[cari_id] = {
-            "has_phone": normalize_msisdn(telefon) is not None,
-            "has_consent": bool(karar["allowed"]),
-            "consent_reason": karar["reason"],
+    """Cari başına telefon + rıza bayrağı. `evaluate_consent`in KURU, TOPLU
+    çalışması: cari sayısından bağımsız tek okuma (`evaluate_consents_bulk`)."""
+    kararlar = evaluate_consents_bulk(
+        db,
+        company_id=cid,
+        party_type="CUSTOMER",
+        channel=GERI_CAGIRMA_KANALI,
+        recipients={
+            int(cari_id): str(cari.get("phone") or "")
+            for cari_id, cari in cariler.items()
+        },
+    )
+    return {
+        cari_id: {
+            "has_phone": normalize_msisdn(cari.get("phone")) is not None,
+            "has_consent": bool(kararlar[int(cari_id)]["allowed"]),
+            "consent_reason": kararlar[int(cari_id)]["reason"],
         }
-    return sonuc
+        for cari_id, cari in cariler.items()
+    }
 
 
 @router.get("/{lot_id}/recall-preview", response_model=GeriCagirmaOnizleme)

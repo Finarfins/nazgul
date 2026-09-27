@@ -1321,6 +1321,11 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
     ('app/lot_izi.py', 'parti_izi_oku', 'select', 'ca990441319e624ea20937e42d45e6685735a78379e9a3c6c49b89dfd4c0512f'): (1, 'product_lots', 'arg0'),
     ('app/lot_izi.py', 'parti_izi_oku', 'select', 'd69b06506b2733b2f8de5e8dd08792a32d0248302f92138361c71be5ed81fa01'): (1, 'stock_movements', 'arg0'),
     ('app/lot_izi.py', 'parti_izi_oku', 'select', 'e3e6d307422769ef9d892961efeaa7f4f96a7f1666c21caf1067fb83bf2ebc2e'): (1, 'product_lots', 'arg0'),
+    # #179 TUR 3 (runtime lens N+1): `consents.evaluate_consents_bulk` TEK
+    # `select`; `notification_consents` MODUL-YEREL `MetaData` ile bildirildi
+    # (`lot_izi.product_lots` deseni), ILK yuklemi `company_id == company_id`.
+    # Tarayicinin ciktisindan alindi.
+    ('app/notifications/consents.py', 'evaluate_consents_bulk', 'select', 'db0b5fc2f2e7e2d332c9887307c1eb87f02a94911dedd790aa2b6840bbbdb950'): (1, 'notification_consents', 'arg0'),
 }
 
 # 20260910 5.1c KIRACI GERI YUKLEME (GOC YOK): 176 -> 184, +6 select +2 update,
@@ -1408,13 +1413,16 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # F10-4a PARTI GERI CAGIRMA ONIZLEMESI (GOC YOK): 267 -> 277, +10 select,
 # HEPSI `app/lot_izi.py`. Drift raporu OLCULDU: `eksik` ve `degismis` BOS;
 # `desteksiz` 6'da SABIT (TABAN develop `1dfd338`, F9-5a'nin USTUNE).
-TOTAL_CORE_QUERIES = 277
+# #179 TUR 3 (runtime lens N+1, GOC YOK): 277 -> 278, +1 select
+# (`consents.evaluate_consents_bulk`). Tarayicinin ciktisindan.
+TOTAL_CORE_QUERIES = 278
 # F10-1b (goc 20260920_0091): select 170 -> 171 (`ciftci_yurutucu.
 # _firma_adi`); `update` ve `delete` KIMILDAMADI — ciftci dali OKUMADIR.
 # F10-1b DUZELTME 2: update 68 -> 69 (`taraf.riza_damgasi_yaz`).
 # F9-5a: select 171 -> 185, update 69 -> 70 (`hesap_plani.esleme_yaz`).
 # F10-4a: select 185 -> 195 (`lot_izi.parti_izi_oku`, salt okur).
-EXPECTED_OP_COUNTS = {"select": 195, "update": 70, "delete": 12}
+# #179 tur 3: select 195 -> 196 (`consents.evaluate_consents_bulk`).
+EXPECTED_OP_COUNTS = {"select": 196, "update": 70, "delete": 12}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1546,8 +1554,10 @@ EXPECTED_OP_COUNTS = {"select": 195, "update": 70, "delete": 12}
 # c7f3d672 -> 947b75d2.
 # F10-4a (GOC YOK, +10 select `lot_izi.parti_izi_oku`): tarayicinin
 # ciktisindan, TABAN develop `1dfd338` (F9-5a'nin USTUNE). 947b75d2 -> 70b93288.
+# #179 TUR 3 (+1 select `consents.evaluate_consents_bulk`): tarayicinin
+# ciktisindan, TABAN develop `48739b6`. 70b93288 -> d520df33.
 INVENTORY_FINGERPRINT = (
-    "70b93288908f8e423de657dfc9dbbd557f2ec7287f310db446a5422af611a313"
+    "d520df33e1478e3fff879afc972a41f40164128f397912820892b8a566a45ca7"
 )
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.

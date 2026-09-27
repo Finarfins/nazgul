@@ -209,6 +209,144 @@ def test_MASKELI_ROL_telefonu_MASKELI_gorur() -> None:
     assert maskele_cari(ham, "depo")["name"] == "Ali"
 
 
+# ------------------------------------------------ toplu rıza (tur 3) ---
+#
+# Runtime lens: `_iletisim` cari başına `evaluate_consent` çağırıyordu (N+1;
+# 1.999 cari -> 2.012 sorgu). `evaluate_consents_bulk` TEK okuma yapar ve
+# kararı `_karar`a bırakır — fail-closed mantığın ikinci kopyası YOK.
+
+_RIZA_DDL = """CREATE TABLE notification_consents (
+    id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL,
+    party_type TEXT NOT NULL, party_id INTEGER NOT NULL, channel TEXT NOT NULL,
+    status TEXT NOT NULL, granted_at TEXT, revoked_at TEXT, source TEXT,
+    source_ref TEXT, recipient_snapshot TEXT, version INTEGER NOT NULL,
+    created_by INTEGER, created_at TEXT, updated_at TEXT)"""
+
+
+def _riza_db():
+    from sqlalchemy import create_engine, event, text
+    from sqlalchemy.orm import Session
+
+    motor = create_engine("sqlite://")
+    sayac = {"n": 0}
+
+    @event.listens_for(motor, "before_cursor_execute")
+    def _say(*_a, **_k):  # noqa: ANN001
+        sayac["n"] += 1
+
+    db = Session(motor)
+    db.execute(text(_RIZA_DDL))
+    return db, sayac
+
+
+def _riza_yaz(db, cid, pid, durum, snapshot, kanal="SMS", surum=1):
+    from sqlalchemy import text
+
+    db.execute(
+        text(
+            "INSERT INTO notification_consents (company_id, party_type, party_id,"
+            " channel, status, recipient_snapshot, version)"
+            " VALUES (:c, 'CUSTOMER', :p, :k, :s, :r, :v)"
+        ),
+        {"c": cid, "p": pid, "k": kanal, "s": durum, "r": snapshot, "v": surum},
+    )
+
+
+_KARSILASTIRILAN = ("allowed", "decision", "reason", "message", "consent_id", "consent_version")
+
+
+def test_TOPLU_RIZA_tekli_ile_BIREBIR_ayni() -> None:
+    """GRANTED / REVOKED / kayıt yok / numara değişmiş / görüntüsüz (H90) /
+    geçersiz telefon / başka firmanın rızası / e-posta kanalı satırı; artı
+    bilinmeyen kanal. Her id için `evaluate_consent` ile AYNI karar."""
+    from app.notifications.consents import evaluate_consent, evaluate_consents_bulk
+
+    db, _ = _riza_db()
+    _riza_yaz(db, 1, 1, "GRANTED", "+905321112233", surum=3)
+    _riza_yaz(db, 1, 2, "REVOKED", "+905321112234", surum=2)
+    _riza_yaz(db, 1, 4, "GRANTED", "+905329999999")
+    _riza_yaz(db, 1, 5, "GRANTED", None)
+    _riza_yaz(db, 2, 7, "GRANTED", "+905321112237")
+    _riza_yaz(db, 1, 8, "GRANTED", "+905321112238", kanal="WHATSAPP")
+    alicilar = {
+        1: "0532 111 22 33",
+        2: "05321112234",
+        3: "05321112235",
+        4: "05321112236",
+        5: "05321112239",
+        6: "bilinmiyor",
+        7: "05321112237",
+        8: "05321112238",
+        9: "",
+    }
+    for kanal in ("SMS", "sms", "FAX"):
+        toplu = evaluate_consents_bulk(
+            db, company_id=1, party_type="CUSTOMER", channel=kanal, recipients=alicilar
+        )
+        assert set(toplu) == set(alicilar)
+        for pid, alici in alicilar.items():
+            tekli = evaluate_consent(
+                db, company_id=1, party_type="CUSTOMER", party_id=pid,
+                channel=kanal, recipient=alici,
+            )
+            assert {k: toplu[pid][k] for k in _KARSILASTIRILAN} == {
+                k: tekli[k] for k in _KARSILASTIRILAN
+            }, (kanal, pid, toplu[pid], tekli)
+
+    sms = evaluate_consents_bulk(
+        db, company_id=1, party_type="CUSTOMER", channel="SMS", recipients=alicilar
+    )
+    assert {pid: sms[pid]["reason"] for pid in alicilar} == {
+        1: None, 2: "REVOKED", 3: "NO_RECORD", 4: "RECIPIENT_CHANGED",
+        5: "RECIPIENT_INVALID", 6: "RECIPIENT_INVALID", 7: "NO_RECORD",
+        8: "NO_RECORD", 9: "RECIPIENT_INVALID",
+    }
+    assert (sms[1]["allowed"], sms[1]["consent_id"], sms[1]["consent_version"]) == (True, 1, 3)
+
+
+def test_TOPLU_RIZA_bos_girdi_SORGUSUZ_ve_500lu_PARCALAR() -> None:
+    from app.notifications import consents
+
+    db, sayac = _riza_db()
+    once = sayac["n"]
+    assert consents.evaluate_consents_bulk(
+        db, company_id=1, party_type="CUSTOMER", channel="SMS", recipients={}
+    ) == {}
+    assert sayac["n"] == once
+
+    adet = 2 * consents.TOPLU_PARCA + 1
+    for pid in range(1, adet + 1, 2):
+        _riza_yaz(db, 1, pid, "GRANTED", f"+90532{pid:07d}")
+    alicilar = {pid: f"0532{pid:07d}" for pid in range(1, adet + 1)}
+    once = sayac["n"]
+    sonuc = consents.evaluate_consents_bulk(
+        db, company_id=1, party_type="CUSTOMER", channel="SMS", recipients=alicilar
+    )
+    # 1.001 kimlik -> ÜÇ parça (500 + 500 + 1), cari başına sorgu YOK.
+    assert sayac["n"] - once == 3
+    assert len(sonuc) == adet
+    assert all(sonuc[p]["allowed"] is (p % 2 == 1) for p in alicilar)
+    assert {sonuc[p]["reason"] for p in alicilar if p % 2 == 0} == {"NO_RECORD"}
+
+
+def test_ILETISIM_cari_sayisindan_BAGIMSIZ_tek_okuma() -> None:
+    """`lots._iletisim` 5 cari de 50 cari de AYNI sayıda ifade yürütür."""
+    from app.routers.lots import _iletisim
+
+    db, sayac = _riza_db()
+    _riza_yaz(db, 1, 1, "GRANTED", "+905320000001")
+
+    def olc(n):
+        cariler = {i: {"phone": f"0532{i:07d}"} for i in range(1, n + 1)}
+        once = sayac["n"]
+        sonuc = _iletisim(db, 1, cariler)
+        assert sonuc[1] == {"has_phone": True, "has_consent": True, "consent_reason": None}
+        assert sonuc[n]["consent_reason"] == "NO_RECORD"
+        return sayac["n"] - once
+
+    assert olc(5) == olc(50) == 1
+
+
 # ------------------------------------------------------------ davranış ---
 
 
@@ -519,6 +657,60 @@ maskeli_tel = {m['customer_id']: m['phone'] for m in maskeli['customers']}
 assert maskeli_tel[ali] == maskele_telefon('05321112233') != '05321112233', maskeli_tel
 assert maskeli_tel[berk] == maskele_telefon('05324445566') != '05324445566', maskeli_tel
 assert maskeli_tel[cem] is None, maskeli_tel
+
+# ----- SORGU BÜTÇESİ (tur 3): önizleme cari sayısından BAĞIMSIZ -----
+# Runtime lens N+1'i ölçtü (cari başına bir rıza SELECT'i). Aynı partiden
+# 5 sonra 50 telefonlu alıcıya satış; iki önizleme AYNI sayıda ifade yürütür.
+from sqlalchemy import event
+from app.db import engine
+
+butce_urun = urun_ac(f'Bütçe Gübresi {EK}')
+alis(depo_a, [kalem(butce_urun, 100, 'L-BUTCE', UZAK)])
+with SessionLocal() as db:
+    butce_lot = db.execute(text(
+        "SELECT id FROM product_lots WHERE company_id=:cid AND product_id=:pid "
+        "AND lot_code='L-BUTCE'"), {'cid': cid, 'pid': butce_urun}).scalar_one()
+
+
+def butce_alicisi(i):
+    cari = ok(client.post('/api/customers', headers=baslik, json={
+        'name': f'Bütçe Alıcı {EK} {i}', 'phone': f'0533{i:07d}'}))['id']
+    ok(client.post('/api/orders', headers=baslik, json={
+        'entity_id': cari, 'transaction_date': '2026-09-09', 'due_date': '2026-10-30',
+        'warehouse_id': depo_a, 'items': [kalem(butce_urun, 1, fiyat=20)]}))
+    if i % 2:
+        with SessionLocal() as db:
+            set_consent(db, company_id=cid, party_type='CUSTOMER', party_id=cari,
+                        channel='SMS', granted=True, source='FORM', source_ref='butce',
+                        recipient=f'0533{i:07d}', user_id=None)
+            db.commit()
+
+
+def ifade_say():
+    sayac = [0]
+
+    def _say(*_a, **_k):
+        sayac[0] += 1
+
+    event.listen(engine, 'before_cursor_execute', _say)
+    try:
+        govde = ok(onizleme(butce_lot))
+    finally:
+        event.remove(engine, 'before_cursor_execute', _say)
+    return sayac[0], govde
+
+
+for i in range(1, 6):
+    butce_alicisi(i)
+az, govde_az = ifade_say()
+assert len(govde_az['customers']) == 5
+for i in range(6, 51):
+    butce_alicisi(i)
+cok, govde_cok = ifade_say()
+assert len(govde_cok['customers']) == 50
+assert az == cok, ('cari basina sorgu', az, cok)
+assert sum(m['has_consent'] for m in govde_cok['customers']) == 25
+print('SORGU BUTCESI', az, cok)
 
 # ----- G4: PARTİLİ ürünün PARTİSİZ transferi REDDEDİLİR -----
 def hareket_sayisi(pid):
