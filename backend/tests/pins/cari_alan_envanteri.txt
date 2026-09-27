@@ -1,3 +1,10 @@
+# F9-5b MUHASEBE DISA AKTARIMI (goc YOK). Zip'in `fisler.csv`si fis basina
+# cari VKN'sini (`cari_vkn`) tasir ve `_akit.vkn` onu `maskele_cari`den
+# gecirir; `fisler.json` VKN TASIMAZ (ozet rolden bagimsiz). Vektor onizlemeyle
+# AYNI zincir: `reports` -> `yonetici`/`muhasebe` maskesiz (F), `satis`/`depo`
+# `reports` TASIMAZ (D), `rapor` MASKELI (M; `test_VKN_MASKESI_rapor_CSVsinde`
+# son uc haneyi olcuyor). `phone` tarayicinin yanlis pozitifi (asagida).
+GET /api/accounting/export	reports	phone,tax_number	F,F,D,D,M
 # F9-5a MUHASEBE FISI ONIZLEMESI (goc 20260927_0093). Yanit her fisin
 # `cari` nesnesinde carinin ADI ve VKN'sini (`tax_number`) tasir; VKN
 # `alan_maskeleme.maskele_cari`den gecer (`_muhasebe_fisi_gorunumu`). Vektor

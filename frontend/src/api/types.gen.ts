@@ -31,6 +31,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/accounting/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Disa Aktar
+         * @description Dönemin fişlerini hedef biçiminde akan bir zip olarak indirir.
+         *
+         *     Sıra (keşif §6.1): dönem kesiti → denge kapısı (409, akış YOK) → TEK
+         *     `accounting.exported` satırı (commit) → akış. İdempotency DURUMSUZDUR
+         *     (§6.3): `icerik_sha256` kanonik `fisler.json`un özetidir; DB'ye aktarım
+         *     durumu YAZILMAZ.
+         */
+        get: operations["disa_aktar_api_accounting_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/accounting/vat-summary": {
         parameters: {
             query?: never;
@@ -7843,6 +7868,21 @@ export interface components {
             /** Region Id */
             region_id?: number | null;
         };
+        /** DisaAktarimHatasi */
+        DisaAktarimHatasi: {
+            detail: components["schemas"]["DisaAktarimHatasiDetayi"];
+        };
+        /** DisaAktarimHatasiDetayi */
+        DisaAktarimHatasiDetayi: {
+            /** Code */
+            code: string;
+            /** Dengesiz Sayisi */
+            dengesiz_sayisi?: number | null;
+            /** Ilk Hatalar */
+            ilk_hatalar?: string[] | null;
+            /** Message */
+            message: string;
+        };
         /**
          * DiscountTier
          * @description One rung of a quantity -> discount ladder for a manual supplier price.
@@ -12152,6 +12192,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disa_aktar_api_accounting_export_get: {
+        parameters: {
+            query: {
+                /** @description YYYY-AA */
+                period: string;
+                /** @description luca | mikro | canonical (kanonik) */
+                target: "luca" | "mikro" | "canonical" | "kanonik" | "logo";
+                /** @description Hedefin kendi dosya biçimi; verilirse eşleşmeli */
+                format?: ("xlsx" | "csv") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Hedef dosyaları + kanonik fisler.json/fisler.csv + manifest.json */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": unknown;
+                };
+            };
+            /** @description Dönemde dengesiz fiş var */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisaAktarimHatasi"];
+                };
+            };
+            /** @description Hedef/biçim/dönem geçersiz */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisaAktarimHatasi"];
                 };
             };
         };

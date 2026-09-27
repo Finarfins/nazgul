@@ -219,6 +219,10 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
             # `account_map` (YENI tip). `muhasebe_hesap_eslemeleri` BILEREK
             # `created_by` tasimaz; "bu hesabi kim degistirdi" yalniz burada.
             "accounting.account_map_updated",
+            # F9-5b (goc YOK): muhasebe disa aktarimi. Aktarim DURUMSUZ;
+            # `details.icerik_sha256` "donem degisti mi" sorusunun TEK izi.
+            # Kaynak `account_map` yeniden kullanildi (yeni tip ACILMADI).
+            "accounting.exported",
     }
     assert set(ACTION_TYPES) == expected
     # 58 -> 59: product.base_unit_update (kantar fişi v2).
@@ -285,7 +289,9 @@ def test_v1_catalog_is_closed_and_labelled() -> None:
     # tek basina bir TAKASI (biri cikip biri girse) goremezdi.
     # 84 -> 85: F9-5a `accounting.account_map_updated`; RESOURCE_TYPES 24 -> 25
     # (`account_map`, okuma yuzeyi GET /api/accounting/account-map).
-    assert len(ACTION_TYPES) == 85, sorted(ACTION_TYPES)
+    # 85 -> 86: F9-5b `accounting.exported`; RESOURCE_TYPES 25'te SABIT
+    # (kaynak `account_map`, kimlik NULL — donem bir satir degil).
+    assert len(ACTION_TYPES) == 86, sorted(ACTION_TYPES)
     assert "whatsapp_pending" in RESOURCE_TYPES
     # F10-1a: TEK yeni kaynak tipi. `user` YENIDEN KULLANILMADI ve bu
     # olculmus bir karardir: kaynak baglantisi kullanici kartina gitseydi,

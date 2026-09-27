@@ -461,6 +461,8 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     # ("reports"; PUT "finance"). Kural genel `GET -> read`in USTUNDE —
     # altinda olsaydi ucu de "read"e cozulur ve `depo`/`satis` fisleri okurdu.
     ("GET", "/api/accounting/account-map"): "reports",
+    # F9-5b (goc YOK): donemin akan zip aktarimi; ayni kural, "reports".
+    ("GET", "/api/accounting/export"): "reports",
     ("GET", "/api/accounting/vat-summary"): "reports",
     ("GET", "/api/accounting/vouchers"): "reports",
 
@@ -621,7 +623,9 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # F9-5a (MUHASEBE, goc 20260927_0093): sayim 202 -> 205 (TABAN develop
 # `a44d7b8`). UC yeni GET, ucu de "reports" (yeni metoda bakan onek kurali);
 # hicbir mevcut ucun izni DEGISMEDI (drift raporu OLCULDU: yalniz `missing`).
-GET_INVENTORY_COUNT = 205
+# F9-5b (MUHASEBE DISA AKTARIMI, goc YOK): sayim 205 -> 206 (TABAN develop
+# `1dfd338`). BIR yeni GET, "reports"; hicbir mevcut ucun izni DEGISMEDI.
+GET_INVENTORY_COUNT = 206
 GET_INVENTORY_FINGERPRINT = (
     # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
     # sonra `auth.py`ye `/api/push/` önek kuralı eklendi, sonra izin
@@ -681,7 +685,10 @@ GET_INVENTORY_FINGERPRINT = (
     # metoda bakan `/api/accounting` kurali yazildi, izin `required_permission`
     # ile OLCULDU ("reports" x3), sonra envantere girdi. 850bfb8f -> 78c7721f
     # (TABAN `a44d7b8`).
-    "78c7721f0975c866ab557154ab6e15015907404a665b4956375a7044db90a636"
+    # F9-5b (goc YOK): parmak izi EN SON turetildi — uc yazildi, izni
+    # `required_permission` ile OLCULDU ("reports"), envantere girdi.
+    # 78c7721f -> c5ca3c5f (TABAN `1dfd338`).
+    "c5ca3c5f2977acec63dd207c0fee349906a5f6e8fa3b68b5d232b2fccf893007"
 )
 
 
