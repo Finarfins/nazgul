@@ -9869,6 +9869,8 @@ export interface components {
             fark?: string | null;
             /** Kaynak */
             kaynak: string;
+            /** Kdv Dahil */
+            kdv_dahil?: boolean | null;
             /** Kod */
             kod: string;
             /** Mesaj */
