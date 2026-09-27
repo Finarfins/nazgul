@@ -3199,6 +3199,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lots/{lot_id}/recall-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Recall Preview
+         * @description Bu parti kime, ne kadar, ne zaman çıktı; elinde ne kaldı; nerede iz koptu.
+         */
+        get: operations["recall_preview_api_lots__lot_id__recall_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/machines": {
         parameters: {
             query?: never;
@@ -18279,6 +18299,37 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+        };
+    };
+    recall_preview_api_lots__lot_id__recall_preview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lot_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -752,8 +752,11 @@ DYNAMIC_PERMISSION_CASES = {
 # yol (GET /api/accounting/export). Sayim 429/334 -> 430/335 (TABAN develop
 # `1dfd338`). Izin OLCULDU: "reports" (ayni metoda bakan onek kurali);
 # `read` degil, `ROUTE_REASONS` gerekce ISTEMIYOR.
-EXPECTED_OPERATION_COUNT = 430
-EXPECTED_PATH_COUNT = 335
+# F10-4a PARTI GERI CAGIRMA ONIZLEMESI (GOC YOK): BIR yeni GET
+# (`/api/lots/{lot_id}/recall-preview`), "sales". Sayim 430/335 -> 431/336
+# (TABAN develop `48739b6`, F9-5b'nin USTUNE).
+EXPECTED_OPERATION_COUNT = 431
+EXPECTED_PATH_COUNT = 336
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -971,7 +974,11 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # F9-5b (goc YOK): BIR yeni uc (`GET /api/accounting/export`), "reports".
     # Sayim 429/334 -> 430/335. TABAN develop `1dfd338`: parmak izi
     # 803e94a2 -> 227af4e7.
-    "227af4e7602cbfb3e6275c473325dbbfd271e74804e79c45642f6d1d24ba6be5"
+    # F10-4a (GOC YOK): BIR yeni GET (`/api/lots/{lot_id}/recall-preview`),
+    # "sales" (`auth.py`de `read` geri dususunun USTUNDE; cari adi + telefon
+    # tasir). Sayim 430/335 -> 431/336. TABAN develop `48739b6`: parmak izi
+    # 227af4e7 -> 5401b1df.
+    "5401b1dfd5c4747715a871841ce949d079c81ca9edc5d00d5bf92129d166f38c"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 

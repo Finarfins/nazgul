@@ -426,7 +426,13 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 # F9-5b MUHASEBE DISA AKTARIMI (goc YOK): BIR yeni uc (GET
 # /api/accounting/export). AUTH 416 -> 417. READ 91 / UNDENIABLE 97 /
 # GUARDED 35 SABIT ve OLCULDU: uc "reports"e cozulur, `read` degildir.
-EXPECTED_AUTHENTICATED = 417
+# F10-4a PARTI GERI CAGIRMA ONIZLEMESI (GOC YOK): BIR yeni GET, kimlik
+# dogrulamali, "sales". AUTH 417 -> 418 (+1, TABAN develop `48739b6`, F9-5b'nin
+# USTUNE); `test_route_security_contracts` 430 -> 431 ile AYNI uc.
+# READ 91 / UNDENIABLE 97 / GUARDED 35 SABIT: kural `auth.py`de `read` geri
+# dususunun USTUNDE. Kural olmasaydi uc `read`e duserdi (read 92, undeniable 98)
+# ve telefon listesi her role acilirdi.
+EXPECTED_AUTHENTICATED = 418
 EXPECTED_READ = 91
 EXPECTED_UNDENIABLE = 97
 

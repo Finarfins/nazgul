@@ -69,6 +69,7 @@ from .routers import (
     mustahsil,
     invoices,
     late_fees,
+    lots,
     machines,
     machine_hour_readings,
     machine_ownership,
@@ -736,6 +737,10 @@ app.include_router(machine_hour_readings.router, prefix="/api")
 app.include_router(machine_ownership.router, prefix="/api")
 app.include_router(technician_profiles.router, prefix="/api")
 app.include_router(products.router, prefix="/api")
+# F10-4a: parti geri çağırma ÖNİZLEMESİ (`/api/lots/{id}/recall-preview`).
+# Ürünün hemen ardından: parti bir ürün satırıdır ve `/api/products/{id}/lots`
+# listesinin "kim aldı?" sorusudur.
+app.include_router(lots.router, prefix="/api")
 app.include_router(finance.router, prefix="/api")
 # Tarla Yönetimi V1 (mobil-erp#2). Öneksiz: uçlar /api/farms,
 # /api/farm-parcels, /api/field-activities … olarak issue'da sabitlendi.

@@ -64,6 +64,15 @@ GET /api/finance/accounts	finance	iban	H,H,H,H,H
 GET /api/finance/summary	finance	iban	H,H,H,H,H
 GET /api/invoices/{invoice_id}/einvoice/download	sales	address	F,F,F,D,D
 GET /api/invoices/{invoice_id}/pdf	sales	tax_number	F,F,F,D,D
+# F10-4a PARTI GERI CAGIRMA ONIZLEMESI (GOC YOK). Yanit partiyi alan
+# carilerin `name` ve `phone`unu tasir; telefon `maskele_cari` ile role gore
+# maskelenir (`routers/lots.py`, `customers[]` her satir). Izin `sales`:
+# `auth.py`de `/api/lots/` GET kurali `read` geri dususunun USTUNDE, yani
+# `depo`/`rapor` rotayi HIC goremez (D). `sales` tasiyan uc rolun ucu de
+# `MASKESIZ_ROLLER`de -> F. Maske BAGLI ama bugun HICBIR rolde TETIKLENMIYOR
+# (`cek-senetler`in aynisi); bagli oldugu `test_f10_4a_lot_izi.py`de
+# calisma aninda `depo`ya `sales` verilerek OLCULDU (telefon maskeli).
+GET /api/lots/{lot_id}/recall-preview	sales	phone	F,F,F,D,D
 # H75 KALICI KATLANMIS ARAMA SUTUNLARI (goc 20260925_0092). Tarayici `email_katli`yi
 # `global_search`in SABIT arama metninden okuyor: sutun YALNIZ `WHERE`dedir (musteri
 # aramasinin maskesiz dali), SELECT listesinde YOKTUR ve yanita cikmaz; alt yazi
