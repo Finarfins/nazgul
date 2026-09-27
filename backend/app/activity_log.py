@@ -264,6 +264,12 @@ ACTION_TYPES: dict[str, str] = {
     # yalnız BURADAN çıkar. Kaynak kimliği `NULL`: tek istek birden çok satır
     # yazar ve eşlemin kendi okuma yüzeyi listedir, satır değil.
     "accounting.account_map_updated": "Muhasebe hesap eşlemesi güncelleme",
+    # Muhasebe dışa aktarımı (F9-5b, göç YOK). Aktarım DURUMSUZDUR (keşif
+    # §6.3): hiçbir belge tablosuna damga yazılmaz; `details.icerik_sha256`
+    # kanonik `fisler.json`un özetidir ve ikinci aktarımda "dönem değişti"
+    # sorusunun cevabı YALNIZ bu satırlardan çıkar. Kaynak tipi `account_map`
+    # (muhasebenin tek kaynak tipi), kimlik `NULL` (dönem bir satır değil).
+    "accounting.exported": "Muhasebe dışa aktarımı",
 }
 
 RESOURCE_TYPES: frozenset[str] = frozenset(

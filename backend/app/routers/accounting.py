@@ -5,25 +5,41 @@
 genel `GET → read` düşüşünün ÜSTÜNDEDİR (aksi hâlde üç GET `read`e çözülür ve
 `depo` fişleri görürdü — `test_f9_5a_muhasebe_fisi.py` izin matrisi).
 
-Bu dilimde dosya ÜRETİLMEZ (9-5b); önizleme kanonik JSON'dur. Cari VKN'si
+Önizleme kanonik JSON'dur; dosya `GET /export` ile iner (F9-5b). Cari VKN'si
 `maskele_cari`den geçer (SEC-3b): `reports` taşıyan `rapor` rolü maskelidir.
 `musavir` rolü (K13, maskesiz) 9-5c'dedir.
 """
 from __future__ import annotations
 
-from datetime import datetime
+import json
+import zipfile
+from collections.abc import Iterator
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..activity_log import log_request_activity
 from ..alan_maskeleme import maskele_cari
-from ..db import get_db
-from ..muhasebe.fis import fis_sozlugu
+from ..db import engine, get_db
+from ..muhasebe.fis import SIFIR, Fis, fis_sozlugu
+from ..muhasebe.hedef_kanonik import (
+    CSV_ADI,
+    JSON_ADI,
+    KanonikSerilestirici,
+    icerik_sha256,
+    kanonik_csv,
+    kanonik_json,
+)
+from ..muhasebe.hedef_luca import LucaSerilestirici
+from ..muhasebe.hedef_mikro import MikroSerilestirici
+from ..muhasebe.serilestirici import Serilestirici
 from ..muhasebe.hesap_plani import (
     HESAP_KODU_DESENI,
     VARSAYILANLAR,
@@ -36,6 +52,7 @@ from ..muhasebe.kaynak import DonemHatasi, donem_coz, donem_oku
 from ..muhasebe.kdv_ozeti import kdv_ozeti
 from ..muhasebe.schema import OLAYLAR
 from ..tenancy import company_id, istek_rolu
+from .kiraci_disa_aktarim import _AkanTampon
 
 router = APIRouter(prefix="/accounting", tags=["accounting"])
 
@@ -272,3 +289,179 @@ def kdv_ozeti_getir(
     cid = company_id(request)
     donem = _donem(period)
     return kdv_ozeti(donem_oku(db, cid, donem, plan_oku(db, cid)))
+
+
+# --------------------------------------------------------------------------
+# DIŞA AKTARIM (F9-5b, keşif §3, §6, §7.2)
+# --------------------------------------------------------------------------
+
+#: `target` → serileştirici. `kanonik` brifingin yazımıdır; keşif `canonical`
+#: der (keşif kazanır, ikisi de kabul). `logo` K2 kapanana kadar YAZILMAZ.
+SERILESTIRICILER: dict[str, Serilestirici] = {
+    "luca": LucaSerilestirici(),
+    "mikro": MikroSerilestirici(),
+    "canonical": KanonikSerilestirici(),
+    "kanonik": KanonikSerilestirici(),
+}
+Hedef = Literal["luca", "mikro", "canonical", "kanonik", "logo"]
+Bicim = Literal["xlsx", "csv"]
+ILK_HATA_TAVANI = 5
+
+
+class DisaAktarimHatasiDetayi(BaseModel):
+    code: str
+    message: str
+    dengesiz_sayisi: int | None = None
+    ilk_hatalar: list[str] | None = None
+
+
+class DisaAktarimHatasi(BaseModel):
+    detail: DisaAktarimHatasiDetayi
+
+
+def _aktarim_hatasi(durum: int, kod: str, mesaj: str, **ek) -> HTTPException:
+    return HTTPException(durum, detail={"code": kod, "message": mesaj, **ek})
+
+
+def _kesit_baslat(conn: Connection) -> None:
+    """PG: dönemin TÜM okuması tek `REPEATABLE READ, READ ONLY` kesitte.
+
+    `app/db.py` motoru varsayılan `READ COMMITTED`dir; plan, beş kol ve KDV
+    grupları ayrı ifadelerle okunur ve araya giren bir yazma fiş toplamını
+    manifest toplamından ayırırdı (keşif §6.1). SQLite'ta tek bağlantının tek
+    işlemi aynı garantiyi verir; ifade atlanır.
+    """
+    if conn.dialect.name == "postgresql":
+        conn.exec_driver_sql("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+
+
+def _donem_kesiti(cid: int, donem):
+    """Dönemi KENDİ bağlantısında okur; istek oturumu yazma için boş kalır."""
+    with engine.connect() as conn:
+        _kesit_baslat(conn)
+        with Session(bind=conn) as oturum:
+            return donem_oku(oturum, cid, donem, plan_oku(oturum, cid))
+
+
+def _toplam(fisler: list[Fis], alan: str) -> str:
+    return format(sum((getattr(f, alan) for f in fisler), SIFIR), "f")
+
+
+def _akit(
+    serilestirici: Serilestirici,
+    fisler: list[Fis],
+    donem: str,
+    rol: str,
+    json_bayt: bytes,
+    manifest: dict,
+) -> Iterator[bytes]:
+    """Zip konumlanamayan tampona yazılır; her dosyadan sonra akar.
+
+    Durum 200'de kilitlidir (`kiraci_disa_aktarim` HATA SINIRI): buradan
+    sonra doğan hata YARIM (açılamayan) zip üretir. Denge kapısı ve günlük
+    satırı bu yüzden üreteçten ÖNCE, uçtadır.
+    """
+    def vkn(fis: Fis) -> str | None:
+        return maskele_cari({"tax_number": fis.cari_vkn}, rol)["tax_number"]
+
+    tampon = _AkanTampon()
+    with zipfile.ZipFile(tampon, "w", zipfile.ZIP_DEFLATED) as zf:
+        for ad, bayt in serilestirici.dosyalar(fisler, donem, vkn):
+            zf.writestr(ad, bayt)
+            manifest["dosyalar"].append(ad)
+            yield tampon.bosalt()
+        manifest["parca_sayisi"] = len(manifest["dosyalar"])
+        zf.writestr(JSON_ADI, json_bayt)
+        yield tampon.bosalt()
+        zf.writestr(CSV_ADI, kanonik_csv(fisler, vkn))
+        yield tampon.bosalt()
+        manifest["dosyalar"] += [JSON_ADI, CSV_ADI]
+        zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+    yield tampon.bosalt()
+
+
+@router.get(
+    "/export",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "content": {"application/zip": {}},
+            "description": "Hedef dosyaları + kanonik fisler.json/fisler.csv + manifest.json",
+        },
+        409: {"model": DisaAktarimHatasi, "description": "Dönemde dengesiz fiş var"},
+        422: {"model": DisaAktarimHatasi, "description": "Hedef/biçim/dönem geçersiz"},
+    },
+)
+def disa_aktar(
+    request: Request,
+    period: str = Query(..., min_length=7, max_length=7, description="YYYY-AA"),
+    target: Hedef = Query(..., description="luca | mikro | canonical (kanonik)"),
+    format: Bicim | None = Query(None, description="Hedefin kendi dosya biçimi; verilirse eşleşmeli"),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Dönemin fişlerini hedef biçiminde akan bir zip olarak indirir.
+
+    Sıra (keşif §6.1): dönem kesiti → denge kapısı (409, akış YOK) → TEK
+    `accounting.exported` satırı (commit) → akış. İdempotency DURUMSUZDUR
+    (§6.3): `icerik_sha256` kanonik `fisler.json`un özetidir; DB'ye aktarım
+    durumu YAZILMAZ.
+    """
+    if target == "logo":
+        raise _aktarim_hatasi(
+            422, "HEDEF_DESTEKLENMIYOR",
+            "Logo hedefi henüz desteklenmiyor: muhasebe fişi XML şablonu doğrulanmadı (K2). "
+            "Kanonik (canonical) çıktıyı kullanın.",
+        )
+    serilestirici = SERILESTIRICILER[target]
+    if format is not None and format != serilestirici.bicim:
+        raise _aktarim_hatasi(
+            422, "BICIM_DESTEKLENMIYOR",
+            f"{target} hedefi {serilestirici.bicim} üretir; istenen biçim {format}.",
+        )
+    try:
+        donem = donem_coz(period)
+    except DonemHatasi as exc:
+        raise _aktarim_hatasi(422, "DONEM_GECERSIZ", str(exc)) from exc
+
+    cid = company_id(request)
+    veri = _donem_kesiti(cid, donem)
+    if veri.reddedilen:
+        raise _aktarim_hatasi(
+            409, "DONEM_DENGESIZ",
+            f"{donem.metin} döneminde {len(veri.reddedilen)} dengesiz fiş var; "
+            "önce belgeleri düzeltin (fiş önizlemesindeki uyarılar).",
+            dengesiz_sayisi=len(veri.reddedilen),
+            ilk_hatalar=[str(h) for h in veri.reddedilen[:ILK_HATA_TAVANI]],
+        )
+
+    fisler = veri.fisler
+    json_bayt = kanonik_json(fisler)
+    ozet = icerik_sha256(json_bayt)
+    borc, alacak = _toplam(fisler, "borc_toplami"), _toplam(fisler, "alacak_toplami")
+    # Günlük akıştan ÖNCE ve commit'li: kopan bir akış denetim satırını
+    # KAYBETTİRMEZ; 409'da ise hiç yazılmaz.
+    log_request_activity(
+        db, request, cid, "accounting.exported", "account_map", None,
+        f"Muhasebe dışa aktarımı — {donem.metin} {serilestirici.hedef}, {len(fisler)} fiş",
+        {"period": donem.metin, "target": serilestirici.hedef, "fis_sayisi": len(fisler),
+         "borc_toplami": borc, "icerik_sha256": ozet},
+    )
+    db.commit()
+
+    manifest = {
+        "period": donem.metin,
+        "target": serilestirici.hedef,
+        "fis_sayisi": len(fisler),
+        "borc_toplami": borc,
+        "alacak_toplami": alacak,
+        "parca_sayisi": 0,
+        "icerik_sha256": ozet,
+        "uretim_zamani": datetime.now(timezone.utc).isoformat(),
+        "dosyalar": [],
+    }
+    ad = f"muhasebe-{donem.metin}-{serilestirici.hedef}.zip"
+    return StreamingResponse(
+        _akit(serilestirici, fisler, donem.metin, istek_rolu(request), json_bayt, manifest),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{ad}"'},
+    )

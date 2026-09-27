@@ -423,7 +423,10 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 # `auth.py`deki METODA BAKAN `/api/accounting` kurali genel `GET -> read`
 # dususunun USTUNDE; uc GET "reports"e, PUT "finance"a cozulur, hicbiri
 # `read` degildir. Kural altina dusseydi READ ve UNDENIABLE +3 kayardi.
-EXPECTED_AUTHENTICATED = 416
+# F9-5b MUHASEBE DISA AKTARIMI (goc YOK): BIR yeni uc (GET
+# /api/accounting/export). AUTH 416 -> 417. READ 91 / UNDENIABLE 97 /
+# GUARDED 35 SABIT ve OLCULDU: uc "reports"e cozulur, `read` degildir.
+EXPECTED_AUTHENTICATED = 417
 EXPECTED_READ = 91
 EXPECTED_UNDENIABLE = 97
 
