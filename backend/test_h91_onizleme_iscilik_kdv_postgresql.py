@@ -131,3 +131,17 @@ def test_pg_fatura_sonrasi_alacak_ve_yaslandirma_baglantisi(olcum):
         wo_no = olcum[kurgu]["work_order_no"]
         belge = next(d for d in musteri["documents"] if d["document_type"] == "service_fee" and d["document_no"] == f"{wo_no}-R3")
         assert Decimal(str(belge["remaining"])) == Decimal(str(f["totals"]["customer_amount"]))
+
+
+def test_pg_yeniden_uzlastirma_iptal_ve_cas(olcum):
+    """H101 ikizi: yeniden koşum 0 yazma, iptalde -R1 "computed", bayat CAS 409."""
+    for kurgu in ("A", "B", "C", "D"):
+        k = olcum[kurgu]
+        assert k["yeniden_yazma"] == {"UPDATE": 0, "INSERT": 0}, (kurgu, k["yeniden_yazma"])
+        assert k["alacak_yeniden"] == k["alacak_fatura_sonrasi"], kurgu
+        assert [d["kod"] for d in k["bayat_cas"]] == ["409"] * (1 if kurgu in ("A", "B") else 2), (kurgu, k["bayat_cas"])
+        assert k["alacak_bayat_cas_sonrasi"] == k["alacak_yeniden"], kurgu
+    b = olcum["B"]
+    assert b["alacak_fatura_sonrasi"][0]["source"] == "invoice"
+    assert b["alacak_iptal_sonrasi"] == b["alacak_tamamlaninca"]
+    assert (b["alacak_iptal_sonrasi"][0]["source"], b["alacak_iptal_sonrasi"][0]["invoice_id"]) == ("computed", "")

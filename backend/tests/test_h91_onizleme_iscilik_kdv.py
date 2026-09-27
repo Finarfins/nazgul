@@ -267,3 +267,41 @@ def test_12_mutasyon_ayni_tutarda_guncelleme_olmazsa_kirmizi(tmp_path):
         assert sonra[0]["source"] != "invoice" or sonra[0]["invoice_id"] == "", \
             f"Mutasyon başarısız: UPDATE yokken {kurgu} faturaya bağlanmış görünüyor"
 
+
+
+# (6) H101: yeniden koşum, iptal sonrası bağlantı, compare-and-set -------------
+
+def test_13_yeniden_uzlastirma_idempotent_sifir_yazma(olcum):
+    """Fatura sonrası uzlaştırma bir kez daha koşunca HİÇ UPDATE/INSERT yok."""
+    for kurgu in ("A", "B", "C", "D"):
+        k = olcum[kurgu]
+        assert k["yeniden_yazma"] == {"UPDATE": 0, "INSERT": 0}, (kurgu, k["yeniden_yazma"])
+        assert k["alacak_yeniden"] == k["alacak_fatura_sonrasi"], kurgu
+
+
+def test_14_fatura_iptalinde_r1_yeniden_computed_a_baglanir(olcum):
+    """Aynı tutarda iptal: -R1 yerinde "computed"a döner, yeni defter satırı YOK."""
+    b = olcum["B"]
+    # Ön koşul: iptalden önce -R1 faturaya bağlıydı (yoksa dönüş ölçülemez).
+    assert b["alacak_fatura_sonrasi"][0]["source"] == "invoice"
+    iptal = b["alacak_iptal_sonrasi"]
+    assert len(iptal) == len(b["alacak_fatura_sonrasi"]) == 1
+    assert (iptal[0]["revision_no"], iptal[0]["status"], iptal[0]["reversal"]) == ("1", "posted", "0")
+    assert iptal[0]["gross_amount"] == b["alacak_fatura_sonrasi"][0]["gross_amount"]
+    assert (iptal[0]["source"], iptal[0]["invoice_id"], iptal[0]["invoice_number"]) == ("computed", "", "")
+    assert iptal == b["alacak_tamamlaninca"]
+
+
+def test_15_bayat_parmak_izi_ve_ters_kayit_cas_409(olcum):
+    """CAS: bayat önceki iz (posted) ve reversed satır → 409, zincir değişmez."""
+    for kurgu in ("A", "B", "C", "D"):
+        k = olcum[kurgu]
+        durumlar = sorted(d["status"] for d in k["bayat_cas"])
+        assert durumlar == (["posted"] if kurgu in ("A", "B") else ["posted", "reversed"]), (kurgu, k["bayat_cas"])
+        for d in k["bayat_cas"]:
+            assert d["kod"] == "409", (kurgu, d)
+            # Türkçe mesaj, iç ad (tablo/sütun/fonksiyon) sızdırmaz.
+            assert "eşzamanlı" in d["detay"], d
+            for ic_ad in ("receivable", "fingerprint", "calculation", "_update", "status"):
+                assert ic_ad not in d["detay"], d
+        assert k["alacak_bayat_cas_sonrasi"] == k["alacak_yeniden"], kurgu
