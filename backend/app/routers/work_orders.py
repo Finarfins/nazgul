@@ -19,6 +19,7 @@ from ..document_engine import next_document_no
 from ..money import money, quantity
 from ..service_receivable_engine import (
     assert_work_order_receivable_inactive,
+    reconcile_if_completed,
     reconcile_service_receivable,
     reverse_service_receivable,
 )
@@ -528,6 +529,14 @@ def update_work_order(
         action="update",
         before=before,
         after=after,
+    )
+    reconcile_if_completed(
+        db,
+        cid,
+        work_order_id,
+        actor_id=int(request.state.user["id"]),
+        status=str(after["status"]),
+        reason="work_order_reconciliation",
     )
     db.commit()
     return after
