@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from ..billing_service import build_invoice_summary
 from ..db import get_db
+from ..invoice_schemas import DiscountType
 from ..tenancy import company_id
 from ..work_order_billing_schemas import InvoiceSummaryResponse
 
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/work-orders", tags=["work-order-billing"])
 def invoice_summary(
     work_order_id: int,
     request: Request,
-    global_discount_type: Literal["PERCENT", "FIXED"] = "PERCENT",
+    global_discount_type: DiscountType = "PERCENT",
     global_discount_value: Decimal = Query(default=Decimal("0"), ge=0),
     db: Session = Depends(get_db),
 ):

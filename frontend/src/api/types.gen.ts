@@ -9105,8 +9105,9 @@ export interface components {
             /**
              * Global Discount Type
              * @default PERCENT
+             * @enum {string}
              */
-            global_discount_type: string;
+            global_discount_type: "PERCENT" | "FIXED";
             /**
              * Global Discount Value
              * @default 0
