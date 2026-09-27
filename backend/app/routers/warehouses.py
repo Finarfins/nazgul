@@ -17,7 +17,12 @@ from ..inventory import (
     warehouse_stocks,
     warehouses,
 )
-from ..parti_defteri import _parti_ac, _parti_bul, _parti_dus
+from ..parti_defteri import (
+    _lotsuz_yazmayi_reddet,
+    _parti_ac,
+    _parti_bul,
+    _parti_dus,
+)
 from ..schemas import CriticalStockUpdate, StockTransferCreate, WarehouseCreate
 from ..tenancy import branches, company_id
 
@@ -311,6 +316,25 @@ def create_transfer(
                                 f"{item.quantity} birim transfer edilemez."
                             ),
                         },
+                    )
+            else:
+                # F10-4a / G4 (keşif §3, K6): partili ürünün PARTİSİZ transferi
+                # iki depoda da `SAPMA` üretiyordu (ölçüldü: 201 + iki `lot_id`
+                # NULL hareket) ve hedefe geçen mal geri çağırmadan KAÇIYORDU.
+                # Kapı öteki partisiz yazıcılarınkiyle AYNI (kod, metin, 409).
+                # İKİ UÇ da sorulur: kaynakta defter açıksa mal partisiz çıkar,
+                # hedefte açıksa partisiz girer — ikisi de aynı ayrışmadır.
+                # Hiç parti açmamış ürün (her iki depoda defter kapalı) GEÇER.
+                for depo_id in (
+                    payload.source_warehouse_id,
+                    payload.target_warehouse_id,
+                ):
+                    _lotsuz_yazmayi_reddet(
+                        db,
+                        cid,
+                        product_id=item.product_id,
+                        warehouse_id=depo_id,
+                        care="Transfer edilecek partiyi `lot_code` ile belirtin.",
                     )
             adjust_warehouse_stock(
                 db,
