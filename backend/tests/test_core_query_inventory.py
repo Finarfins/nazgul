@@ -1304,6 +1304,23 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
      "989e63e3bbaf52ee002120ac76d2992f2c5c6b49ccaa5d5b9f53adc5cb06dda0"): (1, "invoice_items", "arg0"),  # satır [535]
     ("app/muhasebe/kaynak.py", "_servis", "select",
      "f568f9c96aadca284ae6e27a7bc6d61e053a492d312b22826701acd17c5e2c0a"): (1, "invoices", "arg0"),  # satır [527]
+    # F10-4a PARTI GERI CAGIRMA ONIZLEMESI (GOC YOK): `lot_izi.parti_izi_oku`
+    # ON duz `select`; her biri TEK tabloya dokunur ve ILK yuklemi
+    # `<tablo>.c.company_id == cid`dir (takma ad / JOIN / union YOK — kesif
+    # §2.3 bicim 2). Iki `product_lots` (kok + kardesler), iki
+    # `stock_movements` (partili hareket + partisiz bosluk), birer
+    # `products`, `warehouses`, `returns`, `orders`, `delivery_notes`,
+    # `customers`. Tarayicinin ciktisindan alindi.
+    ('app/lot_izi.py', 'parti_izi_oku', 'select', '0595f55ff1b3b905569735807b44274c5640d8ca522700d991a3fb4fc8bb3614'): (1, 'products', 'arg0'),
+    ('app/lot_izi.py', 'parti_izi_oku', 'select', '0cd2b56dc31d95d978643dfd957b282bf51a79789b205e39123ac8cd756f8cc6'): (1, 'stock_movements', 'arg0'),
+    ('app/lot_izi.py', 'parti_izi_oku', 'select', '24b35373ad47b4bbf467496cfe6106f1200873c9030fa0406d72c5177779bae6'): (1, 'orders', 'arg0'),
+    ('app/lot_izi.py', 'parti_izi_oku', 'select', '2db5e4d2e2a995bbeb4abb6e84ec4261af879e4a788889ba65d78e4c2acfc386'): (1, 'returns', 'arg0'),
+    ('app/lot_izi.py', 'parti_izi_oku', 'select', 'a52ec673790d0594fb0d7479596b92410d5df0d0f0e5f847e710b17ffe0d17d0'): (1, 'warehouses', 'arg0'),
+    ('app/lot_izi.py', 'parti_izi_oku', 'select', 'a9069908ac6a0e045624a57ae6a35793e9e5a5ca3c32c2be9ad7b85a0c513921'): (1, 'delivery_notes', 'arg0'),
+    ('app/lot_izi.py', 'parti_izi_oku', 'select', 'b5c5cd321596557a6a2e829927a4504af183f1d4b7f68425f46fe88c1b2d380b'): (1, 'customers', 'arg0'),
+    ('app/lot_izi.py', 'parti_izi_oku', 'select', 'ca990441319e624ea20937e42d45e6685735a78379e9a3c6c49b89dfd4c0512f'): (1, 'product_lots', 'arg0'),
+    ('app/lot_izi.py', 'parti_izi_oku', 'select', 'd69b06506b2733b2f8de5e8dd08792a32d0248302f92138361c71be5ed81fa01'): (1, 'stock_movements', 'arg0'),
+    ('app/lot_izi.py', 'parti_izi_oku', 'select', 'e3e6d307422769ef9d892961efeaa7f4f96a7f1666c21caf1067fb83bf2ebc2e'): (1, 'product_lots', 'arg0'),
 }
 
 # 20260910 5.1c KIRACI GERI YUKLEME (GOC YOK): 176 -> 184, +6 select +2 update,
@@ -1388,12 +1405,16 @@ EXPECTED_QUERIES: dict[Kimlik, Kayit] = {
 # F9-5a MUHASEBE (goc 20260927_0093): 252 -> 267, +14 select +1 update
 # (TABAN develop `a44d7b8`); HEPSI ekleme, hicbir mevcut sorgu KIMILDAMADI.
 # `UNRESOLVED_ALLOWLIST` ve `desteksiz` BUYUMEDI. Tarayicinin ciktisindan.
-TOTAL_CORE_QUERIES = 267
+# F10-4a PARTI GERI CAGIRMA ONIZLEMESI (GOC YOK): 267 -> 277, +10 select,
+# HEPSI `app/lot_izi.py`. Drift raporu OLCULDU: `eksik` ve `degismis` BOS;
+# `desteksiz` 6'da SABIT (TABAN develop `1dfd338`, F9-5a'nin USTUNE).
+TOTAL_CORE_QUERIES = 277
 # F10-1b (goc 20260920_0091): select 170 -> 171 (`ciftci_yurutucu.
 # _firma_adi`); `update` ve `delete` KIMILDAMADI — ciftci dali OKUMADIR.
 # F10-1b DUZELTME 2: update 68 -> 69 (`taraf.riza_damgasi_yaz`).
 # F9-5a: select 171 -> 185, update 69 -> 70 (`hesap_plani.esleme_yaz`).
-EXPECTED_OP_COUNTS = {"select": 185, "update": 70, "delete": 12}
+# F10-4a: select 185 -> 195 (`lot_izi.parti_izi_oku`, salt okur).
+EXPECTED_OP_COUNTS = {"select": 195, "update": 70, "delete": 12}
 # 20260909 SEC-10 verify-email split: 175 -> 176 (select 111 -> 112).
 # GET /api/auth/verify-email salt-okunur iniş rotası (verify_email_landing)
 # olarak ayrıştırıldı ve token kontrolü için select(email_verification_tokens) çalıştırır.
@@ -1523,8 +1544,10 @@ EXPECTED_OP_COUNTS = {"select": 185, "update": 70, "delete": 12}
 # F9-5a (goc 20260927_0093, +15): once 15 sorgu envantere ADIYLA girdi,
 # sonra parmak izi tarayicinin ciktisindan alindi. TABAN develop `a44d7b8`.
 # c7f3d672 -> 947b75d2.
+# F10-4a (GOC YOK, +10 select `lot_izi.parti_izi_oku`): tarayicinin
+# ciktisindan, TABAN develop `1dfd338` (F9-5a'nin USTUNE). 947b75d2 -> 70b93288.
 INVENTORY_FINGERPRINT = (
-    "947b75d2597374d67cd02807f5ac576265e39041fadc29827d71fd43534b2d86"
+    "70b93288908f8e423de657dfc9dbbd557f2ec7287f310db446a5422af611a313"
 )
 
 #: Çözülemeyen hedefler için dar, gerekçeli muafiyet.

@@ -2153,7 +2153,11 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # `<tablo>.c.company_id == cid`, her birlesim `company_id` esitligiyle),
 # dordu `app/muhasebe/hesap_plani.py` (iki select, bir insert, bir update;
 # `muhasebe_hesap_eslemeleri.c.company_id == cid` ACIKCA).
-BEKLENEN_CORE_IFADE_SAYISI = 225
+# 225 -> 235: F10-4a PARTI GERI CAGIRMA ONIZLEMESI (GOC YOK; TABAN develop
+# `1dfd338`, F9-5a'nin USTUNE, tarayicinin ciktisindan). ON ifade, HEPSI
+# `app/lot_izi.py::parti_izi_oku`; hicbiri lisans istemedi, her biri TEK
+# tabloya dokunur ve ILK yuklemi `<tablo>.c.company_id == cid`dir.
+BEKLENEN_CORE_IFADE_SAYISI = 235
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
     # F9-5a (goc 20260927_0093): `app/muhasebe/kaynak.py` belge tablolarinin
@@ -2168,6 +2172,12 @@ BEKLENEN_KIRACI_TABLOLARI = frozenset({
     "purchase_items",
     "purchases",
     "return_items",
+    # F10-4a (GOC YOK): geri cagirma onizlemesinin uc hopu. `product_lots`
+    # `app/lot_izi.py`de MODUL-YEREL `MetaData` ile bildirildi (core_schema'ya
+    # GIRMEDI); `delivery_notes` ve `product_lots` YALNIZ `parti_izi_oku`da,
+    # kiraci yuklemi ILK (`orders`/`returns` F9-5a ile zaten listede).
+    "delivery_notes",
+    "product_lots",
     "returns",
     # H47: CS2 dekont toplami (`statement._cek_dekont_borcu`) Core'a cevrildi.
     "receivable_charge_documents",
