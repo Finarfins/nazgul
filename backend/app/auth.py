@@ -238,7 +238,28 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     # sorumluluğu ve `herd.health` ile ayrıldı.
     "depo": {"read", "stock", "purchases", "supplier_prices.view", "farm.view", "farm.inputs", "herd.view"},
     "rapor": {"read", "reports", "farm.view", "herd.view"},
+    # DIŞ MALİ MÜŞAVİR (F9-5c, K7 = a′). Muhasebenin OKUMA izinlerinin tamamı:
+    # fişi kaynak belgeyle (satış, alış, tahsilat, banka) mutabakat yapabilmesi
+    # için `sales`/`purchases`/`payments`/`finance` ŞART — `rapor` bunları
+    # göremez. Yazma bu tablodan DEĞİL `READ_ONLY_ROLES`tan kapanır: izinler
+    # okuma/yazma ayırmaz (`/api/payments` iki metotta da `payments`), kapı
+    # METODA bakar.
+    #
+    # `farm.view` + `herd.view` ŞART: `UNIVERSAL_PERMISSIONS` rol tablosundan
+    # TÜRER; müşavir bunları taşımasa küme `{read}`e düşer ve tarla/sürü okuma
+    # uçlarının "hiçbir rolle reddedilemez" sınıflaması yalan olurdu.
+    "musavir": {
+        "read", "reports", "farm.view", "herd.view",
+        "sales", "purchases", "payments", "finance",
+    },
 }
+
+#: Yazamayan roller (F9-5c). Ara katmanda izin kapısının HEMEN ÖNÜNDE: rol bu
+#: kümedeyse, metot `SAFE_METHODS` dışındaysa ve yol `SELF_SERVICE_API`de
+#: değilse istek 403 `ROLE_READ_ONLY` ile düşer. Kapı YOL listesine değil
+#: METODA bakar — yarın eklenen yazan uç da kendiliğinden kapalıdır
+#: (deny-by-default). Parola değişimi ve çıkış self-servistir, açık kalır.
+READ_ONLY_ROLES: frozenset[str] = frozenset({"musavir"})
 
 # Higher numbers represent stronger administrative authority. This is kept
 # separate from feature permissions because being able to use the Users screen
@@ -250,6 +271,9 @@ ROLE_RANK: dict[str, int] = {
     "satis": 40,
     "depo": 40,
     "rapor": 20,
+    # En alt: müşavir hiçbir kullanıcıyı yönetemez (`users` izni de yok);
+    # rütbesi daha yüksek her rol onu atayabilir/pasife alabilir.
+    "musavir": 10,
 }
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}

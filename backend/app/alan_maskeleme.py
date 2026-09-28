@@ -50,7 +50,11 @@ from typing import Any, Callable
 #: Maskeleme UYGULANMAYAN roller. Bunun disindaki HER rol maskelidir
 #: (deny-by-default); yeni bir rol sessizce tam veri goremez.
 #: `admin` icin gerekce modul basligindadir.
-MASKESIZ_ROLLER: frozenset[str] = frozenset({"admin", "yonetici", "muhasebe", "satis"})
+#: `musavir` (F9-5c, K13): fisin `cari_vkn`i ve mutabakat tam bu degerler
+#: icin var; maskeli VKN/IBAN ile musavir isini yapamaz.
+MASKESIZ_ROLLER: frozenset[str] = frozenset(
+    {"admin", "yonetici", "muhasebe", "satis", "musavir"}
+)
 
 #: Maskelenen degerin tamamen gizlendigi durumlarda donen sabit. Degerin VAR
 #: oldugunu soyler, icerigini soylemez.

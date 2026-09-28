@@ -467,7 +467,7 @@ def test_yetki_matrisi(ortam) -> None:
 
     client = ortam["client"]
     tasiyanlar = sorted(r for r, izin in ROLE_PERMISSIONS.items() if "payments" in izin or "*" in izin)
-    assert tasiyanlar == ["admin", "muhasebe", "satis", "yonetici"], tasiyanlar
+    assert tasiyanlar == ["admin", "muhasebe", "musavir", "satis", "yonetici"], tasiyanlar
     for anahtar in ("h_depo", "h_rapor"):
         assert client.get("/api/cek-senetler", headers=ortam[anahtar]).status_code == 403
         assert client.post("/api/cek-senetler", headers=ortam[anahtar],

@@ -74,7 +74,7 @@ def test_health_permission_is_separate_from_manage() -> None:
     assert saglik == {"yonetici"}, saglik
     # Okuma herkeste; admin "*" ile kapsıyor.
     okuyanlar = {r for r, izin in ROLE_PERMISSIONS.items() if "herd.view" in izin}
-    assert okuyanlar == {"yonetici", "muhasebe", "satis", "depo", "rapor"}, okuyanlar
+    assert okuyanlar == {"yonetici", "muhasebe", "satis", "depo", "rapor", "musavir"}, okuyanlar
     # Depo aşı GİREMEZ — veterinerlik sorumluluğu.
     assert "herd.health" not in ROLE_PERMISSIONS["depo"]
 

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from ..activity_log import log_request_activity
 from ..auth import (
+    READ_ONLY_ROLES,
     ROLE_PERMISSIONS,
     auth_rate_limits,
     audit_logs,
@@ -536,6 +537,9 @@ def _session_payload(db: Session, user: dict) -> dict:
         # copy of the fallback here would let the SPA be told it may show
         # read-only screens while every request behind them is denied 403.
         "permissions": sorted(permissions_for(user["role"])),
+        # F9-5c: ara katmanın `ROLE_READ_ONLY` kapısıyla AYNI küme. Ön yüz yazma
+        # düğmelerini bununla gizler; okuma gizleyen `can()`ler değişmez.
+        "read_only": user["role"] in READ_ONLY_ROLES,
         "is_platform_operator": is_platform_operator(user),
         "companies": user_companies(db, int(user["id"])),
     }

@@ -17,6 +17,7 @@ from sqlalchemy import insert, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from .auth import (
+    READ_ONLY_ROLES,
     SAFE_METHODS,
     SELF_SERVICE_API,
     audit_logs,
@@ -479,6 +480,18 @@ async def security_and_audit(request: Request, call_next):
         # Muafiyet ROLE DEĞİL UCUN DOĞASINA ait: bilinmeyen role izin vermek,
         # bu PR'ın kapattığı fail-open'ı geri açardı. Üyelik TAM EŞLEŞME —
         # önek olsaydı bu yolların altına eklenen her uç sessizce muaf olurdu.
+        # SALT-OKUNUR ROL (F9-5c) izin kapısının ÖNÜNDE: müşavir bir yazma
+        # ucunun iznini TAŞISA BİLE (`/api/payments` POST da `payments` ister)
+        # düşer. Karar METODA bakar, yol listesine değil — yarın eklenen yazan
+        # uç da kendiliğinden kapalı. Self-servis (parola, çıkış) açık kalır.
+        if (
+            user["role"] in READ_ONLY_ROLES
+            and request.method not in SAFE_METHODS
+            and path not in SELF_SERVICE_API
+        ):
+            return audited_response(
+                403, "Salt-okunur rol bu işlemi yapamaz", code="ROLE_READ_ONLY"
+            )
         if path not in SELF_SERVICE_API:
             permission = required_permission(request.method, path)
             if not has_permission(user["role"], permission):

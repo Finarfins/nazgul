@@ -87,6 +87,12 @@ def test_payments_and_finance_permission_map() -> None:
             "herd.view",
         },
         "rapor": {"read", "reports", "farm.view", "herd.view"},
+        # F9-5c: dış müşavir muhasebenin OKUMA izinlerini taşır; yazma izin
+        # tablosundan değil `READ_ONLY_ROLES` kapısından kapanır.
+        "musavir": {
+            "read", "reports", "farm.view", "herd.view",
+            "sales", "purchases", "payments", "finance",
+        },
     }
     # Yalnız yönetici tarla kaydı yazabilir. Bu satır düşerse bir rol sessizce
     # yazma hakkı kazanmış demektir.
