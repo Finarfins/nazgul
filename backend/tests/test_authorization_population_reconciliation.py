@@ -432,7 +432,13 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 # READ 91 / UNDENIABLE 97 / GUARDED 35 SABIT: kural `auth.py`de `read` geri
 # dususunun USTUNDE. Kural olmasaydi uc `read`e duserdi (read 92, undeniable 98)
 # ve telefon listesi her role acilirdi.
-EXPECTED_AUTHENTICATED = 418
+# F10-9a MUSTERI RISK SKORU (goc YOK): BIR yeni uc (GET
+# /api/customers/{customer_id}/risk-score). AUTH 418 -> 419 (TABAN develop
+# `9b0ee86`, F10-4a'nin USTUNE). READ 91 / UNDENIABLE 97 / GUARDED 35 SABIT
+# ve OLCULDU: `auth.py`deki TAM SONEK kurali genel `GET -> read` dususunun
+# USTUNDE, uc "sales"e cozulur. Kural altina dusseydi READ 92, UNDENIABLE 98
+# olurdu (skor depo/rapora acilirdi).
+EXPECTED_AUTHENTICATED = 419
 EXPECTED_READ = 91
 EXPECTED_UNDENIABLE = 97
 

@@ -232,6 +232,11 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     # uc `GUARDED_READ`ten CIKIYOR (26 -> 24). `EXPECTED_UNDENIABLE`i zaten
     # buyutmuyordu; kucultmuyor da.
     ("GET", "/api/customers/{customer_id}/statement.pdf"): "sales",
+    # F10-9a (goc YOK): musteri risk skoru. Ekstre ile AYNI gerekce (Sef K7):
+    # musteriye dair IC ticari yargi (KVKK K8), gunluk `read` yuzeyi degil.
+    # Izin `auth.py`deki TAM SONEK kuralindan ("sales"), genel `GET -> read`
+    # dususunun USTUNDE. KAYBEDEN: `depo`, `rapor`.
+    ("GET", "/api/customers/{customer_id}/risk-score"): "sales",
     ("GET", "/api/dashboard"): "read",
     ("GET", "/api/demo/summary"): "read",
     # --- e-IRSALIYE (E4a, goc 20260913_0083) -------------------------------
@@ -632,7 +637,10 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # F10-4a (PARTI GERI CAGIRMA ONIZLEMESI, GOC YOK): sayim 206 -> 207 (TABAN
 # develop `48739b6`). BIR yeni GET, "sales"; hicbir mevcut ucun izni
 # DEGISMEDI (kural onegi `/api/lots/`, baska uc o onekle baslamiyor).
-GET_INVENTORY_COUNT = 207
+# F10-9a (MUSTERI RISK SKORU, goc YOK): sayim 207 -> 208 (TABAN develop
+# `9b0ee86`, F10-4a'nin USTUNE). BIR yeni GET, "sales" (TAM SONEK kurali);
+# hicbir mevcut ucun izni DEGISMEDI (drift raporu OLCULDU: yalniz `missing`).
+GET_INVENTORY_COUNT = 208
 GET_INVENTORY_FINGERPRINT = (
     # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
     # sonra `auth.py`ye `/api/push/` önek kuralı eklendi, sonra izin
@@ -698,7 +706,10 @@ GET_INVENTORY_FINGERPRINT = (
     # F10-4a (GOC YOK): once uc yazildi, `auth.py` kurali eklendi, izin
     # `required_permission` ile OLCULDU ("sales"), envantere girdi, EN SON
     # parmak izi. c5ca3c5f -> aa5cdfd4 (TABAN `48739b6`).
-    "aa5cdfd4c9f80342ede832adcd7f202d54da48a44f7472f35592d00c58fb0696"
+    # F10-9a (goc YOK): parmak izi EN SON turetildi — uc ve TAM SONEK kurali
+    # yazildi, izni `required_permission` ile OLCULDU ("sales"), envantere
+    # girdi. aa5cdfd4 -> 25770fac (TABAN `9b0ee86`).
+    "25770fac1ebd65c362941a7ce9bd1b63f21c6eca71454837e4f5d08d75f75efd"
 )
 
 
