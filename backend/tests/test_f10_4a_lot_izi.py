@@ -77,7 +77,8 @@ def _where_ilk_yuklemleri(yol: Path) -> list[tuple[int, str]]:
 def test_TENANT_YUKLEMI_ILK_her_sorguda() -> None:
     """`lot_izi`nin her `where`ü `<tablo>.c.company_id == cid` ile BAŞLAR."""
     yuklemler = _where_ilk_yuklemleri(IZ)
-    assert len(yuklemler) == 10, yuklemler
+    # H116/H117: +4 sorgu (örnekler, defter_bosaldi, stok, parti toplamı).
+    assert len(yuklemler) == 14, yuklemler
     for satir, ilk in yuklemler:
         assert ilk.endswith(".c.company_id == cid"), (satir, ilk)
 
@@ -160,6 +161,9 @@ def _iz(**fazla):
                      "return_date": "2026-09-04", "document_no": "I-1",
                      "source_type": "order", "source_id": 10}},
         cariler={100: {"id": 100, "name": "Ali", "phone": "05321112233"}},
+        ornekler=[],
+        mutabakat=[],
+        bosaldi=[],
     )
     temel.update(fazla)
     return SimpleNamespace(**temel)
@@ -370,6 +374,7 @@ def test_GERI_CAGIRMA_ONIZLEMESI_ve_PARTISIZ_TRANSFER(tmp_path: Path) -> None:
 #: `types.gen.ts` gövdeyi `unknown` yazıyordu).
 UST_ANAHTARLAR = {
     "lot", "siblings", "customers", "pos_retail", "gaps", "other_movements", "balance",
+    "uyarilar",
 }
 
 _SEMA = r'''
@@ -525,7 +530,7 @@ ok(client.post('/api/workflow/purchase_return', headers=baslik, json={
     'entity_id': tedarikci, 'document_date': '2026-09-07', 'status': 'completed',
     'warehouse_id': depo_a, 'items': [kalem(npk, 3, fiyat=10)]}))
 # G2: KAYNAKSIZ satış iadesi — partiye DÖNMEZ (`lot_id` NULL).
-ok(client.post('/api/workflow/sale_return', headers=baslik, json={
+kaynaksiz = ok(client.post('/api/workflow/sale_return', headers=baslik, json={
     'entity_id': berk, 'document_date': '2026-09-08', 'status': 'completed',
     'warehouse_id': depo_a, 'items': [kalem(npk, 2, fiyat=20)]}))
 # G5: tarla faaliyeti tüketimi — GERÇEK yazıcı (`field_stok_tuketici._hareket_yaz`).
@@ -595,6 +600,38 @@ assert [(g['code'], g['reference_type'], g['movement_count'], D(g['quantity']))
     ('tarla_hareketi', 'field_integration_event', 1, Decimal('-4')),
     ('kaynaksiz_iade', 'returns', 1, Decimal('2')),
 ], rapor['gaps']
+
+# ----- H117: boşluk satırı ARKASINDAKİ belge (kimlikle) -----
+tarla_gap, iade_gap = rapor['gaps']
+assert len(tarla_gap['ornekler']) == 1 and not tarla_gap['ornek_kesildi'], tarla_gap
+assert tarla_gap['ornekler'][0]['reference_type'] == 'field_integration_event'
+assert tarla_gap['ornekler'][0]['customer_id'] is None, tarla_gap
+assert tarla_gap['ornekler'][0]['document_no'] is None, tarla_gap
+with SessionLocal() as db:
+    iade_no = db.execute(text(
+        "SELECT document_no FROM returns WHERE company_id=:cid AND id=:id"),
+        {'cid': cid, 'id': kaynaksiz['id']}).scalar_one()
+iade_ornegi = iade_gap['ornekler'][0]
+assert len(iade_gap['ornekler']) == 1 and iade_gap['ornek_kesildi'] is False, iade_gap
+assert (iade_ornegi['reference_type'], iade_ornegi['reference_id'], iade_ornegi['document_no'],
+        iade_ornegi['customer_id'], iade_ornegi['date'], D(iade_ornegi['quantity'])) == (
+    'returns', kaynaksiz['id'], iade_no, berk, '2026-09-08', Decimal('2')), iade_ornegi
+# Cari ADI/telefonu örnekte YOK (yalnız kimlik).
+assert set(iade_ornegi) == {
+    'reference_type', 'reference_id', 'document_no', 'customer_id', 'date', 'quantity'}
+
+
+# ----- H116: uyarilar — A deposu SAPMA (kaynaksız +2, tarla −4 => −2) -----
+def uyari_ozeti(govde):
+    return [(u['kod'], u['warehouse_id'], None if u['miktar'] is None else D(u['miktar']))
+            for u in govde['uyarilar']]
+
+
+assert uyari_ozeti(rapor) == [
+    ('mutabakat_sapma', depo_a, Decimal('-2')),
+    ('kaynaksiz_iade', None, Decimal('2')),
+], rapor['uyarilar']
+assert all(u['mesaj'] for u in rapor['uyarilar'])
 
 # ----- DENGE: giren = alıcılar + perakende + tedarikçiye iade + eldeki -----
 denge = {k: D(v) for k, v in rapor['balance'].items()}
@@ -686,7 +723,7 @@ def butce_alicisi(i):
             db.commit()
 
 
-def ifade_say():
+def ifade_say(lot=None):
     sayac = [0]
 
     def _say(*_a, **_k):
@@ -694,7 +731,7 @@ def ifade_say():
 
     event.listen(engine, 'before_cursor_execute', _say)
     try:
-        govde = ok(onizleme(butce_lot))
+        govde = ok(onizleme(butce_lot if lot is None else lot))
     finally:
         event.remove(engine, 'before_cursor_execute', _say)
     return sayac[0], govde
@@ -738,6 +775,100 @@ gecti = transfer(duz, 4)
 assert gecti.status_code == 201, (gecti.status_code, gecti.text)
 # Partili transfer hâlâ çalışıyor.
 assert transfer(npk, 1, 'L-RECALL').status_code == 201
+
+# ----- H116 / G4: ESKİ VERİ — kapıdan (#179) ÖNCE yazılmış partisiz transfer -----
+# Üretimde kapı öncesi satırlar DURUYOR; aynı yazıcı kapısız koşturularak
+# üretilir (kod yolu gerçek, yalnız kapı o an yok).
+import app.routers.warehouses as depo_modulu
+
+kapi = depo_modulu._lotsuz_yazmayi_reddet
+depo_modulu._lotsuz_yazmayi_reddet = lambda *a, **k: None
+try:
+    eski = transfer(npk, 4)
+finally:
+    depo_modulu._lotsuz_yazmayi_reddet = kapi
+assert eski.status_code == 201, (eski.status_code, eski.text)
+eski_transfer = eski.json()['id']
+rapor_g4 = ok(onizleme(kok_id))
+# A: önceki −2, partisiz çıkış −4 => −6. B: partisiz giriş +4 (parti 1, stok 5).
+assert [u for u in uyari_ozeti(rapor_g4) if u[0] == 'mutabakat_sapma'] == [
+    ('mutabakat_sapma', depo_a, Decimal('-6')),
+    ('mutabakat_sapma', depo_b, Decimal('4')),
+], rapor_g4['uyarilar']
+transfer_gaps = [g for g in rapor_g4['gaps'] if g['code'] == 'partisiz_transfer']
+assert sorted((g['movement_type'], D(g['quantity'])) for g in transfer_gaps) == [
+    ('transfer_in', Decimal('4')), ('transfer_out', Decimal('-4'))], transfer_gaps
+for g in transfer_gaps:
+    assert [(o['reference_type'], o['reference_id'], o['customer_id'])
+            for o in g['ornekler']] == [('transfer', eski_transfer, None)], g
+
+# ----- H116: `defter_bosaldi` — partiler TÜKENMİŞKEN satış partisiz çıkar -----
+bos_urun = urun_ac(f'Boşaldı Gübresi {EK}')
+alis(depo_a, [kalem(bos_urun, 5, 'L-BOSALDI', UZAK)])
+ok(client.post('/api/orders', headers=baslik, json={
+    'entity_id': ali, 'transaction_date': '2026-09-10', 'due_date': '2026-10-30',
+    'warehouse_id': depo_a, 'items': [kalem(bos_urun, 5, fiyat=20)]}))
+bos_satis = ok(client.post('/api/orders', headers=baslik, json={
+    'entity_id': ali, 'transaction_date': '2026-09-11', 'due_date': '2026-10-30',
+    'warehouse_id': depo_a, 'items': [kalem(bos_urun, 2, fiyat=20)]}))
+with SessionLocal() as db:
+    bos_lot = db.execute(text(
+        "SELECT id FROM product_lots WHERE company_id=:cid AND product_id=:pid"),
+        {'cid': cid, 'pid': bos_urun}).scalar_one()
+rapor_bos = ok(onizleme(bos_lot))
+assert uyari_ozeti(rapor_bos) == [
+    ('mutabakat_sapma', depo_a, Decimal('-2')),
+    ('defter_bosaldi', depo_a, Decimal('-2')),
+], rapor_bos['uyarilar']
+[bos_gap] = rapor_bos['gaps']
+assert (bos_gap['code'], bos_gap['reference_type'], bos_gap['movement_count']) == (
+    'partisiz_hareket', 'orders', 1), bos_gap
+assert [(o['reference_id'], o['customer_id']) for o in bos_gap['ornekler']] == [
+    (bos_satis['id'], ali)], bos_gap
+
+# ----- H117: >20 boşluk hareketi -> 20 örnek + `ornek_kesildi`, (tarih, id) -----
+# İadeler TERS tarih sırasıyla yazılır: kimlik sırası ile tarih sırası ZIT,
+# yani `ORDER BY` düşerse (kimlik sırası) başka 20'si gelir.
+ornek_urun = urun_ac(f'Örnek Gübresi {EK}')
+alis(depo_a, [kalem(ornek_urun, 100, 'L-ORNEK', UZAK)])
+# Bir alıcı: rıza okuması bütçe partisindeki gibi koşsun (boş girdi sorgusuzdur).
+ok(client.post('/api/orders', headers=baslik, json={
+    'entity_id': ali, 'transaction_date': '2026-09-05', 'due_date': '2026-10-30',
+    'warehouse_id': depo_a, 'items': [kalem(ornek_urun, 1, fiyat=20)]}))
+ornek_iadeler = []
+for gun in range(30, 5, -1):
+    ornek_iadeler.append(ok(client.post('/api/workflow/sale_return', headers=baslik, json={
+        'entity_id': berk, 'document_date': f'2026-09-{gun:02d}', 'status': 'completed',
+        'warehouse_id': depo_a, 'items': [kalem(ornek_urun, 1, fiyat=20)]}))['id'])
+with SessionLocal() as db:
+    ornek_lot = db.execute(text(
+        "SELECT id FROM product_lots WHERE company_id=:cid AND product_id=:pid"),
+        {'cid': cid, 'pid': ornek_urun}).scalar_one()
+ornek_sayi, rapor_ornek = ifade_say(ornek_lot)
+[ornek_gap] = rapor_ornek['gaps']
+assert ornek_gap['movement_count'] == 25 and ornek_gap['ornek_kesildi'] is True, ornek_gap
+assert [o['reference_id'] for o in ornek_gap['ornekler']] == ornek_iadeler[::-1][:20], [
+    (o['reference_id'], o['date']) for o in ornek_gap['ornekler']]
+assert [o['date'] for o in ornek_gap['ornekler']] == [
+    f'2026-09-{gun:02d}' for gun in range(6, 26)], ornek_gap['ornekler']
+assert {o['customer_id'] for o in ornek_gap['ornekler']} == {berk}
+assert ok(onizleme(ornek_lot)) == rapor_ornek
+assert uyari_ozeti(rapor_ornek) == [
+    ('mutabakat_sapma', depo_a, Decimal('25')),
+    ('kaynaksiz_iade', None, Decimal('25')),
+], rapor_ornek['uyarilar']
+# Sorgu sayısı örnek/boşluk sayısından BAĞIMSIZ (boşluksuz bütçe partisiyle aynı).
+assert ornek_sayi == cok, ('ornek basina sorgu', ornek_sayi, cok)
+
+# ----- H116: TEMİZ parti -> uyarilar BOŞ -----
+temiz_urun = urun_ac(f'Temiz Gübre {EK}')
+alis(depo_a, [kalem(temiz_urun, 10, 'L-TEMIZ', UZAK)])
+with SessionLocal() as db:
+    temiz_lot = db.execute(text(
+        "SELECT id FROM product_lots WHERE company_id=:cid AND product_id=:pid"),
+        {'cid': cid, 'pid': temiz_urun}).scalar_one()
+rapor_temiz = ok(onizleme(temiz_lot))
+assert rapor_temiz['uyarilar'] == [] and rapor_temiz['gaps'] == [], rapor_temiz
 
 print('F10-4A OK')
 '''
