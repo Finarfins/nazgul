@@ -229,8 +229,11 @@ def test_PG_skor_uctan_uca(uygulama, dunya) -> None:
     # Pencere sınırı PG DATE'te: −730 dışarıda, −729 içeride.
     assert cezalar["karsiliksiz"]["kanit"] == "1 evrak"
     assert cezalar["karsiliksiz"]["puan"] == 15
-    # Bakiye 2200 − 1000 = 1200 > 1000 (kapının kendi bakiyesi; çek borcu YOK).
-    assert cezalar["limit"]["kanit"] == "bakiye 1200.00 / limit 1000.00"
+    # Kapının kendi bakiyesi (`_credit_exposure`). H104 (#196) sonrası kapı borç
+    # belgelerini de sayar: 2200 − 1000 + İKİ karşılıksız çek belgesi (2 × 50;
+    # 24 ay penceresi yalnız karşılıksız cezasınındır, bakiyenin değil) = 1300.
+    assert cezalar["limit"]["kanit"] == "bakiye 1300.00 / limit 1000.00"
+    assert cezalar["limit"]["puan"] == 15
     assert "vade_farki" not in cezalar
 
 
