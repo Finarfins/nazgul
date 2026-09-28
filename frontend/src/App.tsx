@@ -33,6 +33,7 @@ const ReceivablesAging=lazy(()=>import('./pages/ReceivablesAging'));
 const PurchaseComparison=lazy(()=>import('./pages/PurchaseComparison'));
 const PurchaseDashboard=lazy(()=>import('./pages/PurchaseDashboard'));
 const PartiMutabakati=lazy(()=>import('./pages/PartiMutabakati'));
+const MuhasebeAktarimi=lazy(()=>import('./pages/MuhasebeAktarimi'));
 const PartSupersessions=lazy(()=>import('./pages/PartSupersessions'));
 const SeasonalStockPlan=lazy(()=>import('./pages/SeasonalStockPlan'));
 const Login=lazy(()=>import('./pages/Login'));
@@ -176,6 +177,7 @@ export default function App(){
       <Route path="raporlar/satin-alma-panosu" element={<PurchaseDashboard/>}/>
       <Route path="raporlar/emilim-orani" element={<AbsorptionRate/>}/>
       <Route path="raporlar/parti-mutabakati" element={<PartiMutabakati/>}/>
+      <Route path="raporlar/muhasebe-aktarimi" element={<MuhasebeAktarimi/>}/>
       <Route path="sezonsal-stok-plani" element={<SeasonalStockPlan/>}/>
       <Route path="analizler" element={<Insights/>}/>
       <Route path="firmalar" element={<Companies/>}/>

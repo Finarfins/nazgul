@@ -614,6 +614,15 @@ export const ROTA_ENVANTERI: readonly RotaGirdisi[] = [
     oturum: 'oturumlu',
   },
   {
+    rota: '/raporlar/muhasebe-aktarimi',
+    tur: 'kapi',
+    // "Muhasebe Aktarımı" hem başlık hem MENÜ ETİKETİdir (kabuğu ölçerdi). Bu
+    // cümle yalnız sayfa gövdesinde, veriden ÖNCE ve veriden BAĞIMSIZ çizilir:
+    // taze veritabanında da görünür.
+    isaret: 'Dönemin muhasebe fişleri, KDV özeti ve uyarıları',
+    oturum: 'oturumlu',
+  },
+  {
     rota: '/sezonsal-stok-plani',
     tur: 'kapi',
     isaret: 'Sezonsal Stok Planı',
