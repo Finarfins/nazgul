@@ -146,15 +146,18 @@ def run_h122_scenario(
         {"cid": cid},
     ).first()
     if not existing_policy:
-        db.execute(
-            text(
-                """INSERT INTO late_fee_policies(
-                    company_id, annual_rate, day_count_basis, grace_days, tax_mode,
-                    vat_rate, effective_from, active
-                ) VALUES (:cid, 73, 365, 0, 'NO_VAT', 0, '2025-01-01', TRUE)"""
-            ),
-            {"cid": cid},
+        policy_id = int(
+            db.execute(
+                text(
+                    """INSERT INTO late_fee_policies(
+                        company_id, annual_rate, day_count_basis, grace_days, tax_mode,
+                        vat_rate, effective_from, active
+                    ) VALUES (:cid, 73, 365, 0, 'NO_VAT', 0, '2025-01-01', TRUE) RETURNING id"""
+                ),
+                {"cid": cid},
+            ).scalar_one()
         )
+        res["created_policy_id"] = policy_id
     db.commit()
 
     # Vade farkı taslağı oluştur ve onayla
@@ -334,31 +337,86 @@ def temizle_h122(db, cid: int, res: dict[str, Any] | None = None, kosu: str | No
                 text("SELECT id FROM customers WHERE company_id=:cid AND name=:name"),
                 {"cid": cid, "name": f"H122 Musteri {kosu}"},
             ).scalar_one_or_none()
+
+        # a. Belgeler silinmeden ÖNCE idempotency kayıtları (result_document_id FK kısıtı ve claim satırları)
         if cust_id:
+            db.execute(
+                text(
+                    """DELETE FROM receivable_charge_idempotency
+                    WHERE company_id=:cid AND (
+                        result_document_id IN (SELECT id FROM receivable_charge_documents WHERE customer_id=:c AND company_id=:cid)
+                        OR resource_id IN (SELECT CAST(id AS VARCHAR) FROM receivable_charge_documents WHERE customer_id=:c AND company_id=:cid)
+                    )"""
+                ),
+                {"c": cust_id, "cid": cid},
+            )
+        if kosu:
+            db.execute(
+                text("DELETE FROM receivable_charge_idempotency WHERE company_id=:cid AND idempotency_key LIKE :kpat"),
+                {"cid": cid, "kpat": f"%{kosu}%"},
+            )
+
+        # Belgeler: self-referencing FK (reversal_of_document_id) nedeniyle önce ters kayıtlar, sonra ana belgeler
+        if cust_id:
+            db.execute(
+                text("DELETE FROM receivable_charge_documents WHERE customer_id=:c AND company_id=:cid AND reversal_of_document_id IS NOT NULL"),
+                {"c": cust_id, "cid": cid},
+            )
             db.execute(text("DELETE FROM receivable_charge_documents WHERE customer_id=:c AND company_id=:cid"), {"c": cust_id, "cid": cid})
+
+        # Dönemler ve siparişler
         if order_id:
             db.execute(text("DELETE FROM receivable_charge_periods WHERE order_id=:o AND company_id=:cid"), {"o": order_id, "cid": cid})
             db.execute(text("DELETE FROM orders WHERE id=:o AND company_id=:cid"), {"o": order_id, "cid": cid})
+        elif cust_id:
+            db.execute(text("DELETE FROM receivable_charge_periods WHERE company_id=:cid AND order_id IN (SELECT id FROM orders WHERE customer_id=:c AND company_id=:cid)"), {"c": cust_id, "cid": cid})
+            db.execute(text("DELETE FROM orders WHERE customer_id=:c AND company_id=:cid"), {"c": cust_id, "cid": cid})
         elif kosu:
-            db.execute(text("DELETE FROM receivable_charge_periods WHERE company_id=:cid AND order_id IN (SELECT id FROM orders WHERE company_id=:cid AND notes LIKE :npat)"), {"cid": cid, "npat": f"%{kosu}%"})
-            db.execute(text("DELETE FROM orders WHERE company_id=:cid AND notes LIKE :npat"), {"cid": cid, "npat": f"%{kosu}%"})
+            db.execute(text("DELETE FROM receivable_charge_periods WHERE company_id=:cid AND order_id IN (SELECT id FROM orders WHERE company_id=:cid AND document_no LIKE :dpat)"), {"cid": cid, "dpat": f"%{kosu}%"})
+            db.execute(text("DELETE FROM orders WHERE company_id=:cid AND document_no LIKE :dpat"), {"cid": cid, "dpat": f"%{kosu}%"})
+
+        # İş emirleri (makineler silinmeden ÖNCE)
         if wo_id:
             db.execute(text("DELETE FROM work_orders WHERE id=:w AND company_id=:cid"), {"w": wo_id, "cid": cid})
         elif cust_id:
             db.execute(text("DELETE FROM work_orders WHERE customer_id=:c AND company_id=:cid"), {"c": cust_id, "cid": cid})
+
+        # b. Makineler silinmeden ÖNCE machine_ownership_history
         if machine_id:
+            db.execute(text("DELETE FROM machine_ownership_history WHERE machine_id=:m AND company_id=:cid"), {"m": machine_id, "cid": cid})
             db.execute(text("DELETE FROM machines WHERE id=:m AND company_id=:cid"), {"m": machine_id, "cid": cid})
         elif cust_id:
+            db.execute(
+                text(
+                    """DELETE FROM machine_ownership_history
+                    WHERE company_id=:cid AND (
+                        to_customer_id=:c OR from_customer_id=:c
+                        OR machine_id IN (SELECT id FROM machines WHERE customer_id=:c AND company_id=:cid)
+                    )"""
+                ),
+                {"c": cust_id, "cid": cid},
+            )
             db.execute(text("DELETE FROM machines WHERE customer_id=:c AND company_id=:cid"), {"c": cust_id, "cid": cid})
+
+        # Çekler / senetler
         if cek_id:
             db.execute(text("DELETE FROM cek_senetler WHERE id=:k AND company_id=:cid"), {"k": cek_id, "cid": cid})
+        elif cust_id:
+            db.execute(text("DELETE FROM cek_senetler WHERE customer_id=:c AND company_id=:cid"), {"c": cust_id, "cid": cid})
         elif kosu:
             db.execute(text("DELETE FROM cek_senetler WHERE company_id=:cid AND seri_no=:seri"), {"cid": cid, "seri": f"CHK-{kosu}"})
+
+        # Müşteriler
         if cust_id:
             db.execute(text("DELETE FROM customers WHERE id=:c AND company_id=:cid"), {"c": cust_id, "cid": cid})
-        if kosu:
-            db.execute(text("DELETE FROM receivable_charge_idempotency WHERE company_id=:cid AND idempotency_key LIKE :kpat"), {"cid": cid, "kpat": f"%{kosu}%"})
+
+        # d. Testin oluşturduğu vade farkı politikası
+        created_policy_id = res.get("created_policy_id")
+        if created_policy_id:
+            db.execute(text("DELETE FROM late_fee_policies WHERE id=:p AND company_id=:cid"), {"p": created_policy_id, "cid": cid})
+
         db.commit()
     except Exception:
         db.rollback()
+        raise
 

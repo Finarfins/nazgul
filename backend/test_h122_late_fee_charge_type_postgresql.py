@@ -133,15 +133,18 @@ def test_h122_concurrent_same_key_reversal_postgresql():
                     {"cid": cid},
                 ).first()
                 if not existing_policy:
-                    db.execute(
-                        text(
-                            """INSERT INTO late_fee_policies(
-                                company_id, annual_rate, day_count_basis, grace_days, tax_mode,
-                                vat_rate, effective_from, active
-                            ) VALUES (:cid, 73, 365, 0, 'NO_VAT', 0, '2025-01-01', TRUE)"""
-                        ),
-                        {"cid": cid},
+                    policy_id = int(
+                        db.execute(
+                            text(
+                                """INSERT INTO late_fee_policies(
+                                    company_id, annual_rate, day_count_basis, grace_days, tax_mode,
+                                    vat_rate, effective_from, active
+                                ) VALUES (:cid, 73, 365, 0, 'NO_VAT', 0, '2025-01-01', TRUE) RETURNING id"""
+                            ),
+                            {"cid": cid},
+                        ).scalar_one()
                     )
+                    res["created_policy_id"] = policy_id
                 db.commit()
 
                 # 4. Vade farkı taslağı oluştur ve onayla
