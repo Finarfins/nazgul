@@ -519,15 +519,33 @@ def test_DENGESIZ_FIS_YAZILMAZ_listelenir(dunya) -> None:
 
 def test_DENGESIZ_FIS_KDV_OZETINE_DAHIL_ve_UYARI(dunya) -> None:
     """Dengesiz fiş yazılmaz ancak KDV'si özete DAHİL edilir; uyarı kdv_dahil: True taşır (H112)."""
+    from sqlalchemy import text
+
     from app.db import SessionLocal
     from app.muhasebe.kdv_ozeti import kdv_ozeti
 
+    dengeli_ozet = kdv_ozeti(_veri(dunya["firma_a"]))
+    dengeli_satis_kdv_20 = D(next(s["kdv"] for s in dengeli_ozet["satirlar"]
+                                  if s["yon"] == "HESAPLANAN" and s["tur"] == "SATIS" and s["oran"] == "20.00"))
+    dengeli_toplam = D(dengeli_ozet["hesaplanan_kdv"])
+
+    kalemler = [("20", "100.00", "20.00", "150.00")]
     with SessionLocal() as db:
         dengesiz_satis = _belge(
             db, dunya["firma_a"], dunya["musteri"], "2026-07-25", "approved",
-            [("20", "100.00", "20.00", "150.00")], no="S-DENGESIZ",
+            kalemler, no="S-DENGESIZ",
         )
         db.commit()
+        dengeli_db_20 = D(db.execute(
+            text("SELECT COALESCE(SUM(oi.line_vat), 0) FROM order_items oi "
+                 "JOIN orders o ON o.id = oi.order_id "
+                 "WHERE o.company_id = :cid AND o.id != :oid "
+                 "AND o.status IN ('approved', 'completed') "
+                 "AND o.order_date >= '2026-07-01' AND o.order_date < '2026-08-01' "
+                 "AND oi.vat_rate = 20"),
+            {"cid": dunya["firma_a"], "oid": dengesiz_satis},
+        ).scalar_one())
+        assert dengeli_db_20 == dengeli_satis_kdv_20
 
     veri = _veri(dunya["firma_a"])
     assert f"SAT-{dengesiz_satis}" not in {f.fis_no for f in veri.fisler}
@@ -541,18 +559,43 @@ def test_DENGESIZ_FIS_KDV_OZETINE_DAHIL_ve_UYARI(dunya) -> None:
     assert dengesiz_uyari["kdv_dahil"] is True
     assert "fişi yazılmadı; KDV özetine DAHİL" in dengesiz_uyari["mesaj"]
 
+    dengesiz_kdv_20 = sum((D(k[2]) for k in kalemler if k[0] == "20"), D("0.00"))
+    dengesiz_kdv_toplam = sum((D(k[2]) for k in kalemler), D("0.00"))
+    satir_20 = next(s for s in ozet["satirlar"]
+                    if s["yon"] == "HESAPLANAN" and s["tur"] == "SATIS" and s["oran"] == "20.00")
+    assert D(satir_20["kdv"]) == dengeli_satis_kdv_20 + dengesiz_kdv_20
+    assert D(ozet["hesaplanan_kdv"]) == dengeli_toplam + dengesiz_kdv_toplam
+
 
 def test_DENGESIZ_ALIS_KDV_OZETINE_DAHIL_ve_UYARI(dunya) -> None:
     """Alış dalında dengesiz fiş indirilecek KDV'ye DAHİL edilir ve kdv_dahil: True uyarısı üretir (H112)."""
+    from sqlalchemy import text
+
     from app.db import SessionLocal
     from app.muhasebe.kdv_ozeti import kdv_ozeti
 
+    dengeli_ozet = kdv_ozeti(_veri(dunya["firma_a"]))
+    dengeli_alis_kdv_20 = D(next(s["kdv"] for s in dengeli_ozet["satirlar"]
+                                 if s["yon"] == "INDIRILECEK" and s["tur"] == "ALIS" and s["oran"] == "20.00"))
+    dengeli_toplam = D(dengeli_ozet["indirilecek_kdv"])
+
+    kalemler = [("20", "200.00", "40.00", "300.00")]
     with SessionLocal() as db:
         dengesiz_alis = _belge(
             db, dunya["firma_a"], dunya["musteri"], "2026-07-26", "completed",
-            [("20", "200.00", "40.00", "300.00")], no="A-DENGESIZ", alis=True,
+            kalemler, no="A-DENGESIZ", alis=True,
         )
         db.commit()
+        dengeli_db_20 = D(db.execute(
+            text("SELECT COALESCE(SUM(pi.line_vat), 0) FROM purchase_items pi "
+                 "JOIN purchases p ON p.id = pi.purchase_id "
+                 "WHERE p.company_id = :cid AND p.id != :pid "
+                 "AND p.status IN ('completed', 'approved') "
+                 "AND p.purchase_date >= '2026-07-01' AND p.purchase_date < '2026-08-01' "
+                 "AND pi.vat_rate = 20"),
+            {"cid": dunya["firma_a"], "pid": dengesiz_alis},
+        ).scalar_one())
+        assert dengeli_db_20 == dengeli_alis_kdv_20
 
     veri = _veri(dunya["firma_a"])
     assert f"ALS-{dengesiz_alis}" not in {f.fis_no for f in veri.fisler}
@@ -565,6 +608,13 @@ def test_DENGESIZ_ALIS_KDV_OZETINE_DAHIL_ve_UYARI(dunya) -> None:
     )
     assert dengesiz_uyari["kdv_dahil"] is True
     assert "fişi yazılmadı; KDV özetine DAHİL" in dengesiz_uyari["mesaj"]
+
+    dengesiz_kdv_20 = sum((D(k[2]) for k in kalemler if k[0] == "20"), D("0.00"))
+    dengesiz_kdv_toplam = sum((D(k[2]) for k in kalemler), D("0.00"))
+    satir_20 = next(s for s in ozet["satirlar"]
+                    if s["yon"] == "INDIRILECEK" and s["tur"] == "ALIS" and s["oran"] == "20.00")
+    assert D(satir_20["kdv"]) == dengeli_alis_kdv_20 + dengesiz_kdv_20
+    assert D(ozet["indirilecek_kdv"]) == dengeli_toplam + dengesiz_kdv_toplam
 
 
 def test_VAT_SUMMARY_DENGESIZ_UYARI_RESPONSE_MODEL_VALIDATION(uygulama, dunya) -> None:

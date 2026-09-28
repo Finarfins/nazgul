@@ -8,7 +8,7 @@ Keşif: `docs/f9-5-muhasebe-disa-aktarim-kesif-2026-09-24.md` §3, §6, §7.2.
 
   * `PARCA_FIS_TAVANI` 50 → 51                -> LUCA PARÇA adımı KIRMIZI
   * `parcalar`ı SATIR sınırında bölmek          -> FİŞ PARÇAYA DAĞILMAZ KIRMIZI
-  * `fis_anahtarlari_tekil` çağrısını düşürmek  -> AYNI FİŞ NO KIRMIZI
+  * hedefte `fis_anahtarlari_tekil` çağrısını düşürmek -> LUCA/MİKRO AYNI FİŞ NO KIRMIZI
   * `hucre_metni`nin önekini düşürmek           -> FORMÜL adımı KIRMIZI
   * `tutar_virgullu`da `.`yi korumak            -> MİKRO/KANONİK CSV KIRMIZI
   * uçta `veri.reddedilen` kapısını düşürmek    -> 409 adımı KIRMIZI
@@ -102,14 +102,19 @@ def test_LUCA_FIS_PARCAYA_DAGILMAZ_ve_hucre_tipleri() -> None:
     assert satir[6:] == ("S-1", datetime(2026, 7, 1), "invoice", "credit")
 
 
-def test_AYNI_FIS_NO_iki_belgeye_verilmez() -> None:
+def test_LUCA_ayni_fis_no_ValueError() -> None:
     from app.muhasebe.hedef_luca import LucaSerilestirici
+
+    ikiz = [_fis(1, gun=1), _fis(1, gun=2)]
+    with pytest.raises(ValueError, match="Aynı fiş numarası"):
+        list(LucaSerilestirici().dosyalar(ikiz, DONEM, _vkn))
+
+
+def test_MIKRO_ayni_fis_no_ValueError() -> None:
     from app.muhasebe.hedef_mikro import mikro_csv
 
     ikiz = [_fis(1, gun=1), _fis(1, gun=2)]
-    with pytest.raises(ValueError, match="SAT-1"):
-        list(LucaSerilestirici().dosyalar(ikiz, DONEM, _vkn))
-    with pytest.raises(ValueError, match="SAT-1"):
+    with pytest.raises(ValueError, match="Aynı fiş numarası"):
         mikro_csv(ikiz)
 
 
