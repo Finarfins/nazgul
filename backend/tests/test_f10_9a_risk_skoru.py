@@ -557,12 +557,19 @@ def test_KVKK_cevap_cari_kisisel_alani_TASIMAZ(ortam) -> None:
 
 
 def test_KVKK_yaslandirma_satiri_SKOR_TASIMAZ(ortam) -> None:
-    """K8-2: WhatsApp `alacak_yaslandirma` aracı `yaslandirma_verisi`ni çağırır."""
-    satir = _yaslandirma_satiri(ortam, ortam["risk"])
+    """K8-2: WhatsApp `alacak_yaslandirma` aracı `yaslandirma_verisi`ni DOĞRUDAN
+    çağırır. Fonksiyon ölçülür, HTTP ucu DEĞİL: ucun `response_model`i fazla
+    anahtarı süzer ve sızıntıyı gizlerdi (mutasyonla ölçüldü)."""
+    from app.db import SessionLocal
+    from app.routers.reports import yaslandirma_verisi
+
+    with SessionLocal() as db:
+        veri = yaslandirma_verisi(db, ortam["a"])
+    satir = next(s for s in veri["customers"] if s["customer_id"] == ortam["risk"])
     assert set(satir) == {
         "customer_id", "customer_name", "not_due", "days_1_30", "days_31_60",
         "days_61_90", "days_90_plus", "total", "portfolio_checks", "net_risk", "documents"}
-    assert not SKOR_ALANLARI & set(satir)
+    assert not SKOR_ALANLARI & _anahtarlar(veri)
 
 
 def _anahtarlar(nesne) -> set[str]:
