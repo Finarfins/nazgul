@@ -16,7 +16,9 @@ WAREHOUSES = BACKEND / "app" / "routers" / "warehouses.py"
 DEFTER = BACKEND / "app" / "parti_defteri.py"
 
 # Uygulama geldikten sonra normalize AST yeniden olculup sabitlenecek.
-WAREHOUSES_AST_SHA256 = "9796b386ccdff064168e6cf952d077c0fb192f88e23f5e753cccf49ecba6fd04"
+# F10-4a (G4): partisiz dalda `_lotsuz_yazmayi_reddet` (kaynak + hedef depo).
+# Onceki: 9796b386ccdff064168e6cf952d077c0fb192f88e23f5e753cccf49ecba6fd04
+WAREHOUSES_AST_SHA256 = "e3a596ab7e50ffee195001b2902e7365a356d127d30ac7c06584117f6f14b685"
 
 
 def _create_transfer_tree() -> ast.FunctionDef:
@@ -113,6 +115,9 @@ def test_warehouses_fingerprint_ve_parti_cagri_sayisi_OLCULDU() -> None:
     assert len(_calls("_parti_bul")) == 2
     assert len(_calls("_parti_dus")) == 1
     assert len(_calls("_parti_ac")) == 1
+    # F10-4a / G4: partili urunun PARTISIZ transferi reddedilir (tek cagri,
+    # dongude kaynak ve hedef depo).
+    assert len(_calls("_lotsuz_yazmayi_reddet")) == 1
 
 
 def test_transfer_partiyi_tasir_FEFOya_verir_ve_hatalari_geri_alir(tmp_path: Path) -> None:

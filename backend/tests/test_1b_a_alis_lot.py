@@ -76,8 +76,16 @@ YAZICI = "app/parti_defteri.py"
 #:
 #: Kendi kapısı da var: `tests/test_1b_g_mutabakat.py::
 #: test_mutabakat_YAZMIYOR_YALNIZ_OKUYOR` aynı ayrımı O DOSYA İÇİN ölçüyor.
+#:
+#: F10-4a ile DÖRDÜNCÜ okuyucu girdi ve kapı yine ADIYLA sordu:
+#: `app/lot_izi.py` geri çağırma önizlemesinin HOP 1'i (kardeş parti satırları)
+#: için tabloyu Core ile SEÇER. Tablo adı orada bir `Table("product_lots", ...)`
+#: BİLDİRİMİNDEDİR — modül-yerel `MetaData`, `core_schema`ya girmez (gerekçe
+#: modül başlığında). Yazma ekseni onun YAZMADIĞINI ölçüyor (yazma fiili
+#: taşıyan sabit yok); defterin tek yazıcısı değişmedi.
 OKUYUCULAR = {
     YAZICI,
+    "app/lot_izi.py",
     "app/parti_mutabakat.py",
     "app/routers/products.py",
     "app/routers/warehouse_counts.py",

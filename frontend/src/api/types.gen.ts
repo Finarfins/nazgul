@@ -3199,6 +3199,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lots/{lot_id}/recall-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Recall Preview
+         * @description Bu parti kime, ne kadar, ne zaman çıktı; elinde ne kaldı; nerede iz koptu.
+         */
+        get: operations["recall_preview_api_lots__lot_id__recall_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/machines": {
         parameters: {
             query?: never;
@@ -7077,6 +7097,58 @@ export interface components {
             /** Season Id */
             season_id: number;
         };
+        /** Alici */
+        Alici: {
+            /** Channels */
+            channels: ("orders" | "delivery_notes")[];
+            /** Consent Reason */
+            consent_reason: string | null;
+            /** Customer Id */
+            customer_id: number;
+            /** Documents */
+            documents: components["schemas"]["AliciBelgesi"][];
+            /** First Date */
+            first_date: string | null;
+            /** Has Consent */
+            has_consent: boolean;
+            /** Has Phone */
+            has_phone: boolean;
+            /** Last Date */
+            last_date: string | null;
+            /** Name */
+            name: string | null;
+            /** Phone */
+            phone: string | null;
+            /** Quantity Net */
+            quantity_net: string;
+            /** Quantity Out */
+            quantity_out: string;
+            /** Quantity Returned */
+            quantity_returned: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "notifiable" | "manual_pending";
+        };
+        /** AliciBelgesi */
+        AliciBelgesi: {
+            /** Date */
+            date: string | null;
+            /** Document Id */
+            document_id: number;
+            /** Document No */
+            document_no: string | null;
+            /** Quantity Out */
+            quantity_out: string;
+            /** Quantity Returned */
+            quantity_returned: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "orders" | "delivery_notes";
+        };
         /** AllocationMutationResult */
         AllocationMutationResult: {
             /** Allocation Id */
@@ -7393,6 +7465,22 @@ export interface components {
         BordroSonucu: {
             /** Ids */
             ids: number[];
+        };
+        /** Bosluk */
+        Bosluk: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "kaynaksiz_iade" | "tarla_hareketi" | "partisiz_transfer" | "partisiz_hareket";
+            /** Movement Count */
+            movement_count: number;
+            /** Movement Type */
+            movement_type: string;
+            /** Quantity */
+            quantity: string;
+            /** Reference Type */
+            reference_type: string | null;
         };
         /** BreedingUpdate */
         BreedingUpdate: {
@@ -7867,6 +7955,36 @@ export interface components {
         CustomerHarvestRegionWrite: {
             /** Region Id */
             region_id?: number | null;
+        };
+        /** Denge */
+        Denge: {
+            /** Customers Net */
+            customers_net: string;
+            /** Difference */
+            difference: string;
+            /** On Hand */
+            on_hand: string;
+            /** Other */
+            other: string;
+            /** Pos Retail Net */
+            pos_retail_net: string;
+            /** Received */
+            received: string;
+            /** Returned To Supplier */
+            returned_to_supplier: string;
+        };
+        /** DigerHareket */
+        DigerHareket: {
+            /** Date */
+            date: string | null;
+            /** Movement Type */
+            movement_type: string;
+            /** Quantity */
+            quantity: string;
+            /** Reference Id */
+            reference_id: number | null;
+            /** Reference Type */
+            reference_type: string | null;
         };
         /** DisaAktarimHatasi */
         DisaAktarimHatasi: {
@@ -8431,6 +8549,20 @@ export interface components {
         ForgotPasswordPayload: {
             /** Email */
             email: string;
+        };
+        /** GeriCagirmaOnizleme */
+        GeriCagirmaOnizleme: {
+            balance: components["schemas"]["Denge"];
+            /** Customers */
+            customers: components["schemas"]["Alici"][];
+            /** Gaps */
+            gaps: components["schemas"]["Bosluk"][];
+            lot: components["schemas"]["LotOzeti"];
+            /** Other Movements */
+            other_movements: components["schemas"]["DigerHareket"][];
+            pos_retail: components["schemas"]["PerakendeKovasi"];
+            /** Siblings */
+            siblings: components["schemas"]["KardesLot"][];
         };
         /** GroupUpdate */
         GroupUpdate: {
@@ -9327,6 +9459,17 @@ export interface components {
             /** Warnings */
             warnings: components["schemas"]["IrsaliyeYanitUyarisi"][];
         };
+        /** KardesLot */
+        KardesLot: {
+            /** Lot Id */
+            lot_id: number;
+            /** Quantity */
+            quantity: string;
+            /** Warehouse Id */
+            warehouse_id: number;
+            /** Warehouse Name */
+            warehouse_name: string | null;
+        };
         /** KdvOzeti */
         KdvOzeti: {
             /** Fark */
@@ -9682,6 +9825,21 @@ export interface components {
         LogoutPayload: {
             /** Refresh Token */
             refresh_token?: string | null;
+        };
+        /** LotOzeti */
+        LotOzeti: {
+            /** Expiry Date */
+            expiry_date: string | null;
+            /** Lot Code */
+            lot_code: string;
+            /** Lot Id */
+            lot_id: number;
+            /** Product Id */
+            product_id: number;
+            /** Product Name */
+            product_name: string | null;
+            /** Unit */
+            unit: string | null;
         };
         /** MachineCreate */
         MachineCreate: {
@@ -10170,6 +10328,17 @@ export interface components {
             reference_id?: number | null;
             /** Reference Type */
             reference_type?: string | null;
+        };
+        /** PerakendeKovasi */
+        PerakendeKovasi: {
+            /** Document Count */
+            document_count: number;
+            /** Quantity Net */
+            quantity_net: string;
+            /** Quantity Out */
+            quantity_out: string;
+            /** Quantity Returned */
+            quantity_returned: string;
         };
         /** PlantProtectionPlantbackUpdate */
         PlantProtectionPlantbackUpdate: {
@@ -18282,6 +18451,37 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+        };
+    };
+    recall_preview_api_lots__lot_id__recall_preview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lot_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GeriCagirmaOnizleme"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

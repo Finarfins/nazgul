@@ -1351,6 +1351,15 @@ def required_permission(method: str, path: str) -> str:
     # taşımıyor); `depo` etkilenmiyor.
     if method in SAFE_METHODS and path == "/api/warehouses/replenishment":
         return "stock"
+    # --- PARTİ GERİ ÇAĞIRMA ÖNİZLEMESİ: `sales` (F10-4a, K2) ------------
+    # `/api/lots/{id}/recall-preview` (`routers/lots.py`) partiyi alan
+    # carilerin ADINI ve TELEFONUNU taşır. `read`e düşseydi her rol bir
+    # telefon listesi okurdu ve `read`/`undeniable` birer büyürdü. Geri
+    # çağırmayı satış tarafı başlatır; `depo` maskeli roldür ve telefonsuz bir
+    # liste işine yaramaz. Telefon ayrıca `maskele_cari` ile maskelenir.
+    # KAYBEDEN ROLLER: `depo` ve `rapor`.
+    if method in SAFE_METHODS and path.startswith("/api/lots/"):
+        return "sales"
     # =================================================== SEC-3 SONU =====
     if method in {"GET", "HEAD", "OPTIONS"}:
         return "read"

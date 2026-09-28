@@ -17,7 +17,17 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from sqlalchemy import DateTime, bindparam, text
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    bindparam,
+    select,
+    text,
+)
 from sqlalchemy.orm import Session
 
 from ..auth import utcnow
@@ -206,6 +216,19 @@ def evaluate_consent(
         party_id=party_id,
         channel=normalized_channel,
     )
+    return _karar(consent, normalized_channel, normalized_recipient)
+
+
+def _karar(
+    consent: dict[str, Any] | None,
+    normalized_channel: str,
+    normalized_recipient: str,
+) -> dict[str, Any]:
+    """Okunmuş rıza satırından kararı verir — tek ve tekil fail-closed mantık.
+
+    ``evaluate_consent`` ve ``evaluate_consents_bulk`` ikisi de buraya düşer;
+    kanal/alıcı ön kontrolleri çağıranda yapılmış olmalıdır.
+    """
     if consent is None:
         return _decision(False, NO_RECORD, None, None)
 
@@ -227,6 +250,86 @@ def evaluate_consent(
         return _decision(False, RECIPIENT_CHANGED, consent_id, version)
 
     return _decision(True, None, consent_id, version)
+
+
+#: Toplu okuma için MODÜL-YEREL Core tablosu (yalnız okunan sütunlar).
+#: `core_schema.metadata`ya girmez; `lot_izi.product_lots` ile aynı desen.
+_yerel_sema = MetaData()
+
+notification_consents = Table(
+    "notification_consents",
+    _yerel_sema,
+    Column("id", Integer, primary_key=True),
+    Column("company_id", Integer, nullable=False),
+    Column("party_type", String, nullable=False),
+    Column("party_id", Integer, nullable=False),
+    Column("channel", String, nullable=False),
+    Column("status", String, nullable=False),
+    Column("recipient_snapshot", String),
+    Column("version", Integer, nullable=False),
+)
+
+#: SQLite'ın bağlanan değişken sınırının altında kalmak için `IN` parçası.
+TOPLU_PARCA = 500
+
+
+def evaluate_consents_bulk(
+    db: Session,
+    *,
+    company_id: int,
+    party_type: str,
+    channel: str,
+    recipients: dict[int, str],
+) -> dict[int, dict[str, Any]]:
+    """``evaluate_consent``in çok taraflı hâli: taraf başına sorgu YOK.
+
+    Her taraf için sonuç ``evaluate_consent(..., party_id=id,
+    recipient=recipients[id])`` ile birebir aynıdır (``checked_at`` hariç);
+    karar ``_karar``da verilir, burada kopyası yoktur. Okuma 500'lük
+    parçalarla tek ``IN`` sorgusudur.
+    """
+    if not recipients:
+        return {}
+
+    normalized_channel = (channel or "").strip().upper()
+    if normalized_channel not in CONSENT_REQUIRED_CHANNELS:
+        return {
+            int(pid): _decision(False, CHANNEL_UNKNOWN, None, None)
+            for pid in recipients
+        }
+
+    sonuc: dict[int, dict[str, Any]] = {}
+    alicilar: dict[int, str] = {}
+    for pid, raw in recipients.items():
+        normalized = normalize_recipient(raw, normalized_channel)
+        if normalized:
+            alicilar[int(pid)] = normalized
+        else:
+            sonuc[int(pid)] = _decision(False, RECIPIENT_INVALID, None, None)
+
+    satirlar: dict[int, dict[str, Any]] = {}
+    kimlikler = sorted(alicilar)
+    for bas in range(0, len(kimlikler), TOPLU_PARCA):
+        parca = kimlikler[bas : bas + TOPLU_PARCA]
+        for satir in db.execute(
+            select(
+                notification_consents.c.id,
+                notification_consents.c.party_id,
+                notification_consents.c.status,
+                notification_consents.c.recipient_snapshot,
+                notification_consents.c.version,
+            ).where(
+                notification_consents.c.company_id == company_id,
+                notification_consents.c.party_type == party_type,
+                notification_consents.c.channel == normalized_channel,
+                notification_consents.c.party_id.in_(parca),
+            )
+        ).mappings():
+            satirlar[int(satir["party_id"])] = dict(satir)
+
+    for pid, normalized in alicilar.items():
+        sonuc[pid] = _karar(satirlar.get(pid), normalized_channel, normalized)
+    return sonuc
 
 
 def _decision(

@@ -385,6 +385,10 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
     # ayrismasina yol acardi.
     ("GET", "/api/products/lots/mutabakat"): "read",
     ("GET", "/api/products/{product_id}/lots"): "read",
+    # F10-4a (GOC YOK): geri cagirma ONIZLEMESI cari adi + TELEFON tasir;
+    # `auth.py`de `/api/lots/` GET kurali `read` geri dususunun USTUNDE.
+    # KAYBEDEN ROLLER: `depo`, `rapor`.
+    ("GET", "/api/lots/{lot_id}/recall-preview"): "sales",
     ("GET", "/api/products/{product_id}/qr.png"): "read",
     ("GET", "/api/products/{product_id}/warehouse-stock"): "read",
     # SEC-3: `read` -> `purchases`. Liste (`transactions.py:1263`)
@@ -625,7 +629,10 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # hicbir mevcut ucun izni DEGISMEDI (drift raporu OLCULDU: yalniz `missing`).
 # F9-5b (MUHASEBE DISA AKTARIMI, goc YOK): sayim 205 -> 206 (TABAN develop
 # `1dfd338`). BIR yeni GET, "reports"; hicbir mevcut ucun izni DEGISMEDI.
-GET_INVENTORY_COUNT = 206
+# F10-4a (PARTI GERI CAGIRMA ONIZLEMESI, GOC YOK): sayim 206 -> 207 (TABAN
+# develop `48739b6`). BIR yeni GET, "sales"; hicbir mevcut ucun izni
+# DEGISMEDI (kural onegi `/api/lots/`, baska uc o onekle baslamiyor).
+GET_INVENTORY_COUNT = 207
 GET_INVENTORY_FINGERPRINT = (
     # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
     # sonra `auth.py`ye `/api/push/` önek kuralı eklendi, sonra izin
@@ -688,7 +695,10 @@ GET_INVENTORY_FINGERPRINT = (
     # F9-5b (goc YOK): parmak izi EN SON turetildi — uc yazildi, izni
     # `required_permission` ile OLCULDU ("reports"), envantere girdi.
     # 78c7721f -> c5ca3c5f (TABAN `1dfd338`).
-    "c5ca3c5f2977acec63dd207c0fee349906a5f6e8fa3b68b5d232b2fccf893007"
+    # F10-4a (GOC YOK): once uc yazildi, `auth.py` kurali eklendi, izin
+    # `required_permission` ile OLCULDU ("sales"), envantere girdi, EN SON
+    # parmak izi. c5ca3c5f -> aa5cdfd4 (TABAN `48739b6`).
+    "aa5cdfd4c9f80342ede832adcd7f202d54da48a44f7472f35592d00c58fb0696"
 )
 
 
