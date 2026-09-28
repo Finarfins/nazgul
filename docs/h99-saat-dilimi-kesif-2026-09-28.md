@@ -10,10 +10,10 @@ Her sayı bu tabanda ölçüldü ve `dosya:satır` ile yazıldı. Ölçülemeyen
 
 ## 0. YÖNETİCİ ÖZETİ — beş cümlelik sonuç
 
-1. **İş tarihi arka uçta `app/business_time.py` (`business_today()`, `business_now()`) ile İstanbul'a bağlanmış olsa da dört modülde tehlikeli kaçak `date.today()` ve `datetime.utcnow()` çağrıları bulunmaktadır.** `routers/late_fees.py:61` (`as_of` varsayılanı), `routers/cek_senetler.py:569` (ciro tarihi), `routers/supplier_prices.py:2001` (TCMB kur günü) ve `app/crm.py:90,118,150,160` (müşteri etkileşimleri) doğrudan sunucu saatini kullanmakta; EC2 sunucusu UTC çalıştığından 00:00–03:00 TSİ arasında dünkü takvim gününü seçmektedir.
-2. **Veritabanı şemasında zaman damgaları Alembic genelinde `%100` `DateTime(timezone=True)` (188 sütun) olarak bildirilmiştir; ancak SQLite ile PostgreSQL'in tel biçimi ve oturum davranışı asimetriktir.** PostgreSQL `TIMESTAMPTZ` sütunlarını oturum saat diliminde (`Europe/Istanbul` ayarlandıysa `+03:00`) döndürürken, SQLite SQLAlchemy sürücüsü saat dilimi ekini düşürmekte ve istemciye naive `datetime` (`...T13:47:14.612096`) göndermektedir; fatura ve irsaliye modülleri bu sorunu `app/zaman.py` (`utc_iso`) ile çözmüş fakat genel API'ye yaymamıştır.
+1. **İş tarihi arka uçta `app/business_time.py` (`business_today()`, `business_now()`) ile İstanbul'a bağlanmış olsa da dört modülde tehlikeli kaçak `date.today()` ve `datetime.utcnow()` çağrıları bulunmaktadır.** `routers/late_fees.py:61` (`as_of` varsayılanı — `default_factory=date.today` parantezsiz), `routers/cek_senetler.py:569` (ciro tarihi), `routers/supplier_prices.py:2001` (TCMB kur günü) ve `app/crm.py:90,118,150,160` (müşteri etkileşimleri) doğrudan sunucu saatini kullanmakta; EC2 sunucusu UTC çalıştığından 00:00–03:00 TSİ arasında dünkü takvim gününü seçmektedir. (`backend/app` genelinde `date.today` taraması 5 satır verir: 3 gerçek çağrı ve 2 yorum satırı).
+2. **Veritabanı şemasında zaman damgaları Alembic genelinde `%100` `DateTime(timezone=True)` (188 sütun) olarak bildirilmiştir; ancak SQLite ile PostgreSQL'in tel biçimi ve oturum davranışı asimetriktir.** PostgreSQL `TIMESTAMPTZ` sütunlarını oturum saat diliminde (`Europe/Istanbul` ayarlandıysa `+03:00`) döndürürken, SQLite SQLAlchemy sürücüsü saat dilimi ekini düşürmekte ve istemciye naive `datetime` (`...T13:47:14.612096`) göndermektedir; fatura (`routers/invoices.py`) ve WhatsApp (`routers/whatsapp.py`) modülleri bu sorunu `app/zaman.py` (`utc_iso` / `zamanlari_iso`) ile, irsaliye modülü ise `zaman.utc(...).isoformat()` (:113, :259) ile çözmüş fakat genel API'ye yaymamıştır.
 3. **Satış, alış ve iade belgelerinin iş tarihi (`order_date`, `purchase_date`, `return_date`) metin (`String(30)`) saklanırken, servis faturası (`created_at`) ve müstahsil makbuzu (`issued_at`) UTC zaman damgası saklamaktadır.** Canlı probda ölçüldüğü üzere (`2026-07-31 22:30 UTC` = `01:30 TSİ 1 Ağustos`), `orders` tablosundaki bir satış `order_date` değerine göre Temmuz veya Ağustos'a düşerken, servis faturası ve müstahsil makbuzu `app/muhasebe/kaynak.py` içindeki ay-başı UTC aralığı (`_UtcAn`) sayesinde Ağustos'a yazılmakta ve `G5` uyarısı üretmektedir.
-4. **Ön yüzde tarih biçimlendiricilerin tamamına yakını tarayıcının yerel saat dilimine bağımlıdır ve tüm depoda "TSİ" / "TSI" etiketi tam olarak SIFIR kez geçmektedir.** İncelenen 12 ön yüz tarih biçimlendirme noktasından yalnızca biri (`frontend/src/pages/platform/ortak/bicim.ts:8`) `{timeZone: 'Europe/Istanbul'}` zorlamakta; geri kalan tüm sayfalar (`Dashboard`, `Invoices`, `Users`, `Backups`, `Pos`) ve `utils/tarih.ts::yerelGun` kullanıcının tarayıcı saatine düşmektedir.
+4. **Ön yüzde tarih biçimlendiricilerin tamamına yakını tarayıcının yerel saat dilimine bağımlıdır ve tüm depoda "TSİ" / "TSI" etiketi tam olarak SIFIR kez geçmektedir.** İncelenen 17 ön yüz tarih biçimlendirme noktasından yalnızca biri (`frontend/src/pages/platform/ortak/bicim.ts:8`) `{timeZone: 'Europe/Istanbul'}` zorlamakta; geri kalan 16 çağrı noktası (`Audit`, `ActivityLog`, `Backups`, `Companies`, `Dashboard`, `FieldWorkOrders`, `Insights`, `Notifications`, `Pos`, `SupplierPrices`, `TransferDetail`, `Users`, `NotificationConsentPanel`, `farmApi`), 7 yerel gün kurucu (`EntityStatementDialog`, `farmApi`, `AnimalDetail`, `HerdBreeding`, `HerdHealth`, `HerdYields`) ve `utils/tarih.ts::yerelGun` kullanıcının tarayıcı saatine düşmektedir. Bu durum somut bir hataya yol açmaktadır: SQLite üzerinde `GET /api/audit` naive `created_at` dönerken, `Audit.tsx` içindeki `new Date(v)` bunu tarayıcı yerel saati olarak okumakta ve 3 saatlik kaymaya (3 h off) neden olmaktadır.
 5. **Kapsamlı UI yeniden tasarımı öncesinde net bir saat dilimi sözleşmesi şarttır:** Veritabanında tüm anlar UTC saklanmalı, iş günü kararları istisnasız `app/business_time.py` üzerinden Europe/Istanbul takvimine bağlanmalı, API telinde `*_at` alanları UTC ISO-8601 (`+00:00` / `Z`) zorlanmalı ve ön yüzde saat gösterilen her alana `TSİ` soneki eklenmelidir.
 
 ---
@@ -26,11 +26,11 @@ Her sayı bu tabanda ölçüldü ve `dosya:satır` ile yazıldı. Ölçülemeyen
 
 | Saat Fonksiyonu / İfade | `app/` Sayısı | `alembic/` Sayısı | `tests/` Sayısı | Açıklama |
 |---|---|---|---|---|
-| `datetime.now(timezone.utc)` | **51** | 3 | 108 | Kanonik UTC damga yazıcı (`app/activity_log.py:397`, `app/payment_allocation_engine.py:483` vb.) |
+| `datetime.now(timezone.utc)` | **49** | 3 | 105 | Kanonik UTC damga yazıcı (`app/activity_log.py:397`, `app/payment_allocation_engine.py:483` vb.). Ölçüm: `git grep -F -o "datetime.now(timezone.utc)" 9a6d7e3 -- backend/app | wc -l` (49), `git grep -F -o "datetime.now(timezone.utc)" 9a6d7e3 -- backend/tests | wc -l` (105), `backend/alembic` (3). |
 | `datetime.now(UTC)` | **2** | 0 | 0 | `app/migrations.py:27`, `app/routers/absorption.py:357` (Python 3.11+ `UTC` alias) |
 | Naive `datetime.now()` | **0** | 0 | 0 | `app/` altında çıplak argümansız `datetime.now()` YOKTUR. |
 | `datetime.utcnow()` | **4** | 0 | 0 | **KUSUR:** `app/crm.py:90, 118, 150, 160` (Python 3.12'de deprecated, naive UTC döner) |
-| `date.today()` | **4** | 0 | 2 | **KUSUR:** `app/routers/late_fees.py:61`, `app/routers/cek_senetler.py:569`, `app/routers/supplier_prices.py:2001` (diğer 2 satır yorum) |
+| `date.today` | **5 satır (3 gerçek + 2 yorum)** | 0 | 3 satır (1 gerçek + 2 yorum) | **KUSUR:** Ölçüm: `git grep -n "date\.today" 9a6d7e3 -- backend/app` → 5 satır: 3 gerçek çağrı (`app/routers/late_fees.py:61` — `default_factory=date.today` parantezsiz, `app/routers/cek_senetler.py:569`, `app/routers/supplier_prices.py:2001`), 2 yorum satırı (`herd_vaccine_schedule.py:7`, `parti.py:20`). |
 | `func.now()` | **0** | 19 | 0 | Yalnızca Alembic DDL tablolarında varsayılan ifade olarak kullanılmış. |
 | `CURRENT_TIMESTAMP` | **9** | 19 | 7 | `app/notifications/schema.py:141,147,231,238,268,274,301,323,324` server_default. |
 | `ZoneInfo("Europe/Istanbul")` | **2** | 0 | 0 | `app/business_time.py:24` (kanonik tanım), `app/einvoice/edespatch.py:462` (açıklama). |
@@ -46,7 +46,7 @@ Her sayı bu tabanda ölçüldü ve `dosya:satır` ile yazıldı. Ölçülemeyen
    ```python
    as_of: date = Query(default_factory=date.today)
    ```
-   *Etki:* Gecikme faizi önizleme ucu `/api/late-fees/preview`, `as_of` parametresi verilmediğinde sunucunun sistem saatini alır. EC2 UTC saatinde çalışırken gece 00:00–03:00 TSİ arasında `date.today()` henüz önceki gündür. Faiz hesabı 1 gün eksik hesaplanır.
+   *Etki:* Gecikme faizi önizleme ucu `/api/late-fees/preview`, `as_of` parametresi verilmediğinde sunucunun sistem saatini alır (`default_factory=date.today` parantezsiz çağrısı). EC2 UTC saatinde çalışırken gece 00:00–03:00 TSİ arasında `date.today()` henüz önceki gündür. Faiz hesabı 1 gün eksik hesaplanır.
 2. **`app/routers/cek_senetler.py:569`**:
    ```python
    degerler["endorsed_date"] = payload.endorsed_date or date.today()
@@ -141,8 +141,8 @@ Uygulama ve test ortamlarının `TimeZone` yapılandırması:
 
 Bugün backend API uçlarının yanıtlarında üç farklı zaman damgası serileştirme biçimi bulunmaktadır:
 
-1. **`app/zaman.py::utc_iso` Biçimi (`+00:00` uzantılı ISO):**
-   `routers/invoices.py` ve `routers/despatch_notes.py` modüllerinde kullanılır. Duyarlılık korunur, sonuna `+00:00` eklenir:
+1. **`app/zaman.py::utc_iso` / `zamanlari_iso` Biçimi (`+00:00` uzantılı ISO):**
+   `routers/invoices.py` ve `routers/whatsapp.py` (:760, :761) modüllerinde doğrudan `utc_iso` / `zamanlari_iso` kullanılır; `routers/despatch_notes.py` modülü ise `zaman.utc(...).isoformat()` (:113, :259) aracılığıyla aynı `+00:00` ISO biçimini üretir. Duyarlılık korunur, sonuna `+00:00` eklenir:
    `"2026-09-24T21:22:20.054785+00:00"`.
 2. **`app/activity_log.py::_iso_utc` Biçimi (`Z` uzantılı ISO):**
    `app/activity_log.py:500` içinde `return moment.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")` kullanılır:
@@ -159,7 +159,7 @@ Bugün backend API uçlarının yanıtlarında üç farklı zaman damgası seril
 | Uç Nokta | Dönen Zaman Alanı | Ölçülen Tel Değeri | Durum / Biçim |
 |---|---|---|---|
 | `GET /api/invoices/{id}` | `created_at` | `"2026-07-31T22:30:00+00:00"` | `+00:00` ISO (Kanonik `zamanlari_iso`) |
-| `GET /api/despatch-notes/{id}` | `issue_date`, `created_at` | Tarih `"YYYY-MM-DD"`, damga `"+00:00"` | `+00:00` ISO (`zamanlari_iso`) |
+| `GET /api/despatch-notes/{id}` | `issue_date`, `created_at` | Tarih `"YYYY-MM-DD"`, damga `"+00:00"` | `+00:00` ISO (`zaman.utc(...).isoformat()`) |
 | `GET /api/audit?limit=1` | `created_at` | `"2026-09-28T13:47:14.612096"` | **NAIVE (KUSUR: Saat dilimi yok!)** |
 | `GET /api/activity-logs?limit=1` | `timestamp` | `"2026-09-28T13:47:14Z"` | `Z` sonekli UTC ISO |
 | `GET /api/accounting/vouchers` | `fis_tarihi`, `uretim_zamani` | `"2026-08-01"`, `"2026-09-28T13:51:02.290+00:00"` | Takvim günü metin, damga `+00:00` ISO |
@@ -168,13 +168,15 @@ Bugün backend API uçlarının yanıtlarında üç farklı zaman damgası seril
 
 ## 4. FRONTEND BİÇİMLENDİRİCİLERİ VE "TSİ" ETİKETİ
 
-### 4.1 Tüm Biçimlendiriciler Listesi
+### 4.1 Tüm Biçimlendiriciler Listesi (17 Çağrı Noktası: 1 Istanbul + 16 Tarayıcı-Yerel)
 
-`frontend/src` altındaki tüm `.ts` ve `.tsx` dosyaları taranmış; sayısal biçimlendirmeler (`Number(x).toLocaleString('tr-TR')`) ayıklanarak tarih/zaman biçimlendiricileri listelenmiştir:
+`frontend/src` altındaki tüm `.ts` ve `.tsx` dosyaları taranmış; sayısal biçimlendirmeler (`Number(x).toLocaleString('tr-TR')`) ayıklanarak 17 tarih/zaman biçimlendirici çağrı noktası tespit edilmiştir (1 Europe/Istanbul zorlamalı + 16 tarayıcı yerel saati):
 
 | Dosya ve Satır | Biçimlendirici Çağrısı | Saat Dilimi Davranışı |
 |---|---|---|
 | `pages/platform/ortak/bicim.ts:8` | `new Date(deger).toLocaleString('tr-TR', {timeZone: 'Europe/Istanbul'})` | **EUROPE/ISTANBUL ZORLAMALI (Tek Örnek)** |
+| `pages/Audit.tsx:3` | `new Date(v).toLocaleString('tr-TR')` | **Tarayıcı Yerel Saati** |
+| `pages/ActivityLog.tsx:55` | `parsed.toLocaleString('tr-TR')` | **Tarayıcı Yerel Saati** |
 | `pages/Backups.tsx:54` | `new Date(activeOperation.started_at).toLocaleString('tr-TR')` | **Tarayıcı Yerel Saati** |
 | `pages/Backups.tsx:58` | `new Date(item.created_at).toLocaleString('tr-TR')` | **Tarayıcı Yerel Saati** |
 | `pages/Companies.tsx:75` | `new Date(log.created_at).toLocaleString('tr-TR')` | **Tarayıcı Yerel Saati** |
@@ -182,13 +184,15 @@ Bugün backend API uçlarının yanıtlarında üç farklı zaman damgası seril
 | `pages/FieldWorkOrders.tsx:152` | `new Date(ek.created_at).toLocaleDateString('tr-TR')` | **Tarayıcı Yerel Saati** |
 | `pages/FieldWorkOrders.tsx:161` | `new Date(access.meta.lastSyncAt).toLocaleString('tr-TR')` | **Tarayıcı Yerel Saati** |
 | `pages/Insights.tsx:17` | `new Date(data.generated_at).toLocaleString('tr-TR')` | **Tarayıcı Yerel Saati** |
+| `pages/Notifications.tsx:47` | `parsed.toLocaleString('tr-TR')` | **Tarayıcı Yerel Saati** |
 | `pages/Pos.tsx:193` | `new Date().toLocaleString('tr-TR')` | **Tarayıcı Yerel Saati** |
 | `pages/SupplierPrices.tsx:29` | `new Intl.DateTimeFormat('tr-TR', {dateStyle: 'short', timeStyle: 'short'}).format(...)` | **Tarayıcı Yerel Saati** |
 | `pages/TransferDetail.tsx:19` | `parsed.toLocaleString('tr-TR')` | **Tarayıcı Yerel Saati** |
 | `pages/Users.tsx:29` | `new Date(v).toLocaleString('tr-TR')` | **Tarayıcı Yerel Saati** |
-| `utils/tarih.ts:16` | `an.getFullYear()`, `an.getMonth()`, `an.getDate()` (`yerelGun`) | **Tarayıcı Yerel Saati** |
+| `components/NotificationConsentPanel.tsx:26` | `parsed.toLocaleString('tr-TR')` | **Tarayıcı Yerel Saati** |
+| `farm/farmApi.ts:409` | `t.toLocaleString('tr-TR', {dateStyle: 'short', timeStyle: 'short'})` | **Tarayıcı Yerel Saati** |
 
-### 4.2 `utils/tarih.ts` İncelemesi
+### 4.2 `utils/tarih.ts` ve Tarayıcı-Yerel "Bugün" Kurucuları (7 Nokta)
 
 `frontend/src/utils/tarih.ts` dosyasındaki `yerelGun` fonksiyonu incelendiğinde:
 ```typescript
@@ -203,12 +207,29 @@ export function yerelGun(value?:string|null):string{
 ```
 Yorum satırında "H73: fatura uçları *_at alanlarını UTC ISO-8601 yazar... İstanbul'da 00:00-03:00 arası kesilen fatura önceki günde görünürdü... YEREL günü yazar" denmektedir. Ancak kod `an.getFullYear()`, `an.getMonth()` ve `an.getDate()` çağrılarını yaparak **tarayıcının yerel saat dilimini** kullanmaktadır. Eğer tarayıcı Londra'da (UTC) veya Tokyo'da (UTC+9) ise fatura günü kullanıcının kendi saatine kayar; İstanbul iş günü elde edilemez.
 
+`yerelGun` fonksiyonunun yanı sıra, ön yüzde doğrudan tarayıcı yerel saatiyle bugünün ISO tarihini oluşturan **7 adet tarayıcı-yerel "bugün" kurucusu (today builder)** tespit edilmiştir:
+1. `components/EntityStatementDialog.tsx:18` (`isoDate = (value: Date) => ...`, `todayIso = () => isoDate(new Date())`)
+2. `farm/farmApi.ts:416` (`todayIso = () => { const now = new Date(); return ...; }`)
+3. `pages/AnimalDetail.tsx:59` (`bugunIso = () => { const now = new Date(); return ...; }`)
+4. `pages/HerdBreeding.tsx:65` (`bugunIso = () => { const now = new Date(); return ...; }`)
+5. `pages/HerdHealth.tsx:56` (`bugunIso = () => { const now = new Date(); return ...; }`)
+6. `pages/HerdYields.tsx:64` (`bugunIso = () => { const now = new Date(); return ...; }`)
+7. `pages/HerdYields.tsx:72` (`gunOnce = (n: number) => { const d = new Date(); ...; return ...; }`)
+
+Bu 7 kurucu da kullanıcının cihaz saatini baz almakta, gece 00:00–03:00 TSİ arasında Türkiye dışındaki tarayıcılarda iş gününü yanlış güne bağlamaktadır.
+
+**Somut Hata / Sapma Örneği (Lens Tarafından Doğrulanan Sonuç):**
+SQLite üzerinde `GET /api/audit` uç noktası `created_at` alanını naive timestamp olarak döner (ör. `"2026-09-28T13:47:14.612096"` — ne `Z` ne de `+00:00` saat dilimi eki vardır). `Audit.tsx:3` sayfasındaki `valueFormatter: v => new Date(v).toLocaleString('tr-TR')` kodu bu naive metni tarayıcının yerel saat diliminde ayrıştırır (`new Date("2026-09-28T13:47:14.612096")` ECMAScript standartlarına göre yerel zaman olarak kabul edilir). Kullanıcı Türkiye'de (UTC+3) olsa bile, sunucunun UTC 13:47'de kaydettiği an (TSİ 16:47 olması gerekirken) doğrudan yerel 13:47 olarak ekrana basılır ve **tam 3 saatlik kayma (3 h off)** oluşur.
+
 ### 4.3 "TSİ" / "TSI" Etiketi Taraması
 
-`scratch/find_exact_tsi.py` ve `scratch/find_tsi_ci.py` ile depodaki tüm dosyalarda `TSİ` ve `TSI` kısaltması aranmıştır:
-- Backend hata/uyarı/log mesajlarında: **0 (SIFIR)** adet.
-- Frontend arayüz etiketlerinde, tablo başlıklarında, chip ve tooltip'lerde: **0 (SIFIR)** adet.
-- **Sonuç:** Kod tabanında bugün hiçbir kullanıcı arayüzünde veya API mesajında "TSİ" ibaresi yer almamaktadır.
+Depodaki tüm dosyalarda `TSİ` ve `TSI` kısaltması taranmıştır:
+- `git grep -n "TSİ" 9a6d7e3`: **7** ham satır eşleşmesi verir; ancak bu 7 satırın tamamı kelime içi Türkçe eklerdir (`İŞARETSİZ`, `KİLİTSİZ`, `HASSASİYETSİZLİK` vb.; bağımsız bir etiket veya saat dilimi kısaltması DEĞİLDİR).
+- `git grep -n -w "TSI" 9a6d7e3`: **0** satır eşleşmesi verir.
+- **Etiket Sayısı (Label Count):** **0 (SIFIR)** adet.
+  - Backend hata/uyarı/log mesajlarında saat dilimi etiketi: **0 (SIFIR)** adet.
+  - Frontend arayüz etiketlerinde, tablo başlıklarında, chip ve tooltip'lerde: **0 (SIFIR)** adet.
+- **Sonuç:** Kod tabanında bugün hiçbir kullanıcı arayüzünde veya API mesajında saat dilimini açıkça belirten bir "TSİ" ibaresi / etiketi yer almamaktadır.
 
 ---
 
@@ -276,7 +297,7 @@ UI yeniden tasarımı öncesinde mimari ve sözleşme netliği için önerilen 4
 
 1. **Veritabanı Saklama (Storage) İlkesi:**
    - **Teknik Zaman Damgaları:** `created_at`, `updated_at`, `*_at` alanları veritabanında daima UTC saklanır (PostgreSQL'de `TIMESTAMPTZ`, SQLite'ta `+00:00` ekli ISO metni).
-   - **İş / Belge Tarihleri:** `order_date`, `purchase_date`, `due_date`, `movement_date`, `receipt_date` gibi takvim günleri saat dilimi taşımaz; veritabanında `Date` (veya `YYYY-MM-DD` standart ISO String) saklanır.
+   - **İş / Belge Tarihleri:** `order_date`, `purchase_date`, `due_date`, `movement_date`, `receipt_date` gibi takvim günleri saat dilimi taşımaz; veritabanında `Date` (veya `YYYY-MM-DD` standart ISO String) saklanır (Mevcut `String(30)` sütunlarının `Date` tipine dönüştürülmesi **GÖÇ GEREKTİRİR**).
 2. **Arka Uç İş Tarihi (Business Logic) İlkesi:**
    - İş takvimi, dönem sınırları, vadeler, gecikme faizleri ve rapor kesim tarihleri için **TEK SAAT KAYNAĞI `app/business_time.py`** modülüdür.
    - Hiçbir iş modülü çıplak `date.today()` veya `datetime.utcnow()` çağıramaz; tüm takvim kararları `business_today()` ve `business_now()` (Europe/Istanbul) üzerinden yürütülür.
@@ -301,10 +322,10 @@ Politikanın hayata geçirilmesi için önerilen 3 dilimli PR haritası:
   - `app/routers/cek_senetler.py:569` içindeki `date.today` -> `business_today`
   - `app/routers/supplier_prices.py:2001` içindeki `_date.today` -> `business_today`
   - `app/crm.py:90,118,150,160` içindeki `datetime.utcnow` -> `datetime.now(timezone.utc)`
-  - `test_istanbul_business_date.py::_BUSINESS_DATE_MODULES` listesine `late_fees.py` ve `cek_senetler.py` eklenmesi; `_TODAY_ALLOWLIST`in boşaltılması.
+  - `backend/test_istanbul_business_date.py::_BUSINESS_DATE_MODULES` listesine `late_fees.py` ve `cek_senetler.py` eklenmesi; `_TODAY_ALLOWLIST`in boşaltılması.
 - **Pin Deltaları:**
-  - `backend/tests/test_istanbul_business_date.py`: modül listesi 19 -> 21.
-  - `backend/tests/test_tenant_scoping_guard.py` AST parmak izleri: `late_fees.py` ve `supplier_prices.py` değiştiği için parmak izi güncellenir (sayı 271 sabit kalır).
+  - `backend/test_istanbul_business_date.py` (+ `backend/test_istanbul_business_date_postgresql.py` ikizi): modül listesi 19 -> 21 (`backend/tests/` altında DEĞİL, `backend/` kökündedir).
+  - `backend/tests/test_tenant_scoping_guard.py` AST parmak izleri: `late_fees.py` bu korumada taranmaz (0 eşleşme); yalnızca `supplier_prices.py` (:493) pini güncellenir (sayı 271 sabit kalır).
 
 ### Dilim 2: API Tel Biçimi Normalizasyonu
 - **Kapsam:**
@@ -316,7 +337,7 @@ Politikanın hayata geçirilmesi için önerilen 3 dilimli PR haritası:
 ### Dilim 3: Ön Yüz Merkezi Tarih-Saat Formatlayıcısı ve TSİ Etiketi
 - **Kapsam:**
   - `frontend/src/utils/tarih.ts` genişletilir: `formatTarih(val)`, `formatTarihSaatTsi(val)` eklenir (Europe/Istanbul kilitli).
-  - 11 sayfadaki doğrudan `new Date().toLocaleString('tr-TR')` çağrıları bu yardımcıya taşınır.
+  - 16 tarayıcı-yerel biçimlendirme noktası (14 sayfa ve bileşendeki `toLocaleString`/`Intl.DateTimeFormat` çağrıları) ile 7 tarayıcı-yerel "bugün" kurucusu (`EntityStatementDialog`, `farmApi`, `AnimalDetail`, `HerdBreeding`, `HerdHealth`, `HerdYields`) ve `utils/tarih.ts::yerelGun` bu yardımcıya taşınır.
   - Gerekli zaman damgalı tablolara (`Users`, `Backups`, `Companies`, `FieldWorkOrders`) `TSİ` etiketi yerleştirilir.
 - **Pin Deltaları:**
   - Frontend testleri ve e2e testleri güncellenir.
@@ -326,7 +347,7 @@ Politikanın hayata geçirilmesi için önerilen 3 dilimli PR haritası:
 ## 8. AÇIK KARARLAR (K1..K6) — ORKESTRATÖR İÇİN
 
 - **K1: SQLite'ta Timestamp Saklama:** SQLite'ta `DateTime(timezone=True)` sütunlarının SQLAlchemy tarafından tzinfo'suz okunmasını engellemek için `app/db.py` içinde global bir `TypeDecorator` kuralı konulmalı mı, yoksa mevcut `app/zaman.py::utc_iso` okuma katmanı yeterli mi?
-- **K2: Belge Tarihi vs Timestamp Standartlaşması:** Servis faturası (`invoices`) ve müstahsil makbuzuna (`producer_receipts`) `orders` tablosundaki gibi bağımsız bir `document_date: Date` kolonu eklenmeli mi, yoksa UTC timestamp'ten İstanbul günü türetme kuralı (`astimezone(ISTANBUL).date()`) korunmalı mı?
+- **K2: Belge Tarihi vs Timestamp Standartlaşması:** Servis faturası (`invoices`) ve müstahsil makbuzuna (`producer_receipts`) `orders` tablosundaki gibi bağımsız bir `document_date: Date` kolonu eklenmeli mi (**GÖÇ GEREKTİRİR**), yoksa UTC timestamp'ten İstanbul günü türetme kuralı (`astimezone(ISTANBUL).date()`) korunmalı mı?
 - **K3: API Wire Format Formatı:** UTC serileştirmesinde `+00:00` mi yoksa `Z` son eki mi resmi kanonik kabul edilecek? (Mevcut kodda `zaman.py` `+00:00`, `activity_log.py` `Z` kullanmaktadır).
 - **K4: "TSİ" Etiketinin Kapsamı:** TSİ ibaresi yalnızca masaüstü detay sayfalarında mı yer almalı, yoksa mobil kartlarda yer tasarrufu için tooltip veya dipnot olarak mı tutulmalı?
 - **K5: e2e Testlerinde Saat Dilimi:** Playwright testleri halihazırda `isletme-tarihi-saat-dilimi.spec.ts` ile UTC ve İstanbul projelerini koşmaktadır. Tüm frontend e2e süitinde varsayılan tarayıcı dilimi UTC olarak mı kilitlenmeli?
