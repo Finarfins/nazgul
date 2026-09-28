@@ -443,6 +443,37 @@ def reconcile_service_receivable(
     return _service_document(db, company_id, document_id)
 
 
+def reconcile_if_completed(
+    db: Session,
+    company_id: int,
+    work_order_id: int,
+    *,
+    actor_id: int,
+    status: str,
+    reason: str,
+) -> dict[str, object] | None:
+    """Keep a COMPLETED work order's service receivable equal to its preview.
+
+    COMPLETED is not terminal, so parts, labor, or header totals can still change
+    after the receivable was born; without this the receivable kept the COMPLETED-time
+    amount until an invoice was issued (H102, H105). The engine reverses + reposts
+    only when the customer share actually changed, so an amount-neutral edit adds no rows.
+    Before COMPLETED no receivable exists yet; once an invoice is issued the work order
+    is frozen (``ensure_work_order_unbilled``) and the invoice is the source. A post-completion
+    edit is never the birth event, hence ``allow_initial_create=False``.
+    """
+    if status != "COMPLETED":
+        return None
+    return reconcile_service_receivable(
+        db,
+        company_id,
+        work_order_id,
+        actor_id=actor_id,
+        allow_initial_create=False,
+        reason=reason,
+    )
+
+
 def reverse_service_receivable(
     db: Session,
     company_id: int,

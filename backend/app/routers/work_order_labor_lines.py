@@ -33,6 +33,7 @@ from ..auth import utcnow
 from ..change_history import record_change
 from ..db import get_db
 from ..money import money, quantity
+from ..service_receivable_engine import reconcile_if_completed
 from ..tenancy import company_id
 from ..work_order_labor_schemas import LaborLineWrite
 from .work_orders import ensure_work_order_mutable, ensure_work_order_unbilled
@@ -256,6 +257,14 @@ def create_labor_line(
         before=None,
         after=after,
     )
+    reconcile_if_completed(
+        db,
+        cid,
+        work_order_id,
+        actor_id=int(user["id"]),
+        status=str(work_order["status"]),
+        reason="labor_reconciliation",
+    )
     db.commit()
     return after
 
@@ -269,7 +278,7 @@ def update_labor_line(
     db: Session = Depends(get_db),
 ):
     cid = company_id(request)
-    _require_mutable_work_order(db, cid, work_order_id)
+    work_order = _require_mutable_work_order(db, cid, work_order_id)
     before = _line_row(db, cid, work_order_id, line_id, lock=True)
     status = str(before["line_status"])
     if status != "DRAFT":
@@ -321,6 +330,15 @@ def update_labor_line(
         before=before,
         after=after,
     )
+    user = getattr(request.state, "user", {}) or {}
+    reconcile_if_completed(
+        db,
+        cid,
+        work_order_id,
+        actor_id=int(user["id"]),
+        status=str(work_order["status"]),
+        reason="labor_reconciliation",
+    )
     db.commit()
     return after
 
@@ -336,7 +354,7 @@ def approve_labor_line(
     user = getattr(request.state, "user", {}) or {}
     if str(user.get("role")) not in APPROVAL_ROLES:
         raise HTTPException(403, "İşçilik satırını onaylama yetkiniz yok")
-    _require_mutable_work_order(db, cid, work_order_id)
+    work_order = _require_mutable_work_order(db, cid, work_order_id)
     before = _line_row(db, cid, work_order_id, line_id, lock=True)
     now = utcnow()
     # Compare-and-set: only a DRAFT row may be promoted, and only once. A
@@ -373,6 +391,14 @@ def approve_labor_line(
         before=before,
         after=after,
     )
+    reconcile_if_completed(
+        db,
+        cid,
+        work_order_id,
+        actor_id=int(user["id"]),
+        status=str(work_order["status"]),
+        reason="labor_reconciliation",
+    )
     db.commit()
     return after
 
@@ -386,14 +412,13 @@ def void_labor_line(
 ):
     """Soft delete: a line is voided, never removed, so the audit trail holds."""
     cid = company_id(request)
-    _require_mutable_work_order(db, cid, work_order_id)
+    work_order = _require_mutable_work_order(db, cid, work_order_id)
     before = _line_row(db, cid, work_order_id, line_id, lock=True)
     status = str(before["line_status"])
     if status == "VOID":
         raise HTTPException(409, "İşçilik satırı zaten iptal edilmiş")
-    if status == "APPROVED" and str(
-        (getattr(request.state, "user", {}) or {}).get("role")
-    ) not in APPROVAL_ROLES:
+    user = getattr(request.state, "user", {}) or {}
+    if status == "APPROVED" and str(user.get("role")) not in APPROVAL_ROLES:
         # Voiding approved labor removes money from the invoice, so it needs the
         # same authority that put it there.
         raise HTTPException(403, "Onaylı işçilik satırını iptal etme yetkiniz yok")
@@ -424,5 +449,13 @@ def void_labor_line(
         action="void",
         before=before,
         after=after,
+    )
+    reconcile_if_completed(
+        db,
+        cid,
+        work_order_id,
+        actor_id=int(user["id"]),
+        status=str(work_order["status"]),
+        reason="labor_reconciliation",
     )
     db.commit()

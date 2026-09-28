@@ -13,7 +13,7 @@ from ..change_history import record_change
 from ..db import get_db
 from ..inventory import adjust_warehouse_stock, release_warehouse_reservation
 from ..money import line_amount, money, quantity
-from ..service_receivable_engine import reconcile_service_receivable
+from ..service_receivable_engine import reconcile_if_completed
 from ..tenancy import company_id
 from ..work_order_part_schemas import WorkOrderPartWrite
 from ..work_order_stock import (
@@ -72,14 +72,12 @@ def _reconcile_completed_receivable(
     Lock order matches the engine: the work order row is already held
     ``FOR UPDATE`` by ``_require_work_order`` and is re-taken first inside.
     """
-    if status != "COMPLETED":
-        return
-    reconcile_service_receivable(
+    reconcile_if_completed(
         db,
         cid,
         work_order_id,
         actor_id=int(request.state.user["id"]),
-        allow_initial_create=False,
+        status=status,
         reason="parts_reconciliation",
     )
 
