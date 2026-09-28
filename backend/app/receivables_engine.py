@@ -203,6 +203,7 @@ def _movement_totals(
     as_of: date,
     *,
     include_payments: bool = True,
+    customer_id: int | None = None,
 ) -> tuple[
     dict[tuple[int, int], Decimal],
     dict[tuple[int, int], Decimal],
@@ -213,7 +214,13 @@ def _movement_totals(
     dialect_name = db.get_bind().dialect.name
     payment_date = normalized_date_sql("payment_date", dialect_name)
     return_date = normalized_date_sql("return_date", dialect_name)
-    params = {"cid": company_id, "as_of": as_of.isoformat()}
+    params: dict[str, object] = {"cid": company_id, "as_of": as_of.isoformat()}
+    # F10-9a (K5=a): tek müşteri süzgeci. `None` iken parça BOŞ dizedir, yani
+    # yaşlandırma raporunun SQL'i bayt bayt aynı kalır (test_f10_9a_risk_skoru).
+    customer_filter = ""
+    if customer_id is not None:
+        customer_filter = " AND entity_id=:customer_id"
+        params["customer_id"] = customer_id
     linked_payments: Any = []
     unlinked_payments: Any = []
     if include_payments:
@@ -226,7 +233,9 @@ def _movement_totals(
                 COALESCE(SUM(amount),0) all_time_total
                 FROM payments
                 WHERE company_id=:cid AND entity_type='customer'
-                  AND reference_type='order' AND reference_id IS NOT NULL
+                  AND reference_type='order' AND reference_id IS NOT NULL"""
+                + customer_filter
+                + """
                 GROUP BY reference_id,entity_id"""
             ),
             params,
@@ -240,7 +249,9 @@ def _movement_totals(
                        OR reference_id IS NULL)
                   AND """
                 + payment_date
-                + """<=:as_of
+                + """<=:as_of"""
+                + customer_filter
+                + """
                 GROUP BY entity_id"""
             ),
             params,
@@ -254,7 +265,9 @@ def _movement_totals(
               AND COALESCE(status,'completed') NOT IN ('draft','cancelled')
               AND """
             + return_date
-            + """<=:as_of
+            + """<=:as_of"""
+            + customer_filter
+            + """
             GROUP BY source_id,entity_id"""
         ),
         params,
@@ -269,7 +282,9 @@ def _movement_totals(
               AND COALESCE(status,'completed') NOT IN ('draft','cancelled')
               AND """
             + return_date
-            + """<=:as_of
+            + """<=:as_of"""
+            + customer_filter
+            + """
             GROUP BY entity_id"""
         ),
         params,
@@ -324,6 +339,7 @@ def calculate_receivables(
     as_of: date,
     *,
     payment_term: str | None = None,
+    customer_id: int | None = None,
 ) -> list[ReceivableDocument]:
     dialect_name = db.get_bind().dialect.name
     order_date = normalized_date_sql("o.order_date", dialect_name)
@@ -336,6 +352,11 @@ def calculate_receivables(
     if payment_term is not None:
         term_filter = " AND COALESCE(o.payment_term,'PESIN')=:payment_term"
         params["payment_term"] = payment_term
+    # F10-9a (K5=a): `None` iken boş parça; SQL bayt bayt aynı.
+    customer_filter = ""
+    if customer_id is not None:
+        customer_filter = " AND o.customer_id=:customer_id"
+        params["customer_id"] = customer_id
     rows = db.execute(
         text(
             f"""SELECT o.id,o.customer_id,c.name customer_name,o.order_date,
@@ -349,6 +370,7 @@ def calculate_receivables(
             + order_date
             + """<=:as_of"""
             + term_filter
+            + customer_filter
             + """ ORDER BY c.name,c.id,o.due_date,o.id"""
         ),
         params,
@@ -365,6 +387,7 @@ def calculate_receivables(
         company_id,
         as_of,
         include_payments=not ledger_enabled,
+        customer_id=customer_id,
     )
     ledger_allocations, ledger_residuals = (
         _ledger_totals(db, company_id, as_of)
@@ -443,12 +466,8 @@ def calculate_receivables(
     return result
 
 
-def _late_fee_receivables(
-    db: Session,
-    company_id: int,
-    as_of: date,
-) -> list[ReceivableDocument]:
-    rows = db.execute(
+def _company_charge_rows(db: Session, company_id: int, as_of: date) -> Any:
+    return db.execute(
         text(
             """SELECT d.id,d.customer_id,c.name customer_name,d.period_end,
             d.due_date_snapshot,d.revision_no,d.gross_amount,d.charge_type,
@@ -467,6 +486,50 @@ def _late_fee_receivables(
         ),
         {"cid": company_id, "as_of": as_of},
     ).mappings().all()
+
+
+def _customer_charge_rows(
+    db: Session, company_id: int, customer_id: int, as_of: date
+) -> Any:
+    """F10-9a (K5=a): `_company_charge_rows` + `d.customer_id=:customer_id`.
+
+    İki SABİT metin, dinamik parça YOK; firma geneli sorgu (yaşlandırma
+    raporu) hiç değişmedi. Eşitliği yaşlandırma satırıyla
+    `test_f10_9a_risk_skoru` ölçer.
+    """
+    return db.execute(
+        text(
+            """SELECT d.id,d.customer_id,c.name customer_name,d.period_end,
+            d.due_date_snapshot,d.revision_no,d.gross_amount,d.charge_type,
+            d.work_order_id,w.work_order_no,d.reversal_of_document_id
+            FROM receivable_charge_documents d
+            JOIN customers c
+              ON c.id=d.customer_id AND c.company_id=d.company_id
+            LEFT JOIN work_orders w
+              ON w.id=d.work_order_id AND w.company_id=d.company_id
+            WHERE d.company_id=:cid AND d.customer_id=:customer_id
+              AND d.charge_type IN ('late_fee','service_fee','bounced_check')
+              AND d.status IN ('posted','reversed')
+              AND d.posted_at IS NOT NULL
+              AND d.period_end<=:as_of
+            ORDER BY c.name,c.id,d.period_end,d.id"""
+        ),
+        {"cid": company_id, "customer_id": customer_id, "as_of": as_of},
+    ).mappings().all()
+
+
+def _late_fee_receivables(
+    db: Session,
+    company_id: int,
+    as_of: date,
+    *,
+    customer_id: int | None = None,
+) -> list[ReceivableDocument]:
+    rows = (
+        _company_charge_rows(db, company_id, as_of)
+        if customer_id is None
+        else _customer_charge_rows(db, company_id, customer_id, as_of)
+    )
     # Derivation is always ledger-aware, independent of the write-path flag:
     # reversals are netted out, and an empty ledger reproduces the pre-V2c
     # numbers bit for bit (applied=0, remaining=gross).
@@ -526,11 +589,17 @@ def calculate_net_receivables(
     db: Session,
     company_id: int,
     as_of: date,
+    *,
+    customer_id: int | None = None,
 ) -> list[ReceivableDocument]:
-    """Return sale principal and posted late fees from one receivable source."""
+    """Return sale principal and posted late fees from one receivable source.
+
+    ``customer_id`` (F10-9a) narrows every customer-keyed query to one
+    customer; ``None`` issues byte-identical SQL to the firm-wide report.
+    """
     return [
-        *calculate_receivables(db, company_id, as_of),
-        *_late_fee_receivables(db, company_id, as_of),
+        *calculate_receivables(db, company_id, as_of, customer_id=customer_id),
+        *_late_fee_receivables(db, company_id, as_of, customer_id=customer_id),
     ]
 
 

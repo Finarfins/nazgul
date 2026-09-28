@@ -89,6 +89,7 @@ from .routers import (
     push,
     quick_pick,
     reports,
+    risk_skoru,
     search,
     seasonal_plan,
     technician_profiles,
@@ -743,6 +744,8 @@ app.include_router(transfer_details.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(demo.router, prefix="/api")
 app.include_router(customers.router, prefix="/api")
+# F10-9a: `GET /api/customers/{customer_id}/risk-score` (izin `sales`, auth.py).
+app.include_router(risk_skoru.router, prefix="/api")
 # Registered ahead of transactions so the specific /machines/{id} routes win over
 # the generic /{kind}/{transaction_id} order/purchase detail route.
 app.include_router(machines.router, prefix="/api")
