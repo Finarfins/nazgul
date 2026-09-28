@@ -487,7 +487,9 @@ def test_skor_BUTUN_cezalar_uctan_uca(ortam) -> None:
         "gec_kapanis": 5,       # 3 kapanan (o3/o4/o5), 1'i >7 gün geç: round(15/3)
         "karsiliksiz": 15,
         "vade_farki": 3,
-        "limit": 15,            # bakiye 2200-1000 = 1200 > limit 1000
+        # bakiye = siparis 2200-1000 odeme + H104 (#196) sonrasi kapinin saydigi
+        # borc belgeleri (karsiliksiz 150 + vade farki vf) > limit 1000
+        "limit": 15,
     }
     assert {c["kod"]: c["puan"] for c in govde["cezalar"]} == beklenen
     assert govde["puan"] == max(0, 100 - sum(beklenen.values()))
@@ -497,7 +499,10 @@ def test_skor_BUTUN_cezalar_uctan_uca(ortam) -> None:
     gecikme = next(c for c in govde["cezalar"] if c["kod"] == "gecikme")
     assert gecikme["kanit"] == f"R-O1 · vade {_gun(-100)} · 100 gün"
     limit = next(c for c in govde["cezalar"] if c["kod"] == "limit")
-    assert limit["kanit"] == "bakiye 1200.00 / limit 1000.00"
+    # S5 kapinin KENDI bakiyesini okur (`_credit_exposure`); H104 kapiya borc
+    # belgelerini soktu, beklenen deger ondan TURETILIR, sabit yazilmaz.
+    bakiye = Decimal("1200") + Decimal("150") + vf
+    assert limit["kanit"] == f"bakiye {bakiye:.2f} / limit 1000.00"
 
 
 def test_temiz_musteri_A_ama_YETERSIZ_VERI(ortam) -> None:

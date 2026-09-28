@@ -640,6 +640,7 @@ EXPECTED_GET_PERMISSIONS: dict[tuple[str, str], str] = {
 # F10-9a (MUSTERI RISK SKORU, goc YOK): sayim 207 -> 208 (TABAN develop
 # `9b0ee86`, F10-4a'nin USTUNE). BIR yeni GET, "sales" (TAM SONEK kurali);
 # hicbir mevcut ucun izni DEGISMEDI (drift raporu OLCULDU: yalniz `missing`).
+# REBASE 2026-09-28: #196 (H104) uzerine, TABAN develop `3b1b0be`de YENIDEN OLCULDU; H104 uc/izin eklemedi, deger SABIT.
 GET_INVENTORY_COUNT = 208
 GET_INVENTORY_FINGERPRINT = (
     # 5.4c (göç 20260909_0077): parmak izi EN SON alındı — önce uç yazıldı,
@@ -709,6 +710,7 @@ GET_INVENTORY_FINGERPRINT = (
     # F10-9a (goc YOK): parmak izi EN SON turetildi — uc ve TAM SONEK kurali
     # yazildi, izni `required_permission` ile OLCULDU ("sales"), envantere
     # girdi. aa5cdfd4 -> 25770fac (TABAN `9b0ee86`).
+    # REBASE 2026-09-28: #196 (H104) uzerine, TABAN develop `3b1b0be`de YENIDEN OLCULDU; H104 uc/izin eklemedi, deger SABIT.
     "25770fac1ebd65c362941a7ce9bd1b63f21c6eca71454837e4f5d08d75f75efd"
 )
 
