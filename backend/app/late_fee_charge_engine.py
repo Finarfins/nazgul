@@ -601,6 +601,17 @@ def reverse_late_fee_document(
     ).mappings().first()
     if not original:
         raise HTTPException(404, "Tahakkuk belgesi bulunamadı")
+    replay_id = _request_replay(
+        db,
+        company_id,
+        "reverse_late_fee_document",
+        str(document_id),
+        idempotency_key,
+        request_fingerprint,
+    )
+    if replay_id is not None:
+        db.commit()
+        return _document(db, company_id, replay_id)
     if original["status"] != "posted":
         raise HTTPException(409, "Yalnız onaylı tahakkuk terslenebilir")
     # Same row locks as the allocation path: the document row above, then its

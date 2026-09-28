@@ -25,11 +25,23 @@ from typing import Any
 from sqlalchemy import text
 
 
-def run_h122_scenario(client, headers: dict[str, str], cid: int, uid: int, db, kosu: str) -> dict[str, Any]:
+def run_h122_scenario(
+    client,
+    headers: dict[str, str],
+    cid: int,
+    uid: int,
+    db,
+    kosu: str,
+    res: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if res is None:
+        res = {}
+
     # 1. Müşteri oluştur (API üzerinden)
     r_cust = client.post("/api/customers", headers=headers, json={"name": f"H122 Musteri {kosu}"})
     assert r_cust.status_code in (200, 201), r_cust.text
     cust_id = r_cust.json()["id"]
+    res["cust_id"] = cust_id
 
     # 2. Çek / Senet ve bounced_check belgesi oluştur
     cek_id = int(
@@ -44,6 +56,7 @@ def run_h122_scenario(client, headers: dict[str, str], cid: int, uid: int, db, k
             {"cid": cid, "cust": cust_id, "seri": f"CHK-{kosu}"},
         ).scalar_one()
     )
+    res["cek_id"] = cek_id
 
     bounced_doc_id = int(
         db.execute(
@@ -65,6 +78,7 @@ def run_h122_scenario(client, headers: dict[str, str], cid: int, uid: int, db, k
             {"cid": cid, "cek_id": cek_id, "cust": cust_id, "fp": f"fp-chk-{kosu}", "uid": uid},
         ).scalar_one()
     )
+    res["bounced_doc_id"] = bounced_doc_id
     db.commit()
 
     # 3. Makine, iş emri ve service_fee belgesi oluştur (API üzerinden COMPLETED yapılarak servis borcu doğurulur)
@@ -75,6 +89,7 @@ def run_h122_scenario(client, headers: dict[str, str], cid: int, uid: int, db, k
     )
     assert r_mach.status_code in (200, 201), r_mach.text
     machine_id = r_mach.json()["id"]
+    res["machine_id"] = machine_id
 
     r_wo = client.post(
         "/api/work-orders",
@@ -91,6 +106,7 @@ def run_h122_scenario(client, headers: dict[str, str], cid: int, uid: int, db, k
     )
     assert r_wo.status_code in (200, 201), r_wo.text
     wo_id = r_wo.json()["id"]
+    res["wo_id"] = wo_id
 
     for st in ("IN_PROGRESS", "COMPLETED"):
         r_st = client.patch(f"/api/work-orders/{wo_id}/status", headers=headers, json={"status": st})
@@ -105,6 +121,7 @@ def run_h122_scenario(client, headers: dict[str, str], cid: int, uid: int, db, k
             {"cid": cid, "wo_id": wo_id},
         ).scalar_one()
     )
+    res["service_doc_id"] = service_doc_id
 
     # 4. Gerçek late_fee belgesi için sipariş ve politika oluştur
     order_id = int(
@@ -121,6 +138,7 @@ def run_h122_scenario(client, headers: dict[str, str], cid: int, uid: int, db, k
             {"cust": cust_id, "cid": cid, "doc_no": f"ORD-{kosu}"},
         ).scalar_one()
     )
+    res["order_id"] = order_id
 
     # Mevcut aktif politika yoksa ekle
     existing_policy = db.execute(
@@ -147,6 +165,7 @@ def run_h122_scenario(client, headers: dict[str, str], cid: int, uid: int, db, k
     )
     assert r_draft.status_code in (200, 201), r_draft.text
     late_fee_doc_id = r_draft.json()["id"]
+    res["late_fee_doc_id"] = late_fee_doc_id
 
     r_post_real = client.post(
         f"/api/finance/late-fees/charges/{late_fee_doc_id}/post",
@@ -249,6 +268,7 @@ def run_h122_scenario(client, headers: dict[str, str], cid: int, uid: int, db, k
     )
     assert r_rev_real.status_code == 200, r_rev_real.text
     reversal_doc = r_rev_real.json()
+    res["reversal_doc_id"] = reversal_doc["id"]
 
     # Ters kayıt özellikleri:
     assert reversal_doc["charge_type"] == "late_fee"
@@ -301,26 +321,43 @@ def oturum(client, yeni_parola: str = "H122TestPass123!") -> dict[str, Any]:
     return {"h": h, "cid": cid, "uid": uid}
 
 
-def temizle_h122(db, cid: int, res: dict[str, Any]) -> None:
+def temizle_h122(db, cid: int, res: dict[str, Any] | None = None, kosu: str | None = None) -> None:
     try:
+        res = res or {}
         cust_id = res.get("cust_id")
         order_id = res.get("order_id")
         wo_id = res.get("wo_id")
         machine_id = res.get("machine_id")
         cek_id = res.get("cek_id")
+        if not cust_id and kosu:
+            cust_id = db.execute(
+                text("SELECT id FROM customers WHERE company_id=:cid AND name=:name"),
+                {"cid": cid, "name": f"H122 Musteri {kosu}"},
+            ).scalar_one_or_none()
         if cust_id:
             db.execute(text("DELETE FROM receivable_charge_documents WHERE customer_id=:c AND company_id=:cid"), {"c": cust_id, "cid": cid})
         if order_id:
             db.execute(text("DELETE FROM receivable_charge_periods WHERE order_id=:o AND company_id=:cid"), {"o": order_id, "cid": cid})
             db.execute(text("DELETE FROM orders WHERE id=:o AND company_id=:cid"), {"o": order_id, "cid": cid})
+        elif kosu:
+            db.execute(text("DELETE FROM receivable_charge_periods WHERE company_id=:cid AND order_id IN (SELECT id FROM orders WHERE company_id=:cid AND notes LIKE :npat)"), {"cid": cid, "npat": f"%{kosu}%"})
+            db.execute(text("DELETE FROM orders WHERE company_id=:cid AND notes LIKE :npat"), {"cid": cid, "npat": f"%{kosu}%"})
         if wo_id:
             db.execute(text("DELETE FROM work_orders WHERE id=:w AND company_id=:cid"), {"w": wo_id, "cid": cid})
+        elif cust_id:
+            db.execute(text("DELETE FROM work_orders WHERE customer_id=:c AND company_id=:cid"), {"c": cust_id, "cid": cid})
         if machine_id:
             db.execute(text("DELETE FROM machines WHERE id=:m AND company_id=:cid"), {"m": machine_id, "cid": cid})
+        elif cust_id:
+            db.execute(text("DELETE FROM machines WHERE customer_id=:c AND company_id=:cid"), {"c": cust_id, "cid": cid})
         if cek_id:
             db.execute(text("DELETE FROM cek_senetler WHERE id=:k AND company_id=:cid"), {"k": cek_id, "cid": cid})
+        elif kosu:
+            db.execute(text("DELETE FROM cek_senetler WHERE company_id=:cid AND seri_no=:seri"), {"cid": cid, "seri": f"CHK-{kosu}"})
         if cust_id:
             db.execute(text("DELETE FROM customers WHERE id=:c AND company_id=:cid"), {"c": cust_id, "cid": cid})
+        if kosu:
+            db.execute(text("DELETE FROM receivable_charge_idempotency WHERE company_id=:cid AND idempotency_key LIKE :kpat"), {"cid": cid, "kpat": f"%{kosu}%"})
         db.commit()
     except Exception:
         db.rollback()
