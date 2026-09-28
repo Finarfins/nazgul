@@ -249,7 +249,7 @@ def _document(db: Session, company_id: int, document_id: int) -> dict[str, objec
             status,calculation_fingerprint,revision_no,reversal_of_document_id,
             created_at,posted_at,reversed_at
             FROM receivable_charge_documents
-            WHERE id=:id AND company_id=:cid"""
+            WHERE id=:id AND company_id=:cid AND charge_type='late_fee'"""
         ),
         {"id": document_id, "cid": company_id},
     ).mappings().first()
@@ -474,7 +474,7 @@ def post_late_fee_document(
     row = db.execute(
         text(
             """SELECT * FROM receivable_charge_documents
-            WHERE id=:id AND company_id=:cid"""
+            WHERE id=:id AND company_id=:cid AND charge_type='late_fee'"""
             + _lock_suffix(db)
         ),
         {"id": document_id, "cid": company_id},
@@ -557,13 +557,14 @@ def reverse_late_fee_document(
     on_reversed: Callable[[dict[str, object]], None] | None = None,
 ) -> dict[str, object]:
     """``on_reversed`` commit'ten hemen ÖNCE, aynı transaction içinde çağrılır."""
-    claim_id, replay_id = _claim_request(
+    request_fingerprint = _request_fingerprint({"document_id": document_id})
+    replay_id = _request_replay(
         db,
         company_id,
         "reverse_late_fee_document",
         str(document_id),
         idempotency_key,
-        _request_fingerprint({"document_id": document_id}),
+        request_fingerprint,
     )
     if replay_id is not None:
         db.commit()
@@ -577,7 +578,7 @@ def reverse_late_fee_document(
     customer_row = db.execute(
         text(
             """SELECT customer_id FROM receivable_charge_documents
-            WHERE id=:id AND company_id=:cid"""
+            WHERE id=:id AND company_id=:cid AND charge_type='late_fee'"""
         ),
         {"id": document_id, "cid": company_id},
     ).first()
@@ -593,19 +594,41 @@ def reverse_late_fee_document(
     original = db.execute(
         text(
             """SELECT * FROM receivable_charge_documents
-            WHERE id=:id AND company_id=:cid"""
+            WHERE id=:id AND company_id=:cid AND charge_type='late_fee'"""
             + _lock_suffix(db)
         ),
         {"id": document_id, "cid": company_id},
     ).mappings().first()
     if not original:
         raise HTTPException(404, "Tahakkuk belgesi bulunamadı")
+    replay_id = _request_replay(
+        db,
+        company_id,
+        "reverse_late_fee_document",
+        str(document_id),
+        idempotency_key,
+        request_fingerprint,
+    )
+    if replay_id is not None:
+        db.commit()
+        return _document(db, company_id, replay_id)
     if original["status"] != "posted":
         raise HTTPException(409, "Yalnız onaylı tahakkuk terslenebilir")
     # Same row locks as the allocation path: the document row above, then its
     # allocation rows. Reversing a charge with live allocations is refused, and
     # the refusal cannot race an allocation that commits right after the check.
     assert_charge_document_unallocated(db, company_id, document_id)
+    claim_id, replay_id = _claim_request(
+        db,
+        company_id,
+        "reverse_late_fee_document",
+        str(document_id),
+        idempotency_key,
+        request_fingerprint,
+    )
+    if replay_id is not None:
+        db.commit()
+        return _document(db, company_id, replay_id)
     revision_no = int(
         db.execute(
             text(
@@ -636,7 +659,7 @@ def reverse_late_fee_document(
                     calculation_snapshot,-net_amount,-vat_amount,-gross_amount,'posted',
                     calculation_fingerprint,:revision_no,id,:actor_id,:actor_id,:now
                 FROM receivable_charge_documents
-                WHERE id=:id AND company_id=:cid
+                WHERE id=:id AND company_id=:cid AND charge_type='late_fee'
                 RETURNING id"""
             ),
             {
@@ -652,7 +675,7 @@ def reverse_late_fee_document(
         text(
             """UPDATE receivable_charge_documents
             SET status='reversed',reversed_by=:actor_id,reversed_at=:now
-            WHERE id=:id AND company_id=:cid AND status='posted'"""
+            WHERE id=:id AND company_id=:cid AND status='posted' AND charge_type='late_fee'"""
         ),
         {"actor_id": actor_id, "now": now, "id": document_id, "cid": company_id},
     )
