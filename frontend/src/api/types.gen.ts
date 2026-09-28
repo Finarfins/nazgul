@@ -7477,8 +7477,31 @@ export interface components {
             movement_count: number;
             /** Movement Type */
             movement_type: string;
+            /** Ornek Kesildi */
+            ornek_kesildi: boolean;
+            /** Ornekler */
+            ornekler: components["schemas"]["BoslukOrnegi"][];
             /** Quantity */
             quantity: string;
+            /** Reference Type */
+            reference_type: string | null;
+        };
+        /**
+         * BoslukOrnegi
+         * @description H117 — boşluğun arkasındaki TEK hareket. Cari yalnız KİMLİKLE; ad ve
+         *     telefon `customers[]`in (maskeli) işidir.
+         */
+        BoslukOrnegi: {
+            /** Customer Id */
+            customer_id: number | null;
+            /** Date */
+            date: string | null;
+            /** Document No */
+            document_no: string | null;
+            /** Quantity */
+            quantity: string;
+            /** Reference Id */
+            reference_id: number | null;
             /** Reference Type */
             reference_type: string | null;
         };
@@ -8563,6 +8586,8 @@ export interface components {
             pos_retail: components["schemas"]["PerakendeKovasi"];
             /** Siblings */
             siblings: components["schemas"]["KardesLot"][];
+            /** Uyarilar */
+            uyarilar: components["schemas"]["Uyari"][];
         };
         /** GroupUpdate */
         GroupUpdate: {
@@ -11940,6 +11965,24 @@ export interface components {
             role: string;
             /** Username */
             username: string;
+        };
+        /**
+         * Uyari
+         * @description H116 — keşif §5.1 `uyarilar[]`. `warehouse_id` depo başına uyarıda
+         *     dolu; `miktar` işaretlidir (mutabakatta stok − parti toplamı).
+         */
+        Uyari: {
+            /**
+             * Kod
+             * @enum {string}
+             */
+            kod: "mutabakat_sapma" | "kaynaksiz_iade" | "defter_bosaldi";
+            /** Mesaj */
+            mesaj: string;
+            /** Miktar */
+            miktar: string | null;
+            /** Warehouse Id */
+            warehouse_id: number | null;
         };
         /** VaccinationWrite */
         VaccinationWrite: {

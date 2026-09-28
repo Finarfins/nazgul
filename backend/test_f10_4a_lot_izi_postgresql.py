@@ -29,7 +29,10 @@ BACKEND = Path(__file__).resolve().parent
 
 #: Betiğin açtığı parti kodları — iki uçtan temizlenir (paylaşılan PG'de
 #: kalan parti satırı göç zinciri testini kırar).
-PARTI_KODLARI = ["L-RECALL", "L-OTEKI", "L-HEDEF"]
+#: H116/H117 betiğe dört parti ekledi (boşaldı, örnek, temiz; bütçe #179'dan).
+PARTI_KODLARI = [
+    "L-RECALL", "L-OTEKI", "L-HEDEF", "L-BUTCE", "L-BOSALDI", "L-ORNEK", "L-TEMIZ",
+]
 
 
 def _postgres_url() -> str:
@@ -110,6 +113,15 @@ assert all(isinstance(h['quantity'], Decimal) for h in iz.hareketler), [
     type(h['quantity']) for h in iz.hareketler]
 assert all(isinstance(p['quantity'], Decimal) for p in iz.partisiz), [
     type(p['quantity']) for p in iz.partisiz]
+# H116/H117: örnek satırları ve mutabakat sayıları da `Decimal`; SQL örnek
+# sırası (tarih, id) gerçek planlayıcıda da korunur (davranış bölümü zaten
+# ters tarihli 25 iadeyle ölçtü).
+assert all(isinstance(o['quantity'], Decimal) for o in iz.ornekler), iz.ornekler
+assert all(isinstance(m['stok'], Decimal) for m in iz.mutabakat), iz.mutabakat
+with SessionLocal() as db:
+    iz_ornek = parti_izi_oku(db, cid, ornek_lot)
+assert [(o['movement_date'], o['id']) for o in iz_ornek.ornekler] == sorted(
+    (o['movement_date'], o['id']) for o in iz_ornek.ornekler)
 # Hop 2 `min(id)` sırası: ilk grup ALIŞTIR (partiyi açan belge).
 assert iz.hareketler[0]['reference_type'] == 'purchases', iz.hareketler[0]
 

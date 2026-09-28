@@ -2161,7 +2161,12 @@ def test_core_ifadeleri_kiraciya_bagli() -> None:
 # `48739b6`, tarayicinin ciktisindan). BIR ifade, lisans istemedi:
 # `app/notifications/consents.py::evaluate_consents_bulk`, ILK yuklemi
 # `notification_consents.c.company_id == company_id`.
-BEKLENEN_CORE_IFADE_SAYISI = 236
+# 236 -> 240: H116/H117 (GOC YOK; TABAN develop `bb6f922`, tarayicinin
+# ciktisindan). DORT ifade, HEPSI `app/lot_izi.py::parti_izi_oku`: ornek
+# hareketler + `defter_bosaldi` (`stock_movements`), kardes depo stogu
+# (`warehouse_stocks`, kumede ZATEN) ve parti toplami (`product_lots`, kumede
+# ZATEN); hicbiri lisans istemedi, ILK yuklem `<tablo>.c.company_id == cid`.
+BEKLENEN_CORE_IFADE_SAYISI = 240
 
 BEKLENEN_KIRACI_TABLOLARI = frozenset({
     # F9-5a (goc 20260927_0093): `app/muhasebe/kaynak.py` belge tablolarinin
