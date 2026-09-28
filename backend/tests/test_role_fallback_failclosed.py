@@ -137,11 +137,11 @@ def test_known_role_permission_anchor(role, permission, expected) -> None:
 
 
 def test_every_known_role_still_holds_baseline_read() -> None:
-    """Altı rolün altısı da ``read`` taşır; düzeltme bunu değiştirmemeli."""
-    for role in ("admin", "yonetici", "muhasebe", "satis", "depo", "rapor"):
+    """Yedi rolün yedisi de ``read`` taşır; düzeltme bunu değiştirmemeli."""
+    for role in ("admin", "yonetici", "muhasebe", "satis", "depo", "rapor", "musavir"):
         assert has_permission(role, "read") is True, role
     assert set(ROLE_PERMISSIONS) == {
-        "admin", "yonetici", "muhasebe", "satis", "depo", "rapor"
+        "admin", "yonetici", "muhasebe", "satis", "depo", "rapor", "musavir"
     }
 
 

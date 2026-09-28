@@ -34,11 +34,11 @@ Elle YAZILMIYOR, ÜRETİLİYOR:
    `GET /api/work-orders/{id}/invoice` gövdesinde `customer_tax_number` ve
    `customer_address` SEÇİLİYOR ama `InvoiceParty` yalnız `id`+`name`
    taşıdığı için yanıta HİÇ çıkmıyor.
-5. İznden ve `ROLE_PERMISSIONS`tan beş rol için sonuç hesaplanıyor.
+5. İznden ve `ROLE_PERMISSIONS`tan altı rol için sonuç hesaplanıyor.
 
 --- SATIR BİÇİMİ ------------------------------------------------------------
 
-    METOT YOL<TAB>izin<TAB>alanlar<TAB>yonetici,muhasebe,satis,depo,rapor
+    METOT YOL<TAB>izin<TAB>alanlar<TAB>yonetici,muhasebe,satis,depo,rapor,musavir
 
 Hücreler:
 
@@ -97,7 +97,7 @@ PIN = Path(__file__).resolve().parent / "pins" / "cari_alan_envanteri.txt"
 _DERINLIK = 3
 
 #: Bu rollerin sırası satır biçiminin parçasıdır; DEĞİŞTİRİLEMEZ.
-ROLLER = ("yonetici", "muhasebe", "satis", "depo", "rapor")
+ROLLER = ("yonetici", "muhasebe", "satis", "depo", "rapor", "musavir")
 
 #: Maskelemeyi "bağlanmış" sayan çağrı adları.
 _MASKE_CAGRILARI = frozenset(

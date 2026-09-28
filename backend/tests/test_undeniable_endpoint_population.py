@@ -227,7 +227,7 @@ PUBLIC_WEBHOOK_EXEMPTIONS = frozenset({
     ("POST", "/api/whatsapp/webhook"),
 })
 
-ROLES = ("admin", "yonetici", "muhasebe", "satis", "depo", "rapor")
+ROLES = ("admin", "yonetici", "muhasebe", "satis", "depo", "rapor", "musavir")
 
 
 def _walk(routes, prefix: str = ""):
@@ -297,7 +297,7 @@ def _public_write_operations() -> list[tuple[str, str]]:
 
 
 def _universal_permissions() -> frozenset[str]:
-    """Altı rolün de taşıdığı izinler — rota tablosundan değil, ROL tablosundan."""
+    """Yedi rolün de taşıdığı izinler — rota tablosundan değil, ROL tablosundan."""
     every = {permission for granted in ROLE_PERMISSIONS.values() for permission in granted}
     every.discard("*")
     return frozenset(p for p in every if all(has_permission(role, p) for role in ROLES))

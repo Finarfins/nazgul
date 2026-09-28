@@ -56,7 +56,7 @@ HAM_DEGERLER = (HAM_TELEFON, HAM_EPOSTA, HAM_VKN, "Atatürk Caddesi No 5 Daire 3
 
 ROL_PAROLASI = "Sec3bIkiz!2026"
 MASKELI_ROLLER = ("depo", "rapor")
-MASKESIZ_ROLLER = ("yonetici", "muhasebe")
+MASKESIZ_ROLLER = ("yonetici", "muhasebe", "musavir")
 
 
 def _url() -> str:
