@@ -106,7 +106,7 @@ def test_LUCA_ayni_fis_no_ValueError() -> None:
     from app.muhasebe.hedef_luca import LucaSerilestirici
 
     ikiz = [_fis(1, gun=1), _fis(1, gun=2)]
-    with pytest.raises(ValueError, match="Aynı fiş numarası"):
+    with pytest.raises(ValueError, match=r"Aynı fiş numarası iki belgede: SAT-1"):
         list(LucaSerilestirici().dosyalar(ikiz, DONEM, _vkn))
 
 
@@ -114,7 +114,7 @@ def test_MIKRO_ayni_fis_no_ValueError() -> None:
     from app.muhasebe.hedef_mikro import mikro_csv
 
     ikiz = [_fis(1, gun=1), _fis(1, gun=2)]
-    with pytest.raises(ValueError, match="Aynı fiş numarası"):
+    with pytest.raises(ValueError, match=r"Aynı fiş numarası iki belgede: SAT-1"):
         mikro_csv(ikiz)
 
 
