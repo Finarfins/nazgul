@@ -219,6 +219,9 @@ export const ROUTE_PERMISSIONS = {
   // önekinde durması izni `reports`a ÇEKMEZ — izin yola göre değil bu satıra
   // göre okunur.
   '/raporlar/parti-mutabakati': 'read',
+  // F9-5c-2: backend `/api/accounting` GET'leri `reports`a bağlı (`app/auth.py`
+  // metoda bakan önek kuralı); ekran ucu aşmaz.
+  '/raporlar/muhasebe-aktarimi': 'reports',
   '/analizler': 'reports',
   '/firmalar': 'users',
   '/kullanicilar': 'users',
@@ -365,6 +368,7 @@ export const NAV_LABELS = {
   insights: 'Akıllı Analizler',
   absorptionRate: 'Emilim Oranı',
   lotReconciliation: 'Parti Mutabakatı',
+  accountingExport: 'Muhasebe Aktarımı',
   users: 'Kullanıcılar',
   companies: 'Firma / Şubeler',
   notificationsQueue: 'Bildirimler',
@@ -473,6 +477,10 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       item('/nakit-yonetimi', NAV_LABELS.cashManagement, <AccountBalanceIcon />),
       item('/cek-senet-portfoyu', NAV_LABELS.cheques, <RequestQuoteIcon />),
       item('/raporlar/alacak-yaslandirma', NAV_LABELS.receivablesAging, <AssessmentIcon />),
+      // F9-5c-2: muhasebe fişi / KDV aktarımı bir FİNANS işidir (ağaç notu).
+      // `reports` taşıyan her rol Finans grubunu Alacak Yaşlandırma sayesinde
+      // zaten görür; rol başına üst düzey sayımlar kımıldamaz.
+      item('/raporlar/muhasebe-aktarimi', NAV_LABELS.accountingExport, <ReceiptLongIcon />),
       item('/tanimlar/harman-sezon', NAV_LABELS.harvestSeason, <CalendarMonthIcon />),
       item('/tanimlar/maliyet-oranlari', NAV_LABELS.costRates, <PaymentsIcon />),
     ],

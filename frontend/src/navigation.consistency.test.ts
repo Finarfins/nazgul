@@ -48,6 +48,9 @@ const menuItems=ALL_NAV_ITEMS.map(item=>[item.path] as const);
  *
  * 2026-09-13 (1B-H, parti mutabakatı): /raporlar/parti-mutabakati YENİ adres
  * olarak eklendi (Stok & Ürünler grubu); hiçbir adres çıkmadı.
+ *
+ * 2026-09-28 (F9-5c-2, muhasebe aktarımı): /raporlar/muhasebe-aktarimi YENİ
+ * adres olarak eklendi (Finans grubu); hiçbir adres çıkmadı.
  */
 const BOOKMARKED_MENU_URLS=[
  '/',
@@ -76,6 +79,7 @@ const BOOKMARKED_MENU_URLS=[
  '/nakit-yonetimi',
  '/cek-senet-portfoyu',
  '/raporlar/alacak-yaslandirma',
+ '/raporlar/muhasebe-aktarimi',
  '/tanimlar/harman-sezon',
  '/raporlar',
  '/analizler',
@@ -209,15 +213,17 @@ describe('navigasyon izin tutarlılığı',()=>{
   // sayısı DEĞİŞMEDİ ve hiçbir madde çıkmadı.
   // 58 → 59: Parti Mutabakatı (1B-H) — Stok & Ürünler grubuna eklendi; grup
   // sayısı DEĞİŞMEDİ ve hiçbir madde çıkmadı.
-  expect(ALL_NAV_ITEMS.length).toBe(59);
+  // 59 → 60: Muhasebe Aktarımı (F9-5c-2) — Finans grubuna eklendi; grup
+  // sayısı DEĞİŞMEDİ ve hiçbir madde çıkmadı.
+  expect(ALL_NAV_ITEMS.length).toBe(60);
   expect(PINNED_ITEMS.length).toBe(2);
   expect(NAV_GROUPS.length).toBe(10);
  });
 
  it('menü URL sözleşmesi korunur: elle yazılmış adreslerle küme eşitliği',()=>{
   // Bağımsız sözleşme listesiyle karşılaştırma (bkz. BOOKMARKED_MENU_URLS).
-  expect(BOOKMARKED_MENU_URLS).toHaveLength(59);
-  expect(new Set(BOOKMARKED_MENU_URLS).size).toBe(59);
+  expect(BOOKMARKED_MENU_URLS).toHaveLength(60);
+  expect(new Set(BOOKMARKED_MENU_URLS).size).toBe(60);
   const actual=ALL_NAV_ITEMS.map(item=>item.path);
   // Küme eşitliği: sıra önemli değil, içerik birebir olmalı.
   expect([...actual].sort()).toEqual([...BOOKMARKED_MENU_URLS].sort());

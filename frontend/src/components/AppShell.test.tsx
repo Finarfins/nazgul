@@ -362,7 +362,8 @@ describe('AppShell mevcut rotaları kırmaz',()=>{
   // 51 → 57 (PP3): Platform Yönetimi'nin yedi maddesi, /yedekler çıktı.
   // 57 → 58: Çek / Senet Portföyü (CS3) — Finans grubunda, `payments`.
   // 58 → 59: Parti Mutabakatı (1B-H) — Stok & Ürünler grubunda, `read`.
-  expect(new Set(hrefs).size).toBe(59);
+  // 59 → 60: Muhasebe Aktarımı (F9-5c-2) — Finans grubunda, `reports`.
+  expect(new Set(hrefs).size).toBe(60);
   for(const path of ALL_NAV_ITEMS.map(item=>item.path))expect(hrefs).toContain(path);
  });
 });
