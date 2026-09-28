@@ -25,8 +25,7 @@ from ..business_time import business_today
 from ..change_history import record_change
 from ..harvest_scheduling import resolve_harvest_due_date
 from ..movement_references import validate_payment_reference
-from ..receivables_engine import calculate_receivables
-from ..service_receivable_engine import service_receivable_net_total
+from ..receivables_engine import calculate_receivables, customer_charge_total
 from ..config import settings
 from ..payment_allocation_engine import allocate_payment, ensure_charge_allocation_enabled
 
@@ -188,8 +187,11 @@ def _credit_exposure(
             common,
         ).scalar()
     )
-    current_service_receivables = service_receivable_net_total(
-        db, cid, customer_id
+    # H104: the SAME charge-document total the cari card shows (late fee,
+    # service fee, bounced cheque), as of today like the card. Reading only
+    # service fees let a bounced cheque pass the limit unseen.
+    current_charges = customer_charge_total(
+        db, cid, customer_id, business_today()
     )
     other_orders = money(
         db.execute(
@@ -215,7 +217,7 @@ def _credit_exposure(
     opening = money(customer["opening_balance"])
     risk_limit = money(customer["risk_limit"])
     current_balance = money(
-        opening + current_orders + current_service_receivables - current_payments
+        opening + current_orders + current_charges - current_payments
     )
     new_outstanding = (
         money(final_total - paid_amount)
@@ -225,7 +227,7 @@ def _credit_exposure(
     projected_balance = money(
         opening
         + other_orders
-        + current_service_receivables
+        + current_charges
         - other_payments
         + new_outstanding
     )

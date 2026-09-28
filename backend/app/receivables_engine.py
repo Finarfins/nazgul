@@ -120,6 +120,53 @@ def charge_document_prefix(charge_type: str) -> str:
     return "KC" if charge_type == "bounced_check" else "VF"
 
 
+def customer_charge_scope_sql(alias: str = "d") -> str:
+    """Which charge documents count toward a customer's balance at ``:as_of``.
+
+    The ONE definition shared by the cari detail card (``entity_detail``) and
+    the credit-limit gate (``routers/transactions._credit_exposure``, through
+    :func:`customer_charge_total`). H104: the gate used to read only
+    ``service_fee`` (``service_receivable_net_total``), so a customer with a
+    posted bounced cheque or late fee passed the limit as if that debt did not
+    exist while the card showed it.
+
+    Reversals net out: the original turns ``reversed`` and stays in scope, the
+    reversal document is ``posted`` with the negative counter-gross.
+
+    The tenant and customer predicates are NOT part of this fragment on
+    purpose: each call site keeps ``d.company_id=:cid`` as literal SQL text so
+    the tenant-scoping guard sees it.
+    """
+    return (
+        f"{alias}.charge_type IN ('late_fee','service_fee','bounced_check') "
+        f"AND {alias}.status IN ('posted','reversed') "
+        f"AND {alias}.posted_at IS NOT NULL "
+        f"AND {alias}.period_end<=:as_of"
+    )
+
+
+def customer_charge_total(
+    db: Session, company_id: int, customer_id: int, as_of: date
+) -> Decimal:
+    """Gross of the customer's charge documents in scope at ``as_of``.
+
+    GROSS, not gross-minus-applied: a payment allocated to a charge is already
+    a ``payments`` row, which every balance formula subtracts on its own.
+    """
+    return money(
+        db.execute(
+            text(
+                "SELECT COALESCE(SUM(d.gross_amount),0) "
+                "FROM receivable_charge_documents d "
+                "WHERE d.company_id=:cid AND d.customer_id=:id AND "
+                + customer_charge_scope_sql("d")
+            ),
+            {"cid": company_id, "id": customer_id, "as_of": as_of},
+        ).scalar_one()
+        or ZERO_MONEY
+    )
+
+
 def normalized_date_sql(date_column: str, dialect_name: str) -> str:
     if dialect_name == "sqlite":
         return (

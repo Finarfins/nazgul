@@ -26,7 +26,11 @@ from .business_time import business_today
 from .crm import list_contacts, list_notes, list_tasks
 from .document_engine import SALES_IMPORT_NOTE, accounting_document_status_sql
 from .money import HUNDRED, ZERO_MONEY, money
-from .receivables_engine import charge_document_prefix, charge_due_date_sql
+from .receivables_engine import (
+    charge_document_prefix,
+    charge_due_date_sql,
+    customer_charge_scope_sql,
+)
 from .tenancy import company_id, istek_rolu
 
 _PREVIEW_LIMIT = 8
@@ -254,10 +258,7 @@ def entity_detail(
                   GROUP BY receivable_charge_id
                 ) a ON a.receivable_charge_id=d.id
                 WHERE d.company_id=:cid AND d.customer_id=:id
-                  AND d.charge_type IN ('late_fee','service_fee','bounced_check')
-                  AND d.status IN ('posted','reversed')
-                  AND d.posted_at IS NOT NULL
-                  AND d.period_end<=:as_of"""
+                  AND {customer_charge_scope_sql('d')}"""
             ),
             {"id": entity_id, "cid": cid, "as_of": today_date},
         ).mappings().one()
