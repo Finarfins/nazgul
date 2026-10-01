@@ -1209,6 +1209,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/customers/{customer_id}/risk-score": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Customer Risk Score */
+        get: operations["customer_risk_score_api_customers__customer_id__risk_score_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/customers/{customer_id}/statement": {
         parameters: {
             query?: never;
@@ -11306,6 +11323,39 @@ export interface components {
             /** Confirmation */
             confirmation: string;
         };
+        /** RiskCezasiCevabi */
+        RiskCezasiCevabi: {
+            /** Aciklama */
+            aciklama: string;
+            /** Kanit */
+            kanit: string;
+            /**
+             * Kod
+             * @enum {string}
+             */
+            kod: "gecikme" | "vadesi_oran" | "gec_kapanis" | "karsiliksiz" | "vade_farki" | "limit";
+            /** Puan */
+            puan: number;
+        };
+        /** RiskSkoruCevabi */
+        RiskSkoruCevabi: {
+            /** Cezalar */
+            cezalar: components["schemas"]["RiskCezasiCevabi"][];
+            /**
+             * Harf
+             * @enum {string}
+             */
+            harf: "A" | "B" | "C" | "D" | "E";
+            /**
+             * Hesaplandi
+             * Format: date
+             */
+            hesaplandi: string;
+            /** Puan */
+            puan: number;
+            /** Yetersiz Veri */
+            yetersiz_veri: boolean;
+        };
         /** RuleEnabledRequest */
         RuleEnabledRequest: {
             /** Enabled */
@@ -15023,6 +15073,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    customer_risk_score_api_customers__customer_id__risk_score_get: {
+        parameters: {
+            query?: {
+                as_of?: string | null;
+            };
+            header?: never;
+            path: {
+                customer_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiskSkoruCevabi"];
+                };
             };
             /** @description Validation Error */
             422: {

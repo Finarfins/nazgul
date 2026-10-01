@@ -1352,6 +1352,19 @@ def required_permission(method: str, path: str) -> str:
         and (path.endswith("/statement") or path.endswith("/statement.pdf"))
     ):
         return "sales"
+    # --- MÜŞTERİ RİSK SKORU: `sales` (F10-9a, Şef K7) -------------------
+    # `/api/customers/{id}/risk-score` müşteriye dair İÇ bir ticari yargıdır
+    # (KVKK K8): ekstre ile AYNI gerekçe, günlük `read` yüzeyi değildir.
+    # TAM SONEK: `/api/customers/` öneğinin geri kalanı (liste, detay)
+    # `read`te KALIYOR. Kural genel GET → `read` düşüşünün ÜSTÜNDE olmak
+    # ZORUNDADIR; altında kalsa uç `read`e çözülür ve `depo`/`rapor`a açılır.
+    # KAYBEDEN ROLLER: `depo` ve `rapor`.
+    if (
+        method in SAFE_METHODS
+        and path.startswith("/api/customers/")
+        and path.endswith("/risk-score")
+    ):
+        return "sales"
     # --- SATIŞ FİYATI SİMETRİSİ: `sales` -------------------------------
     # `/api/orders/last-sale-price` (`transactions.py:1393`) müşteriye özel
     # SATIŞ `unit_price` + `discount_percent` döndürüyor. Alış ikizi

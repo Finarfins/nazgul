@@ -755,8 +755,16 @@ DYNAMIC_PERMISSION_CASES = {
 # F10-4a PARTI GERI CAGIRMA ONIZLEMESI (GOC YOK): BIR yeni GET
 # (`/api/lots/{lot_id}/recall-preview`), "sales". Sayim 430/335 -> 431/336
 # (TABAN develop `48739b6`, F9-5b'nin USTUNE).
-EXPECTED_OPERATION_COUNT = 431
-EXPECTED_PATH_COUNT = 336
+# 20260928 — F10-9a MUSTERI RISK SKORU (goc YOK): BIR yeni islem, BIR yeni
+# yol (GET /api/customers/{customer_id}/risk-score). Sayim 431/336 ->
+# 432/337 (TABAN develop `9b0ee86`, F10-4a'nin USTUNE). Izin OLCULDU: "sales"
+# (`auth.py`de `/statement` kuralinin yanindaki TAM SONEK kurali, genel
+# `GET -> read` dususunun USTUNDE); `read` degil, `ROUTE_REASONS` gerekce
+# ISTEMIYOR.
+# REBASE 2026-09-28: #196 (H104) uzerine, TABAN develop `3b1b0be`de YENIDEN OLCULDU; H104 uc/izin eklemedi, deger SABIT.
+# REBASE 2026-10-02: #195 (musavir), #198 (H116/H117), #194 (H122) uzerine, TABAN develop `187e23c`de YENIDEN OLCULDU; deger SABIT.
+EXPECTED_OPERATION_COUNT = 432
+EXPECTED_PATH_COUNT = 337
 EXPECTED_SECURITY_FINGERPRINT = (
     # 20260807: saha yazma yüzeyi eklendi —
     #   POST /api/field/work-orders/{work_order_id}/status  (durum ilerletme)
@@ -978,7 +986,12 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # "sales" (`auth.py`de `read` geri dususunun USTUNDE; cari adi + telefon
     # tasir). Sayim 430/335 -> 431/336. TABAN develop `48739b6`: parmak izi
     # 227af4e7 -> 5401b1df.
-    "5401b1dfd5c4747715a871841ce949d079c81ca9edc5d00d5bf92129d166f38c"
+    # F10-9a (goc YOK): BIR yeni uc (`GET /api/customers/{id}/risk-score`),
+    # "sales". Sayim 431/336 -> 432/337. TABAN develop `9b0ee86`: parmak izi
+    # 5401b1df -> 4e4071fa.
+    # REBASE 2026-09-28: #196 (H104) uzerine, TABAN develop `3b1b0be`de YENIDEN OLCULDU; H104 uc/izin eklemedi, deger SABIT.
+    # REBASE 2026-10-02: #195 (musavir), #198 (H116/H117), #194 (H122) uzerine, TABAN develop `187e23c`de YENIDEN OLCULDU; deger SABIT.
+    "4e4071faec269d8d35e1a94588d22d27b56398b2284a23d17c28cfaccd4129c6"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}
 
