@@ -439,6 +439,7 @@ def _private_sqlite_url(tmp_path_factory: pytest.TempPathFactory):
 # USTUNDE, uc "sales"e cozulur. Kural altina dusseydi READ 92, UNDENIABLE 98
 # olurdu (skor depo/rapora acilirdi).
 # REBASE 2026-09-28: #196 (H104) uzerine, TABAN develop `3b1b0be`de YENIDEN OLCULDU; H104 uc/izin eklemedi, deger SABIT.
+# REBASE 2026-10-02: #195 (musavir), #198 (H116/H117), #194 (H122) uzerine, TABAN develop `187e23c`de YENIDEN OLCULDU; deger SABIT.
 EXPECTED_AUTHENTICATED = 419
 EXPECTED_READ = 91
 EXPECTED_UNDENIABLE = 97

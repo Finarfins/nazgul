@@ -762,6 +762,7 @@ DYNAMIC_PERMISSION_CASES = {
 # `GET -> read` dususunun USTUNDE); `read` degil, `ROUTE_REASONS` gerekce
 # ISTEMIYOR.
 # REBASE 2026-09-28: #196 (H104) uzerine, TABAN develop `3b1b0be`de YENIDEN OLCULDU; H104 uc/izin eklemedi, deger SABIT.
+# REBASE 2026-10-02: #195 (musavir), #198 (H116/H117), #194 (H122) uzerine, TABAN develop `187e23c`de YENIDEN OLCULDU; deger SABIT.
 EXPECTED_OPERATION_COUNT = 432
 EXPECTED_PATH_COUNT = 337
 EXPECTED_SECURITY_FINGERPRINT = (
@@ -989,6 +990,7 @@ EXPECTED_SECURITY_FINGERPRINT = (
     # "sales". Sayim 431/336 -> 432/337. TABAN develop `9b0ee86`: parmak izi
     # 5401b1df -> 4e4071fa.
     # REBASE 2026-09-28: #196 (H104) uzerine, TABAN develop `3b1b0be`de YENIDEN OLCULDU; H104 uc/izin eklemedi, deger SABIT.
+    # REBASE 2026-10-02: #195 (musavir), #198 (H116/H117), #194 (H122) uzerine, TABAN develop `187e23c`de YENIDEN OLCULDU; deger SABIT.
     "4e4071faec269d8d35e1a94588d22d27b56398b2284a23d17c28cfaccd4129c6"
 )
 TEST_PERMISSIONS = {"__admin_only__", "read", "sales"}

@@ -8,7 +8,7 @@
 2. **SQL kimliği (DB YOK)** — `customer_id=None` iken alacak motorunun
    ürettiği SQL, F10-9a ÖNCESİ tabanda (develop `9a6d7e3`) kaydedilen özetle
    bayt bayt aynıdır; iki lehçe × iki bayrak durumu (K5=a).
-3. **Uç (SQLite, taze firma)** — `satis`/`admin` 200, `depo`/`rapor` 403,
+3. **Uç (SQLite, taze firma)** — `satis`/`admin`/`musavir` 200, `depo`/`rapor` 403,
    komşu firma 404; skorun "vadesi geçmiş"/"açık" toplamları aynı müşterinin
    `receivables-aging` satırına kuruşu kuruşuna eşit; KVKK negatifi (skor
    ekstreye, `yaslandirma_verisi`ne ve WhatsApp'a SIZMAZ).
@@ -354,7 +354,7 @@ def _tohumla(engine) -> dict:
                 {"n": ad, "t": simdi}).scalar_one())
 
         a, b = firma("F109a Alfa"), firma("F109a Beta")
-        for rol in ("admin", "satis", "depo", "rapor"):
+        for rol in ("admin", "satis", "depo", "rapor", "musavir"):
             uid = int(c.execute(text(
                 "INSERT INTO app_users(username,email,email_verified,display_name,password_hash,"
                 "role,is_active,created_at,must_change_password) VALUES "
@@ -423,7 +423,7 @@ def ortam(tmp_path_factory):
     with _uygulama(tmp) as (engine, client):
         k = _tohumla(engine)
         h = {rol: _giris(client, f"f109a{rol}", k["a"])
-             for rol in ("admin", "satis", "depo", "rapor")}
+             for rol in ("admin", "satis", "depo", "rapor", "musavir")}
         # Bayrak KAPALI (eski düzen): siparişe bağlı ham ödeme. API bu şekli
         # yalnız tahsis motoru açıkken yazar; motor-açık yol PG ikizinde.
         from sqlalchemy import text
@@ -458,10 +458,13 @@ def _skor(ortam, customer_id: int, rol: str = "satis", **sorgu):
 
 
 def test_uc_izinleri(ortam) -> None:
-    """K7: `sales` — admin/satis 200; depo/rapor 403 (genel `read` düşüşü DEĞİL)."""
+    """K7: `sales` — admin/satis/musavir 200; depo/rapor 403 (genel `read` düşüşü DEĞİL).
+
+    `musavir` (F9-5c, #195) `sales` taşır: skoru OKUR; yazamaz ama bu uç GET.
+    """
     durum = {rol: _skor(ortam, ortam["risk"], rol).status_code
-             for rol in ("admin", "satis", "depo", "rapor")}
-    assert durum == {"admin": 200, "satis": 200, "depo": 403, "rapor": 403}
+             for rol in ("admin", "satis", "depo", "rapor", "musavir")}
+    assert durum == {"admin": 200, "satis": 200, "musavir": 200, "depo": 403, "rapor": 403}
 
 
 def test_komsu_firma_ve_olmayan_musteri_404(ortam) -> None:
